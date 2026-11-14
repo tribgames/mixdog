@@ -1,0 +1,47 @@
+# g95-fu-ssh-service: a server's toasts are closed when its notifier ends (host/notification/close), the presence answer keeps a host whose relay
+# could not be asked apart from an offline one, and windowFocus names every session a window shows.
+# New protocol type: src/v2/host_notification.rs (created by this task): HostNotificationCloseParams { connectionId }. Its module line is in the .wire.
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+After HostNotificationShow (src/notifications.rs, the "// ---- connection-scoped" group), before HostBrowserViewFrames:
+
+    /// The core closes the toasts still showing for a server's connection (its notifier ended).
+    HostNotificationClose => "host/notification/close" (HostNotificationCloseParams) @connection,
+
+and `use crate::v2::host_notification::HostNotificationCloseParams;` beside the HostNotificationShowParams import.
+
+[inventory]
+# none
+
+[free_text]
+# none (the params hold an opaque connection id)
+
+[type_edits]
+# src/v2/connections.rs
+1. RemoteHostPresenceResult: add the field after `online`:
+
+       /// Hosts the relay reported offline. A host in neither list could not be asked (its relay did not answer): its state is unknown.
+       #[serde(default)]
+       pub offline: Vec<String>,
+
+   (the service builds it in mixdog-connections service.rs "remoteHosts/presence"; service_tests asserts {"online": [...], "offline": [...]}).
+2. WindowFocusEntry: replace
+       pub session_id: Option<String>,   (with its doc and serde attributes)
+   by
+       /// Every session the window shows on screen (one per pane of a split view); empty when it shows none.
+       #[serde(default, skip_serializing_if = "Vec::is_empty")]
+       pub session_ids: Vec<String>,
+   and in the same file's test `a_window_request_and_the_focus_value_keep_their_wire_names` use `"sessionIds": ["t"]` in the WindowFocusValue round trip.
+   Regenerate packages/protocol (WindowFocusEntry.sessionIds, RemoteHostPresenceResult.offline, HostNotificationCloseParams, the notification row).
+
+[remove]
+# none
+
+[window]
+# none (host/notification/close goes from the core to the desktop host; a window never sends it)

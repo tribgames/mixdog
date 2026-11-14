@@ -641,6 +641,9 @@ pub struct ConnectionsDeps {
     pub relay: Arc<dyn RelayPairing>,
     /// The relay's address when remote access is on.
     pub relay_url: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    /// The words of the messages a person reads, in the desktop's UI language: an English text in, its translation out (the text
+    /// itself when there is none). The pair-code errors are shown to the person who typed the code.
+    pub translate: Arc<dyn Fn(&str) -> String + Send + Sync>,
     /// The Host aliases of this PC's ssh config.
     pub config_hosts: Arc<dyn Fn() -> Vec<SshConfigHost> + Send + Sync>,
     /// The version the connection announced in its `initialize` (`clientInfo.version`); the copied diagnostics print the asking
@@ -1270,7 +1273,7 @@ impl Inner {
                 let code = parse_pair_code_input(&params.code).ok_or_else(|| failed(DOMAIN, "Enter the 6-digit code shown on your PC."))?;
                 let relay_url = (deps.relay_url)().ok_or_else(|| failed(DOMAIN, "Remote access is turned off on this PC."))?;
                 let origin = relay_http_origin(&relay_url).map_err(attempt_failure)?;
-                let redeemed = deps.relay.redeem(&origin, &code).await.map_err(|error| failed(DOMAIN, error.message(&|text: &str| text.to_owned())))?;
+                let redeemed = deps.relay.redeem(&origin, &code).await.map_err(|error| failed(DOMAIN, error.message(&*deps.translate)))?;
                 let link = parse_remote_host_link(&format!("{origin}/d/{}/", redeemed.device_id))
                     .ok_or_else(|| failed(DOMAIN, "Codes are not available on this connection server yet. Use the QR code."))?;
                 let saved = deps.remote_hosts.add(&link, &redeemed.name).await.map_err(attempt_failure)?;
@@ -1306,8 +1309,16 @@ impl Inner {
                     .map(|host| PresenceQuery { id: host.id, url: host.url })
                     .collect();
                 let reported = deps.relay.presence(&queries).await;
-                let online = params.ids.into_iter().filter(|id| reported.get(id) == Some(&true)).collect();
-                value(RemoteHostPresenceResult { online })
+                // A host whose relay could not be asked is in neither list: the window shows its state as unknown, not as offline.
+                let (mut online, mut offline) = (Vec::new(), Vec::new());
+                for id in params.ids {
+                    match reported.get(&id) {
+                        Some(true) => online.push(id),
+                        Some(false) => offline.push(id),
+                        None => {}
+                    }
+                }
+                value(RemoteHostPresenceResult { online, offline })
             }
             other => Err(wrong_method(DOMAIN, other)),
         }

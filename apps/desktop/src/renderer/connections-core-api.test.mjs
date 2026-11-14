@@ -233,3 +233,22 @@ test('without_a_core_client_a_call_rejects_and_a_subscription_is_inert', async (
   await assert.rejects(api.sshListHosts(), /no connection to the core/);
   assert.equal(typeof api.subscribeSshProgress(() => {}), 'function');
 });
+
+test('a_server_window_hears_the_saved_servers_change_through_its_own_subscription', async () => {
+  const w = world({ identity: { id: 's1', kind: 'ssh', name: 'srv' } });
+  let changed = 0;
+  w.api.subscribeSshHostsChanged(() => changed++);
+  await w.settle();
+  // The core's feed for this connection carries the host list beside the connection's own keys.
+  assert.deepEqual(w.calls[0], { method: 'connections/subscribe', params: { connectionId: 's1' } });
+  w.note(
+    'feed/snapshot',
+    {
+      feedId: 'connections',
+      state: { sections: [{ section: 'connections', key: 'hosts', revision: 1, value: [] }, { section: 'connections', key: 'link/s1', revision: 1, value: {} }] },
+    },
+    'connections',
+  );
+  w.note('connections/updated', { section: 'connections', key: 'hosts', revision: 2, value: [{ id: 's1' }] }, 'connections');
+  assert.equal(changed, 2);
+});

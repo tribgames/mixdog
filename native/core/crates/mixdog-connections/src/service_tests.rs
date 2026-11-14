@@ -568,6 +568,8 @@ impl ServerLoginOps for FakeLogins {
 #[derive(Default)]
 struct FakeRelay {
     redeemed: Mutex<Vec<(String, String)>>,
+    /// Hosts whose relay cannot be asked: they are left out of the answer.
+    silent: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -582,7 +584,8 @@ impl RelayPairing for FakeRelay {
 
     async fn presence(&self, hosts: &[PresenceQuery]) -> HashMap<String, bool> {
         // The first host is online, the others offline.
-        hosts.iter().enumerate().map(|(at, host)| (host.id.clone(), at == 0)).collect()
+        let silent = locked(&self.silent).clone();
+        hosts.iter().enumerate().filter(|(_, host)| !silent.contains(&host.id)).map(|(at, host)| (host.id.clone(), at == 0)).collect()
     }
 }
 
@@ -647,6 +650,7 @@ async fn rig() -> Rig {
         notifier: notifier.clone(),
         relay: relay.clone(),
         relay_url: Arc::new(|| Some("wss://relay.example/ws".to_owned())),
+        translate: Arc::new(|text| format!("translated: {text}")),
         config_hosts: Arc::new(|| vec![SshConfigHost { alias: "build".to_owned(), detail: TARGET.to_owned() }]),
         client_version: Arc::new(|connection| (connection == MAIN).then(|| "9.9.9".to_owned())),
     });
@@ -1329,7 +1333,8 @@ async fn a_code_saves_the_host_and_answers_the_address_the_window_loads() {
     assert!(saved[0].url.contains(DEVICE));
 
     let wrong = call(&rig, "remoteHosts/redeemCode", json!({ "code": "000000" }), host_ctx()).await;
-    assert!(!message_of(&wrong.expect_err("refused")).is_empty());
+    // The words of the refusal are the desktop's language, not the English key.
+    assert_eq!(message_of(&wrong.expect_err("refused")), "translated: The code is wrong or has expired.");
     let malformed = call(&rig, "remoteHosts/redeemCode", json!({ "code": "12" }), host_ctx()).await;
     assert!(message_of(&malformed.expect_err("refused")).contains("6-digit"));
 }
@@ -1349,7 +1354,12 @@ async fn saved_hosts_are_listed_renamed_forgotten_and_asked_about() {
 
     // Only saved hosts are asked about, and only the ones the relay reports are online.
     let presence = call(&rig, "remoteHosts/presence", json!({ "ids": ["nope", id] }), host_ctx()).await.expect("presence");
-    assert_eq!(presence, json!({ "online": [id] }));
+    assert_eq!(presence, json!({ "online": [id], "offline": [] }));
+    // A relay that cannot be asked leaves its host out of both lists: unknown is not offline.
+    locked(&rig.relay.silent).push(id.clone());
+    let unknown = call(&rig, "remoteHosts/presence", json!({ "ids": [id] }), host_ctx()).await.expect("presence");
+    assert_eq!(unknown, json!({ "online": [], "offline": [] }));
+    locked(&rig.relay.silent).clear();
 
     // A window for the saved PC finished loading: its last-connected time is set; an id that is no longer saved changes nothing.
     assert_eq!(rig.remote_hosts.get(&id).expect("saved").last_connected_at, None);

@@ -13,6 +13,7 @@ use crate::link_machine::ModelLogin;
 #[derive(Default)]
 struct Sink {
     shown: Mutex<Vec<HostNotificationShowParams>>,
+    closed: Mutex<Vec<String>>,
 }
 
 impl NotifySink for Sink {
@@ -23,13 +24,25 @@ impl NotifySink for Sink {
         self.shown.lock().unwrap().push(params);
         Ok(())
     }
+    fn close(&self, connection_id: &str) {
+        self.closed.lock().unwrap().push(connection_id.to_owned());
+    }
 }
 
-struct Prefs(Mutex<PreferencesView>);
+struct Prefs {
+    view: Mutex<PreferencesView>,
+    /// While set, the preferences cannot be read.
+    unreadable: AtomicBool,
+    reads: Mutex<u32>,
+}
 
 impl NotifyPrefs for Prefs {
-    fn view(&self) -> PreferencesView {
-        self.0.lock().unwrap().clone()
+    fn view(&self) -> Result<PreferencesView, String> {
+        *self.reads.lock().unwrap() += 1;
+        if self.unreadable.load(Ordering::SeqCst) {
+            return Err("the settings file is locked".into());
+        }
+        Ok(self.view.lock().unwrap().clone())
     }
 }
 
@@ -118,7 +131,11 @@ fn rig_named(name: &str) -> Rig {
 
 fn rig_holding(name: &str, held: Vec<PendingApproval>) -> Rig {
     let sink = Arc::new(Sink::default());
-    let prefs = Arc::new(Prefs(Mutex::new(PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() })));
+    let prefs = Arc::new(Prefs {
+        view: Mutex::new(PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() }),
+        unreadable: AtomicBool::new(false),
+        reads: Mutex::new(0),
+    });
     let focus = Arc::new(Focus::default());
     let answers = Arc::new(Answers::default());
     let (sessions, sessions_rx) = watch::channel(Vec::new());
@@ -197,7 +214,7 @@ fn row(id: &str, title: &str, working: bool) -> SessionSummaryLite {
 }
 
 fn approval(session: &str, key: &str, kind: ApprovalKind, order: u64) -> PendingApproval {
-    PendingApproval { request_id: RequestId::String(key.into()), session_id: session.into(), kind, requested_at: 0, order }
+    PendingApproval { request_id: RequestId::String(key.into()), session_id: session.into(), kind, requested_at: 0, order, replay: false }
 }
 
 async fn settle() {
@@ -284,7 +301,7 @@ async fn a_cancelled_turn_a_reaction_and_a_quiet_reply_tell_nothing() {
 async fn a_failed_turn_is_an_error_notification_when_errors_are_on() {
     let rig = rig();
     {
-        let mut view = rig.prefs.0.lock().unwrap();
+        let mut view = rig.prefs.view.lock().unwrap();
         view.preferences.events.error = true;
     }
     let mut failed = done("");
@@ -379,10 +396,10 @@ async fn approval_start_only() {
     rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Question, 2)]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 2);
-    // The link drops (the held list empties) and the server holds the same request again: told once.
+    // The link drops (the held list empties) and the server holds the same request again, marked a replay: told once.
     rig.approvals.send(Vec::new()).unwrap();
     settle().await;
-    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Question, 2)]).unwrap();
+    rig.approvals.send(vec![PendingApproval { replay: true, ..approval("a", "ap2", ApprovalKind::Question, 2) }]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 2);
     // Browser and computer requests are told by their own dialogs.
@@ -431,7 +448,7 @@ async fn foreground_suppresses() {
 #[tokio::test(start_paused = true)]
 async fn this_pcs_preferences_decide() {
     let rig = rig();
-    rig.prefs.0.lock().unwrap().preferences.scope = Scope::Off;
+    rig.prefs.view.lock().unwrap().preferences.scope = Scope::Off;
     rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
     settle().await;
     rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
@@ -535,4 +552,139 @@ fn a_room_and_a_bot_home_shape_the_conversation() {
     assert_eq!(conversation_of(&scheduled).origin, Origin::Schedule);
     let plain = row("p", "", false);
     assert_eq!(notification_title_of(&plain), "Mixdog");
+}
+
+#[tokio::test(start_paused = true)]
+async fn only_a_final_answer_carries_the_sound() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    rig.view.send(link(lost(true))).unwrap();
+    settle().await;
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
+    advance(LEAD_FINISHED_MS + 50).await;
+    let shown = rig.shown();
+    // The approval, the loss and the recovery are silent; the answer sounds.
+    assert_eq!(shown.len(), 4);
+    assert!(shown[..3].iter().all(|toast| toast.sound.is_none()));
+    assert_eq!(shown[3].sound.as_deref(), Some(ToastStyle::SOUND));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_sounds_too() {
+    let rig = rig();
+    rig.prefs.view.lock().unwrap().preferences.events.error = true;
+    let mut failed = done("");
+    failed.status = FinalAnswerStatus::Failed;
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(failed)));
+    finish_turn(&rig, "a", "Broken").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert_eq!(rig.shown()[0].sound.as_deref(), Some(ToastStyle::SOUND));
+}
+
+#[tokio::test(start_paused = true)]
+async fn ending_the_notifier_closes_the_toasts_of_its_server() {
+    let rig = rig();
+    let sink = rig.sink.clone();
+    assert!(sink.closed.lock().unwrap().is_empty());
+    drop(rig);
+    assert_eq!(*sink.closed.lock().unwrap(), vec!["srv".to_owned()]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_final_answer_whose_preferences_cannot_be_read_is_offered_again_at_the_next_roster_event() {
+    let rig = rig();
+    rig.prefs.unreadable.store(true, Ordering::SeqCst);
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    finish_turn(&rig, "a", "Deploy").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.shown().is_empty());
+    // Still unreadable at the next event: held again, not dropped, and the read is not repeated.
+    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false)]).unwrap();
+    settle().await;
+    assert!(rig.shown().is_empty());
+    rig.prefs.unreadable.store(false, Ordering::SeqCst);
+    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false), row("c", "More", false)]).unwrap();
+    settle().await;
+    let shown = rig.shown();
+    assert_eq!((shown.len(), shown[0].body.as_str()), (1, "Done."));
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
+    // Delivered once.
+    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_approval_whose_preferences_cannot_be_read_is_decided_at_the_next_update() {
+    let rig = rig();
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    rig.prefs.unreadable.store(true, Ordering::SeqCst);
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    assert!(rig.shown().is_empty());
+    rig.prefs.unreadable.store(false, Ordering::SeqCst);
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1), approval("b", "ap2", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_lost_notice_whose_preferences_cannot_be_read_stays_told_and_the_recovery_is_decided_later() {
+    let rig = rig();
+    rig.view.send(link(lost(true))).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+    rig.prefs.unreadable.store(true, Ordering::SeqCst);
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+    rig.prefs.unreadable.store(false, Ordering::SeqCst);
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 2);
+    assert_eq!(rig.shown()[1].title, "Build box is back");
+}
+
+#[tokio::test(start_paused = true)]
+async fn unreadable_preferences_are_tried_again_at_every_update() {
+    let rig = rig();
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    rig.prefs.unreadable.store(true, Ordering::SeqCst);
+    for key in ["ap1", "ap2", "ap3"] {
+        rig.approvals.send(vec![approval("a", key, ApprovalKind::Tool, 1)]).unwrap();
+        settle().await;
+    }
+    // Each update tried again (the read was not cached), and nothing was shown.
+    assert_eq!(*rig.prefs.reads.lock().unwrap(), 3);
+    assert!(rig.shown().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_approval_that_went_away_is_told_again_when_it_comes_back_new_and_not_when_it_is_a_replay() {
+    let rig = rig();
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+    rig.approvals.send(Vec::new()).unwrap();
+    settle().await;
+    // Held again by the reconnected client: the window already shows it.
+    rig.approvals.send(vec![PendingApproval { replay: true, ..approval("a", "ap1", ApprovalKind::Tool, 1) }]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+    // Gone, and asked again as a new request: told.
+    rig.approvals.send(Vec::new()).unwrap();
+    settle().await;
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 2);
 }
