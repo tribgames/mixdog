@@ -9,13 +9,25 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { listenOnFetchSafePort } from '../../shared/core-src/runtime/shared/fetch-safe-listen.mjs';
 import { createBridgeDiscovery } from '../bridge/discovery-file';
-import { browserFailureTiming } from './timing';
 import {
   bridgeDiscoveryPublicIdentity,
   createBridgeDiscoveryRecord,
   sameBridgeDiscovery,
   type BridgeDiscoveryRecord,
 } from '../bridge/discovery-ownership';
+
+/** A command the bridge answers as a failure: the message, the failed command's timing (diagnostics) and,
+ *  when the core refused the request itself, the HTTP status the bridge answers (400 or 429). */
+export class BridgeCommandFailure extends Error {
+  readonly timing?: unknown;
+  readonly status?: number;
+  constructor(message: string, timing?: unknown, status?: number) {
+    super(message);
+    this.name = 'BridgeCommandFailure';
+    this.timing = timing;
+    this.status = status;
+  }
+}
 
 const DISCOVERY_FILE = 'browser-bridge.json';
 const HEARTBEAT_MS = 60_000;
@@ -127,11 +139,16 @@ export class BrowserBridgeServer<TCommand extends object> {
       reply({ ok: true, value });
     } catch (error) {
       if (controller.signal.aborted || response.destroyed) return;
-      reply({
+      const failure = error instanceof BridgeCommandFailure ? error : null;
+      const body = {
         ok: false,
         error: this.options.redactError((error as Error).message || String(error)),
-        timing: browserFailureTiming(error),
-      });
+        timing: failure?.timing,
+      };
+      if (failure?.status === 400 || failure?.status === 429) {
+        if (committed) response.end(JSON.stringify(body));
+        else this.respond(response, failure.status, body);
+      } else reply(body);
     } finally {
       clearInterval(keepAlive);
       request.removeListener('aborted', abort);
