@@ -1,0 +1,44 @@
+[package]
+name = "mixdog-office-com"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+# tests/fake_host.rs is a program (the stand-in host), not a test target.
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-fsio = { workspace = true }
+mixdog-rt = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt", "process", "io-util", "macros", "sync", "time"] }
+tokio-util = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-testkit = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-office-com = { path = ".", features = ["test-support"] }
+
+[features]
+# The stand-in host the transport tests start in place of PowerShell (tests/fake_host.rs) and the config that selects it.
+test-support = []
+
+[[bin]]
+name = "fake-office-host"
+path = "tests/fake_host.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "transport"
+path = "tests/transport.rs"
+
+[[test]]
+name = "twin_detect"
+path = "tests/twin_detect.rs"
