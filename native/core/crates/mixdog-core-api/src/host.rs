@@ -178,6 +178,13 @@ pub trait HostChannel: Send + Sync {
         true
     }
 
+    /// [`HostChannel::serves`] for the one `method` the caller is about to send: a claim that declared `capability` but listed
+    /// other methods in its `serves` does not serve it. A channel that cannot tell answers as `serves`.
+    fn serves_method(&self, capability: HostCapability, method: Method) -> bool {
+        let _ = method;
+        self.serves(capability)
+    }
+
     /// A `host/*` notification to the claimant serving `capability`.
     fn notify(
         &self,

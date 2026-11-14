@@ -22,6 +22,7 @@ members = [
     "crates/mixdog-testkit",
     "crates/mixdog-js",
     "crates/mixdog-browser-policy",
+    "crates/mixdog-browser-rules",
     "crates/mixdog-browser-engine",
     "crates/mixdog-trace",
     "crates/mixdog-statefile",

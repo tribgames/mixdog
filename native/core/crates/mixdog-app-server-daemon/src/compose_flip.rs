@@ -45,14 +45,6 @@ const SERVICE_PENDING: &[&str] = &[
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
-    // x-residual-moves (registered once an AttachmentHost implementation lands: x-residual-moves-client, wave 4):
-    // DesktopResidualService.
-    "desktop/link/resolve",
-    "desktop/link/resolvePath",
-    "desktop/attachment/resolve",
-    "desktop/attachment/stage",
-    "desktop/workflowConfig/read",
-    "desktop/fonts/list",
 ];
 
 /// Namespaces whose every method the connections service (s2b-service, wave 9) answers.
@@ -1480,7 +1472,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let takeover_holds: Arc<dyn mixdog_core_session::session::secret_input::TakeoverHolds> = Arc::new(crate::late_session::LateHolds(late.clone()));
     let human_only = Arc::new(mixdog_core_session::session::secret_input::HumanOnlyLock::new(takeover_holds.clone()));
     // The core's takeover owner (the engine's `TakeoverPort`, `takeover/ready`): the takeover card and the sign-in window ask it whether the person may act.
-    let takeover = Arc::new(crate::takeover_port::CoreTakeover::new(takeover_holds.clone()));
+    let takeover = Arc::new(crate::takeover_port::CoreTakeover::new(takeover_holds.clone()).with_computer_drain(human_only.clone()));
     let tool_io = mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io };
     // The agent trace and tool-failure log of this data directory: one buffer and file per kind, shared with every run's tool log.
     let agent_trace = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(&b.data_dir, tool_io, clock_agent.clone());
@@ -2820,6 +2812,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(b.data_dir.clone(), mixdog_home.clone(), &b.tokens)))?; // `migrate/profile/*`
+    builder.register(Arc::new(mixdog_core_domains::domains::desktop_residual::DesktopResidualService::new(
+        Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
+        &b.tokens,
+    )))?; // `desktop/link/*`, `desktop/attachment/*`, `desktop/workflowConfig/read`, `desktop/fonts/list`
     // `desktopPet/state/*`: the pet's stored settings at `<D>/desktop/desktop-pet.json`; the first read copies the recorded Electron
     // profile's file there (create-only, the old file kept); a write is announced as `desktopPet/state/changed` on the app feed.
     builder.register(Arc::new(mixdog_core_domains::domains::desktop_pet::DesktopPetService::new(
