@@ -366,15 +366,21 @@ fn decode_data_url(value: &str) -> Result<(String, Vec<u8>), CoreError> {
     let params: Vec<&str> = head.split(';').map(js_trim).collect();
     let mime = if params[0].is_empty() { "text/plain".to_owned() } else { params[0].to_lowercase() };
     let bytes = if params.iter().skip(1).any(|part| part.eq_ignore_ascii_case("base64")) {
-        let body: String = payload.chars().filter(|c| !is_js_space(*c)).collect();
-        let digits = body.trim_end_matches('=');
-        if body.len() - digits.len() > 2 || !digits.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/') {
+        // `/^[A-Za-z0-9+/\s]*={0,2}\s*$/`: white space may sit among the digits and after the padding, but nothing but white space follows a `=`.
+        let tail = payload.trim_end_matches(is_js_space);
+        let head = tail.trim_end_matches('=');
+        if tail.len() - head.len() > 2 || !head.chars().all(|c| is_js_space(c) || c.is_ascii_alphanumeric() || c == '+' || c == '/') {
             return Err(bad());
+        }
+        let mut digits: String = head.chars().filter(|c| !is_js_space(*c)).collect();
+        // `Buffer.from(text, 'base64')` ignores a lone trailing digit (it holds fewer than eight bits).
+        if digits.len() % 4 == 1 {
+            digits.pop();
         }
         let config = base64::engine::GeneralPurposeConfig::new()
             .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
             .with_decode_allow_trailing_bits(true);
-        base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, config).decode(digits).map_err(|_| bad())?
+        base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, config).decode(&digits).map_err(|_| bad())?
     } else {
         decode_uri_component(payload).ok_or_else(bad)?.into_bytes()
     };
@@ -633,8 +639,9 @@ fn selected_preset(agent: &Map<String, Value>) -> Option<Map<String, Value>> {
 /// the document names no usable default.
 pub fn model_bootstrap_from_config(config: &Value) -> Option<Value> {
     let mut agent = config.get("agent")?.as_object()?;
+    // `record(agent?.agent)?.providers` is a truthiness test: an empty array or object still selects the nested document.
     if let Some(inner) = agent.get("agent").and_then(Value::as_object)
-        && !js_text(inner.get("providers")).is_empty()
+        && mixdog_core_config::workflow::ids::truthy(inner.get("providers"))
     {
         agent = inner;
     }
@@ -974,7 +981,7 @@ impl ImportProgress {
         }
         match self.source.fetch_jobs().await {
             Ok(jobs) => {
-                if self.emit_all(&jobs) {
+                if self.emit_rows(&jobs).unwrap_or(true) {
                     self.schedule();
                 }
             }
@@ -982,6 +989,20 @@ impl ImportProgress {
             Err(_) => self.schedule(),
         }
         self.polling.store(false, Ordering::SeqCst);
+    }
+
+    /// `jobs.map(emit).some(Boolean)` over the runtime's list: every row is published, a row that is not a job (an object without a
+    /// `jobId`, a number) included, and a `null` row throws where `emit` reads its `seq`, so the rows after it are not published and
+    /// the read counts as failed (`None`: retried on the next tick). `Some(active)` otherwise.
+    fn emit_rows(&self, jobs: &[Value]) -> Option<bool> {
+        let mut active = false;
+        for job in jobs {
+            if job.is_null() {
+                return None;
+            }
+            active |= self.emit(job);
+        }
+        Some(active)
     }
 
     /// Sees the result of a capability call; a job in it starts or keeps the poll.
@@ -1001,6 +1022,72 @@ impl ImportProgress {
 
     pub fn dispose(&self) {
         self.disposed.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Where one job snapshot goes: the event name ([`CONVERSATION_IMPORT_PROGRESS_EVENT`]) and the job.
+pub type ImportAnnounce = Arc<dyn Fn(&str, &Value) + Send + Sync>;
+
+/// The job list of the `import/*` service the progress follows, and where its snapshots are announced.
+struct ServiceImportJobs {
+    service: Arc<dyn DomainService>,
+    announce: ImportAnnounce,
+}
+
+#[async_trait]
+impl ImportJobSource for ServiceImportJobs {
+    async fn fetch_jobs(&self) -> Result<Vec<Value>, String> {
+        let request = CoreRequest {
+            method: Method("import/getConversationImportJobs"),
+            params: json!({}),
+            op: None,
+            ctx: mixdog_core_api::CallContext::internal("conversation-import-progress"),
+        };
+        match self.service.call(request).await.map_err(|error| error.to_string())? {
+            Reply::Value(value) => value.get("jobs").and_then(Value::as_array).cloned().ok_or_else(|| "the job list is not an array".to_owned()),
+            Reply::Subscribe(_) => Err("the job list is not a value".to_owned()),
+        }
+    }
+
+    fn publish(&self, event: &str, job: &Value) {
+        (self.announce)(event, job);
+    }
+}
+
+/// The `import/*` service with the progress of its jobs announced: the result of each `import/startConversationImport`,
+/// `import/cancelConversationImport` and `import/getConversationImportJobs` call reaches [`ImportProgress::observe`], which publishes each
+/// changed job snapshot and, while a job runs, follows it by asking the same service for its job list. This is the call site of
+/// `conversation-import-progress.ts` (it watched the capability calls of the desktop's main process); the service is a decorator, so every
+/// caller of the methods, a phone included, is seen.
+pub struct ImportProgressService {
+    inner: Arc<dyn DomainService>,
+    progress: Arc<ImportProgress>,
+}
+
+impl ImportProgressService {
+    pub fn new(inner: Arc<dyn DomainService>, announce: ImportAnnounce) -> Self {
+        let source = Arc::new(ServiceImportJobs { service: Arc::clone(&inner), announce });
+        Self { inner, progress: ImportProgress::new(source, Duration::from_millis(CONVERSATION_IMPORT_POLL_MS)) }
+    }
+}
+
+#[async_trait]
+impl DomainService for ImportProgressService {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let capability = req.method.as_str().strip_prefix("import/");
+        let reply = self.inner.call(req).await?;
+        if let (Some(capability), Reply::Value(value)) = (capability, &reply) {
+            self.progress.observe(capability, value);
+        }
+        Ok(reply)
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        self.inner.methods()
+    }
+
+    fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
+        self.inner.notify(method, params, from)
     }
 }
 
@@ -1025,8 +1112,139 @@ pub fn network_signature(addresses: &[(&str, &str, bool)]) -> String {
     external.join("|")
 }
 
-/// The local address the routing table gives a datagram to a public address of each family: connecting a UDP socket sends nothing, it
-/// only picks the route. No route in either family is offline; a Wi-Fi switch, a VPN toggle or a dock changes the address.
+/// The addresses of the machine's up interfaces as `(interface, address, loopback)`: `os.networkInterfaces()`, the list
+/// `networkSignature` read. An adapter that joins (a Wi-Fi card, a VPN, a dock) adds a row even where the routing table's answer stays
+/// the same.
+#[cfg(unix)]
+fn interface_addresses() -> Vec<(String, String, bool)> {
+    use std::ffi::CStr;
+    use std::net::Ipv4Addr;
+    use std::net::Ipv6Addr;
+    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `getifaddrs` stores the head of a list it allocated; the list is read only until `freeifaddrs` below.
+    if unsafe { libc::getifaddrs(&mut head) } != 0 {
+        return Vec::new();
+    }
+    let up = (libc::IFF_UP | libc::IFF_RUNNING) as libc::c_uint;
+    let mut found = Vec::new();
+    let mut entry = head;
+    while !entry.is_null() {
+        // SAFETY: `entry` is a node of the list `getifaddrs` returned, which is alive until `freeifaddrs`.
+        let node = unsafe { &*entry };
+        entry = node.ifa_next;
+        if node.ifa_addr.is_null() || node.ifa_flags & up != up {
+            continue;
+        }
+        // SAFETY: the address of a node points at a socket address of the family it names.
+        let address = unsafe {
+            match i32::from((*node.ifa_addr).sa_family) {
+                libc::AF_INET => Some(Ipv4Addr::from(u32::from_be((*node.ifa_addr.cast::<libc::sockaddr_in>()).sin_addr.s_addr)).to_string()),
+                libc::AF_INET6 => Some(Ipv6Addr::from((*node.ifa_addr.cast::<libc::sockaddr_in6>()).sin6_addr.s6_addr).to_string()),
+                _ => None,
+            }
+        };
+        if let Some(address) = address {
+            // SAFETY: the name of a node is a NUL-terminated string.
+            let name = unsafe { CStr::from_ptr(node.ifa_name) }.to_string_lossy().into_owned();
+            found.push((name, address, node.ifa_flags & libc::IFF_LOOPBACK as libc::c_uint != 0));
+        }
+    }
+    // SAFETY: `head` came from the successful `getifaddrs` above and no reference into the list outlives this call.
+    unsafe { libc::freeifaddrs(head) };
+    found
+}
+
+#[cfg(windows)]
+fn interface_addresses() -> Vec<(String, String, bool)> {
+    use std::ffi::CStr;
+    use std::net::Ipv4Addr;
+    use std::net::Ipv6Addr;
+
+    use windows_sys::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_ANYCAST;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_DNS_SERVER;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_MULTICAST;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
+    use windows_sys::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH;
+    use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+    use windows_sys::Win32::Networking::WinSock::AF_INET;
+    use windows_sys::Win32::Networking::WinSock::AF_INET6;
+    use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
+    use windows_sys::Win32::Networking::WinSock::SOCKADDR_IN;
+    use windows_sys::Win32::Networking::WinSock::SOCKADDR_IN6;
+    /// `IF_TYPE_SOFTWARE_LOOPBACK`.
+    const LOOPBACK_TYPE: u32 = 24;
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size: u32 = 16 * 1024;
+    // The adapter records live in one buffer of 8-byte words (their alignment); a list that grew since the size was asked for is read
+    // again with the size the call gave back.
+    let mut buffer: Vec<u64> = Vec::new();
+    let mut listed = false;
+    for _ in 0..4 {
+        buffer = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: `buffer` holds at least `size` bytes and stays alive for the call; the family and flags are the documented values.
+        let status = unsafe { GetAdaptersAddresses(u32::from(AF_UNSPEC), flags, std::ptr::null(), buffer.as_mut_ptr().cast(), &mut size) };
+        if status == 0 {
+            listed = true;
+            break;
+        }
+        if status != ERROR_BUFFER_OVERFLOW {
+            break;
+        }
+    }
+    let mut found = Vec::new();
+    if !listed {
+        return found;
+    }
+    let mut adapter = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+    // SAFETY: every pointer below belongs to the list the successful call wrote into `buffer`, which outlives the loop; a socket address
+    // is read as the family its `sa_family` names.
+    unsafe {
+        while !adapter.is_null() {
+            let record = &*adapter;
+            adapter = record.Next;
+            if record.OperStatus != IfOperStatusUp {
+                continue;
+            }
+            let name = if record.AdapterName.is_null() { String::new() } else { CStr::from_ptr(record.AdapterName.cast::<core::ffi::c_char>()).to_string_lossy().into_owned() };
+            let mut unicast = record.FirstUnicastAddress;
+            while !unicast.is_null() {
+                let entry = &*unicast;
+                unicast = entry.Next;
+                let socket = entry.Address.lpSockaddr;
+                if socket.is_null() {
+                    continue;
+                }
+                let address = match (*socket).sa_family {
+                    AF_INET => Some(Ipv4Addr::from(u32::from_be((*socket.cast::<SOCKADDR_IN>()).sin_addr.S_un.S_addr)).to_string()),
+                    AF_INET6 => Some(Ipv6Addr::from((*socket.cast::<SOCKADDR_IN6>()).sin6_addr.u.Byte).to_string()),
+                    _ => None,
+                };
+                if let Some(address) = address {
+                    found.push((name.clone(), address, record.IfType == LOOPBACK_TYPE));
+                }
+            }
+        }
+    }
+    found
+}
+
+#[cfg(not(any(unix, windows)))]
+fn interface_addresses() -> Vec<(String, String, bool)> {
+    Vec::new()
+}
+
+/// A look at the network from the local address the routing table gives a datagram to a public address of each family (`routes`: name
+/// and address) and the machine's interface addresses. No route is offline; a Wi-Fi switch, a VPN toggle or a dock moves the route's
+/// address, and an interface that joins without moving the route changes the interface list.
+pub fn snapshot_of(routes: &[(&str, &str)], interfaces: &[(String, String, bool)]) -> NetworkSnapshot {
+    let mut found: Vec<(&str, &str, bool)> = routes.iter().map(|(name, address)| (*name, *address, false)).collect();
+    found.extend(interfaces.iter().map(|(name, address, internal)| (name.as_str(), address.as_str(), *internal)));
+    NetworkSnapshot { online: !routes.is_empty(), signature: network_signature(&found) }
+}
+
+/// The routing table's answer for each address family (connecting a UDP socket sends nothing, it only picks the route) with the
+/// interface list.
 pub fn network_snapshot() -> NetworkSnapshot {
     let local = |bind: &str, remote: &str| -> Option<String> {
         let socket = std::net::UdpSocket::bind(bind).ok()?;
@@ -1035,9 +1253,8 @@ pub fn network_snapshot() -> NetworkSnapshot {
     };
     let v4 = local("0.0.0.0:0", "1.1.1.1:53");
     let v6 = local("[::]:0", "[2606:4700:4700::1111]:53");
-    let found: Vec<(&str, &str, bool)> =
-        [("route4", v4.as_deref()), ("route6", v6.as_deref())].into_iter().filter_map(|(name, address)| address.map(|address| (name, address, false))).collect();
-    NetworkSnapshot { online: !found.is_empty(), signature: network_signature(&found) }
+    let routes: Vec<(&str, &str)> = [("route4", v4.as_deref()), ("route6", v6.as_deref())].into_iter().filter_map(|(name, address)| address.map(|address| (name, address))).collect();
+    snapshot_of(&routes, &interface_addresses())
 }
 
 /// Whether the leg should redial: the machine came back online, or its addresses changed while online.
@@ -1182,16 +1399,22 @@ fn read_shell(shell: &str, timeout: Duration) -> Result<BTreeMap<String, String>
     use std::os::unix::process::ExitStatusExt;
     let script = format!("printf '\\0%s\\0' {LOGIN_ENV_MARK}; command env -0 || exit 1; printf '\\0%s\\0' {LOGIN_ENV_MARK}; exit 0");
     // Interactive login mode runs the profile AND rc files, where most users export PATH. stdin is closed so a prompting rc file reads EOF.
-    let mut child = std::process::Command::new(shell)
+    let mut command = std::process::Command::new(shell);
+    command
         .args(["-ilc", &script])
         .current_dir(std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from))
         .envs(PROBE_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .process_group(0)
-        .spawn()
-        .map_err(|error| error.to_string())?;
+        .stderr(std::process::Stdio::null());
+    // A session of its own, not just a group: the shell then has no controlling terminal, so an rc file that opens `/dev/tty` or runs a
+    // job-control `stty` fails instead of stopping the read on the terminal the launcher was started from. The shell stays the leader of
+    // its group, so the timeout below still ends the whole tree.
+    // SAFETY: the closure only calls the async-signal-safe `setsid`.
+    unsafe {
+        command.pre_exec(|| if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) });
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
     let pid = child.id();
     let mut stdout = child.stdout.take().ok_or_else(|| "no stdout".to_owned())?;
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -1250,6 +1473,47 @@ pub fn read_login_shell_environment(platform: &str, shells: Option<Vec<String>>,
         }
     }
     read
+}
+
+/// What the process adopts from the login shell (`adoptLoginShellEnvironment` of the desktop's main process): the variables to set, and
+/// what the boot diagnostic reports.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LoginShellAdoption {
+    /// The variables to set in this process, `PATH` with the Homebrew directories appended included.
+    pub set: BTreeMap<String, String>,
+    /// A shell answered.
+    pub adopted: bool,
+    /// How many variables the shell changed (the Homebrew addition not counted).
+    pub changed_count: usize,
+    pub homebrew_path_added: Vec<String>,
+    pub failures: Vec<LoginShellFailure>,
+}
+
+/// The adoption a finished read gives: the shell's overrides over `inherited`, then, on `darwin`, the Homebrew directories appended to the
+/// resulting `PATH`. A Windows launch has nothing to adopt.
+pub fn login_shell_adoption(platform: &str, read: LoginShellRead, inherited: &BTreeMap<String, String>, exists: impl Fn(&str) -> bool) -> LoginShellAdoption {
+    if platform == "win32" {
+        return LoginShellAdoption::default();
+    }
+    let mut set = read.environment.as_ref().map(|shell| login_shell_overrides(inherited, shell)).unwrap_or_default();
+    let changed_count = set.len();
+    let mut homebrew_path_added = Vec::new();
+    if platform == "darwin" {
+        let path = set.get("PATH").or_else(|| inherited.get("PATH")).cloned();
+        let (joined, added) = with_homebrew_path(path.as_deref(), exists);
+        if !added.is_empty() {
+            set.insert("PATH".to_owned(), joined);
+        }
+        homebrew_path_added = added;
+    }
+    LoginShellAdoption { set, adopted: read.environment.is_some(), changed_count, homebrew_path_added, failures: read.failures }
+}
+
+/// Reads the login shell once and answers what the launcher sets in its own environment before it starts the core (the core and every
+/// terminal and tool call under it inherit the process environment). Synchronous, and it spawns a shell: the launcher calls it before the
+/// core's executors exist, never from one of their threads.
+pub fn adopt_login_shell_environment(platform: &str, inherited: &BTreeMap<String, String>, budget: Duration) -> LoginShellAdoption {
+    login_shell_adoption(platform, read_login_shell_environment(platform, None, budget), inherited, |dir| Path::new(dir).is_dir())
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -657,3 +657,140 @@ fn every_method_of_the_service_is_listed_once() {
     assert_eq!(names.len(), METHODS.len());
     assert!(METHODS.iter().all(|name| name.starts_with("desktop/")));
 }
+
+// ---- the JavaScript edges of the ported rules ------------------------------------------------------------------------
+
+#[test]
+fn base64_padding_follows_the_regex_and_buffer_from() {
+    let decode = |body: &str| required_attachment_file(&json!(format!("data:text/plain;base64,{body}")), &Value::Null).map(|(bytes, _, _)| bytes);
+    // White space may sit among the digits and after the padding.
+    assert_eq!(decode("aGVs\nbG8=  ").unwrap(), b"hello");
+    // Nothing but white space may follow a `=`, and three of them are refused.
+    assert!(decode("aGVsbG8= =").is_err());
+    assert!(decode("aGVsbG8===").is_err());
+    assert!(decode("aGVsbG8=x").is_err());
+    // Unpadded and over-padded input decodes as `Buffer.from` does; a lone trailing digit is ignored.
+    assert_eq!(decode("aGVsbG8").unwrap(), b"hello");
+    assert_eq!(decode("aGk==").unwrap(), b"hi");
+    assert_eq!(decode("aGVsbG8hx").unwrap(), b"hello!");
+}
+
+#[test]
+fn an_empty_providers_array_still_selects_the_nested_agent_document() {
+    let preset = json!({ "id": "n", "provider": "p", "model": "nested-model" });
+    let outer = json!({ "id": "o", "provider": "p", "model": "outer-model" });
+    let config = |providers: Value| {
+        json!({ "agent": { "presets": [outer.clone()], "default": "o", "agent": { "providers": providers, "presets": [preset.clone()], "default": "n" } } })
+    };
+    // `[]` and `{}` are truthy in JavaScript; `0`, `""` and `null` are not.
+    for providers in [json!([]), json!({}), json!(["x"])] {
+        assert_eq!(model_bootstrap_from_config(&config(providers.clone())).unwrap()["model"], json!("nested-model"), "{providers}");
+    }
+    for providers in [json!(0), json!(""), json!(null), json!(false)] {
+        assert_eq!(model_bootstrap_from_config(&config(providers.clone())).unwrap()["model"], json!("outer-model"), "{providers}");
+    }
+}
+
+#[tokio::test]
+async fn a_poll_publishes_every_row_and_a_null_row_fails_the_read() {
+    mixdog_rt::testing::tokens();
+    let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
+    let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
+    // A row that is not a job is published like any other (`jobs.map(emit)` does not test `isJob`); the number after it has the same
+    // key (no `jobId`) and the same stamp (`undefined:undefined:undefined`), so it is not published again. The rows after a `null` are not.
+    assert_eq!(progress.emit_rows(&[job("a", 1, "done", 1), json!({ "noJobId": true }), json!(7)]), Some(false));
+    assert_eq!(source.published.lock().unwrap().len(), 2);
+    assert_eq!(progress.emit_rows(&[job("a", 2, "running", 1), Value::Null, job("b", 1, "running", 0)]), None);
+    assert_eq!(source.published.lock().unwrap().len(), 3, "the row before the null was published, the one after it was not");
+    assert_eq!(progress.emit_rows(&[job("b", 1, "stopping", 0)]), Some(true));
+}
+
+#[test]
+fn an_interface_that_joins_without_a_route_change_is_a_network_change() {
+    let routes = [("route4", "192.168.1.5")];
+    let wired = ("eth0".to_owned(), "192.168.1.5".to_owned(), false);
+    let loopback = ("lo".to_owned(), "127.0.0.1".to_owned(), true);
+    let before = snapshot_of(&routes, &[wired.clone(), loopback.clone()]);
+    assert!(before.online);
+    assert!(!network_changed(&before, &snapshot_of(&routes, &[loopback.clone(), wired.clone()])), "the order of the list is not a change");
+    let vpn = ("tun0".to_owned(), "10.8.0.2".to_owned(), false);
+    assert!(network_changed(&before, &snapshot_of(&routes, &[wired.clone(), loopback.clone(), vpn])), "a new adapter with the route unchanged");
+    assert!(!network_changed(&before, &snapshot_of(&routes, &[wired, loopback, ("lo0".to_owned(), "::1".to_owned(), true)])), "a loopback address is not external");
+    assert!(!snapshot_of(&[], &[("eth0".to_owned(), "169.254.1.1".to_owned(), false)]).online, "interfaces alone do not make the machine online");
+}
+
+#[test]
+fn the_machine_lists_its_interface_addresses() {
+    // Whatever the machine has, the list is read without failing and a loopback address is never counted as external.
+    let signature = snapshot_of(&[], &interface_addresses()).signature;
+    assert!(!signature.contains("127.0.0.1"));
+}
+
+struct FakeImport {
+    jobs: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl DomainService for FakeImport {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        Ok(Reply::Value(match req.method.as_str() {
+            "import/startConversationImport" => job("a", 1, "running", 0),
+            "import/getConversationImportJobs" => json!({ "jobs": self.jobs.lock().unwrap().clone() }),
+            _ => json!({ "sessions": [] }),
+        }))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &["import/startConversationImport", "import/getConversationImportJobs", "import/listImportableConversations"]
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[tokio::test]
+async fn the_import_service_announces_the_progress_of_its_jobs() {
+    mixdog_rt::testing::tokens();
+    let inner = Arc::new(FakeImport { jobs: Mutex::new(vec![]) });
+    let heard: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&heard);
+    let service = ImportProgressService::new(inner.clone(), Arc::new(move |event, job| sink.lock().unwrap().push((event.to_owned(), job.clone()))));
+    assert_eq!(service.methods(), inner.methods());
+
+    // The answer is passed on untouched; the running job it carries is announced once and then followed through the service's own list.
+    let call = |method: &'static str| service.call(CoreRequest { method: Method(method), params: json!({}), op: None, ctx: mixdog_core_api::CallContext::internal("test") });
+    let Reply::Value(answer) = call("import/startConversationImport").await.unwrap() else { panic!("a value") };
+    assert_eq!(answer, job("a", 1, "running", 0));
+    assert_eq!(heard.lock().unwrap().len(), 1);
+    assert_eq!(heard.lock().unwrap()[0].0, "conversation-import-progress");
+    // A method that is not a job call announces nothing.
+    call("import/listImportableConversations").await.unwrap();
+    assert_eq!(heard.lock().unwrap().len(), 1);
+
+    *inner.jobs.lock().unwrap() = vec![job("a", 2, "done", 7)];
+    tokio::time::sleep(Duration::from_millis(CONVERSATION_IMPORT_POLL_MS + 400)).await;
+    let heard = heard.lock().unwrap();
+    assert_eq!(heard.len(), 2, "the poll announced the finished snapshot");
+    assert_eq!(heard[1].1["state"], json!("done"));
+}
+
+#[test]
+fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories() {
+    let inherited = map(&[("PATH", "/usr/bin"), ("HOME", "/home/u")]);
+    let read = || LoginShellRead { environment: Some(map(&[("PATH", "/opt/x:/usr/bin"), ("HOME", "/home/u"), ("PWD", "/tmp"), ("TOKEN", "t")])), failures: vec![] };
+    let brew = |dir: &str| dir == "/opt/homebrew/bin";
+    // Linux: the overrides only. The probe's own PWD and an unchanged HOME are not set.
+    let linux = login_shell_adoption("linux", read(), &inherited, brew);
+    assert_eq!((linux.set.clone(), linux.adopted, linux.changed_count), (map(&[("PATH", "/opt/x:/usr/bin"), ("TOKEN", "t")]), true, 2));
+    assert!(linux.homebrew_path_added.is_empty());
+    // macOS: Homebrew is appended to the PATH the shell chose.
+    let mac = login_shell_adoption("darwin", read(), &inherited, brew);
+    assert_eq!(mac.set["PATH"], "/opt/x:/usr/bin:/opt/homebrew/bin");
+    assert_eq!((mac.changed_count, mac.homebrew_path_added), (2, vec!["/opt/homebrew/bin".to_owned()]));
+    // No shell answered: nothing is set from it, the failures are reported, and a mac still gets Homebrew on the inherited PATH.
+    let failure = LoginShellFailure { shell: "/bin/zsh".to_owned(), reason: "timeout".to_owned() };
+    let none = login_shell_adoption("darwin", LoginShellRead { environment: None, failures: vec![failure.clone()] }, &inherited, brew);
+    assert_eq!((none.adopted, none.failures, none.set), (false, vec![failure], map(&[("PATH", "/usr/bin:/opt/homebrew/bin")])));
+    assert_eq!(login_shell_adoption("win32", read(), &inherited, brew), LoginShellAdoption::default());
+}
