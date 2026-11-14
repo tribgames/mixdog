@@ -243,12 +243,18 @@ where
 /// The pipes of the real worker process: the pool's input, and a private duplicate of standard output taken before anything else
 /// can write to it. Standard output itself is pointed at standard error, so nothing a handler, a library or a child prints can
 /// land in the frame stream.
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the frame pipe is a descriptor, not a file on disk: tokio's file wrapper is its only async writer on every platform"
+)]
 pub fn stdio() -> std::io::Result<(tokio::io::Stdin, tokio::fs::File)> {
     let frames = take_stdout()?;
     Ok((tokio::io::stdin(), tokio::fs::File::from_std(frames)))
 }
 
 #[cfg(unix)]
+#[allow(clippy::disallowed_types, reason = "owns the duplicated standard output descriptor, not a file on disk")]
 fn take_stdout() -> std::io::Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     // SAFETY: plain descriptor calls; the duplicate is owned by the returned file and nothing else.
@@ -266,6 +272,7 @@ fn take_stdout() -> std::io::Result<std::fs::File> {
 }
 
 #[cfg(windows)]
+#[allow(clippy::disallowed_types, reason = "owns the duplicated standard output handle, not a file on disk")]
 fn take_stdout() -> std::io::Result<std::fs::File> {
     use std::os::windows::io::FromRawHandle;
     use windows_sys::Win32::Foundation::DUPLICATE_SAME_ACCESS;
