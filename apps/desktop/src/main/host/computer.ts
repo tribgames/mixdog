@@ -20,7 +20,7 @@ import { registerComputerPointer } from './computer-pointer';
 import { registerComputerCursor } from './computer-cursor';
 import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-app-input';
 import { registerComputerAppWindows } from './computer-app-windows';
-import { registerComputerPixels } from './computer-pixels';
+import { type ComputerPixelsDeps, registerComputerPixels } from './computer-pixels';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_CAPTURE = 'host/computer/capture';
@@ -45,6 +45,8 @@ export type ComputerControlSource = () => ComputerControl | null;
 /** What the core computer host's handlers need beyond the control (`host/computer/appInput`'s arrow). */
 export interface ComputerHostDeps {
   appInput: ComputerAppInputDeps;
+  /** The capturers and the upload chunk size of `host/computer/pixels` (the Electron capturers and the 96 KiB chunk when absent). */
+  pixels?: Pick<ComputerPixelsDeps, 'sources' | 'blobChunkBytes'>;
 }
 
 /** Every `host/computer/*` handler, always: a core that does not drive Computer Use (or runs it through the desktop's own
@@ -78,5 +80,5 @@ export function registerComputerHost(connection: HostConnection, source: Compute
   registerComputerCursor(connection);
   registerComputerAppWindows(connection);
   registerComputerAppInput(connection, deps.appInput);
-  registerComputerPixels(connection, { callCore: (method, params) => connection.request(method, params) });
+  registerComputerPixels(connection, { ...deps.pixels, callCore: (method, params) => connection.request(method, params) });
 }

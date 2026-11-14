@@ -34,6 +34,10 @@ export function createCoreUserControl(call: CallCore) {
     async pause(): Promise<void> {
       await send({ action: 'pause' });
     },
+    /** The idle-resume setting (0..=60 seconds of quiet after which a hold ends by itself; 0 = only Resume ends it): the core keeps it with or without a session. */
+    async configureIdleResume(seconds: number): Promise<void> {
+      await send({ action: 'configureIdleResume', seconds });
+    },
     /** The pill's Stop: the core holds the desktop until the sessions using the computer have ended. */
     async stop(): Promise<void> {
       await send({ action: 'stop' });
@@ -55,28 +59,37 @@ export function coreDrivesComputer(pill: { backend(): 'helper' | 'desktopHost'; 
 
 export interface ComputerPillControlsOptions {
   core: ReturnType<typeof createCoreUserControl>;
-  /** The pill's current snapshot, which says who owns the computer. */
-  snapshot(): ComputerUseSnapshot;
-  /** The desktop's own computer host (the TypeScript PowerShell host), which serves the pill while the core does not own the computer. */
-  host: ComputerUseOverlayControls & Required<Pick<ComputerUseOverlayControls, 'pause' | 'resume'>>;
+  /** The presence mirror: which stack the `computer` section names (`backend`) and the pill's current snapshot, which says who owns the computer. */
+  mirror: { backend(): 'helper' | 'desktopHost'; snapshot(): ComputerUseSnapshot };
+  /** The desktop's own computer host (the TypeScript PowerShell host), which serves the pill while the core does not own the computer;
+   *  absent where this desktop runs none (the Rust helper is the only stack): every control then goes to the core. */
+  host?: ComputerUseOverlayControls & Required<Pick<ComputerUseOverlayControls, 'pause' | 'resume'>>;
   /** Ends a session's agent turn; Stop confirms it for every session the pill names. */
   abortSession(sessionId: string): Promise<unknown>;
+  /** A failed idle-resume report to the core (the control is a plain setter: it cannot reject). */
+  onError?(error: unknown): void;
 }
 
 /**
- * The pill's Stop and Resume, the pause when the control renderer dies and the emergency shortcut (which is Stop), sent to the
- * core while it owns the computer and to the desktop's own host otherwise. The core's hold is one for all sessions, so its Resume carries
- * no generation and its pause is the core's `user_pause` hold; the idle-resume interval is the desktop host's alone.
+ * The pill's Pause, Stop and Resume, the pause when the control renderer dies and the emergency shortcut (which is Stop), sent to the
+ * core while it owns the computer (the section names the helper and has a session, a hold or a cleanup: `coreDrivesComputer`) and to the
+ * desktop's own host otherwise. The core's hold is one for all sessions, so its Resume carries no generation and its pause is the
+ * core's `user_pause` hold. The idle-resume interval is a setting, not a hold: it goes to the core whenever the helper is the backend
+ * (a session need not be open) and to the desktop host as well when this desktop has one.
  */
 export function createComputerPillControls(options: ComputerPillControlsOptions): ComputerUseOverlayControls {
-  const { core, host } = options;
-  const owned = (): boolean => coreOwnsComputer(options.snapshot());
+  const { core, host, mirror } = options;
+  const owned = (): boolean => host === undefined || coreDrivesComputer(mirror);
   return {
-    pause: async () => (owned() ? core.pause() : host.pause()),
-    resume: async (generation) => (owned() ? core.resume() : host.resume(generation)),
-    configureIdleResume: (seconds) => host.configureIdleResume?.(seconds),
+    pause: async () => (owned() ? core.pause() : host?.pause()),
+    resume: async (generation) => (owned() ? core.resume() : host?.resume(generation)),
+    configureIdleResume: (seconds) => {
+      host?.configureIdleResume?.(seconds);
+      if (mirror.backend() !== 'helper') return;
+      core.configureIdleResume(seconds).catch(options.onError ?? ((error) => console.warn('[mixdog-computer] idle-resume report failed:', error)));
+    },
     async stop(sessionIds) {
-      if (!owned()) return host.stop(sessionIds);
+      if (!owned()) return host?.stop(sessionIds);
       // The hold and the turns' end are independent (the desktop host's Stop): a late or failed reply to one never holds back the other.
       await Promise.all([core.stop(), confirmComputerTurnsStopped(sessionIds, options.abortSession)]);
     },
