@@ -37,7 +37,8 @@ use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::service::{Admit, DomainService};
 use mixdog_core_api::{CallContext, ConnectionNotifier, CoreError, CoreRequest, Reply, Subscribe};
 use mixdog_core_base::support::{decode, failed, wrong_method};
-use mixdog_core_domains::domains::ai_admin::model_proxy::{ProxyEvents, ProxyRunner};
+use mixdog_core_domains::domains::ai_admin::model_proxy::ProxyEvents;
+use mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService;
 use mixdog_rt::TaskClass;
 use mixdog_ssh::command::SshTarget;
 use mixdog_ssh::connect_failure::ConnectError;
@@ -492,9 +493,10 @@ impl RestoreLinks for RestoreOpen {
     }
 }
 
-/// This PC's own model-call runner (`modelProxy/run`, on this PC's provider accounts) as what the server links run their server's
-/// proxied calls with.
-pub struct RunnerProxy(pub Arc<ProxyRunner>);
+/// This PC's own model-call service (`modelProxy/run`, on this PC's provider accounts) as what the server links run their server's
+/// proxied calls with: the same admission (size, busy) and the same tracking as a `modelProxy/run`, so the app's close waits for
+/// and aborts these calls too.
+pub struct ServiceProxy(pub Arc<ModelProxyService>);
 
 /// Gives the events of a running call to the link's relay.
 struct Forward(Arc<dyn ProxyEventSink>);
@@ -506,7 +508,7 @@ impl ProxyEvents for Forward {
 }
 
 #[async_trait]
-impl LocalModelProxy for RunnerProxy {
+impl LocalModelProxy for ServiceProxy {
     async fn run(
         &self,
         call: ProxyCall,
@@ -514,9 +516,9 @@ impl LocalModelProxy for RunnerProxy {
         events: Arc<dyn ProxyEventSink>,
         cancel: CancellationToken,
     ) -> Result<ProxyAnswer, String> {
-        // A call that failed is an answer the server reads; the runner never fails to answer.
-        let answer = self.0.run(call, allowed_providers.as_deref(), &Forward(events), &cancel).await;
-        Ok(answer.unwrap_or_else(|failure| ProxyAnswer::Failed { failure }))
+        // A call that failed is an answer the server reads; the service never fails to answer.
+        let call = serde_json::to_value(call).map_err(|error| error.to_string())?;
+        Ok(self.0.run_local(call, allowed_providers, Arc::new(Forward(events)), cancel).await)
     }
 }
 
