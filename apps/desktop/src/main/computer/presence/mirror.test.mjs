@@ -110,6 +110,17 @@ test('a finished command leaves no live pointer, and a command in another mode s
   assert.deepEqual(presence.snapshot().cursors, []);
 });
 
+test('a pointer event after the section said no command runs is an active command, kept by later values', () => {
+  const { presence } = rig();
+  presence.applySection(section([session('a', { mode: null, phase: null }), session('b')]));
+  presence.pointerProgress('a', move(1, 2, { mode: 'foreground' }));
+  presence.applySection(section([session('a', { mode: null, phase: null }), session('b', { windowIds: ['w'] })]));
+  const snapshot = presence.snapshot();
+  assert.deepEqual(snapshot.cursors.map((c) => c.sessionId), ['a']);
+  const active = snapshot.activities.find((a) => a.sessionId === 'a');
+  assert.deepEqual([active.mode, active.phase], ['foreground', 'active_foreground']);
+});
+
 test('a session that leaves the section loses its arrow and its release', () => {
   const { presence } = rig();
   presence.applySection(section([session('a'), session('b')]));
