@@ -954,7 +954,7 @@
     "expected": "selection.modelParameters must be a string map."
   },
   {
-    "case": "contextPercent 5",
+    "case": "contextPercent 5 (the runtime snaps it to a 10% step from 10 to 100, as the phone sent it)",
     "method": "route/set",
     "params": {
       "threadId": "thread-1",
@@ -965,11 +965,11 @@
         "contextPercent": 5
       }
     },
-    "path": "/route/contextPercent",
-    "expected": "selection.contextPercent must be a 10-point percentage from 10 to 100."
+    "path": null,
+    "expected": null
   },
   {
-    "case": "contextPercent 9",
+    "case": "contextPercent 9 (the runtime snaps it to a 10% step from 10 to 100, as the phone sent it)",
     "method": "route/set",
     "params": {
       "threadId": "thread-1",
@@ -980,11 +980,11 @@
         "contextPercent": 9
       }
     },
-    "path": "/route/contextPercent",
-    "expected": "selection.contextPercent must be a 10-point percentage from 10 to 100."
+    "path": null,
+    "expected": null
   },
   {
-    "case": "contextPercent 15",
+    "case": "contextPercent 15 (the runtime snaps it to a 10% step from 10 to 100, as the phone sent it)",
     "method": "route/set",
     "params": {
       "threadId": "thread-1",
@@ -995,11 +995,11 @@
         "contextPercent": 15
       }
     },
-    "path": "/route/contextPercent",
-    "expected": "selection.contextPercent must be a 10-point percentage from 10 to 100."
+    "path": null,
+    "expected": null
   },
   {
-    "case": "contextPercent 110",
+    "case": "contextPercent 110 (the runtime snaps it to a 10% step from 10 to 100, as the phone sent it)",
     "method": "route/set",
     "params": {
       "threadId": "thread-1",
@@ -1010,11 +1010,11 @@
         "contextPercent": 110
       }
     },
-    "path": "/route/contextPercent",
-    "expected": "selection.contextPercent must be a 10-point percentage from 10 to 100."
+    "path": null,
+    "expected": null
   },
   {
-    "case": "contextPercent 0",
+    "case": "contextPercent 0 (the runtime snaps it to a 10% step from 10 to 100, as the phone sent it)",
     "method": "route/set",
     "params": {
       "threadId": "thread-1",
@@ -1025,8 +1025,8 @@
         "contextPercent": 0
       }
     },
-    "path": "/route/contextPercent",
-    "expected": "selection.contextPercent must be a 10-point percentage from 10 to 100."
+    "path": null,
+    "expected": null
   },
   {
     "case": "contextPercent \"50\"",
