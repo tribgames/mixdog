@@ -97,7 +97,7 @@
     "client": "tui",
     "method": "blob/read",
     "params": {
-      "digest": "digest-1"
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "source": "native/core/crates/mixdog-app-server-client/src/api.rs:blob/read",
     "case": "required fields"
@@ -107,7 +107,7 @@
     "method": "blob/put",
     "params": {
       "bytesB64": "bytesB64-1",
-      "digest": "digest-1",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 1
     },
     "source": "native/core/crates/mixdog-app-server-client/src/api.rs:blob/put",
@@ -231,7 +231,7 @@
     "client": "phone",
     "method": "blob/read",
     "params": {
-      "digest": "digest-1"
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:blob/read",
     "case": "required fields"
@@ -1360,7 +1360,7 @@
     "client": "protocol-client",
     "method": "blob/read",
     "params": {
-      "digest": "digest-1"
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "source": "packages/protocol-client/src/client.ts:blob/read",
     "case": "required fields"
@@ -1370,7 +1370,7 @@
     "method": "blob/put",
     "params": {
       "bytesB64": "bytesB64-1",
-      "digest": "digest-1",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 1
     },
     "source": "packages/protocol-client/src/client.ts:blob/put",
@@ -2438,7 +2438,7 @@
     "client": "desktop",
     "method": "blob/read",
     "params": {
-      "digest": "digest-1"
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "source": "apps/desktop/src/main/protocol/service-route.ts:blob/read",
     "case": "required fields"
@@ -3282,7 +3282,7 @@
     "client": "tui",
     "method": "blob/read",
     "params": {
-      "digest": "digest-1",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "length": 1,
       "offset": 1
     },
@@ -3294,7 +3294,7 @@
     "method": "blob/put",
     "params": {
       "bytesB64": "bytesB64-1",
-      "digest": "digest-1",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 1
     },
     "source": "native/core/crates/mixdog-app-server-client/src/api.rs:blob/put",
@@ -8465,7 +8465,7 @@
     "client": "protocol-client",
     "method": "blob/read",
     "params": {
-      "digest": "sha256-0000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": null,
       "length": null
     },
@@ -8476,7 +8476,7 @@
     "client": "protocol-client",
     "method": "blob/read",
     "params": {
-      "digest": "sha256-0000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 262144,
       "length": 65536
     },
@@ -8487,7 +8487,7 @@
     "client": "protocol-client",
     "method": "blob/put",
     "params": {
-      "digest": "sha256-0000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 0,
       "bytesB64": "AAAA"
     },
@@ -8498,7 +8498,7 @@
     "client": "protocol-client",
     "method": "blob/put",
     "params": {
-      "digest": "sha256-0000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "offset": 3,
       "bytesB64": ""
     },
