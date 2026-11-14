@@ -18,7 +18,7 @@
 //! The command is the bridge's wire shape (the helper's vocabulary plus `session_id`, `turn_id`, `runtime_id`). The ones the tool
 //! has an action for (`list_windows`, `capture`, `sequence`, `fill_saved_login`, ...) run through the session's backend, the same
 //! pipeline a model's `computer` call takes. A single input command (`click`, `type`, `key`, `scroll`, ... the commands that act and
-//! then look) runs there too, as a sequence of one step: the same preflight, settle and observation after it that the host's single
+//! then look) that names its window or app runs there too, as a sequence of one step: the same preflight, settle and observation after it that the host's single
 //! path gave it. The helper's own reads and probes (`find`, `window_bounds`, `snapshot`, ...) and `toggle` run through the session's
 //! helper as a handed-off secret's steps do.
 //!
@@ -876,9 +876,15 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
         }
         "launch" => ComputerAction::Launch,
         // A single input command is a sequence of one step, which settles and observes as the host's single path did. `toggle` is no
-        // step of a sequence: it stays the helper's own.
+        // step of a sequence, and an `act` names exactly one window or app: a command that names none (an element mark of the last
+        // capture, a point of a frame) stays the helper's own, as the host's single path took it without a window.
         "invoke" | "set_value" | "click" | "double_click" | "right_click" | "middle_click" | "triple_click" | "mouse_down" | "mouse_up" | "mouse_move" | "drag" | "type" | "key"
-        | "key_down" | "key_up" | "scroll" => return Some(one_step(action.as_str()?, input)),
+        | "key_down" | "key_up" | "scroll" => {
+            if ["window_id", "app"].iter().filter(|key| input.contains_key(**key)).count() != 1 {
+                return None;
+            }
+            return Some(one_step(action.as_str()?, input));
+        }
         "fill_saved_login" => {
             input.remove("delivery");
             if let Some(account) = input.remove("saved_account") {
@@ -1543,6 +1549,8 @@ mod tests {
             let request = tool_request(&command(json!({ "action": action, "window_id": "w" }))).unwrap_or_else(|| panic!("{action} is a step"));
             assert_eq!(request.action, ComputerAction::Act, "{action}");
         }
+        // No window or app named: the helper's own, as the host's single path took an element mark without a window.
+        assert!(tool_request(&command(json!({ "action": "click", "element": 3, "delivery": "background" }))).is_none());
     }
 
     /// A raw input command runs through the session's backend (settle and observation), never the helper directly.
