@@ -46,9 +46,9 @@ if ($CoreBinary -and -not (Test-Path -LiteralPath $CoreBinary -PathType Leaf)) {
 }
 $desktopDir = Resolve-Path (Join-Path $PSScriptRoot '..')
 $repoRoot = Resolve-Path (Join-Path $desktopDir '../..')
-# Short on purpose: the tree carries paths like node_modules/@homebridge/
-# node-pty-prebuilt-multiarch/third_party/conpty/... and a long prefix pushes
-# them past the 260-character limit that git's own delete still honours.
+# Short on purpose: the tree carries deeply nested node_modules paths and a
+# long prefix pushes them past the 260-character limit that git's own delete
+# still honours.
 $snapshotRoot = Join-Path $env:TEMP ("mxsnap-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $deployStartedAtUtc = [DateTime]::UtcNow
 $timings = [ordered]@{}

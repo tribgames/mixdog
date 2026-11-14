@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { embeddingRuntimeTarget } from './prune-embedding-runtime.mjs';
 
 const PRODUCTION_SOURCE_EXTENSIONS = /\.(?:map|ts|tsx|mts|cts)$/i;
-const NATIVE_BUILD_ARTIFACT_EXTENSIONS = /\.(?:pdb|obj|ilk|exp|lib)$/i;
 const TESSERACT_LSTM_CORE_FILES = new Set([
   'tesseract-core-lstm.js',
   'tesseract-core-lstm.wasm',
@@ -239,42 +238,5 @@ export async function pruneDesktopRuntime(packageRoot, options = {}) {
     removedSharpWasm,
     removedTesseractBytes: tesseractCore.beforeBytes - tesseractCore.afterBytes,
     removedPdfBytes: pdfRuntime.beforeBytes - pdfRuntime.afterBytes,
-  };
-}
-
-export async function pruneDesktopPtyPackage(packageRoot, options = {}) {
-  const target = embeddingRuntimeTarget(options);
-  const beforeBytes = await directoryBytes(packageRoot);
-  const keep = new Set(['package.json', 'LICENSE', 'LICENSE.md', 'lib']);
-  let nativeRoot;
-
-  if (target.platform === 'linux') {
-    keep.add('prebuilds');
-    const targetName = `${target.platform}-${target.arch}`;
-    await removeChildrenExcept(join(packageRoot, 'prebuilds'), new Set([targetName]));
-    nativeRoot = join(packageRoot, 'prebuilds', targetName);
-  } else {
-    keep.add('build');
-    nativeRoot = join(packageRoot, 'build', 'Release');
-  }
-
-  if (!(await treeContainsFile(nativeRoot, (name) => name.endsWith('.node')))) {
-    throw new Error(`Desktop node-pty is incomplete: no native addon under ${nativeRoot}`);
-  }
-
-  await removeChildrenExcept(packageRoot, keep);
-  const removedBuildFiles = await removeMatchingFiles(
-    packageRoot,
-    (name) =>
-      PRODUCTION_SOURCE_EXTENSIONS.test(name) ||
-      NATIVE_BUILD_ARTIFACT_EXTENSIONS.test(name) ||
-      /\.(?:test|spec)\.js$/i.test(name)
-  );
-  const afterBytes = await directoryBytes(packageRoot);
-  return {
-    ...target,
-    removedBuildFiles,
-    beforeBytes,
-    afterBytes,
   };
 }

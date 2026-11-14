@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 // Verifies that the dependency versions packed into the desktop runtime match
 // the lockfiles: every package.json inside apps/desktop/.runtime/runtime.asar
-// (and its .unpacked sidecar) against the root package-lock.json, and the
-// shipped node-pty against apps/desktop/package-lock.json. A stale install or
+// (and its .unpacked sidecar) against the root package-lock.json. A stale install or
 // a reused prepared-runtime cache otherwise ships old versions unnoticed.
 
 import { readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-export const DESKTOP_PTY_PACKAGE = '@homebridge/node-pty-prebuilt-multiarch';
-const DESKTOP_PTY_LOCK_KEY = `node_modules/${DESKTOP_PTY_PACKAGE}`;
 
 /**
  * The package-lock `packages` key of an installed package's package.json, or
@@ -68,16 +64,6 @@ export function compareShippedVersions({ lockPackages, shipped }) {
   return mismatches;
 }
 
-/** The shipped desktop node-pty version against the desktop lockfile. */
-export function compareDesktopPtyVersion({ desktopLockPackages, shippedVersion, source }) {
-  const expected = desktopLockPackages[DESKTOP_PTY_LOCK_KEY]?.version;
-  if (expected === undefined) return [`${DESKTOP_PTY_PACKAGE}: absent from the desktop lockfile`];
-  if (shippedVersion !== expected) {
-    return [`${DESKTOP_PTY_PACKAGE}: shipped ${shippedVersion}, desktop lockfile ${expected} (${source})`];
-  }
-  return [];
-}
-
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
 }
@@ -116,25 +102,16 @@ export async function readSidecarPackages(sidecar) {
   return shipped;
 }
 
-export async function verifyRuntimeDependencyVersions({ rootDir, desktopDir, runtimeDir }) {
+export async function verifyRuntimeDependencyVersions({ rootDir, runtimeDir }) {
   const archive = join(runtimeDir, 'runtime.asar');
-  const [rootLock, desktopLock, archivePackages, sidecarPackages, pty] = await Promise.all([
+  const [rootLock, archivePackages, sidecarPackages] = await Promise.all([
     readJson(join(rootDir, 'package-lock.json')),
-    readJson(join(desktopDir, 'package-lock.json')),
     readArchivePackages(archive),
     readSidecarPackages(`${archive}.unpacked`),
-    readJson(join(runtimeDir, 'desktop-node-pty', 'package.json')),
   ]);
   const shipped = [...archivePackages, ...sidecarPackages];
   if (archivePackages.length === 0) throw new Error(`${archive} lists no package.json files; refusing to pass.`);
-  return [
-    ...compareShippedVersions({ lockPackages: rootLock.packages, shipped }),
-    ...compareDesktopPtyVersion({
-      desktopLockPackages: desktopLock.packages,
-      shippedVersion: pty.version,
-      source: 'desktop-node-pty',
-    }),
-  ];
+  return compareShippedVersions({ lockPackages: rootLock.packages, shipped });
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : '';
@@ -143,7 +120,7 @@ if (invokedPath === import.meta.url) {
   const desktopDir = join(rootDir, 'apps', 'desktop');
   const runtimeDir = process.argv[2] ? resolve(process.argv[2]) : join(desktopDir, '.runtime');
   try {
-    const mismatches = await verifyRuntimeDependencyVersions({ rootDir, desktopDir, runtimeDir });
+    const mismatches = await verifyRuntimeDependencyVersions({ rootDir, runtimeDir });
     if (mismatches.length > 0) {
       process.stderr.write(`Packaged runtime dependency versions differ from the lockfiles:\n`);
       for (const mismatch of mismatches) process.stderr.write(`  - ${mismatch}\n`);
