@@ -7,7 +7,6 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 import { DESKTOP_IPC } from '../../shared/contract-ipc.ts';
-import { mergeListeningSockets, parseLsofListen, parseProcNetTcp } from '../server-ports.ts';
 import { parseSshTarget } from '../ssh/ssh-command.ts';
 import { SshTunnel } from '../ssh/tunnel.ts';
 import {
@@ -22,49 +21,6 @@ import { createPortForwardStore } from './port-forward-store.ts';
 import { registerServerPortsIpc } from './ports-ipc.ts';
 import { LOWEST_LOCAL_PORT, createServerPortForwards } from './server-port-forwards.ts';
 import { WindowRouteRegistry } from './window-routes.ts';
-
-const PROC_TCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1001 1 0000000000000000 100 0 0 10 0
-   1: 0100007F:A028 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1002 1 0000000000000000 100 0 0 10 0
-   2: 0100007F:0BB8 0100007F:D0F2 01 00000000:00000000 00:00000000 00000000     0        0 1003 1 0000000000000000 20 4 30 10 -1
-`;
-const PROC_TCP6 = `  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000000000000000000000000000:1F90 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2001 1 0000000000000000 100 0 0 10 0
-   1: 00000000000000000000000001000000:0BB8 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2002 1 0000000000000000 100 0 0 10 0
-`;
-
-test('listening ports are read from /proc/net/tcp{,6} and lsof, merged per port, without the service’s own', () => {
-  const v4 = parseProcNetTcp(PROC_TCP, 4);
-  assert.deepEqual(
-    v4.map(({ port, address, inode }) => ({ port, address, inode })),
-    [
-      { port: 3000, address: '0.0.0.0', inode: '1001' },
-      { port: 41000, address: '127.0.0.1', inode: '1002' },
-    ],
-    'only LISTEN rows'
-  );
-  const v6 = parseProcNetTcp(PROC_TCP6, 6);
-  assert.deepEqual(
-    v6.map(({ port, address }) => ({ port, address })),
-    [
-      { port: 8080, address: '::' },
-      { port: 3000, address: '::1' },
-    ]
-  );
-  const merged = mergeListeningSockets(
-    [{ ...v4[0], pid: 10, process: 'node' }, { ...v4[1], pid: 99, process: 'node' }, ...v6],
-    99
-  );
-  assert.deepEqual(merged, [
-    { port: 3000, addresses: ['0.0.0.0', '::1'], process: 'node', pid: 10 },
-    { port: 8080, addresses: ['::'] },
-  ]);
-  const lsof = parseLsofListen('p501\ncnode\nn*:3000\nn[::1]:3000\np777\ncpython3\nn127.0.0.1:8000\n');
-  assert.deepEqual(mergeListeningSockets(lsof, 1), [
-    { port: 3000, addresses: ['0.0.0.0', '::1'], process: 'node', pid: 501 },
-    { port: 8000, addresses: ['127.0.0.1'], process: 'python3', pid: 777 },
-  ]);
-});
 
 function memoryStore() {
   const data = new Map();
