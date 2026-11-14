@@ -5,11 +5,16 @@ place: [dependencies], after `mixdog-js = { workspace = true }`
 add: mixdog-migrate = { workspace = true }
 note: mixdog-migrate does not depend on mixdog-core-domains (its deps are core-api, agent, js, mcp, store, statefile, ledger, protocol, ...), so no cycle. Then `cargo update --workspace --offline` / hakari as usual.
 
+file: native/core/crates/mixdog-core-domains/Cargo.toml
+place: [dev-dependencies], after `mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }`
+add: mixdog-migrate = { workspace = true, features = ["crash-hook"] }
+note: the test-feature unification every crate that builds mixdog-migrate in its tests carries (D:\mixdog-build\tools\unify-test-features.py).
+
 file: native/core/crates/mixdog-core-domains/src/domains/mod.rs
 place: the `pub mod` list, after `pub mod instructions;`
 add: pub mod migrate_profile;
 
 file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
-place: fn real_core, after the registration of the other core-domains services (data dir `D` and home dir `H` are the roots of `mixdogd migrate`, the ones boot.rs builds MigrationRoots from)
-add: builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(data_dir.clone(), home_dir.clone(), &tokens)))?;
+place: fn real_core, after `builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;` (`mixdog_home` is the `let` that computes `MIXDOG_HOME`, else `~/.mixdog`: the `<H>` boot.rs's migration_roots resolves through mixdog_migrate::run::cli::resolve_roots; `b.data_dir` is its `<D>`)
+add: builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(b.data_dir.clone(), mixdog_home.clone(), &b.tokens)))?; // `migrate/profile/*`
 remove from SERVICE_PENDING: "migrate/profile/status", "migrate/profile/adopt" (if listed)
