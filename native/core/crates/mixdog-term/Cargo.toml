@@ -10,9 +10,14 @@ workspace = true
 [dependencies]
 mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-termtext = { workspace = true }
+mixdog-tui-style = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The VT test grid (testing.rs) replays frames for the tests of this crate and of the crates above it, so it is a
+# regular dependency.
+vte = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
@@ -28,6 +33,5 @@ windows-sys = { workspace = true, features = [
 windows = { workspace = true, features = ["Win32_System_Com", "Win32_UI_Shell"] }
 
 [dev-dependencies]
-vte = { workspace = true }
 portable-pty = { workspace = true }
 tempfile = { workspace = true }
