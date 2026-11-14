@@ -479,3 +479,33 @@ fn the_engine_refuses_what_it_cannot_stand_behind_instead_of_guessing() {
         refused(formula);
     }
 }
+
+
+/// Owned by formula-core; enable after the four library modules have been wired
+/// into TABLES. These are the remaining engine-level assertions from the original
+/// xlsx-formula-engine.test.mjs, not substitutes implemented by the test handful.
+#[test]
+#[ignore = "integration gate: requires the four formula library tasks registered in TABLES"]
+fn original_engine_cases_with_the_production_library() {
+    use mixdog_xlsx_formula::evaluate_formula;
+    let mut cells = Cells(HashMap::from([
+        ("A1", Value::Number(2.0)), ("A2", Value::Number(3.0)),
+        ("B1", Value::text("north")), ("C1", Value::Bool(true)),
+    ]));
+    let cases = [
+        ("=ROUND(AVERAGE(A1:A2),1)", Value::Number(2.5)),
+        ("=_xlfn.TEXTJOIN(\"-\",TRUE,\"a\",\"b\")", Value::text("a-b")),
+        ("=YEAR(DATE(2024,5,6))", Value::Number(2024.0)),
+        ("=DAY(DATE(2024,5,6))", Value::Number(6.0)),
+        ("=ROUND(STDEV(A1:A2),4)", Value::Number(0.7071)),
+        ("=RANK(A1,A1:A2)", Value::Number(2.0)),
+        ("=_xlfn.RANK.EQ(A1,A1:A2)", Value::Number(2.0)),
+        ("=COUNTIF(A1:A2,\">2\")", Value::Number(1.0)),
+        ("=TEXT(1234.5,\"0.00\")", Value::text("1234.50")),
+    ];
+    with_local_zone(zone("Asia/Seoul"), || {
+        for (formula, expected) in cases {
+            assert_eq!(evaluate_formula(formula, &mut cells), Ok(expected), "{formula}");
+        }
+    });
+}

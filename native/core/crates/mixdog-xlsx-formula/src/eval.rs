@@ -10,14 +10,12 @@ use mixdog_js::{js_trim, math, number_to_string, string_to_number};
 use mixdog_office_base::a1::{column_label, column_number, parse_cell_ref};
 
 use crate::coerce::{compare_utf16, to_js_string, wall_clock_ms};
-use crate::parse::{BinaryOperator, Node, parse};
+use crate::parse::{BinaryOperator, Node, Tree, parse};
 use crate::registry::{Registry, library};
 use crate::value::{ErrorValue, Failure, Value};
 
 /// A range larger than this many cells is refused.
 pub const MAX_RANGE_CELLS: f64 = 200_000.0;
-/// How deep the evaluation of a formula may nest (a defined name that is a formula adds its own levels).
-const MAX_EVALUATION_DEPTH: usize = 600;
 const DAY_MS: f64 = 86_400_000.0;
 
 /// A function that answers for an error argument instead of inheriting it: `IF` and its family choose a branch, and
@@ -372,103 +370,118 @@ fn string_argument(value: &Value) -> Option<&str> {
 struct Evaluator<'a> {
     registry: &'a Registry,
     context: &'a mut dyn Context,
-    depth: usize,
+
 }
 
 impl Evaluator<'_> {
-    fn evaluate_node(&mut self, node: &Node) -> Result<Value, Failure> {
-        self.depth += 1;
-        let result = if self.depth > MAX_EVALUATION_DEPTH {
-            Err(refuse("the formula nests deeper than this engine evaluates"))
-        } else {
-            self.evaluate_inner(node)
-        };
-        self.depth -= 1;
-        result
-    }
-
-    fn evaluate_inner(&mut self, node: &Node) -> Result<Value, Failure> {
-        match node {
-            Node::Literal(value) => Ok(value.clone()),
-            Node::Reference(text) => {
-                let SplitReference { sheet, from, to } = split_reference(text);
-                let target = if sheet.is_empty() { self.context.sheet().to_owned() } else { sheet };
-                if to.is_empty() {
-                    Ok(self.context.value(&target, &from)?.canonical())
-                } else {
-                    range_values(&target, &from, &to, self.context)
-                }
-            }
-            // A name the workbook defines as a cell, a range or a constant is that value under another word, and it is
-            // read exactly as the definition is written. A name defined as anything else (including one scoped to a
-            // single sheet) has no reading here and is refused.
-            Node::Name(text) => {
-                let Some(target) = self.context.defined_name(text).filter(|target| !target.is_empty()) else {
-                    return Err(refuse(format!("defined name {text}")));
-                };
-                let tree = parse(target.strip_prefix('=').unwrap_or(&target))?;
-                self.evaluate_node(&tree)
-            }
-            Node::Percent { operand, count } => {
-                let value = single(self.evaluate_node(operand)?)?;
-                match to_number(&value) {
-                    Err(error) => Ok(Value::Error(error)),
-                    Ok(mut number) => {
-                        for _ in 0..*count {
-                            number /= 100.0;
-                        }
-                        Ok(Value::Number(number))
-                    }
-                }
-            }
-            Node::Unary { negations, operand } => {
-                let value = single(self.evaluate_node(operand)?)?;
-                match to_number(&value) {
-                    Err(error) => Ok(Value::Error(error)),
-                    Ok(mut number) => {
-                        for negative in negations.iter().rev() {
-                            if *negative {
-                                number = -number;
-                            }
-                        }
-                        Ok(Value::Number(number))
-                    }
-                }
-            }
-            Node::Chain { first, rest } => {
-                let mut left = self.evaluate_node(first)?;
-                for (operator, operand) in rest {
-                    if left.is_formula_error() {
-                        return Ok(left);
-                    }
-                    let right = self.evaluate_node(operand)?;
-                    if right.is_formula_error() {
-                        return Ok(right);
-                    }
-                    left = apply(*operator, left, right)?;
-                }
-                Ok(left)
-            }
-            Node::Call { name, args } => self.evaluate_call(name, args),
+    fn evaluate_node(&mut self, mut tree: Tree) -> Result<Value, Failure> {
+        enum Work {
+            Evaluate(usize),
+            Percent(usize),
+            Unary(Vec<bool>),
+            Chain(std::vec::IntoIter<(BinaryOperator, usize)>),
+            Right(Value, BinaryOperator, std::vec::IntoIter<(BinaryOperator, usize)>),
+            Call(String, std::vec::IntoIter<usize>, Vec<Value>),
+            Argument(String, std::vec::IntoIter<usize>, Vec<Value>),
+            LeaveName((String, String)),
         }
+        let mut work = vec![Work::Evaluate(tree.root)];
+        let mut active_names = std::collections::HashSet::new();
+        let mut value = Value::Undefined;
+        while let Some(step) = work.pop() {
+            match step {
+                Work::Evaluate(id) => match tree.nodes[id].clone() {
+                    Node::Literal(literal) => value = literal,
+                    Node::Reference(text) => {
+                        let SplitReference { sheet, from, to } = split_reference(&text);
+                        let target = if sheet.is_empty() { self.context.sheet().to_owned() } else { sheet };
+                        value = if to.is_empty() { self.context.value(&target, &from)?.canonical() }
+                            else { range_values(&target, &from, &to, self.context)? };
+                    }
+                    Node::Name(name) => {
+                        let target = self.context.defined_name(&name).filter(|s| !s.is_empty())
+                            .ok_or_else(|| refuse(format!("defined name {name}")))?;
+                        let key = (name, target.clone());
+                        // A repeated active definition cannot terminate. Node eventually
+                        // throws this RangeError; report its message without exhausting Rust's stack.
+                        if !active_names.insert(key.clone()) {
+                            return Err(Failure::thrown("Maximum call stack size exceeded"));
+                        }
+                        let root = tree.append(target.strip_prefix('=').unwrap_or(&target))?;
+                        work.push(Work::LeaveName(key));
+                        work.push(Work::Evaluate(root));
+                    }
+                    Node::Percent { operand, count } => {
+                        work.push(Work::Percent(count));
+                        work.push(Work::Evaluate(operand));
+                    }
+                    Node::Unary { negations, operand } => {
+                        work.push(Work::Unary(negations));
+                        work.push(Work::Evaluate(operand));
+                    }
+                    Node::Chain { first, rest } => {
+                        work.push(Work::Chain(rest.into_iter()));
+                        work.push(Work::Evaluate(first));
+                    }
+                    Node::Call { name, args } => {
+                        self.call_implementation(&name)?;
+                        work.push(Work::Call(name, args.into_iter(), Vec::new()));
+                    }
+                },
+                Work::LeaveName(key) => { active_names.remove(&key); }
+                Work::Percent(count) => {
+                    value = match to_number(&single(value)?) {
+                        Err(error) => Value::Error(error),
+                        Ok(mut number) => { for _ in 0..count { number /= 100.0; } Value::Number(number) }
+                    };
+                }
+                Work::Unary(signs) => {
+                    value = match to_number(&single(value)?) {
+                        Err(error) => Value::Error(error),
+                        Ok(mut number) => { for negative in signs.iter().rev() { if *negative { number = -number; } } Value::Number(number) }
+                    };
+                }
+                Work::Chain(mut rest) => {
+                    if !value.is_formula_error() {
+                        if let Some((operator, operand)) = rest.next() {
+                            work.push(Work::Right(value, operator, rest));
+                            work.push(Work::Evaluate(operand));
+                            value = Value::Undefined;
+                        }
+                    }
+                }
+                Work::Right(left, operator, rest) => {
+                    if !value.is_formula_error() { value = apply(operator, left, value)?; }
+                    work.push(Work::Chain(rest));
+                }
+                Work::Call(name, mut args, values) => {
+                    if let Some(next) = args.next() {
+                        work.push(Work::Argument(name, args, values));
+                        work.push(Work::Evaluate(next));
+                    } else { value = self.finish_call(&name, values)?; }
+                }
+                Work::Argument(name, args, mut values) => {
+                    values.push(value);
+                    value = Value::Undefined;
+                    work.push(Work::Call(name, args, values));
+                }
+            }
+        }
+        Ok(value)
     }
 
-    fn evaluate_call(&mut self, name: &str, nodes: &[Node]) -> Result<Value, Failure> {
-        // An empty cell arrives here as empty text, so ISBLANK would call a blank cell filled. Excel's answer is TRUE,
-        // and guessing FALSE is worse than leaving the cell for LibreOffice.
+    fn call_implementation(&self, name: &str) -> Result<crate::registry::Function, Failure> {
         if name == "ISBLANK" {
             return Err(refuse("ISBLANK, which cannot tell an empty cell from empty text here"));
         }
         if NEEDS_REFERENCE.contains(&name) {
             return Err(refuse(format!("{name}, which answers about a cell this engine reads as a value")));
         }
-        let Some(implementation) = self.registry.resolve(name) else {
-            return Err(refuse(format!("{name} is not implemented")));
-        };
-        let mut args = Vec::with_capacity(nodes.len());
-        for node in nodes {
-            args.push(self.evaluate_node(node)?);
-        }
+        self.registry.resolve(name).ok_or_else(|| refuse(format!("{name} is not implemented")))
+    }
+
+    fn finish_call(&self, name: &str, args: Vec<Value>) -> Result<Value, Failure> {
+        let implementation = self.call_implementation(name)?;
         if name == "TEXT" {
             let format = args.get(1).map_or_else(
                 || "undefined".to_owned(),
@@ -508,8 +521,8 @@ pub fn evaluate_formula_with(registry: &Registry, formula: &str, context: &mut d
         return Err(refuse("a workbook or table reference"));
     }
     let tree = parse(text)?;
-    let mut evaluator = Evaluator { registry, context, depth: 0 };
-    let value = evaluator.evaluate_node(&tree)?;
+    let mut evaluator = Evaluator { registry, context };
+    let value = evaluator.evaluate_node(tree)?;
     normalize(value, false)
 }
 
@@ -800,4 +813,26 @@ mod tests {
         let signs = format!("={}1", "-".repeat(20_001));
         assert_eq!(number(&signs), -1.0);
     }
+
+    #[test]
+    fn deep_groups_calls_and_defined_names_do_not_use_the_native_stack() {
+        let registry = Registry::new(&[&[("SUM", sum)]]);
+        let mut cells = Cells::new();
+        for depth in [255, 256, 257, 600, 20_000] {
+            let groups = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+            assert_eq!(evaluate_formula_with(&registry, &groups, &mut cells), Ok(Value::Number(1.0)));
+            let calls = format!("{}1{}", "SUM(".repeat(depth), ")".repeat(depth));
+            assert_eq!(evaluate_formula_with(&registry, &calls, &mut cells), Ok(Value::Number(1.0)));
+        }
+        for index in 0..2_000 {
+            cells.names.insert(format!("NAME_{index}"), format!("NAME_{}", index + 1));
+        }
+        cells.names.insert("NAME_2000".into(), "7".into());
+        assert_eq!(evaluate_formula_with(&registry, "NAME_0", &mut cells), Ok(Value::Number(7.0)));
+        cells.names.insert("LOOP".into(), "LOOP".into());
+        assert_eq!(evaluate_formula_with(&registry, "LOOP", &mut cells), Err(Failure::thrown("Maximum call stack size exceeded")));
+        // Repeated sibling use is not a cycle; only active definitions count.
+        assert_eq!(evaluate_formula_with(&registry, "NAME_0+NAME_0", &mut cells), Ok(Value::Number(14.0)));
+    }
+
 }

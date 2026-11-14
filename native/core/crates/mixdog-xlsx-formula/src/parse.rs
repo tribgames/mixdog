@@ -7,10 +7,6 @@ use mixdog_js::string_to_number;
 use crate::token::{Token, TokenKind, tokenize};
 use crate::value::{UnsupportedFormula, Value, cell_error_of};
 
-/// How deep a formula may nest (parentheses, call arguments, the right side of an operator) before the engine refuses
-/// it. Excel itself stops at 64 levels; the Node engine ran out of stack at about a thousand.
-pub(crate) const MAX_NESTING: usize = 256;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BinaryOperator {
     Equal,
@@ -63,38 +59,48 @@ const LEVELS: [&[BinaryOperator]; 5] = [
     &[BinaryOperator::Power],
 ];
 
+/// Nodes hold arena indices, so constructing, evaluating and dropping a deeply
+/// nested formula does not consume the native call stack.
 #[derive(Debug, Clone)]
 pub(crate) enum Node {
     Literal(Value),
-    /// The text of a reference as written.
     Reference(String),
-    /// A name the workbook may define.
     Name(String),
-    Call { name: String, args: Vec<Node> },
-    /// The operand divided by a hundred `count` times.
-    Percent { operand: Box<Node>, count: usize },
-    /// The signs in front of the operand, outermost first: true for `-`.
-    Unary { negations: Vec<bool>, operand: Box<Node> },
-    /// `first op rest[0].0 rest[0].1 op ...`, read left to right.
-    Chain { first: Box<Node>, rest: Vec<(BinaryOperator, Node)> },
+    Call { name: String, args: Vec<usize> },
+    Percent { operand: usize, count: usize },
+    Unary { negations: Vec<bool>, operand: usize },
+    Chain { first: usize, rest: Vec<(BinaryOperator, usize)> },
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Tree {
+    pub nodes: Vec<Node>,
+    pub root: usize,
+}
+
+impl Tree {
+    fn push(&mut self, node: Node) -> usize {
+        let id = self.nodes.len();
+        self.nodes.push(node);
+        id
+    }
+
+    /// Append a defined-name expression to the same arena without moving existing ids.
+    pub fn append(&mut self, formula: &str) -> Result<usize, UnsupportedFormula> {
+        parse_tokens(tokenize(formula)?, self)
+    }
 }
 
 struct Cursor {
     tokens: Vec<Token>,
     at: usize,
-    depth: usize,
 }
 
 impl Cursor {
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.at)
-    }
-
+    fn peek(&self) -> Option<&Token> { self.tokens.get(self.at) }
     fn take(&mut self) -> Option<Token> {
         let token = self.tokens.get(self.at).cloned();
-        if token.is_some() {
-            self.at += 1;
-        }
+        if token.is_some() { self.at += 1; }
         token
     }
 }
@@ -111,24 +117,6 @@ fn function_name(text: &str) -> String {
     without_fn.strip_prefix("_XLWS.").unwrap_or(without_fn).to_owned()
 }
 
-fn parse_call_args(cursor: &mut Cursor) -> Result<Vec<Node>, UnsupportedFormula> {
-    cursor.take(); // the "(" the name looked ahead to
-    let mut args = Vec::new();
-    if cursor.peek().is_some_and(|token| token.kind == TokenKind::Close) {
-        cursor.take();
-        return Ok(args);
-    }
-    loop {
-        args.push(parse_expression(cursor)?);
-        let Some(next) = cursor.take() else { return Err(refuse("the call is never closed")) };
-        match next.kind {
-            TokenKind::Close => return Ok(args),
-            TokenKind::Comma => {}
-            _ => return Err(refuse(format!("unexpected \"{}\" in a call", next.text))),
-        }
-    }
-}
-
 fn error_literal(text: &str) -> Value {
     // `Data!#REF!` and `#REF!B2:B4` are the error that was left where the reference was.
     let from_hash = text.rfind('#').map_or(text, |at| &text[at..]);
@@ -136,107 +124,138 @@ fn error_literal(text: &str) -> Value {
     cell_error_of(name).map_or_else(|| Value::Text(name.to_owned()), Value::Error)
 }
 
-fn parse_primary(cursor: &mut Cursor) -> Result<Node, UnsupportedFormula> {
-    let Some(token) = cursor.take() else { return Err(refuse("the formula ends early")) };
-    match token.kind {
-        TokenKind::Number => Ok(Node::Literal(Value::Number(string_to_number(&token.text)))),
-        TokenKind::String => {
-            let inner = &token.text[1..token.text.len() - 1];
-            Ok(Node::Literal(Value::Text(inner.replace("\"\"", "\"")).canonical()))
-        }
-        TokenKind::Error => Ok(Node::Literal(error_literal(&token.text))),
-        TokenKind::Reference => Ok(Node::Reference(token.text)),
-        TokenKind::Name => match token.text.to_uppercase().as_str() {
-            "TRUE" => Ok(Node::Literal(Value::Bool(true))),
-            "FALSE" => Ok(Node::Literal(Value::Bool(false))),
-            _ => Ok(Node::Name(token.text)),
-        },
-        TokenKind::Call => Ok(Node::Call { name: function_name(&token.text), args: parse_call_args(cursor)? }),
-        TokenKind::Open => {
-            let expression = parse_expression(cursor)?;
-            match cursor.take() {
-                Some(closing) if closing.kind == TokenKind::Close => Ok(expression),
-                _ => Err(refuse("a group is never closed")),
+enum Work {
+    Level(usize),
+    Tail { level: usize, first: usize, rest: Vec<(BinaryOperator, usize)> },
+    First(usize),
+    Operand { level: usize, first: usize, rest: Vec<(BinaryOperator, usize)>, operator: BinaryOperator },
+    Unary,
+    Signs(Vec<bool>),
+    Postfix,
+    Primary,
+    Group,
+    Argument { name: String, args: Vec<usize> },
+}
+
+/// The recursive-descent grammar expressed as continuations. `last` is the
+/// returned node of a child production; every continuation lives on the heap.
+fn parse_tokens(tokens: Vec<Token>, tree: &mut Tree) -> Result<usize, UnsupportedFormula> {
+    let mut cursor = Cursor { tokens, at: 0 };
+    let mut work = vec![Work::Level(0)];
+    let mut last = 0;
+    while let Some(step) = work.pop() {
+        match step {
+            Work::Level(level) => {
+                if level == LEVELS.len() { work.push(Work::Unary); }
+                else {
+                    work.push(Work::First(level));
+                    work.push(Work::Level(level + 1));
+                }
+            }
+            Work::First(level) => work.push(Work::Tail { level, first: last, rest: Vec::new() }),
+            Work::Tail { level, first, rest } => {
+                let operator = cursor.peek().filter(|t| t.kind == TokenKind::Operator)
+                    .and_then(|t| BinaryOperator::of(&t.text)).filter(|op| LEVELS[level].contains(op));
+                if let Some(operator) = operator {
+                    cursor.take();
+                    work.push(Work::Operand { level, first, rest, operator });
+                    work.push(Work::Level(level + 1));
+                } else {
+                    last = if rest.is_empty() { first } else { tree.push(Node::Chain { first, rest }) };
+                }
+            }
+            Work::Operand { level, first, mut rest, operator } => {
+                rest.push((operator, last));
+                work.push(Work::Tail { level, first, rest });
+            }
+            Work::Unary => {
+                let mut signs = Vec::new();
+                while cursor.peek().is_some_and(|t| t.kind == TokenKind::Operator && (t.text == "-" || t.text == "+")) {
+                    signs.push(cursor.take().expect("peeked").text == "-");
+                }
+                work.push(Work::Signs(signs));
+                work.push(Work::Postfix);
+                work.push(Work::Primary);
+            }
+            Work::Signs(negations) => {
+                if !negations.is_empty() { last = tree.push(Node::Unary { negations, operand: last }); }
+            }
+            Work::Postfix => {
+                let mut count = 0;
+                while cursor.peek().is_some_and(|t| t.kind == TokenKind::Operator && t.text == "%") {
+                    cursor.take();
+                    count += 1;
+                }
+                if count != 0 { last = tree.push(Node::Percent { operand: last, count }); }
+            }
+            Work::Primary => {
+                let token = cursor.take().ok_or_else(|| refuse("the formula ends early"))?;
+                let node = match token.kind {
+                    TokenKind::Number => Node::Literal(Value::Number(string_to_number(&token.text))),
+                    TokenKind::String => Node::Literal(Value::Text(token.text[1..token.text.len()-1].replace("\"\"", "\"")).canonical()),
+                    TokenKind::Error => Node::Literal(error_literal(&token.text)),
+                    TokenKind::Reference => Node::Reference(token.text),
+                    TokenKind::Name => match token.text.to_uppercase().as_str() {
+                        "TRUE" => Node::Literal(Value::Bool(true)),
+                        "FALSE" => Node::Literal(Value::Bool(false)),
+                        _ => Node::Name(token.text),
+                    },
+                    TokenKind::Open => {
+                        work.push(Work::Group);
+                        work.push(Work::Level(0));
+                        continue;
+                    }
+                    TokenKind::Call => {
+                        cursor.take(); // the opening parenthesis seen by the tokenizer
+                        let name = function_name(&token.text);
+                        if cursor.peek().is_some_and(|t| t.kind == TokenKind::Close) {
+                            cursor.take();
+                            Node::Call { name, args: Vec::new() }
+                        } else {
+                            work.push(Work::Argument { name, args: Vec::new() });
+                            work.push(Work::Level(0));
+                            continue;
+                        }
+                    }
+                    _ => return Err(refuse(format!("unexpected \"{}\"", token.text))),
+                };
+                last = tree.push(node);
+            }
+            Work::Group => {
+                if !cursor.take().is_some_and(|t| t.kind == TokenKind::Close) {
+                    return Err(refuse("a group is never closed"));
+                }
+            }
+            Work::Argument { name, mut args } => {
+                args.push(last);
+                let next = cursor.take().ok_or_else(|| refuse("the call is never closed"))?;
+                match next.kind {
+                    TokenKind::Close => last = tree.push(Node::Call { name, args }),
+                    TokenKind::Comma => {
+                        work.push(Work::Argument { name, args });
+                        work.push(Work::Level(0));
+                    }
+                    _ => return Err(refuse(format!("unexpected \"{}\" in a call", next.text))),
+                }
             }
         }
-        _ => Err(refuse(format!("unexpected \"{}\"", token.text))),
     }
+    if let Some(token) = cursor.peek() { return Err(refuse(format!("unexpected \"{}\"", token.text))); }
+    Ok(last)
 }
 
-fn is_operator(token: Option<&Token>, text: &str) -> bool {
-    token.is_some_and(|token| token.kind == TokenKind::Operator && token.text == text)
-}
-
-fn parse_postfix(cursor: &mut Cursor) -> Result<Node, UnsupportedFormula> {
-    let node = parse_primary(cursor)?;
-    let mut count = 0;
-    while is_operator(cursor.peek(), "%") {
-        cursor.take();
-        count += 1;
-    }
-    Ok(if count == 0 { node } else { Node::Percent { operand: Box::new(node), count } })
-}
-
-fn parse_unary(cursor: &mut Cursor) -> Result<Node, UnsupportedFormula> {
-    let mut negations = Vec::new();
-    while let Some(token) = cursor.peek() {
-        if token.kind != TokenKind::Operator || !(token.text == "-" || token.text == "+") {
-            break;
-        }
-        negations.push(token.text == "-");
-        cursor.take();
-    }
-    let operand = parse_postfix(cursor)?;
-    Ok(if negations.is_empty() { operand } else { Node::Unary { negations, operand: Box::new(operand) } })
-}
-
-fn parse_level(cursor: &mut Cursor, level: usize) -> Result<Node, UnsupportedFormula> {
-    let Some(operators) = LEVELS.get(level) else { return parse_unary(cursor) };
-    let first = parse_level(cursor, level + 1)?;
-    let mut rest = Vec::new();
-    loop {
-        let operator = match cursor.peek() {
-            Some(token) if token.kind == TokenKind::Operator => BinaryOperator::of(&token.text).filter(|op| operators.contains(op)),
-            _ => None,
-        };
-        let Some(operator) = operator else { break };
-        cursor.take();
-        rest.push((operator, parse_level(cursor, level + 1)?));
-    }
-    Ok(if rest.is_empty() { first } else { Node::Chain { first: Box::new(first), rest } })
-}
-
-fn parse_expression(cursor: &mut Cursor) -> Result<Node, UnsupportedFormula> {
-    cursor.depth += 1;
-    if cursor.depth > MAX_NESTING {
-        return Err(refuse("the formula nests deeper than this engine reads"));
-    }
-    let node = parse_level(cursor, 0);
-    cursor.depth -= 1;
-    node
-}
-
-/// `parse(tokens)`.
-fn parse_tokens(tokens: Vec<Token>) -> Result<Node, UnsupportedFormula> {
-    let mut cursor = Cursor { tokens, at: 0, depth: 0 };
-    let tree = parse_expression(&mut cursor)?;
-    if let Some(token) = cursor.peek() {
-        return Err(refuse(format!("unexpected \"{}\"", token.text)));
-    }
+pub(crate) fn parse(formula: &str) -> Result<Tree, UnsupportedFormula> {
+    let mut tree = Tree::default();
+    tree.root = tree.append(formula)?;
     Ok(tree)
-}
-
-/// The tree of a formula text (without its leading `=`).
-pub(crate) fn parse(formula: &str) -> Result<Node, UnsupportedFormula> {
-    parse_tokens(tokenize(formula)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn shape(node: &Node) -> String {
-        match node {
+    fn shape(tree: &Tree, id: usize) -> String {
+        match &tree.nodes[id] {
             Node::Literal(Value::Number(number)) => number.to_string(),
             Node::Literal(Value::Text(text)) => format!("{text:?}"),
             Node::Literal(Value::Bool(flag)) => flag.to_string(),
@@ -244,16 +263,16 @@ mod tests {
             Node::Literal(other) => format!("{other:?}"),
             Node::Reference(text) => text.clone(),
             Node::Name(text) => format!("name:{text}"),
-            Node::Call { name, args } => format!("{name}({})", args.iter().map(shape).collect::<Vec<_>>().join(",")),
-            Node::Percent { operand, count } => format!("({})%{count}", shape(operand)),
+            Node::Call { name, args } => format!("{name}({})", args.iter().map(|id| shape(tree, *id)).collect::<Vec<_>>().join(",")),
+            Node::Percent { operand, count } => format!("({})%{count}", shape(tree, *operand)),
             Node::Unary { negations, operand } => {
                 let signs: String = negations.iter().map(|negative| if *negative { '-' } else { '+' }).collect();
-                format!("[{signs}{}]", shape(operand))
+                format!("[{signs}{}]", shape(tree, *operand))
             }
             Node::Chain { first, rest } => {
-                let mut out = format!("({}", shape(first));
+                let mut out = format!("({}", shape(tree, *first));
                 for (operator, operand) in rest {
-                    out.push_str(&format!(" {operator:?} {}", shape(operand)));
+                    out.push_str(&format!(" {operator:?} {}", shape(tree, *operand)));
                 }
                 out.push(')');
                 out
@@ -262,7 +281,8 @@ mod tests {
     }
 
     fn shaped(formula: &str) -> String {
-        shape(&parse(formula).expect("parses"))
+        let tree = parse(formula).expect("parses");
+        shape(&tree, tree.root)
     }
 
     fn refusal(formula: &str) -> String {
@@ -311,13 +331,13 @@ mod tests {
     }
 
     #[test]
-    fn nesting_is_bounded_and_long_chains_are_not() {
-        // The formula itself is the first level, each group one more.
-        let deep = format!("{}1{}", "(".repeat(MAX_NESTING), ")".repeat(MAX_NESTING));
-        assert_eq!(refusal(&deep), "the formula nests deeper than this engine reads");
-        let allowed = format!("{}1{}", "(".repeat(MAX_NESTING - 1), ")".repeat(MAX_NESTING - 1));
-        assert!(parse(&allowed).is_ok());
+    fn deep_nesting_and_long_chains_use_heap_storage() {
+        let deep = format!("{}1{}", "(".repeat(20_000), ")".repeat(20_000));
+        assert!(parse(&deep).is_ok());
+        let calls = format!("{}1{}", "ABS(".repeat(20_000), ")".repeat(20_000));
+        assert!(parse(&calls).is_ok());
         let long = vec!["1"; 20_000].join("+");
-        assert!(matches!(parse(&long), Ok(Node::Chain { rest, .. }) if rest.len() == 19_999));
+        let tree = parse(&long).unwrap();
+        assert!(matches!(&tree.nodes[tree.root], Node::Chain { rest, .. } if rest.len() == 19_999));
     }
 }
