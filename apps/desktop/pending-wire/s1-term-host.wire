@@ -1,0 +1,5 @@
+# apps/desktop/src/shared/contract.ts, interface DesktopApi, member subscribeTermData (line "subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;")
+# Replace with:
+subscribeTermData?(listener: (event: { id: string; data: string; reset?: true }) => void): () => void;
+# A reset event carries the screen to draw anew in data (the main process dropped what was pending and counts data.length as in flight: the renderer acknowledges it as any data).
+# Renderer (TerminalPane.tsx attachTerminalOutput, remote-shim-api.ts laneSubscription): on reset:true clear the xterm (term.reset()) and write data; not part of this task's owned files.

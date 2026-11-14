@@ -52,3 +52,21 @@ test('ordinary desktop buffering keeps its existing delay', (t) => {
   assert.equal(delivered[0].data, 'a');
   buffer.dispose();
 });
+
+test('a reset drops the output not yet sent and delivers the screen at once, counted in flight until acknowledged', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const delivered = [];
+  const buffer = new TerminalDataBufferer((event) => delivered.push(event), 5, 8);
+  buffer.push({ id: 'term', data: 'old' });
+  buffer.reset('term', 'SCREEN');
+  assert.deepEqual(delivered, [{ id: 'term', data: 'SCREEN', reset: true }]);
+  t.mock.timers.tick(10);
+  assert.equal(delivered.length, 1, 'the dropped output is not sent later');
+  // 6 of 8 chars are in flight: only 2 more go out until the reset is acknowledged.
+  buffer.push({ id: 'term', data: 'abcdef' });
+  t.mock.timers.tick(10);
+  assert.equal(delivered[1].data, 'ab');
+  buffer.acknowledge('term', 6);
+  assert.equal(delivered[2].data, 'cdef');
+  buffer.dispose();
+});

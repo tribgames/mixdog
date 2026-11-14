@@ -1,6 +1,8 @@
 export interface TerminalDataEvent {
   id: string;
   data: string;
+  /** The data is the screen to draw anew, not a continuation of what was sent. */
+  reset?: true;
 }
 
 interface PendingTerminalData {
@@ -100,6 +102,21 @@ export class TerminalDataBufferer {
     if (next < this.highWatermarkChars && this.pending.has(terminalId)) {
       this.flush(terminalId);
     }
+    this.updateProducerFlow(terminalId);
+  }
+
+  /** Replaces what the window shows of the tab: the output not yet sent is dropped, and `data` goes out at once as a reset, counted
+   * as in flight until the window acknowledges it. */
+  reset(id: string, data: string): void {
+    const terminalId = String(id || '');
+    if (!terminalId) return;
+    const buffered = this.pending.get(terminalId);
+    if (buffered?.timer) clearTimeout(buffered.timer);
+    this.pending.delete(terminalId);
+    if (data) this.inFlightChars.set(terminalId, data.length);
+    else this.inFlightChars.delete(terminalId);
+    if (this.leadingEdge) this.lastDeliveredAt.set(terminalId, performance.now());
+    this.deliver({ id: terminalId, data, reset: true });
     this.updateProducerFlow(terminalId);
   }
 
