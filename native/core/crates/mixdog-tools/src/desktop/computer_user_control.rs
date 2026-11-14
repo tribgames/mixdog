@@ -1614,7 +1614,8 @@ mod tests {
         assert!(control.section().is_some(), "the late session's request still waits for the pause");
         control.session_ended("late");
         assert_eq!(control.section(), None, "the pause ends with the last session it waits for");
-        assert!(parked.await.unwrap().unwrap().is_some(), "the parked request is answered with the pending work");
+        // The request names no window to capture again, so the pending-work reply is the error result.
+        assert_eq!(reported(parked.await.unwrap())["code"], "computer_resume_recapture_required", "the parked request is answered with the pending work");
     }
 
     /// A request meeting the pause parks before the desktop's lane, so another session's request takes the lane meanwhile.
@@ -1637,7 +1638,8 @@ mod tests {
         assert!(entered.is_ok(), "the lane is free while a request is parked");
         drop(entered);
         assert!(control.resume(None));
-        assert!(parked.await.unwrap().unwrap().is_some(), "the parked request is answered with the pending work");
+        // The request names no window to capture again, so the pending-work reply is the error result.
+        assert_eq!(reported(parked.await.unwrap())["code"], "computer_resume_recapture_required", "the parked request is answered with the pending work");
         assert!(control.park_before_lane(&a, &click_in_background(), &CancellationToken::new()).await.unwrap().is_none(), "nothing held: it goes on");
     }
 
