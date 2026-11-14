@@ -115,8 +115,7 @@ impl HostLane {
             Scoped::Cancelled => Err(HostCallError::Cancelled),
             Scoped::Done(Caught::Up) => Ok(()),
             Scoped::Done(Caught::Unseen) => {
-                self.mirror.resync(claim, facts);
-                Ok(())
+                if self.mirror.resync(claim, facts) { Ok(()) } else { Err(claim_ended()) }
             }
             Scoped::Done(Caught::Gapped) | Scoped::DeadlineExceeded => self.sync(&facts.page_id, cancel, claim).await,
         }
