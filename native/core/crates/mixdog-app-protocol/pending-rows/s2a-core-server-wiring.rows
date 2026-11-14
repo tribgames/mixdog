@@ -1,0 +1,17 @@
+# s2a-core-server-wiring: the server echoes the window a connection is the socket of, and announces that it holds windows to the window table.
+# No new method, notification, server request, inventory row or free-text class: [methods] [server_requests] [notifications] [inventory] [free_text] [window] are empty.
+# The wiring task regenerates the generated files that come from these edits (hot): schema/*.json and packages/protocol/src/index.ts
+# (ConnectionInfo.window is optional in the TS type; ServerCapabilities.windowScope is a number).
+
+[type_edits]
+# src/v1.rs, struct ConnectionInfo: after `pub device: String,` add
+#     /// The id of the desktop window this connection is the socket of (`Mixdog-Window`); absent for any other connection.
+#     #[serde(default, skip_serializing_if = "Option::is_none")]
+#     #[cfg_attr(feature = "codegen", ts(optional))]
+#     pub window: Option<String>,
+# src/v1.rs, struct ServerCapabilities: after the `remote: RemoteCapabilities,` field add
+#     /// The version of the window method table the server holds a window-scoped connection to (`boundary::window_scope`); 0 from a core that has none.
+#     #[serde(default)]
+#     pub window_scope: u32,
+v1::ConnectionInfo + window: Option<String>
+v1::ServerCapabilities + window_scope: u32
