@@ -73,7 +73,10 @@ export function packagedMixdogRoot(resourcesPath: string): string {
  *  its own. The core never guesses a profile (`migration_roots` in the daemon's boot.rs): `MIXDOG_DESKTOP_USER_DATA`
  *  is the only way the one-time migration reaches the profile's session metadata and remote state. */
 export function coreEnvironment(packaged: boolean, resourcesPath: string, userData: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return packaged ? { ...base, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData } : base;
+  if (!packaged) return base;
+  // The test hooks belong to a dev core built with `--features test-hooks`; a packaged core never receives them.
+  const { MIXDOG_DEV_COMPUTER_RUN: _run, MIXDOGD_TEST_HOOKS: _hooks, ...inherited } = base;
+  return { ...inherited, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData };
 }
 
 async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcPort: number | null; blocked: unknown; pid: number | null }> {

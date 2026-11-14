@@ -12,6 +12,11 @@
 // tokens: those rotate, so an instance that refreshed one would sign the kept
 // profile out. A copy coasts on its access token, and the start is refused when
 // a GPT access token would expire before the lease ends.
+//   --config-overlay=<json file>  deep-merged into the seeded config before the core starts
+//   --pass-env=NAME,NAME          MIXDOG_* names of this shell kept in the instance env (never a name the
+//                                 isolation sets itself); MIXDOGD_TEST_HOOKS and MIXDOG_DEV_COMPUTER_RUN reach
+//                                 only a dev core: a packaged app strips them (src/main/protocol/local-core.ts)
+//   --inspect-main=<port>         V8 inspector of the Electron main process
 //   npm run dev:isolated:stop -- --name <tag>
 //   npm run dev:isolated:sweep [-- --all]
 //   npm run dev:isolated:list
@@ -576,6 +581,51 @@ export async function copyDevAuth(
   return copied;
 }
 
+const PASS_ENV_NAME = /^MIXDOGD?_[A-Z0-9_]+$/;
+
+/** The names of a --pass-env value; anything outside the MIXDOG_/MIXDOGD_ prefix is refused. */
+export function parsePassEnv(value) {
+  const names = String(value ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  for (const name of names) {
+    if (!PASS_ENV_NAME.test(name)) throw new Error(`--pass-env accepts only MIXDOG_* names (got "${name}").`);
+  }
+  return [...new Set(names)];
+}
+
+/** Copies the named variables of `parent` into `env`. A name the isolation already owns (and sets to another
+ *  value) is refused: a pass-through never replaces the instance's stores, relay or ports. A name unset in
+ *  `parent` is skipped. */
+export function applyPassEnv(env, names, parent = process.env) {
+  for (const name of names) {
+    if (name in env && env[name] !== parent[name]) {
+      throw new Error(`--pass-env cannot override ${name}: the instance isolation sets it.`);
+    }
+    if (parent[name] !== undefined) env[name] = parent[name];
+  }
+  return env;
+}
+
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** `overlay` laid over `base`: objects merge key by key at every depth, anything else (arrays included) replaces. */
+export function mergeConfigOverlay(base, overlay) {
+  const out = isPlainObject(base) ? { ...base } : {};
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === '__proto__') continue;
+    out[key] = isPlainObject(value) ? mergeConfigOverlay(out[key], value) : value;
+  }
+  return out;
+}
+
+/** Merges the JSON object in `overlayPath` into the instance's config file (the seeded one, or a new one). */
+export async function applyConfigOverlay(dataDir, overlayPath) {
+  const overlay = JSON.parse(await readFile(resolve(overlayPath), 'utf8'));
+  if (!isPlainObject(overlay)) throw new Error('--config-overlay must name a JSON file holding an object.');
+  const file = join(dataDir, 'mixdog-config.json');
+  const seeded = await readJson(file);
+  await writeFile(file, JSON.stringify(mergeConfigOverlay(seeded, overlay), null, 2));
+}
+
 /** A ready profile's config: onboarding and the getting-started guide done
  *  (or, with skipOnboarding false, left to run), on top of the kept dev
  *  profile's config (its model routes) when signed in. The source is only read. */
@@ -693,6 +743,9 @@ export async function startInstance({
   root = isolatedRoot(),
   relay = 'off',
   devProfileDir = persistentDevProfileDir('default'),
+  configOverlay = null,
+  passEnv = [],
+  inspectMain = null,
 }) {
   if (relay !== 'off' && !LOOPBACK_RELAY.test(relay))
     throw new Error('--relay must be a ws://127.0.0.1:<port> or ws://localhost:<port> URL.');
@@ -709,6 +762,7 @@ export async function startInstance({
     await mkdir(instanceDir, { recursive: true });
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
+    applyPassEnv(env, passEnv);
     const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs }) : [];
     if (copyAuth || skipOnboarding) {
       await seedReadyConfig(env.MIXDOG_DATA_DIR, {
@@ -717,6 +771,7 @@ export async function startInstance({
         devDataDir: join(devProfileDir, 'data'),
       });
     }
+    if (configOverlay) await applyConfigOverlay(env.MIXDOG_DATA_DIR, configOverlay);
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();
@@ -737,6 +792,7 @@ export async function startInstance({
         join(appDir, 'out'),
         '--clearScreen',
         'false',
+        ...(inspectMain ? ['--inspect', String(inspectMain)] : []),
       ],
       { cwd: desktopDir, env, detached: true, windowsHide: true, stdio: ['ignore', log, log] }
     );
@@ -780,6 +836,9 @@ async function main() {
       'ttl-minutes': { type: 'string', default: String(DEFAULT_TTL_MS / 60_000) },
       'timeout-seconds': { type: 'string', default: '300' },
       relay: { type: 'string', default: 'off' },
+      'config-overlay': { type: 'string' },
+      'pass-env': { type: 'string' },
+      'inspect-main': { type: 'string' },
     },
   });
   const root = isolatedRoot();
@@ -787,6 +846,10 @@ async function main() {
     assertName(values.name);
     const ttlMs = Number(values['ttl-minutes']) * 60_000;
     if (!(ttlMs > 0)) throw new Error('--ttl-minutes must be a positive number.');
+    const inspectMain = values['inspect-main'] === undefined ? null : Number(values['inspect-main']);
+    if (inspectMain !== null && !(Number.isInteger(inspectMain) && inspectMain > 0 && inspectMain < 65536)) {
+      throw new Error('--inspect-main must be a port number.');
+    }
     const info = await startInstance({
       name: values.name,
       ttlMs,
@@ -795,6 +858,9 @@ async function main() {
       timeoutMs: Number(values['timeout-seconds']) * 1000,
       root,
       relay: values.relay,
+      configOverlay: values['config-overlay'] ?? null,
+      passEnv: parsePassEnv(values['pass-env']),
+      inspectMain,
     });
     console.log(JSON.stringify(info));
     // The detached launcher keeps running; only this starter exits.
