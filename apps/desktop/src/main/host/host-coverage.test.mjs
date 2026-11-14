@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
 import { methodTable } from '../../../../../packages/protocol/src/index.ts';
@@ -6,6 +7,17 @@ import { methodTable } from '../../../../../packages/protocol/src/index.ts';
 // host/window/* is served only while the core owns the server windows (CORE_WINDOWS reads the
 // environment when connection.ts loads), so the flag is set before the host module is imported.
 process.env.MIXDOG_CORE_WINDOWS = '1';
+// The core computer host's modules read Electron's screen and windows at import; outside Electron stand-ins answer.
+registerHooks({
+  resolve(specifier, context, next) {
+    return specifier === 'electron'
+      ? {
+          url: 'data:text/javascript,export default "";export const screen = {};export const BrowserWindow = { getAllWindows: () => [] };',
+          shortCircuit: true,
+        }
+      : next(specifier, context);
+  },
+});
 const { createDesktopHost } = await import('./index.ts');
 
 /**
