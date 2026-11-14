@@ -1,0 +1,15 @@
+# x-pcaccess-desktop: desktop wiring (applied by the wiring task; these files are not owned by it)
+
+1. apps/desktop/src/shared/core-lanes/desktop-operation-route.ts, OPERATION_ROUTES, "// remote access" block: add
+     pcAccessReadiness: positional('pcAccess/readiness', []),
+     pcAccessApprove: positional('pcAccess/approve', []),
+   (and the two names in desktop-operation-route.test.mjs's table; ipc-computer.ts calls them through invokeDesktopOperation).
+2. apps/desktop/src/main/ipc.ts, registerComputerIpc call: pass `invokeDesktopOperation`
+     registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
+   and drop the `pcAccess: computer?.pcAccess,` line of the registerSessionIpc call (ipc-sessions.ts no longer takes it).
+3. apps/desktop/src/main/index.ts: remove windowsPcAccess() / `pcAccess` / createPcAccess / pendingRevokesFile imports, the
+   `pcAccess: windowsPcAccess()` entry of the computer option, and the REMOTE_CONTROLLER_KEY_DELIVERED_EVENT and
+   REMOTE_CONTROLLER_KEYS_OWED_EVENT handlers (the core's PcAccessService enrolls on delivery and revokes owed keys).
+   The phone screen's `pcAccess.approveWithCredential` (createScreenSourceHost options, ~line 2322) stays until s3-screen-source /
+   x-screen-source-desktop moves it to the core's approve_with_credential; until then it is the only remaining user of
+   the TS queue, so two installer queues coexist for the phone password path only.
