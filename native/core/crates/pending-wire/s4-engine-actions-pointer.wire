@@ -1,0 +1,27 @@
+# s4-engine-actions-pointer core wiring
+
+## 1. Cargo
+No dependency edge is added: the module uses only crates mixdog-browser-engine already depends on (mixdog-app-protocol, mixdog-js, mixdog-rt,
+mixdog-browser-policy, async-trait, serde, serde_json).
+
+## 2. Protocol type edit this crate needs
+pending-rows/s4-engine-actions-pointer.rows adds `BrowserPointerKind::Swipe`; actions/pointer.rs (`drag` with pointer=touch) builds it, so the rows must be
+applied before the crate is compiled.
+
+## 3. What the engine runner (s4-engine-runner) takes from these modules
+actions::target::{ActionContext, ActionPage, ActionOutput, ActionError, action_ref, drag_refs, visual_point, adopt_resolved_targets};
+actions::pointer::{click, hover, drag, press, scroll}; actions::sequence::{sequence, StepRunner, step_command}; actions::ref_mutation::mutate_ref
+(the form handlers use it for their writes).
+
+The runner implements two traits and nothing else is needed from it by these handlers:
+- `ActionPage` over the page's state: the latest facts and precondition, the latest ref set (and storing a snapshot's ref set when a target resolution took
+  it: `resolve_targets` observes through the host, so only the runner, which sees every snapshot result, can name it, `adopt_snapshot`), the interaction
+  generation (`invalidate_interaction`), the scroll counter (`record_scroll`), the visual grounding (and its document revision), the page report of a snapshot
+  (`format_snapshot`, for a covered element's refusal) and the `RecoveryHost` of the page (url, dialog text, fresh snapshot stored as the latest ref set).
+- `StepRunner` for a sequence: `run_step(index, command, cancel)` runs one step as a command of its own (timed as step `index`, settled with
+  `settle::step_settle_result`) and `observe(cancel)` is the reply's observation, used for the failure text of a partial batch.
+A handler returns `ActionOutput {lead, decorate_recovery, input}`; the runner settles the page, builds the reply, writes `lead` first, applies
+`reply_recovery::decorate_recovery` to the reply text when `decorate_recovery` is set, and merges `input` into the command timing (Phase::Input). The
+runner also enters Phase::Target / Phase::Actionability around the calls a handler makes (reviews of g4 note the phases are the caller's).
+
+No registration, no SERVICE_PENDING change.
