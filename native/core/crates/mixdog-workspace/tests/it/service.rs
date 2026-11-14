@@ -243,10 +243,10 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
-/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview with its media
-/// lease, and the preview range all name the granted file alone.
+/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview (no media lease is
+/// minted), and the preview range all name the granted file alone.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone() {
+async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
     let env = env();
     env.service.set_phone_grants(
         Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
@@ -279,8 +279,7 @@ async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone(
 
     let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
     assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
-    let leased = env.service.file_leases().open(previewed["mediaAssetId"].as_str().unwrap()).expect("the preview leased the file");
-    assert_eq!(leased.size, 8);
+    assert!(previewed.get("mediaAssetId").is_none(), "a preview mints no media lease: {previewed:?}");
     let mut range = target("pic.png", &pic);
     range["offset"] = json!(4);
     range["length"] = json!(2);
