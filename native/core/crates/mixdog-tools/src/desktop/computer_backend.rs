@@ -68,6 +68,7 @@ use mixdog_js::utf16_len;
 use mixdog_protocol::ProcessHandle;
 use mixdog_rt::Scope;
 use mixdog_rt::Scoped;
+use mixdog_scm::worktree::ownership::pid_alive_or_unknown;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -380,6 +381,72 @@ const HOST_EXITED_TEXT: &str = "computer_host_exited: the computer host stopped"
 
 /// How long one `--abort-cleanup` run may take (`ABORT_CLEANUP_TIMEOUT_MS`, `host/lifecycle-abort.ts:21`).
 const ABORT_CLEANUP_TIME_LIMIT: Duration = Duration::from_millis(7_000);
+
+/// The helper's environment variable naming the file its input receipt is backed by: the keys and buttons a helper holds are
+/// recorded there, so they outlive a core that died and the next start releases them.
+const RECEIPT_FILE_ENV: &str = "MIXDOG_COMPUTER_RECEIPT_FILE";
+
+/// `<session>-<marker>.receipt`, beside the ledger of the same run.
+fn receipt_path(ledger: &Path) -> PathBuf {
+    ledger.with_extension("receipt")
+}
+
+/// Whether no process has `path` open: a receipt a live helper keeps open is not a leftover.
+fn unclaimed(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new().read(true).share_mode(0).open(path).is_ok()
+    }
+    #[cfg(not(windows))]
+    {
+        path.is_file()
+    }
+}
+
+/// The receipts in `folder` that a dead core left holding something, with the input marker their name carries. A receipt that
+/// holds nothing (its header words, state and count, are zero) is removed here; one still open somewhere is left alone.
+fn leftover_receipts(folder: &Path) -> Vec<(PathBuf, Option<u32>)> {
+    let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
+    let mut found = Vec::new();
+    for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        let Some(stem) = path.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_suffix(".receipt")).map(str::to_owned) else { continue };
+        if !path.is_file() || !unclaimed(&path) {
+            continue;
+        }
+        let clean = std::fs::read(&path).is_ok_and(|bytes| bytes.len() < 8 || bytes[..8].iter().all(|byte| *byte == 0));
+        if clean {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        let marker = stem.rsplit_once('-').and_then(|(_, tail)| tail.parse::<u32>().ok()).filter(|marker| (1..=i32::MAX as u32).contains(marker));
+        found.push((path, marker));
+    }
+    found.sort();
+    found
+}
+
+/// The process id in the name of a script an older build published for its PowerShell host (`computer-host-<pid>-<hex>.ps1`).
+fn retired_script_pid(name: &str) -> Option<u32> {
+    let (pid, tail) = name.strip_prefix("computer-host-")?.strip_suffix(".ps1")?.split_once('-')?;
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let hex = !tail.is_empty() && tail.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    (digits(pid) && hex).then(|| pid.parse().ok()).flatten()
+}
+
+/// Removes what the retired PowerShell host left in the data folder (`host-script.ts` `removeOrphanedScripts` and its cache
+/// pruning, which no longer run): scripts whose process is gone, and the compiled-assembly cache `host-cache`. A script of a
+/// process that still lives, and a file something still holds, stay.
+fn sweep_retired_host_files(data: &Path) {
+    for entry in std::fs::read_dir(data).into_iter().flatten().filter_map(Result::ok) {
+        let name = entry.file_name();
+        let dead = name.to_str().and_then(retired_script_pid).is_some_and(|pid| !pid_alive_or_unknown(Some(pid)));
+        if dead {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let _ = std::fs::remove_dir_all(data.join("host-cache"));
+}
 
 /// Replies in a row reporting `monitor_unresponsive` after which the helper is replaced.
 const UNRESPONSIVE_LIMIT: u32 = 3;
@@ -788,7 +855,8 @@ impl ProcessComputerBackend {
         let cwd = std::env::current_dir().ok().and_then(AbsPath::new).ok_or_else(|| ComputerError::Unavailable {
             reason: "computer_backend_unavailable: the working directory is unreadable".into(),
         })?;
-        let set = computer_env::helper_env(&EnvInputs {
+        let receipt = ledger_path.as_deref().map(receipt_path);
+        let mut set = computer_env::helper_env(&EnvInputs {
             sequence_settle_ms: self.config.sequence_settle_ms,
             max_foreground_text: self.config.max_foreground_text,
             marker,
@@ -796,6 +864,9 @@ impl ProcessComputerBackend {
             host_lock_offered: computer_lease::owner_available(self.desktop.as_ref()),
             abort,
         });
+        if let Some(receipt) = receipt {
+            set.push((RECEIPT_FILE_ENV.to_owned(), receipt.to_string_lossy().into_owned()));
+        }
         Ok(SpawnRequest {
             handle: ProcessHandle(format!("computer-{}-{}", std::process::id(), NEXT_HANDLE.fetch_add(1, Ordering::SeqCst))),
             command: CommandSpec::Argv { program: self.config.binary.to_string_lossy().into_owned(), args },
@@ -993,13 +1064,36 @@ impl ProcessComputerBackend {
         if !swept.insert(data.to_path_buf()) {
             return;
         }
-        for (path, marker) in computer_env::leftover_ledgers(&computer_env::ledger_folder(data)) {
-            let abort = vec![("MIXDOG_ABORT_LEDGERS".to_owned(), path.to_string_lossy().into_owned())];
-            let Ok(request) = self.request_for(vec!["--abort-cleanup".to_owned()], false, abort, marker.unwrap_or(self.marker), None) else { continue };
-            if run_to_exit(&*self.manager, request).await {
+        sweep_retired_host_files(data);
+        let folder = computer_env::ledger_folder(data);
+        let mut receipts = leftover_receipts(&folder);
+        for (path, marker) in computer_env::leftover_ledgers(&folder) {
+            let mut abort = vec![("MIXDOG_ABORT_LEDGERS".to_owned(), path.to_string_lossy().into_owned())];
+            let receipt = receipt_path(&path);
+            let kept = receipts.iter().position(|(found, _)| *found == receipt).map(|at| receipts.remove(at).0);
+            if let Some(receipt) = &kept {
+                abort.push((RECEIPT_FILE_ENV.to_owned(), receipt.to_string_lossy().into_owned()));
+            }
+            if self.replay(abort, marker).await {
+                let _ = std::fs::remove_file(&path);
+                if let Some(receipt) = kept {
+                    let _ = std::fs::remove_file(receipt);
+                }
+            }
+        }
+        // What a core that died with a key held left, whose window ledger is gone or never was.
+        for (path, marker) in receipts {
+            if self.replay(vec![(RECEIPT_FILE_ENV.to_owned(), path.to_string_lossy().into_owned())], marker).await {
                 let _ = std::fs::remove_file(&path);
             }
         }
+    }
+
+    /// One `--abort-cleanup` run of the sweep with the recovery env `abort` and the input marker of the dead run's name; true
+    /// when it confirmed.
+    async fn replay(&self, abort: Vec<(String, String)>, marker: Option<u32>) -> bool {
+        let Ok(request) = self.request_for(vec!["--abort-cleanup".to_owned()], false, abort, marker.unwrap_or(self.marker), None) else { return false };
+        run_to_exit(&*self.manager, request).await
     }
 
     /// Runs the sweep of the ledgers a dead core left (`sweep_leftover_ledgers`) now, at the core's start, instead of before the
@@ -2214,6 +2308,53 @@ mod tests {
         other.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
         assert_eq!(cleanup_args(&locked(&second.spawned)), ["resident"]);
         assert!(folder.join("live-9.ledger").exists());
+    }
+
+    /// The receipt a dead core's helper left holding a key is released by a cleanup run that is told its file and marker, and the
+    /// file removed once it confirmed; one that holds nothing is removed without a run, and the resident helper is told the file
+    /// its own receipt lives in, beside its ledger.
+    #[tokio::test]
+    async fn the_receipts_a_dead_core_left_are_released_before_the_first_helper() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let folder = computer_env::ledger_folder(data.path());
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut held = vec![0u8; 8192];
+        held[0] = 1;
+        std::fs::write(folder.join("old-321.receipt"), &held).unwrap();
+        std::fs::write(folder.join("idle-5.receipt"), vec![0u8; 8192]).unwrap();
+        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config, manager.clone());
+        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"], "only the receipt that held something is run");
+        let env = |at: usize, name: &str| spawned[at].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+        assert_eq!(env(0, RECEIPT_FILE_ENV), Some(folder.join("old-321.receipt").to_string_lossy().into_owned()));
+        assert_eq!(env(0, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("321"));
+        assert_eq!(env(0, "MIXDOG_ABORT_LEDGERS"), None);
+        assert_eq!(env(1, RECEIPT_FILE_ENV), Some(receipt_path(&computer_env::ledger_path(data.path(), "s1", backend.marker)).to_string_lossy().into_owned()));
+        assert!(!folder.join("old-321.receipt").exists() && !folder.join("idle-5.receipt").exists() && folder.join("keep.txt").exists());
+    }
+
+    /// The scripts and DLL cache an older build's PowerShell host left are removed at the first start; a script of a process
+    /// that still lives, and anything else in the folder, stays.
+    #[test]
+    fn the_files_the_retired_powershell_host_left_are_swept() {
+        let data = tempfile::tempdir().unwrap();
+        let dead = format!("computer-host-2000000000-{}.ps1", "ab12".repeat(6));
+        let live = format!("computer-host-{}-{}.ps1", std::process::id(), "cd34".repeat(6));
+        for name in [dead.as_str(), live.as_str(), "computer-host-x-ab.ps1", "notes.ps1"] {
+            std::fs::write(data.path().join(name), b"x").unwrap();
+        }
+        std::fs::create_dir_all(data.path().join("host-cache")).unwrap();
+        std::fs::write(data.path().join("host-cache").join("mixdog-computer-host-0123456789abcdef.dll"), b"x").unwrap();
+        sweep_retired_host_files(data.path());
+        assert!(!data.path().join(&dead).exists() && !data.path().join("host-cache").exists());
+        assert!(data.path().join(&live).exists() && data.path().join("computer-host-x-ab.ps1").exists() && data.path().join("notes.ps1").exists());
+        assert_eq!(retired_script_pid("computer-host-12-ab.ps1"), Some(12));
+        assert_eq!(retired_script_pid("computer-host-12-.ps1"), None);
     }
 
     /// A failed reply's `result` reaches the reader that asks for it, while `call` reports the failure's text as before.

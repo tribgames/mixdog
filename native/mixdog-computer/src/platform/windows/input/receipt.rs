@@ -19,6 +19,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 pub const SIZE: usize = 8192;
+/// The file the section is backed by, when the desktop names one: the records outlive every process that
+/// held them, so the core's next start can release what a crashed core left held. The header is two
+/// little-endian words, `{state, count}`; a file with both zero holds nothing.
+pub const FILE_ENV: &str = "MIXDOG_COMPUTER_RECEIPT_FILE";
 const STATE: usize = 0;
 const COUNT: usize = 4;
 const RECORDS: usize = 8;
