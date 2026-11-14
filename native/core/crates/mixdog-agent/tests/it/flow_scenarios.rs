@@ -1127,6 +1127,54 @@ async fn a_send_equals_nodes() {
     }
 }
 
+/// The file and image parts the agent tool resolved from a call's `attachments`.
+fn resolved_parts() -> Vec<Value> {
+    vec![
+        json!({ "type": "file", "attachmentRef": "a".repeat(64), "sizeBytes": 12, "mimeType": "application/pdf", "filename": "spec.pdf" }),
+        json!({ "type": "image", "attachmentRef": "b".repeat(64), "sizeBytes": 34, "mimeType": "image/png", "filename": "shot.png" }),
+    ]
+}
+
+/// The agent port's own entry with the resolved parts, as `AgentTool::call` hands them over.
+async fn execute_with_parts(rig: &Rig, args: Value) {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_tools::orch::agent::{AgentPort, AgentRequest};
+    use tokio_util::sync::CancellationToken;
+    let (thread, call, cwd, cancel) = (ThreadId::from("lead"), ToolCallId::from("call"), AbsPath::new(std::env::temp_dir()).unwrap(), CancellationToken::new());
+    let request = AgentRequest { thread: &thread, call: &call, args, attachment_parts: resolved_parts(), cwd: &cwd, cancel: &cancel };
+    rig.runtime.execute(request).await.expect("the agent port answers");
+    settle().await;
+    settle().await;
+}
+
+/// The worker's turn text and parts, from the recorded `ask`.
+fn asked(rig: &Rig) -> Value {
+    lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("the worker's turn ran")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_spawn_hands_its_file_and_image_parts_to_the_workers_first_turn() {
+    backend();
+    let case = fixture("spawn.json").into_iter().find(|c| s(c, "name") == "a_spawn_runs_to_completion").expect("the case");
+    let rig = rig(&case["scenario"], Some(&case["host"]));
+    execute_with_parts(&rig, json!({ "type": "spawn", "agent": "worker", "prompt": "do it", "tag": "scout" })).await;
+    let want = handoff_content("do it", &resolved_parts());
+    assert_eq!(want.as_array().map(Vec::len), Some(3));
+    assert_eq!(asked(&rig), want);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_send_hands_its_file_and_image_parts_to_the_workers_turn() {
+    backend();
+    let case = fixture("send.json").into_iter().find(|c| s(c, "name") == "an_idle_in_process_worker_runs_a_send_job").expect("the case");
+    let rig = rig(&case["scenario"], None);
+    execute_with_parts(&rig, json!({ "type": "send", "tag": "scout", "prompt": "follow up" })).await;
+    let want = handoff_content("follow up", &resolved_parts());
+    assert_eq!(want.as_array().map(Vec::len), Some(3));
+    assert_eq!(asked(&rig), want);
+}
+
 #[test]
 fn a_contact_agent_may_not_hand_work_to_itself() {
     use mixdog_agent::agent_tool::flow::spawn::assert_bot_chain_target;
