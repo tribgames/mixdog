@@ -1,7 +1,8 @@
 //! Who is asked about a Browser Use submit, post or upload, and what answers it without asking: the engine's [`ApprovalPort`] over
 //! the core's one approval path. The card is `item/browser/requestApproval` raised through the asking turn's approval gate
 //! (`orch::service::call_approvals`, else the session's own gate), the standing allows, the saved `block`s, the "Allow all
-//! actions" option and the session's allowances are read through `policy::gate::decide` per kind of step, and the card holds the
+//! actions" option and the session's allowances are read straight from the grant store and the session's registry per kind of step
+//! (one audit line per kind for the verdict the step ends in; a failed audit write decides nothing), and the card holds the
 //! human-only lock for as long as it is open.
 //!
 //! Outcome parity with the desktop's `approval-dialog.ts` for the same caller: a session that is no bot's own runs unasked; a bot's
@@ -51,15 +52,13 @@ use crate::orch::util::cancelled;
 use crate::orch::util::unavailable;
 use crate::policy::action::GrantKey;
 use crate::policy::action::kind_name;
-use crate::policy::gate::GateCall;
-use crate::policy::gate::GateCx;
-use crate::policy::gate::GateVerdict;
-use crate::policy::gate::HookAction;
 use crate::policy::gate::PolicySettings;
 use crate::policy::gate::SessionFacts;
-use crate::policy::gate::decide;
 use crate::policy::grants::AuditEntry;
+use crate::policy::grants::DEV_ALLOW_ALL_DECISION;
 use crate::policy::grants::GrantStore;
+use crate::policy::grants::PermissionMode;
+use crate::policy::grants::SESSION_REMEMBERED_DECISION;
 use crate::policy::session_grants::SessionGrants;
 
 /// The tool a step is asked and audited as.
@@ -69,6 +68,11 @@ const REQUESTER_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 pub const BLOCKED_BY_PERMISSION: &str = "Browser Use step blocked by this bot's permission; nothing was dispatched";
 const NO_APPROVAL_SURFACE: &str = "approval required but no approval UI is available";
+/// What the person is told when an "always" allow could not be saved: the step ran once and the next one asks again.
+pub const SAVE_FAILED_NOTICE: &str = "Allowed this once. The setting could not be saved.";
+/// The longest denial note that reaches the agent, in UTF-16 units as JavaScript counts them (`approval-dialog.ts`:
+/// `reason.trim().slice(0, 4_000)`).
+const NOTE_LIMIT: usize = 4_000;
 
 /// The human-only lock held while a card is open: released when this is dropped.
 pub struct CardHold(Option<Box<dyn FnOnce() + Send>>);
@@ -113,6 +117,9 @@ pub trait ApprovalContext: Send + Sync {
 
     /// Takes the human-only lock for the card `request_id` of `thread` until the returned hold is dropped.
     fn hold_card(&self, request_id: &str, thread: &ThreadId) -> CardHold;
+
+    /// Tells the person of `thread` that an "always" allow they gave could not be saved (the desktop's `saveFailed` of the card).
+    async fn save_failed(&self, thread: &ThreadId);
 }
 
 /// The action kind a standing allow of a kind of step is kept under; `confirm` has none: it always asks.
@@ -123,6 +130,24 @@ fn action_kind_of(kind: BrowserApprovalRememberKind) -> Option<ActionKind> {
         BrowserApprovalRememberKind::Upload => Some(ActionKind::BrowserUpload),
         BrowserApprovalRememberKind::Confirm => None,
     }
+}
+
+/// The person's note of a denial as the agent gets it: trimmed, and cut to [`NOTE_LIMIT`] UTF-16 units (a pair the cut would split
+/// is left out whole).
+fn note_of(reason: Option<&str>) -> String {
+    let mut units = 0;
+    reason
+        .map(|reason| {
+            reason
+                .trim()
+                .chars()
+                .take_while(|c| {
+                    units += c.len_utf16();
+                    units <= NOTE_LIMIT
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// What the policy makes of a step.
@@ -149,11 +174,13 @@ impl BrowserApprovals {
     /// The scopes a card of a step every kind of which can be remembered offers.
     fn offered(facts: &SessionFacts) -> Vec<ApprovalRemember> {
         let session = facts.life.is_some().then_some(ApprovalRemember::Session);
-        std::iter::once(ApprovalRemember::Once).chain(session).chain([ApprovalRemember::Agent, ApprovalRemember::Always]).collect()
+        std::iter::once(ApprovalRemember::Once).chain(session).chain([ApprovalRemember::Always]).collect()
     }
 
-    /// Whether the step runs, is refused or asks. Every kind that has a store action is judged by the human gate; a payment, an
-    /// operator `confirm` and a step with no kind that can be remembered ask once.
+    /// Whether the step runs, is refused or asks (`approval-dialog.ts`). The saved modes are read straight from the store, so no
+    /// line is written for a kind of a step that asks or for a step the option lets through where a block refuses it: the one
+    /// audit line per kind is written for the verdict the step ends in, and a failed write never decides it. A payment, an operator
+    /// `confirm` and a step with no kind that can be remembered ask once.
     async fn judge(&self, facts: &SessionFacts, grants: &SessionGrants, settings: PolicySettings, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind]) -> Verdict {
         // A payment is a floor: no allowance, no option and no block is read for it.
         // A step with a kind that always asks reads no allowance either (only "Allow all actions" reads its blocks).
@@ -161,25 +188,38 @@ impl BrowserApprovals {
         if prompt.payment || (!rememberable && !settings.allow_all_actions) {
             return Verdict::Ask { remember: vec![ApprovalRemember::Once] };
         }
-        let cx = GateCx { facts, settings, store: &*self.store, session_grants: grants, enricher: None, mcp_scope: None };
-        let no_args = Value::Null;
-        let (mut every_run, mut blocked) = (true, false);
+        let agent = facts.agent_id.as_str();
+        let (mut every_allowed, mut blocked) = (true, false);
         for kind in kinds {
-            let call = GateCall { name: TOOL, args: &no_args, kind: Some(*kind), hook: HookAction::Allow, hook_reason: None };
-            match decide(&cx, &call).await {
-                Ok(GateVerdict::Run { .. }) => {}
-                Ok(GateVerdict::Ask(_)) => every_run = false,
-                // A saved `block`, or a store that cannot be read: the step is not let through by an allowance.
-                Ok(GateVerdict::Deny { .. }) | Err(_) => {
-                    every_run = false;
+            match self.store.mode_for(agent, &GrantKey::Kind(*kind), false).await {
+                Ok(PermissionMode::Allow) => {}
+                Ok(PermissionMode::Block) => {
+                    every_allowed = false;
+                    blocked = true;
+                }
+                Ok(_) => every_allowed = false,
+                // A store that cannot be read: not an allowance, and a block (a step must not act on a permission it could not read).
+                Err(_) => {
+                    every_allowed = false;
                     blocked = true;
                 }
             }
         }
         if settings.allow_all_actions {
-            return if blocked { Verdict::Refuse } else { Verdict::Run };
+            if blocked {
+                self.audit(agent, kinds, "blocked").await;
+                return Verdict::Refuse;
+            }
+            self.audit(agent, kinds, DEV_ALLOW_ALL_DECISION).await;
+            return Verdict::Run;
         }
-        if every_run {
+        if every_allowed {
+            self.audit(agent, kinds, "remembered").await;
+            return Verdict::Run;
+        }
+        // This session's own allowance for every kind of the step, bound to its life mark; a block still wins.
+        if !blocked && facts.life.as_deref().is_some_and(|life| kinds.iter().all(|kind| grants.has(agent, &GrantKey::Kind(*kind), life))) {
+            self.audit(agent, kinds, SESSION_REMEMBERED_DECISION).await;
             return Verdict::Run;
         }
         Verdict::Ask { remember: Self::offered(facts) }
@@ -278,20 +318,20 @@ impl BrowserApprovals {
                 };
                 (ApprovalAnswer::Allow { remember: scope }, device)
             }
-            ApprovalResolution::Decided { decision, device, .. } => (ApprovalAnswer::Deny { reason: decision.reason.unwrap_or_default() }, device),
+            ApprovalResolution::Decided { decision, device, .. } => (ApprovalAnswer::Deny { reason: note_of(decision.reason.as_deref()) }, device),
             ApprovalResolution::TimedOut { .. } | ApprovalResolution::Withdrawn { .. } => (ApprovalAnswer::Deny { reason: String::new() }, String::new()),
             ApprovalResolution::Unavailable { .. } => (ApprovalAnswer::Deny { reason: NO_APPROVAL_SURFACE.to_owned() }, String::new()),
             // The run was stopped while the card waited: nobody answered.
             ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => return Err(cancelled()),
         };
         if grantable {
-            self.settle(agent, facts, grants, kinds, &answer, &device).await;
+            self.settle(thread, agent, facts, grants, kinds, &answer, &device).await;
         }
         Ok(answer)
     }
 
     /// What an answer stores: the audit line, the session's allowance, the saved allow.
-    async fn settle(&self, agent: &str, facts: &SessionFacts, grants: &SessionGrants, kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
+    async fn settle(&self, thread: &ThreadId, agent: &str, facts: &SessionFacts, grants: &SessionGrants, kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
         let remember = match answer {
             ApprovalAnswer::Deny { .. } => return self.audit(agent, kinds, "deny").await,
             ApprovalAnswer::Allow { remember } => *remember,
@@ -315,6 +355,8 @@ impl BrowserApprovals {
                 }
                 if saved {
                     self.audit(agent, kinds, "granted").await;
+                } else {
+                    self.context.save_failed(thread).await;
                 }
             }
         }
@@ -434,6 +476,7 @@ mod tests {
         run_owner: Mutex<Option<String>>,
         held: Arc<AtomicUsize>,
         released: Arc<AtomicUsize>,
+        save_failures: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -475,6 +518,39 @@ mod tests {
                 released.fetch_add(1, Ordering::SeqCst);
             })
         }
+
+        async fn save_failed(&self, _: &ThreadId) {
+            self.save_failures.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// A store whose writes can be made to fail; its reads are the memory store's.
+    #[derive(Default)]
+    struct Flaky {
+        inner: MemoryGrantStore,
+        fail_audit: AtomicBool,
+        fail_grant: AtomicBool,
+    }
+
+    #[async_trait]
+    impl GrantStore for Flaky {
+        async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<PermissionMode, crate::policy::StoreError> {
+            self.inner.mode_for(agent_id, action, shared_only).await
+        }
+
+        async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, crate::policy::StoreError> {
+            if self.fail_grant.load(Ordering::SeqCst) {
+                return Err(crate::policy::StoreError("unreachable".to_owned()));
+            }
+            self.inner.grant(agent_id, action, scope, device).await
+        }
+
+        async fn record_audit(&self, entry: AuditEntry) -> Result<(), crate::policy::StoreError> {
+            if self.fail_audit.load(Ordering::SeqCst) {
+                return Err(crate::policy::StoreError("unreachable".to_owned()));
+            }
+            self.inner.record_audit(entry).await
+        }
     }
 
     struct Disk;
@@ -507,9 +583,18 @@ mod tests {
             run_owner: Mutex::new(None),
             held: Arc::default(),
             released: Arc::default(),
+            save_failures: Arc::default(),
         });
         let approvals = BrowserApprovals::new(store.clone(), ctx.clone(), Arc::new(Disk));
         Rig { store, ctx, approvals }
+    }
+
+    /// A rig over a store whose writes fail on demand.
+    fn flaky_rig() -> (Arc<Flaky>, Rig) {
+        let flaky = Arc::new(Flaky::default());
+        let rig = rig();
+        let approvals = BrowserApprovals::new(flaky.clone(), rig.ctx.clone(), Arc::new(Disk));
+        (flaky, Rig { approvals, ..rig })
     }
 
     fn step(session: &str, kinds: &[BrowserApprovalRememberKind]) -> BrowserApprovalPrompt {
@@ -838,5 +923,69 @@ mod tests {
         let outside: Vec<bool> = card["files"].as_array().unwrap().iter().map(|file| file["outside"].as_bool().unwrap()).collect();
         assert_eq!(outside, [false, true]);
         assert_eq!(card["remember"], json!({ "kinds": ["upload"] }));
+    }
+
+    #[tokio::test]
+    async fn a_failed_audit_write_never_blocks_a_step_under_allow_all_actions() {
+        let (flaky, rig) = flaky_rig();
+        flaky.fail_audit.store(true, Ordering::SeqCst);
+        rig.ctx.allow_all.store(true, Ordering::SeqCst);
+        let (shown, outcome) = rig.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await;
+        assert!(!shown && allowed(&outcome), "the step runs although its audit line could not be written");
+        flaky.inner.set_mode("marketer", &GrantKey::Kind(ActionKind::BrowserPost), PermissionMode::Block);
+        assert_eq!(rig.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.1.unwrap_err().message_for_model, BLOCKED_BY_PERMISSION);
+    }
+
+    #[tokio::test]
+    async fn a_step_writes_the_audit_lines_of_the_verdict_it_ends_in_only() {
+        let rig = rig();
+        // One kind allowed, the other asks: the card is raised and no "remembered" line is written for the first.
+        rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Allow);
+        assert!(rig.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.0);
+        assert_eq!(rig.decisions(), ["deny", "deny"], "only the answer of the card is audited");
+        // A block with the option off asks, and writes no "blocked" line.
+        let blocking = self::rig();
+        blocking.allow("marketer", ActionKind::BrowserPost, PermissionMode::Block);
+        assert!(blocking.ask(step(MARKETER, &[Post]), decided(false, None, None)).await.0);
+        assert_eq!(blocking.decisions(), ["deny"]);
+        // With the option on, a block refuses with one "blocked" line per kind and no "dev-allow-all" line.
+        blocking.ctx.allow_all.store(true, Ordering::SeqCst);
+        assert!(blocking.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.1.is_err());
+        assert_eq!(blocking.decisions(), ["deny", "blocked", "blocked"]);
+    }
+
+    #[tokio::test]
+    async fn a_card_offers_one_always_choice() {
+        let rig = rig();
+        let _ = rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await;
+        assert_eq!(rig.ctx.gate.asked()[0].remember, [ApprovalRemember::Always]);
+        *rig.ctx.life.lock().unwrap() = Some(LIFE.to_owned());
+        let _ = rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await;
+        assert_eq!(rig.ctx.gate.asked()[1].remember, [ApprovalRemember::Session, ApprovalRemember::Always]);
+    }
+
+    #[tokio::test]
+    async fn the_denial_note_is_trimmed_and_cut_to_four_thousand_characters() {
+        let rig = rig();
+        let long = format!("  {}  ", "\u{ac00}".repeat(4_500));
+        let (_, denied) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some(long.as_str()))).await;
+        assert_eq!(denied.unwrap(), ApprovalAnswer::Deny { reason: "\u{ac00}".repeat(4_000) });
+        let (_, paired) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some("\u{1f600}".repeat(2_001).as_str()))).await;
+        assert_eq!(paired.unwrap(), ApprovalAnswer::Deny { reason: "\u{1f600}".repeat(2_000) }, "counted in UTF-16 units");
+        let (_, padded) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some("  no  \n"))).await;
+        assert_eq!(padded.unwrap(), ApprovalAnswer::Deny { reason: "no".to_owned() });
+    }
+
+    #[tokio::test]
+    async fn the_person_is_told_when_an_always_allow_could_not_be_saved() {
+        let (flaky, rig) = flaky_rig();
+        flaky.fail_grant.store(true, Ordering::SeqCst);
+        let (_, outcome) = rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Always), None)).await;
+        assert_eq!(outcome.unwrap(), ApprovalAnswer::Allow { remember: Remember::Always }, "this one still runs");
+        assert_eq!(rig.ctx.save_failures.load(Ordering::SeqCst), 1);
+        assert!(!flaky.inner.audit().iter().any(|row| row.decision == "granted"));
+        flaky.fail_grant.store(false, Ordering::SeqCst);
+        let _ = rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Always), None)).await;
+        assert_eq!(rig.ctx.save_failures.load(Ordering::SeqCst), 1, "a saved allow tells nobody");
     }
 }
