@@ -144,6 +144,33 @@ fn scan_pattern(regex: &JsRegex, rest: &str, first: impl Fn(char) -> bool) -> Op
     regex.find(rest).filter(|found| found.start == 0).map(|found| found.end)
 }
 
+// regress searches later positions even for an anchored pattern that cannot match.
+// Reject impossible token starts before invoking it; otherwise repeated numbers or calls
+// make tokenization scan the remaining formula once per token (quadratic work).
+fn sheet_body(rest: &str) -> &str {
+    let end = run(rest, |c| c.is_alphanumeric() || c == '_' || c == '.');
+    rest[end..].strip_prefix('!').unwrap_or(rest)
+}
+
+fn error_might_match(rest: &str) -> bool {
+    rest.starts_with('\'') || sheet_body(rest).starts_with('#')
+}
+
+fn reference_might_match(rest: &str) -> bool {
+    // The existing regex remains authoritative for quoted sheet names and all Unicode details.
+    if rest.starts_with('\'') { return true; }
+    let body = sheet_body(rest);
+    let body = body.strip_prefix('$').unwrap_or(body);
+    let letters = run(body, |c| c.is_ascii_alphabetic());
+    if (1..=3).contains(&letters) {
+        let tail = &body[letters..];
+        return tail.starts_with(':') || tail.strip_prefix('$').unwrap_or(tail).starts_with(|c: char| c.is_ascii_digit());
+    }
+    if letters != 0 { return false; }
+    let digits = run(body, |c| c.is_ascii_digit());
+    (1..=7).contains(&digits) && body[digits..].starts_with(':')
+}
+
 fn scan(rest: &str) -> Option<(Option<TokenKind>, usize)> {
     let space = run(rest, is_js_space);
     if space > 0 {
@@ -153,13 +180,13 @@ fn scan(rest: &str) -> Option<(Option<TokenKind>, usize)> {
         return Some((Some(TokenKind::String), length));
     }
     let sheet_or_letter = |c: char| c == '\'' || c == '_' || c.is_alphabetic();
-    if let Some(length) = scan_pattern(&ERROR, rest, |c| c == '#' || sheet_or_letter(c)) {
+    if let Some(length) = scan_pattern(&ERROR, rest, |c| (c == '#' || sheet_or_letter(c)) && error_might_match(rest)) {
         return Some((Some(TokenKind::Error), length));
     }
     if let Some(length) = scan_call(rest) {
         return Some((Some(TokenKind::Call), length));
     }
-    if let Some(length) = scan_pattern(&REFERENCE, rest, |c| c == '$' || c.is_ascii_digit() || sheet_or_letter(c)) {
+    if let Some(length) = scan_pattern(&REFERENCE, rest, |c| (c == '$' || c.is_ascii_digit() || sheet_or_letter(c)) && reference_might_match(rest)) {
         return Some((Some(TokenKind::Reference), length));
     }
     if let Some(length) = scan_number(rest) {
@@ -312,6 +339,21 @@ pub fn translate_shared_formula(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn token_start_filters_preserve_anchored_reference_and_error_matches() {
+        for prefix in ["", "Sheet!", "_sheet.2!", "Σ1!", "'a b'!", "'a''b'!"] {
+            for body in ["A1", "$A$1", "ABC12345678", "A:B", "$A:$C", "1:2", "$1:$2", "#REF!A1", "#DIV/0!", "#N/A", "#NAME?", "SUM", "1.5", "ABS("] {
+                let text = format!("{prefix}{body}+SUM(1,2)");
+                if super::ERROR.find(&text).is_some_and(|m| m.start == 0) {
+                    assert!(super::error_might_match(&text), "{text}");
+                }
+                if super::REFERENCE.find(&text).is_some_and(|m| m.start == 0) {
+                    assert!(super::reference_might_match(&text), "{text}");
+                }
+            }
+        }
+    }
+
     use super::*;
 
     fn kinds(formula: &str) -> Vec<(TokenKind, String)> {
