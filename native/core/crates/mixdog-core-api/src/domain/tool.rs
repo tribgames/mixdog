@@ -305,6 +305,9 @@ pub struct CallOptions {
     /// The calling session's model sees images (Node `pdfReadModes`' `pdfPageMode` is `'image'`, else `'ocr'`): only
     /// such a model is answered with a PDF's document block.
     pub pdf_page_images: bool,
+    /// The calling session's model sees no images (Node `pdfReadModes`' `pdfPageMode` is `'ocr'`): `read` gives it a PDF's
+    /// scanned pages as OCR text. A caller with no session leaves it `false` and gets the page images.
+    pub pdf_page_ocr: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

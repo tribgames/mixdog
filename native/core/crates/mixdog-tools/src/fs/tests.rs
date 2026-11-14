@@ -968,6 +968,10 @@ impl ExtPool for ScriptedPdfHost {
                 let images = serde_json::json!({ "images": [{ "page": 2, "width": 800, "height": 600, "mimeType": "image/png", "bytes": 4 }] });
                 vec![ExtFrame::Chunk(b"PN".to_vec()), ExtFrame::Chunk(b"G2".to_vec()), done(images)]
             }
+            "pdf.ocr" => {
+                assert_eq!(call.params["pages"], serde_json::json!([2]), "only the page without a text layer is recognized");
+                vec![done(serde_json::json!([{ "page": 2, "text": "OCR-READ-PAGE-TWO" }]))]
+            }
             other => panic!("unexpected extension call {other}"),
         };
         Ok(Box::new(ScriptedFrames(frames.into())))
@@ -1013,6 +1017,19 @@ async fn read_answers_a_pdf_by_its_pages_as_node_does() {
             ),
             ToolPart::Image { mime: "image/png".to_owned(), data: ImageData::Bytes(b"PNG2".to_vec()), width: Some(800), height: Some(600) },
         ]
+    );
+}
+
+/// A model that sees no images gets a scanned page as the OCR engine's text (`pageMode: 'ocr'`), titled as such.
+#[tokio::test]
+async fn read_gives_a_text_only_model_the_ocr_text_of_a_scanned_page() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-pdf-ocr").join("ws")).unwrap();
+    let mut ctx = context_seeded(&root, Arc::new(MockFileService::default()), vec![("mixed.pdf".to_owned(), b"%PDF-1.7 scripted".to_vec())]).await;
+    ctx.options.pdf_page_ocr = true;
+    let read = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None);
+    assert_eq!(
+        text_of(read_pdf(&read, &ctx, JsonValue::Null).await).1,
+        "[PDF mixed.pdf: pages 1-2 of 2; scanned (no text layer): 2]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there\n\n--- Page 2 (OCR of a scanned page) ---\nOCR-READ-PAGE-TWO"
     );
 }
 
@@ -3317,4 +3334,63 @@ async fn read_with_tail_matches_the_recorded_node_cases() {
         }
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// `list` keeps the arguments the schema does not show (`list-tool.mjs`): `mode: "tree"`, `mode: "find"` with its name and
+/// filters, `sort`, `type` and `include_noise`.
+#[tokio::test]
+async fn list_answers_tree_find_sort_type_and_include_noise() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-list-modes").join("ws")).unwrap();
+    let seeds = [
+        ("src/a.ts", "aaaa\naaaa\n"),
+        ("src/b.ts", "b\n"),
+        ("docs/readme.md", "hello world, hello world\n"),
+        ("node_modules/x/i.js", "i\n"),
+        ("top.txt", "t\n"),
+    ]
+    .iter()
+    .map(|(rel, body)| (rel.to_string(), body.as_bytes().to_vec()))
+    .collect();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let tool = ListTool::new();
+    let run = |args: serde_json::Value| {
+        let (ctx, tool) = (&ctx, &tool);
+        async move {
+            let (is_error, text) = text_of(tool.call(ctx, args).await);
+            assert!(!is_error, "{text}");
+            text
+        }
+    };
+
+    let tree = run(serde_json::json!({ "mode": "tree" })).await;
+    let lines: Vec<&str> = tree.lines().collect();
+    assert_eq!(lines[1..], ["├── docs/", "│   └── readme.md", "├── src/", "│   ├── a.ts", "│   └── b.ts", "└── top.txt"], "{tree}");
+    let paged = run(serde_json::json!({ "mode": "tree", "head_limit": 2, "offset": 1 })).await;
+    assert!(paged.ends_with("[entries 2-3 of 4+; offset:3 for more]"), "{paged}");
+    let tree_noise = run(serde_json::json!({ "mode": "tree", "include_noise": true, "depth": 1 })).await;
+    assert!(tree_noise.contains("├── node_modules/"), "{tree_noise}");
+
+    let by_size = run(serde_json::json!({ "path": ".", "depth": 3, "type": "file", "sort": "size" })).await;
+    assert_eq!(
+        by_size.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(),
+        ["docs/readme.md", "src/a.ts", "src/b.ts", "top.txt"],
+        "{by_size}"
+    );
+    let dirs = run(serde_json::json!({ "path": ".", "depth": 2, "type": "dir" })).await;
+    assert_eq!(dirs.lines().collect::<Vec<_>>(), ["docs\tdir", "src\tdir"], "{dirs}");
+    let none = run(serde_json::json!({ "path": "src", "type": "dir" })).await;
+    assert_eq!(none, "(no entries match filter) type=dir, hidden=false path=src", "{none}");
+    let noisy = run(serde_json::json!({ "path": ".", "depth": 2, "include_noise": true, "type": "dir" })).await;
+    assert!(noisy.lines().any(|l| l == "node_modules\tdir"), "{noisy}");
+
+    let found = run(serde_json::json!({ "mode": "find", "name": ".ts", "sort": "name" })).await;
+    let names: Vec<&str> = found.lines().map(|l| l.split('\t').next().unwrap()).collect();
+    assert_eq!(names, ["src/a.ts", "src/b.ts"], "{found}");
+    let big = run(serde_json::json!({ "mode": "find", "min_size": 8, "sort": "name" })).await;
+    assert_eq!(big.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(), ["docs/readme.md", "src/a.ts"], "{big}");
+    let named_glob_path = run(serde_json::json!({ "path": "src", "name": "b.ts", "mode": "find" })).await;
+    assert!(named_glob_path.starts_with("b.ts\t"), "{named_glob_path}");
+    let (is_error, bad) = text_of(tool.call(&ctx, serde_json::json!({ "mode": "find", "modified_after": "nonsense" })).await);
+    assert!(is_error, "{bad}");
+    assert_eq!(bad, "Error: invalid modified_after \"nonsense\"; expected an ISO date/time or a relative window like 90m / 12h / 7d");
 }

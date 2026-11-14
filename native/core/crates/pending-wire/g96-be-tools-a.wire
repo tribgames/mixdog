@@ -1,0 +1,29 @@
+# g96-be-tools-a wiring (core)
+
+## native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+Anchor: the line `tool_pool.push(Arc::new(mixdog_tools::exec::ShellTool::new(b.exec.clone())));` (in the builtin tool pool, after
+`mixdog_tools::fs::EditTool::new().with_state(read_state.clone())`).
+
+Replace that one line with these three lines (the shell is shared, so the foreign command names run the same tool):
+
+    let shell = Arc::new(mixdog_tools::exec::ShellTool::new(b.exec.clone()));
+    tool_pool.extend(mixdog_tools::exec::ForeignShellTool::of(&shell));
+    tool_pool.push(shell);
+
+And add, right after the `EditTool` push line:
+
+    tool_pool.push(Arc::new(mixdog_tools::fs::WriteTool::new().with_state(read_state.clone())));
+
+What this does: `edit` already answers to strreplace / str_replace / str_replace_editor / search_replace (declared aliases on its
+spec; mixdog-agent ToolSet now also matches a declared alias in any case). `WriteTool` is the hidden (`public: false`) `write`
+tool with aliases create_file / createfile; `ForeignShellTool::of` gives the hidden `bash` (POSIX misuse-guard syntax) and `run`
+(aliases runcommand / terminal / run_terminal_cmd). None is in a model-visible tool list. They are in the pool's builtin names
+(`ToolSet::new` takes every spec name), so a case variant such as `Bash` / `Write` canonicalizes to them as it did in Node, whose
+adapter lower-cased the name; check that no test of the unknown-tool did-you-mean text (mixdog-agent tools / text tests with the
+daemon pool) lists `write`, `bash` or `run` as unknown. No SERVICE_PENDING name is removed by this task.
+
+## Protocol rows
+None. No new protocol method, notification or type.
+
+## Cargo
+None. No new dependency edge (chrono, futures, mixdog-js were already dependencies of mixdog-tools).
