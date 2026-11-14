@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
-import { DESKTOP_IPC } from '../../shared/contract-ipc.ts';
 import { parseSshTarget } from '../ssh/ssh-command.ts';
 import { SshTunnel } from '../ssh/tunnel.ts';
 import {
@@ -15,12 +14,8 @@ import {
   hostGraceMs,
   reconnectDelayCapMs,
 } from './connection-link.ts';
-import { forwardConnectionLink } from './link-ipc.ts';
-import { ConnectionPool } from './pool.ts';
 import { createPortForwardStore } from './port-forward-store.ts';
-import { registerServerPortsIpc } from './ports-ipc.ts';
 import { LOWEST_LOCAL_PORT, createServerPortForwards } from './server-port-forwards.ts';
-import { WindowRouteRegistry } from './window-routes.ts';
 
 function memoryStore() {
   const data = new Map();
@@ -229,56 +224,6 @@ test('the saved forwards survive a restart of the app', async (t) => {
   await reopened.save('box', []);
   assert.deepEqual(await createPortForwardStore(userDataPath).load('box'), []);
   assert.deepEqual(await createPortForwardStore(userDataPath).load('other'), [{ remotePort: 22, localPort: 2222 }]);
-});
-
-function portsIpcFixture() {
-  const handlers = new Map();
-  const ipcMain = {
-    handle: (channel, handler) => handlers.set(channel, handler),
-    removeHandler: (channel) => handlers.delete(channel),
-  };
-  const routes = new WindowRouteRegistry();
-  const pool = new ConnectionPool();
-  const opened = [];
-  const f = portsFixture();
-  pool.add({ id: 'local', kind: 'local', ports: null });
-  pool.add({ id: 'box', kind: 'ssh', ports: f.ports });
-  const contents = (id) => ({ id, once() {} });
-  routes.register(contents(1), 'local');
-  routes.register(contents(2), 'box');
-  registerServerPortsIpc({ ipcMain, routes, pool, openExternal: async (url) => void opened.push(url) });
-  const invoke = (senderId, channel, ...args) => handlers.get(channel)({ sender: { id: senderId } }, ...args);
-  return { invoke, opened, f };
-}
-
-test('only a server window forwards, and the browser opens the forward’s loopback URL', async () => {
-  const { invoke, opened, f } = portsIpcFixture();
-  for (const channel of [DESKTOP_IPC.serverPortForward, DESKTOP_IPC.serverPortsList, DESKTOP_IPC.serverPortOpen]) {
-    await assert.rejects(invoke(1, channel, 3000), /ssh-unsupported/, `${channel} refused in this PC’s window`);
-  }
-  await assert.rejects(invoke(9, DESKTOP_IPC.serverPortForward, 3000), /connection-route-missing/);
-  assert.equal(f.tunnels.made.length, 0);
-  assert.equal((await invoke(2, DESKTOP_IPC.serverPortForward, 3000, null)).localPort, 3000);
-  await invoke(2, DESKTOP_IPC.serverPortOpen, 3000);
-  assert.deepEqual(opened, ['http://127.0.0.1:3000/']);
-  await assert.rejects(invoke(2, DESKTOP_IPC.serverPortOpen, 4000), /port-not-active/);
-  await invoke(2, DESKTOP_IPC.serverPortStop, 3000);
-  assert.deepEqual((await invoke(2, DESKTOP_IPC.serverPortsList, false)).forwards, []);
-});
-
-test('port changes reach the server window that shows them', async () => {
-  const f = portsFixture();
-  const sent = [];
-  const target = { isDestroyed: () => false, send: (channel, value) => sent.push([channel, value]) };
-  const stop = forwardConnectionLink({ link: null, subscribeNotices: () => () => {}, ports: f.ports }, target);
-  await f.ports.forward(3000);
-  assert.ok(
-    sent.some(([channel, view]) => channel === DESKTOP_IPC.serverPortsChanged && view.forwards[0]?.status === 'active')
-  );
-  stop();
-  const count = sent.length;
-  await f.ports.forward(4000);
-  assert.equal(sent.length, count, 'nothing after the window closed');
 });
 
 test('a host’s grace setting caps the reconnect backoff', () => {

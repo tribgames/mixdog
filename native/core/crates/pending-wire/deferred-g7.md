@@ -181,6 +181,12 @@ with where they live.
 
 ## s2b fragments: the service wiring (s2b-service, CORE-WIRE-G9)
 
+**Composed by g9-compose-connections** (compose_connections.rs; the call and the SERVICE_PENDING change in compose_flip.rs): the window host,
+the link pool with the model proxy relay, the notifier adapters, Attempts/Connect/Cleanup/Diagnostics/HostList/ServerLogins/Restore/the
+feed, the service and its registration, `WorkspaceService::set_remote_files` over `LinkPool::reader`, the stop step. What is left of this
+section for the lead is in pending-wire/g9-compose-connections.wire (host/power fan-out). The text below is kept as the record of what
+each module takes.
+
 ### From s2b-attempts-connect.wire (kept verbatim)
 
 #### 3. SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)

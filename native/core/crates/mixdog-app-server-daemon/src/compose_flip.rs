@@ -38,8 +38,6 @@ const SERVICE_PENDING: &[&str] = &[
     // The browser engine composed into mixdogd; the test hook only with MIXDOGD_TEST_HOOKS=1 (a `test-hooks` build), so an ordinary
     // start leaves it unclaimed.
     "test/browserEngine/run",
-    // s2b-service (wave 9): the connections service (window host notification included).
-    "host/window/closed",
     // g9-screen-switch: the display-change notification of the desktop; the host service takes it when phone screen control is composed.
     "host/screen/displaysChanged",
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
@@ -50,9 +48,6 @@ const SERVICE_PENDING: &[&str] = &[
     "computer/bridge/run",
     "computer/bridge/abort",
 ];
-
-/// Namespaces whose every method the connections service (s2b-service, wave 9) answers.
-const SERVICE_PENDING_NAMESPACES: &[&str] = &["connections", "remoteHosts"];
 
 /// What `compose()` has built before the real core starts.
 pub struct Built {
@@ -180,6 +175,8 @@ pub struct Real {
     pub gateway_routes: mixdog_core_session::session::gateway_routes::GatewaySessionRoutes,
     /// The model proxy's PC end: `close_step` aborts its relayed calls first of all.
     pub model_proxy: Arc<mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService>,
+    /// The connections service (`connections/*`, `remoteHosts/*`): its stop step closes the links to the servers.
+    pub connections: crate::compose_connections::Connections,
     /// The webhook event pipeline: `serve` runs it once startup has finished (`EventPipeline::run` takes the proof).
     pub event_pipeline: Arc<crate::event_pipeline::EventPipeline>,
     /// The session index the idle sweep lists (CatalogSweepRows) and the heartbeat's catalog reads.
@@ -395,7 +392,7 @@ impl Real {
         // steps, so `compose::flush_at_exit` writes what was recorded since on every release path.
         let usage = self.gateway_usage.clone();
         let settle: StopStep = ("gateway usage", Box::pin(async move { usage.settle().await }));
-        vec![settle, agent_index, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
+        vec![self.connections.stop_step(), settle, agent_index, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
     }
 }
 
@@ -3649,6 +3646,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
+    // The saved servers, their links and windows, the connect flow and the saved computers (`connections/*`, `remoteHosts/*`, `host/window/closed`).
+    let connections = crate::compose_connections::compose_connections(crate::compose_connections::ConnectionsInputs {
+        home: home.clone(), data_dir: b.data_dir.clone(), user_data_dir: b.user_data_dir.clone(), env: b.env.clone(), config: config.clone(), processes: b.local_processes.clone(), spawn_io: b.tokens.spawn_io, durability_io: b.tokens.durability_io,
+        host: b.host.clone(), outgoing: b.outgoing.clone(), notifier: b.notifier.clone(), scoped_feeds: b.scoped_feeds.clone(), sections: b.sections.clone(), model_proxy: model_proxy.clone(), workspace: workspace.clone(),
+    })
+    .await?;
+    builder.register(connections.service().clone())?;
     // browser/stream, browser/webrtcSignal, browser/screenDisplays, browser/streamAck, host/browser/page, host/browser/frame: the phone's live
     // view of Browser Use (SPEC R36) and its JPEG view.
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
@@ -3671,7 +3675,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
     // Rows ahead of their service (see `SERVICE_PENDING`).
-    unclaimed.retain(|method| !SERVICE_PENDING.contains(method) && !SERVICE_PENDING_NAMESPACES.contains(&method.split('/').next().unwrap_or(method)));
+    unclaimed.retain(|method| !SERVICE_PENDING.contains(method));
     if !unclaimed.is_empty() {
         return Err(ComposeError::Unclaimed { methods: unclaimed });
     }
@@ -3682,10 +3686,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The five owners of per-connection state (run-host-36); `compose()` binds them into `ComposedCore::connection_owners()`, which `verify_bound` checks.
     let connection_owners = crate::connection_close::ConnectionOwnersCell::default();
     connection_owners
-        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone(), browser_engine))
+        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone(), browser_engine).with_owner(connections.service().clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_attachments, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

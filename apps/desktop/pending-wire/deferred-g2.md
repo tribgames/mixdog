@@ -39,9 +39,9 @@ from nativeDisplayGeometry (computer/host/display-reads.ts).
 ## Notes for later tasks (not fragment lines)
 
 - `host/window/*` is always served and the `windows` capability always declared; `host/window/closed` is sent only for a
-  window the core opened through host/window/open (a core without the connections service opens none). host/window/open
-  builds the window from the saved ssh host store until s2b-electron-wiring (G9) replaces DesktopConnection with
-  ServerWindowRecord.
+  window the core opened through host/window/open (a core without the connections service opens none). Since
+  g9-compose-connections host/window/open makes a ServerWindowRecord and its window; the service connection of the window
+  (DesktopConnection with `throughPcCore`) dials where this PC's core says the server's tunnel ends.
 - windowFocus `sessionId` is the first session screen-sessions.ts reports for a window and, as isSessionOnScreen, only
   while the window is up and focused (the entry carries one session; a split pane shows more).
 - `report` of WindowHostDeps is built in host/index.ts from the host connection (host/state/set as a request,

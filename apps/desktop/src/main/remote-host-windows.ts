@@ -8,22 +8,25 @@
 // features and need no bridge into the host.
 import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 
+import type {
+  ConnectionsIdParams,
+  ConnectionsRenameParams,
+  RemoteHost,
+  RemoteHostPresenceParams,
+  RemoteHostPresenceResult,
+  RemoteHostRedeemParams,
+} from '../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteHost } from '../shared/contract';
+import type { CoreCaller } from './connections/server-window-record';
 import { nativeT } from './native-i18n';
 import { REMOTE_HOST_ARGUMENT, REMOTE_WINDOW_IPC, type RemoteWindowHostEntry } from '../shared/remote-window';
 import { notifyHostListsChanged } from './host-lists-changed';
 import {
   externalLinkTarget,
-  fetchHostPresence,
   isRemoteHostNavigation,
-  parsePairCodeInput,
-  parseRemoteHostLink,
-  redeemPairCode,
   remoteHostPartition,
   remoteWindowTitle,
   remoteWindowUserAgent,
-  toDesktopRemoteHost,
-  type RemoteHostStore,
 } from './remote-hosts';
 import {
   DESKTOP_BACKGROUND_COLOR,
@@ -45,26 +48,41 @@ export interface RemoteHostWindows {
   rename(id: string, name: string): Promise<void>;
 }
 
+/** The one-time proof the relay redeemed a code rides the redeem answer next to the host (the core answers it for
+ *  the first claim; a list never carries it). */
+type RedeemedHost = RemoteHost & { ticket?: unknown };
+
 /** `preloadPath` comes from the main entry: this module is a lazily loaded
- *  chunk, so a path relative to its own directory would miss `out/preload`. */
+ *  chunk, so a path relative to its own directory would miss `out/preload`.
+ *  The saved hosts, the code redemption and the presence are this PC's core (`remoteHosts/*`); `core` calls it. */
 export function createRemoteHostWindows(
-  store: RemoteHostStore,
+  core: CoreCaller,
   preloadPath: string,
   options: {
-    /** The relay's HTTP origin a code is redeemed at; null when relay is off. */
-    relayOrigin(): string | null;
     /** Brings Settings → Connection → Connect to another PC to the front. */
     showConnectionSettings(): void;
   }
 ): RemoteHostWindows {
   const windows = new Map<string, BrowserWindow>();
 
+  const saved = async (): Promise<RemoteHost[]> => (await core.call('remoteHosts/list', {})) as RemoteHost[];
+  const savedHost = async (id: string): Promise<RemoteHost | undefined> => (await saved()).find((host) => host.id === id);
+  const asDesktopHost = (host: RemoteHost): DesktopRemoteHost => ({ ...host, open: windows.has(host.id) });
+
   const snapshot = async (): Promise<DesktopRemoteHost[]> => {
-    const hosts = store.list();
-    const presence = await fetchHostPresence(hosts);
+    const hosts = await saved();
+    // A relay that cannot answer leaves the hosts without a presence: state unknown.
+    let online: Set<string> | null = null;
+    if (hosts.length > 0) {
+      const params: RemoteHostPresenceParams = { ids: hosts.map((host) => host.id) };
+      online = await (core.call('remoteHosts/presence', params) as Promise<RemoteHostPresenceResult>).then(
+        (result) => new Set(result.online),
+        () => null
+      );
+    }
     return hosts.map((host) => ({
-      ...toDesktopRemoteHost(host, windows.has(host.id)),
-      ...(presence.has(host.id) ? { online: presence.get(host.id) } : {}),
+      ...asDesktopHost(host),
+      ...(online ? { online: online.has(host.id) } : {}),
     }));
   };
 
@@ -88,8 +106,10 @@ export function createRemoteHostWindows(
     }));
   });
   ipcMain.handle(REMOTE_WINDOW_IPC.open, async (event, id) => {
-    if (!hostWindowId(event.sender) || typeof id !== 'string' || !store.get(id)) return false;
-    await openWindow(id);
+    if (!hostWindowId(event.sender) || typeof id !== 'string') return false;
+    const host = await savedHost(id);
+    if (!host) return false;
+    await openWindow(host);
     return true;
   });
   ipcMain.handle(REMOTE_WINDOW_IPC.manage, (event) => {
@@ -106,9 +126,8 @@ export function createRemoteHostWindows(
     return ses;
   };
 
-  const openWindow = async (id: string, ticket?: string): Promise<void> => {
-    const host = store.get(id);
-    if (!host) throw new Error('This computer is not saved.');
+  const openWindow = async (host: RemoteHost, ticket?: string): Promise<void> => {
+    const { id } = host;
     const existing = windows.get(id);
     if (existing && !existing.isDestroyed()) {
       if (existing.isMinimized()) existing.restore();
@@ -176,34 +195,36 @@ export function createRemoteHostWindows(
     // The one-time ticket rides the fragment, which is never sent to the relay
     // with the page request; the page drops it once it has used it.
     await window.loadURL(ticket ? `${host.url}#pair=${ticket}` : host.url);
-    await store.touch(id);
+    // The list orders by this; a failed mark leaves the order as it was and is reported, the window stays.
+    const touch: ConnectionsIdParams = { id };
+    await core.call('remoteHosts/touch', touch).catch((error: unknown) => {
+      console.error(`[mixdog] remoteHosts/touch failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   };
 
   return {
     list: snapshot,
     async connectByCode(rawCode) {
-      const code = parsePairCodeInput(rawCode);
-      if (!code) throw new TypeError(nativeT('Enter the 6-digit code shown on your PC.'));
-      const relayOrigin = options.relayOrigin();
-      if (!relayOrigin) throw new Error('Remote access is turned off on this PC.');
-      const redeemed = await redeemPairCode(relayOrigin, code, undefined, nativeT);
-      const parsed = parseRemoteHostLink(`${relayOrigin}/d/${redeemed.deviceId}/`);
-      if (!parsed) throw new Error(nativeT('Codes are not available on this connection server yet. Use the QR code.'));
-      const saved = await store.save(parsed, redeemed.name);
+      const params: RemoteHostRedeemParams = { code: String(rawCode ?? '').trim() };
+      const redeemed = (await core.call('remoteHosts/redeemCode', params)) as RedeemedHost;
+      const { ticket, ...host } = redeemed;
       notifyHostListsChanged();
       // The fresh ticket has to reach a freshly loaded page, so an open window
       // for this host is replaced.
-      const existing = windows.get(saved.id);
+      const existing = windows.get(host.id);
       if (existing && !existing.isDestroyed()) existing.destroy();
-      await openWindow(saved.id, redeemed.ticket);
-      return toDesktopRemoteHost(saved, true);
+      await openWindow(host, typeof ticket === 'string' && ticket ? ticket : undefined);
+      return asDesktopHost(host);
     },
     async open(id) {
-      await openWindow(id);
+      const host = await savedHost(id);
+      if (!host) throw new Error('This computer is not saved.');
+      await openWindow(host);
       return snapshot();
     },
     async rename(id, name) {
-      await store.rename(id, name);
+      const params: ConnectionsRenameParams = { id, name };
+      await core.call('remoteHosts/rename', params);
       notifyHostListsChanged();
     },
     async forget(id) {
@@ -213,7 +234,8 @@ export function createRemoteHostWindows(
       const ses = session.fromPartition(remoteHostPartition(id));
       await ses.clearStorageData();
       await ses.clearCache();
-      await store.remove(id);
+      const params: ConnectionsIdParams = { id };
+      await core.call('remoteHosts/forget', params);
       notifyHostListsChanged();
       return snapshot();
     },

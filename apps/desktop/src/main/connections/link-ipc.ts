@@ -1,135 +1,56 @@
-// IPC of a window's link to its daemon: the state a server window shows and
-// pushes, its reconnect / close actions, and this PC's window's "reopen server
-// windows at launch" setting. Each call resolves the sender's connection; the
-// pushes go to that connection's windows only.
+// What a window still asks of main about its connection: close this window (a server window detaches when it closes) and
+// show Settings → Connection in this PC's window. The link state, retry, the Ports panel and the reopen setting are the
+// core's (`connections/*`), read by the window over its own port. Each call needs the sender to be a routed window.
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 
 import { onHostListsChanged } from '../host-lists-changed';
 import { DESKTOP_IPC } from '../../shared/contract-ipc';
-import type { DesktopConnectionLinkView, DesktopConnectionNotice } from '../../shared/contract-connection-link';
-import type { DesktopServerPortsView } from '../../shared/contract-server-ports';
-import { LOCAL_CONNECTION_ID } from './contract';
-import type { DesktopConnection } from './desktop-connection';
-import type { ConnectionPool } from './pool';
-import { resolveWindowConnection } from './routing';
+import { ConnectionError } from './errors';
 import type { WindowRouteRegistry } from './window-routes';
-import type { ServerWindowRestore } from './window-restore';
 
-type LinkedConnection = Pick<DesktopConnection, 'id' | 'kind' | 'link' | 'reconnect'> &
-  Partial<Pick<DesktopConnection, 'modelProxy'>>;
-
-export interface ConnectionLinkIpcDeps<T extends LinkedConnection> {
+export interface ConnectionLinkIpcDeps {
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
   routes: WindowRouteRegistry;
-  pool: ConnectionPool<T>;
-  restore: Pick<ServerWindowRestore, 'isEnabled' | 'setEnabled' | 'progress'>;
   /** Closes the sender's window (a server window detaches when it closes). */
   closeWindow(sender: WebContents): void;
   /** Shows Settings → Connection in this PC's window. */
   showConnectionSettings(): void;
-  /** A refused login or changed host key: this PC's window runs the user's
-   *  connect attempt for the server (it may prompt), which reopens the
-   *  stopped connection in place. */
-  requestSignIn(connection: T): void;
 }
 
-export function registerConnectionLinkIpc<T extends LinkedConnection>(deps: ConnectionLinkIpcDeps<T>): () => void {
-  const connectionOf = (event: IpcMainInvokeEvent): T =>
-    resolveWindowConnection(deps.routes, deps.pool, event.sender.id);
-  const localOnly = (event: IpcMainInvokeEvent): void => {
-    if (deps.routes.connectionIdFor(event.sender.id) !== LOCAL_CONNECTION_ID) {
-      throw new Error('This setting belongs to this PC’s window.');
+export function registerConnectionLinkIpc(deps: ConnectionLinkIpcDeps): () => void {
+  const routed = (event: IpcMainInvokeEvent): void => {
+    if (deps.routes.connectionIdFor(event.sender.id) === undefined) {
+      throw new ConnectionError('connection-route-missing', 'This window is not attached to a Mixdog connection.');
     }
   };
-  const handlers: Array<[string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown]> = [
-    [DESKTOP_IPC.connectionLinkGet, (event) => connectionOf(event).link?.view() ?? null],
-    [
-      DESKTOP_IPC.connectionRetry,
-      async (event) => {
-        const connection = connectionOf(event);
-        const state = connection.link?.view().state;
-        // Automatic attempts never prompt: what needs the user goes through
-        // the connect flow of this PC's window.
-        if (state?.status === 'lost' && state.settingsRequired) {
-          deps.requestSignIn(connection);
-          return;
-        }
-        // The outcome shows in the link state; a failed attempt is not an
-        // error of the button.
-        await connection.reconnect().catch(() => undefined);
-      },
-    ],
-    [
-      DESKTOP_IPC.connectionRetryNow,
-      (event) => {
-        // Only skips a pending countdown; a lost link goes through Reconnect.
-        connectionOf(event).link?.attemptNow();
-      },
-    ],
+  const handlers: Array<[string, (event: IpcMainInvokeEvent) => void]> = [
     [
       DESKTOP_IPC.connectionCloseWindow,
       (event) => {
-        connectionOf(event);
+        routed(event);
         deps.closeWindow(event.sender);
       },
     ],
     [
       DESKTOP_IPC.connectionOpenSettings,
       (event) => {
-        connectionOf(event);
+        routed(event);
         deps.showConnectionSettings();
-      },
-    ],
-    [
-      DESKTOP_IPC.reopenServerWindowsGet,
-      (event) => {
-        localOnly(event);
-        return deps.restore.isEnabled();
-      },
-    ],
-    [
-      DESKTOP_IPC.reopenServerWindowsSet,
-      (event, enabled) => {
-        localOnly(event);
-        return deps.restore.setEnabled(enabled === true);
-      },
-    ],
-    [
-      DESKTOP_IPC.serverRestoreProgressGet,
-      (event) => {
-        localOnly(event);
-        return deps.restore.progress();
       },
     ],
   ];
   for (const [channel, handler] of handlers) {
-    deps.ipcMain.handle(channel, async (event, ...args) => handler(event, ...args));
+    deps.ipcMain.handle(channel, async (event) => handler(event));
   }
   return () => {
     for (const [channel] of handlers) deps.ipcMain.removeHandler(channel);
   };
 }
 
-/** Pushes one connection's link state and notices to one of its windows,
- *  until the returned disposer runs (the window closed). */
-export function forwardConnectionLink(
-  connection: Pick<DesktopConnection, 'link' | 'subscribeNotices'> & Partial<Pick<DesktopConnection, 'ports'>>,
-  target: Pick<WebContents, 'send' | 'isDestroyed'>
-): () => void {
-  const send = (
-    channel: string,
-    value: DesktopConnectionLinkView | DesktopConnectionNotice | DesktopServerPortsView | null
-  ): void => {
-    if (!target.isDestroyed()) target.send(channel, value);
-  };
-  const unsubscribers = [
-    connection.link?.subscribe((view) => send(DESKTOP_IPC.connectionLinkState, view)) ?? (() => {}),
-    connection.subscribeNotices((notice) => send(DESKTOP_IPC.connectionNotice, notice)),
-    connection.ports?.subscribe((view) => send(DESKTOP_IPC.serverPortsChanged, view)) ?? (() => {}),
-    // The saved servers and PCs this window lists changed: it reads them again (no timer).
-    onHostListsChanged(() => send(DESKTOP_IPC.hostListsChanged, null)),
-  ];
-  return () => {
-    for (const unsubscribe of unsubscribers) unsubscribe();
-  };
+/** Tells one window the saved servers and PCs it lists changed (it reads them again, no timer), until the returned
+ *  disposer runs (the window closed). */
+export function forwardConnectionLink(target: Pick<WebContents, 'send' | 'isDestroyed'>): () => void {
+  return onHostListsChanged(() => {
+    if (!target.isDestroyed()) target.send(DESKTOP_IPC.hostListsChanged, null);
+  });
 }

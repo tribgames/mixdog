@@ -32,6 +32,7 @@ pub mod computer_gate;
 pub mod computer_pointer_service;
 pub mod browser_engine_service;
 pub mod compose_browser_engine;
+pub mod compose_connections;
 pub mod connection_close;
 pub mod effort_judge_host;
 pub mod fencing_ownership;

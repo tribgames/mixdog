@@ -207,36 +207,33 @@ test('Reconnect now keeps the outage start: past the server grace the link is lo
   assert.equal(state.code, 'unreachable');
 });
 
-test('the Reconnect now IPC skips the countdown of the sender’s connection only', async () => {
+test('the window IPC answers only a routed window: close it, show Connection settings', async () => {
   const { registerConnectionLinkIpc } = await import('./link-ipc.ts');
   const { WindowRouteRegistry } = await import('./window-routes.ts');
-  const skipped = [];
-  const connection = (id) => ({
-    id,
-    kind: 'ssh',
-    link: { attemptNow: () => skipped.push(id), view: () => ({ state: { status: 'reconnecting' } }) },
-    reconnect: async () => {},
-  });
-  const pool = new ConnectionPool();
-  pool.add(connection('srv-a'));
-  pool.add(connection('srv-b'));
+  const closed = [];
+  let shown = 0;
   const routes = new WindowRouteRegistry();
   routes.register({ id: 11, once: () => {} }, 'srv-a');
-  routes.register({ id: 12, once: () => {} }, 'srv-b');
   const handlers = new Map();
-  registerConnectionLinkIpc({
-    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), removeHandler: () => {} },
+  const removed = [];
+  const dispose = registerConnectionLinkIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), removeHandler: (channel) => removed.push(channel) },
     routes,
-    pool,
-    restore: { isEnabled: () => true, setEnabled: () => true, progress: () => null },
-    closeWindow: () => {},
-    showConnectionSettings: () => {},
-    requestSignIn: () => {},
+    closeWindow: (sender) => closed.push(sender.id),
+    showConnectionSettings: () => {
+      shown += 1;
+    },
   });
-  await handlers.get(DESKTOP_IPC.connectionRetryNow)({ sender: { id: 12 } });
-  assert.deepEqual(skipped, ['srv-b']);
-  await assert.rejects(handlers.get(DESKTOP_IPC.connectionRetryNow)({ sender: { id: 99 } }));
-  assert.deepEqual(skipped, ['srv-b']);
+  assert.deepEqual([...handlers.keys()].sort(), [DESKTOP_IPC.connectionCloseWindow, DESKTOP_IPC.connectionOpenSettings].sort());
+  await handlers.get(DESKTOP_IPC.connectionCloseWindow)({ sender: { id: 11 } });
+  await handlers.get(DESKTOP_IPC.connectionOpenSettings)({ sender: { id: 11 } });
+  assert.deepEqual(closed, [11]);
+  assert.equal(shown, 1);
+  await assert.rejects(handlers.get(DESKTOP_IPC.connectionCloseWindow)({ sender: { id: 99 } }), /not attached/);
+  await assert.rejects(handlers.get(DESKTOP_IPC.connectionOpenSettings)({ sender: { id: 99 } }), /not attached/);
+  assert.deepEqual(closed, [11]);
+  dispose();
+  assert.equal(removed.length, 2);
 });
 
 test('a tunnel stopped for good (refused login) turns the attempt into a terminal loss', async () => {
@@ -1016,21 +1013,13 @@ test('server notifications are bounded and keep the server label first', () => {
   assert.equal([...bounded.body].length, NOTIFICATION_BODY_CHARS);
 });
 
-test('link state and notices reach only the window they are forwarded to, until it closes', () => {
-  const listeners = new Set();
-  const noticeListeners = new Set();
-  const connection = {
-    link: { subscribe: (listener) => subscribeTo(listeners, listener) },
-    subscribeNotices: (listener) => subscribeTo(noticeListeners, listener),
-  };
+test('the host-lists change reaches only the window it is forwarded to, until it closes', async () => {
+  const { notifyHostListsChanged } = await import('../host-lists-changed.ts');
   const sent = [];
-  const stop = forwardConnectionLink(connection, { isDestroyed: () => false, send: (...args) => sent.push(args) });
-  publishTo(listeners, { state: { status: 'paused' } });
-  publishTo(noticeListeners, { kind: 'model-sign-in', provider: 'anthropic' });
-  assert.deepEqual(sent, [
-    [DESKTOP_IPC.connectionLinkState, { state: { status: 'paused' } }],
-    [DESKTOP_IPC.connectionNotice, { kind: 'model-sign-in', provider: 'anthropic' }],
-  ]);
+  const stop = forwardConnectionLink({ isDestroyed: () => false, send: (...args) => sent.push(args) });
+  notifyHostListsChanged();
+  assert.deepEqual(sent, [[DESKTOP_IPC.hostListsChanged, null]]);
   stop();
-  assert.equal(listeners.size + noticeListeners.size, 0);
+  notifyHostListsChanged();
+  assert.equal(sent.length, 1);
 });
