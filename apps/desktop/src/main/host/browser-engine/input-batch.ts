@@ -29,12 +29,14 @@ import { createBrowserHitTarget } from '../../browser/hit-target';
 import { createBrowserInputDriver, normalizeModifierMask, normalizeMouseButton } from '../../browser/input';
 import { createBrowserInputDispatch } from '../../browser/input-dispatch';
 import { cssPoint, type SendBrowserInput } from '../../browser/input-primitives';
+import { browserRefElementSource } from '../../browser/ref-access';
 import { pause } from '../../browser/settle';
 import { createFrameOffsetResolver } from '../../browser/snapshot-frame-offset';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext, EnginePage, GuestState } from './context';
 import { ENGINE_ERROR, preconditionFailed } from './errors';
 import { documentIdOf, checkPrecondition } from './precondition';
+import { currentSnapshotId } from './ref-call';
 import { registerEngineMethod } from './registry';
 
 const METHOD = 'host/browser/input/batch';
@@ -166,7 +168,16 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
       const guard = step.hitGuard;
       if (!guard || !PRESSING_KINDS.has(step.kind)) return undefined;
       const refs = state.accessibilityRefs;
-      const target = refs?.snapshotId === guard.snapshotId ? refs.refs.get(guard.ref) : undefined;
+      let target: { backendNodeId?: number; objectId?: string; sessionId?: string } | undefined;
+      if (currentSnapshotId(state) !== guard.snapshotId) {
+        target = undefined;
+      } else if (refs) {
+        target = refs.refs.get(guard.ref);
+      } else {
+        // A page whose accessibility tree was unavailable has DOM refs: the element is found in the page's own ref table.
+        const objectId = await domRefObject(guard.ref);
+        target = objectId ? { objectId } : undefined;
+      }
       if (!target) throw preconditionFailed('snapshot', call.facts());
       try {
         return await hitTarget.guard(guest, target, work);
@@ -174,6 +185,23 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
         work.throwIfAborted();
         throw new HitGuardMiss((error as Error).message);
       }
+    }
+
+    /** The object of a DOM-fallback ref, or undefined when its element left the document (the snapshot is stale). */
+    async function domRefObject(ref: string): Promise<string | undefined> {
+      const resolved = await ctx.cdp.call<{ result?: { objectId?: string }; exceptionDetails?: unknown }>(
+        guest,
+        'Runtime.evaluate',
+        {
+          expression: `(() => {
+          ${browserRefElementSource(ref)}
+          return element;
+        })()`,
+          returnByValue: false,
+        },
+        work
+      );
+      return resolved.exceptionDetails ? undefined : resolved.result?.objectId;
     }
 
     async function rawMouse(kind: 'move' | 'down' | 'up', step: BrowserPointerStep): Promise<void> {
