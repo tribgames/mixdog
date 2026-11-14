@@ -2,7 +2,25 @@
 
 [host/connection.ts] HOST_METHOD: no row needed (browser-live-control.ts holds the method name itself); HOST_CAPABILITIES.browser is already true.
 
-[host/index.ts] in createDesktopHost, beside the other register*Host(connection, ...) calls:
-  import { registerBrowserLiveControlHost } from './browser-live-control';
-  registerBrowserLiveControlHost(connection, () => <the browser remote control from createRemoteControl: its { resize, widenVideo }>);
-The control is resolved lazily (the callback runs per request) because the remote control is created after the host connection.
+[host/index.ts] imports, beside `import { type BrowserViewControl, createBrowserView } from './browser-view';`:
+  import { type BrowserLiveControl, registerBrowserLiveControlHost } from './browser-live-control';
+
+[host/index.ts] DesktopHostOptions.browser's return type, after `remote: BrowserInputControl['remote'];`:
+    /** The streamed page's resize and video limit (`host/browser/liveControl`). */
+    liveControl: BrowserLiveControl;
+
+[host/index.ts] createDesktopHost, after `const tabs = createBrowserTabsReporter(connection, () => options.browser().tabs);`:
+  registerBrowserLiveControlHost(connection, () => options.browser().liveControl);
+The control is resolved per request because the browser is built after the host connection.
+
+[main/index.ts] nothing: createLocalHostRole's `browser` already returns `browserHost.hostRole()`.
+
+NOT A HOT FILE, NOT OWNED BY DESKTOP-WIRE-G1 (the lead decides who applies it): the value comes from
+apps/desktop/src/main/browser/host.ts, the only place that holds the remote control (`shown.remote`).
+[browser/host.ts] imports, beside the other `import type` lines:
+  import type { BrowserLiveControl } from '../host/browser-live-control';
+[browser/host.ts] BrowserHost.hostRole()'s return type, after its `remote(method: BrowserRemoteMethod, args: unknown[]): Promise<unknown>;`:
+    /** The streamed page's resize and video limit (a phone's resize-request and ready.videoLimit). */
+    liveControl: BrowserLiveControl;
+[browser/host.ts] createBrowserHost's `hostRole: () => ({ ... })`, after `remote: (method, args) => runBrowserRemoteRequest(browserHost, method, args),`:
+      liveControl: { resize: shown.remote.resize, widenVideo: shown.remote.widenVideo },
