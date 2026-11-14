@@ -785,7 +785,7 @@ export interface DesktopApi {
   termResize?(id: string, cols: number, rows: number, phoneOwner?: boolean): void;
   termAcknowledge?(id: string, charCount: number): void;
   termDispose?(id: string): Promise<void>;
-  subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;
+  subscribeTermData?(listener: (event: { id: string; data: string; reset?: true }) => void): () => void;
   /** A phone claimed, released or lost a PTY's size; other views follow or re-fit. */
   subscribeTermSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
   /** Every live terminal whose command activity is known (integrated shells). */
