@@ -22,10 +22,11 @@
 //! The module also owns the foreground-lock lease thread of the Computer Use
 //! bridge host (foreground_lease.rs). That thread reports to JavaScript only
 //! through a queued Node-API threadsafe call, never from a window procedure.
+//! Its user32 and kernel32 imports are raw-dylib as well.
 //!
 //! The library is a Node-API module (mixdog_window.node): Node-API is
 //! ABI-stable across Electron versions, and the loader needs no FFI library.
-//! The Windows imports (comctl32, user32, kernel32) are raw-dylib, so there are no
+//! The Windows imports (comctl32, user32) are raw-dylib, so there are no
 //! import libraries and the build needs no Windows SDK.
 #![cfg(windows)]
 
