@@ -250,13 +250,6 @@ pub struct ServerIdentity {
     pub build: String,
 }
 
-impl ServerIdentity {
-    /// `<version>-<build>`: the version directory name on the server.
-    pub fn install_id(&self) -> String {
-        format!("{}-{}", self.version, self.build)
-    }
-}
-
 /// The runtime to upload for one server platform, checked against the manifest.
 pub struct ServerBinary {
     /// sha256 of the `mixdogd` inside the bundle.
@@ -344,10 +337,8 @@ impl Remote<'_> {
                 return Err(windows_server_error().into());
             }
             let lines: Vec<&str> = run.stderr.trim().lines().collect();
-            let detail = lines[lines.len().saturating_sub(6)..].join("
-");
-            let suffix = if detail.is_empty() { String::new() } else { format!("
-{detail}") };
+            let detail = lines[lines.len().saturating_sub(6)..].join("\n");
+            let suffix = if detail.is_empty() { String::new() } else { format!("\n{detail}") };
             return Err(RemoteBootstrapError::from_wire(
                 REMOTE_SHELL,
                 format!("Remote bootstrap exited with status {}.{suffix}", run.exit_code),
