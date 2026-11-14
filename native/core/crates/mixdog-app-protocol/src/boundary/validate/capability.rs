@@ -2,7 +2,8 @@
 //! (`<namespace>/<action>` of `action-route.mjs`, plus the overrides in `action-overrides.mjs`). Ported from
 //! `ipc-validation.ts` `requiredDesktopCapabilityRequest`: a capability's required arguments (the minimum of its
 //! arity, as the protocol params that carry them), the structured-value bounds of its arguments, the session
-//! a call addresses, and the options of `retryFailedTurn`, `contextStatus` and `skillsStatus`. The rules of the
+//! a call addresses, the options of `retryFailedTurn`, `contextStatus` and `skillsStatus`, and the arguments
+//! `validateTurnCapabilityArgs` checks (`askSide`, `revertTurnChanges`, `reapplyTurnChanges`). The rules of the
 //! other groups (settings, model, prompt, worktree and import) are theirs; every message is the TypeError text the
 //! host gave.
 //!
@@ -185,6 +186,7 @@ const CAPABILITIES: &[(&str, &str, &[&str])] = &[
     ("media/setMediaDefault", "setMediaDefault", &["input"]),
     ("media/setMediaPin", "setMediaPin", &["input"]),
     ("media/startMediaJob", "startMediaJob", &["input"]),
+    ("memory/memoryControl", "memoryControl", &[]),
     ("memory/recall", "recall", &["query"]),
     ("model/list", "listProviderModels", &[]),
     ("plugins/addPlugin", "addPlugin", &["source"]),
@@ -222,8 +224,11 @@ const CAPABILITIES: &[(&str, &str, &[&str])] = &[
     ("thread/compact/start", "compact", &[]),
     ("thread/contextStatus", "contextStatus", &[]),
     ("thread/getBranchMenu", "getBranchMenu", &[]),
+    ("thread/agentControl", "agentControl", &[]),
     ("thread/getSessionUsage", "getSessionUsage", &[]),
+    ("thread/goal/clear", "goalControl", &[]),
     ("thread/goal/control", "goalControl", &[]),
+    ("thread/goal/set", "goalControl", &[]),
     ("thread/inheritancePreflight", "inheritancePreflight", &[]),
     ("thread/listShellJobs", "listShellJobs", &[]),
     ("thread/listStoppableShellJobs", "listStoppableShellJobs", &[]),
@@ -263,6 +268,10 @@ const MAX_STRUCTURED_NODES: usize = 20_000;
 const MAX_STRUCTURED_DEPTH: usize = 12;
 const MAX_STRUCTURED_ENTRIES: usize = 5_000;
 const MAX_SESSION_ID_LENGTH: usize = 256;
+/// `MAX_PROMPT_LENGTH` of `capability-request.ts`: the longest side question.
+const MAX_SIDE_QUESTION_LENGTH: usize = 1_000_000;
+/// `Number.MAX_SAFE_INTEGER`.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const CONTEXT_INSPECTION_KEYS: &[&str] = &["inspect", "entryId", "revision"];
 const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath"];
 
@@ -309,6 +318,16 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
         "skillsStatus" => {
             if let Err((path, expected)) = skills_status_options(params.get("options")) {
                 return refuse(&path, &expected);
+            }
+        }
+        "askSide" => {
+            if let Err(expected) = required_string(params.get("question"), "side question", MAX_SIDE_QUESTION_LENGTH) {
+                return refuse("/question", &expected);
+            }
+        }
+        "revertTurnChanges" | "reapplyTurnChanges" => {
+            if let Err((path, expected)) = turn_changes_target(params) {
+                return refuse(path, &expected);
             }
         }
         _ => {}
@@ -436,6 +455,20 @@ fn context_status_options(value: Option<&Value>) -> Result<(), (String, String)>
     Ok(())
 }
 
+/// `validateTurnCapabilityArgs` for `[checkpointId, file | null, revision]`. A `file` that is not a string is left to
+/// the runtime, as the clients send other shapes there (`clients-accepted.json`).
+fn turn_changes_target(params: &Map<String, Value>) -> Result<(), (&'static str, String)> {
+    required_string(params.get("checkpointId"), "checkpointId", 512).map_err(|expected| ("/checkpointId", expected))?;
+    if let Some(file @ Value::String(_)) = params.get("file") {
+        required_string(Some(file), "file", 4_096).map_err(|expected| ("/file", expected))?;
+    }
+    let revision = params.get("revision").and_then(Value::as_f64);
+    if !revision.is_some_and(|revision| revision.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER).contains(&revision)) {
+        return Err(("/revision", "revision must be a non-negative integer.".to_owned()));
+    }
+    Ok(())
+}
+
 /// The `skillsStatus` options: a new-task draft's absolute project path (the host resolves it to a registered
 /// Project and refuses anything else).
 fn skills_status_options(value: Option<&Value>) -> Result<(), (String, String)> {
@@ -471,6 +504,8 @@ mod tests {
     #[derive(Deserialize)]
     struct Accepted {
         method: String,
+        // A notification row (`initialized`) has no params.
+        #[serde(default)]
         params: Value,
         client: String,
         case: String,
