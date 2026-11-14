@@ -1366,6 +1366,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
     fn release_session(&self, _session_id: &str) {}
+    /// An agent loop is entered (`resetAccountProbePacing`): the user asks for a current answer, so a quota the
+    /// account pool recorded as exhausted is re-measured rather than refused from the old reading. Called once per
+    /// loop entry, never per provider round. Nothing to do for a provider with no account roster.
+    fn begin_loop(&self) {}
     /// A forked request's transport scope is disposed (`disposeTransportScope`:
     /// `__mixdogCloseProviderConnectionsForSession(scope, 'transport_scope_disposed')`): the scope's
     /// connections and transport state go. By default as [`Self::release_session`].

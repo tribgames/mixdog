@@ -8,6 +8,7 @@
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod auth;
+pub mod device_login;
 pub mod listing;
 mod tool_schema;
 #[cfg(test)]

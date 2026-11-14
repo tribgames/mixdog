@@ -351,7 +351,13 @@ impl ProviderAdmin {
         if add_account && self.accounts.pool(&id).await.map_err(acct)?.accounts.len() >= 20 {
             return Err(Failure::error("At most 20 accounts can be connected."));
         }
-        let flow = oauth.login_flow(&account).ok_or_else(|| Failure::error("login flow unavailable"))?;
+        // `oauth.begin({ openBrowser })`: a host with no browser signs in by device code where the provider has one.
+        let flow = if options.get("openBrowser") == Some(&Value::Bool(false)) {
+            oauth.login_flow_without_browser(&account)
+        } else {
+            oauth.login_flow(&account)
+        }
+        .ok_or_else(|| Failure::error("login flow unavailable"))?;
         let session = flow.start().await.map_err(|e| Failure::error(format!("{e:?}")))?;
         let label = options.get("label").and_then(Value::as_str).unwrap_or("").to_owned();
         let admin = self.clone();
