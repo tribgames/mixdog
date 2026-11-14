@@ -384,7 +384,7 @@ test('the rooted operations answer the core reply, the path of an entry, or null
   const { lane } = laneWith({
     'projectFs/listDir': listing,
     'projectFs/entryPath': { path: '/r/a' },
-    'project/directory': { path: '/folder' },
+    'project/directory': { path: '/folder', standalone: true },
     'projectFs/trash': {},
     'projectFs/localPage/revokeOwner': {},
     'projectFs/localPage/origin': { origin: 'http://127.0.0.1:1' },
@@ -392,6 +392,8 @@ test('the rooted operations answer the core reply, the path of an entry, or null
   assert.equal(await lane.invoke('listProjectDirIn', [R, '']), listing);
   assert.equal(await lane.invoke('projectEntryPathIn', [R, 'a']), '/r/a');
   assert.equal(await lane.invoke('standaloneRoot', ['/folder']), '/folder');
+  const registered = laneWith({ 'project/directory': { path: '/project' } }).lane;
+  assert.equal(await registered.invoke('standaloneRoot', ['/project']), null);
   assert.equal(await lane.invoke('trashProjectEntryIn', [R, 'a']), null);
   assert.equal(await lane.invoke('localPageRevokeOwner', ['o']), null);
   assert.deepEqual(await lane.invoke('localPageOrigin', []), { origin: 'http://127.0.0.1:1' });
