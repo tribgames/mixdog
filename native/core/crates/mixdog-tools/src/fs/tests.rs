@@ -417,6 +417,10 @@ async fn replay_fs_search(scenario: &str) {
             if text.contains(super::read::IPYNB_RANGE_REFUSAL) {
                 failures.push(format!("#{index} {tool} {}: a notebook named without a window is refused: {text:?}", call["input"]));
             }
+        } else if tool == "code_graph" && let Some((want, want_error)) = answered_after_the_recording(&fixture["calls"], &call["input"]) {
+            if text != want || is_error != want_error {
+                failures.push(format!("#{index} {tool} {} (as Node's guard answers it):\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
+            }
         } else if text != want || is_error != want_error {
             failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
         }
@@ -435,6 +439,29 @@ async fn replay_fs_search(scenario: &str) {
     // The held reads end.
     mixdog_workspace::localfs::deadline_script::unstick(&ws);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A `code_graph` call Node's argument guard (`validateBuiltinArgs`: `normalizeStringListArgs` and `guardCodeGraph`, added to
+/// Node after b6f10295a, the commit of the recording) answers or reshapes before the tool sees it: the recording holds what
+/// the tool did with the raw argument, the core answers what Node answers now. A mode outside the enum is refused with the
+/// guard's text; a `file` list (`["", null]` being none, `[["a"]]` being `["a"]`) and a nested `files` list are the `files`
+/// of another recorded call, whose recording is Node's answer to it.
+fn answered_after_the_recording(calls: &JsonValue, input: &JsonValue) -> Option<(String, bool)> {
+    if input.get("mode").and_then(JsonValue::as_str) == Some("nope") {
+        let refusal = "Error: code_graph arg \"mode\" must be one of overview|imports|dependents|related|impact|symbols|find_symbol|symbol_search|search|references|callers|callees|prewarm (got \"nope\")";
+        return Some((refusal.to_owned(), true));
+    }
+    let reshaped = [
+        (serde_json::json!({"mode": "symbols", "file": ["a", "b"]}), serde_json::json!({"mode": "symbols", "files": ["a", "b"]})),
+        (serde_json::json!({"mode": "symbols", "file": ["a"]}), serde_json::json!({"mode": "symbols", "files": ["a"]})),
+        (serde_json::json!({"mode": "symbols", "file": []}), serde_json::json!({"mode": "symbols", "files": []})),
+        (serde_json::json!({"mode": "symbols", "file": ["", null]}), serde_json::json!({"mode": "symbols", "files": null})),
+        (serde_json::json!({"mode": "symbols", "file": [["a"]]}), serde_json::json!({"mode": "symbols", "files": ["a"]})),
+        (serde_json::json!({"mode": "symbols", "files": [["a", "b"]]}), serde_json::json!({"mode": "symbols", "files": ["a", "b"]})),
+    ];
+    let (_, same) = reshaped.iter().find(|(sent, _)| sent == input)?;
+    let recorded = calls.as_array()?.iter().find(|call| call["tool"] == "code_graph" && &call["input"] == same)?;
+    Some((recorded["text"].as_str()?.to_owned(), recorded["isError"] == true))
 }
 
 /// `search-queue-burst` (`recordBurst`), replayed whole. Each held call is made once the one before holds: its folder's
@@ -1158,8 +1185,8 @@ async fn read_tells_a_document_by_its_name_as_node_does() {
     assert!(text.starts_with("[PDF "), "{text}");
 }
 
-/// `countTextStatsStreaming`: `mode=count` of a text file past the buffered range size counts the invalid UTF-8 bytes as U+FFFD, while a
-/// small one, and every other mode, still reports the invalid encoding.
+/// `countTextStatsStreaming`, `streamHeadWindow`, the tail window and the summary scan: a glance mode over a text file past the
+/// buffered range size decodes the invalid UTF-8 bytes as U+FFFD, while a small one still reports the invalid encoding.
 #[tokio::test]
 async fn count_of_a_streaming_size_file_with_invalid_utf8_decodes_it_lossily() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-count-lossy").join("ws")).unwrap();
@@ -1171,9 +1198,13 @@ async fn count_of_a_streaming_size_file_with_invalid_utf8_decodes_it_lossily() {
     let counted = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "count" })).await).1;
     assert_eq!(counted, format!("lines\t2\twords\t4\tbytes\t{}", big.len()));
     let head = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "head" })).await).1;
-    assert!(head.starts_with("Error: invalid UTF-8 in text file"), "{head}");
-    let small = text_of(read.call(&ctx, serde_json::json!({ "file_path": "small.txt", "mode": "count" })).await).1;
-    assert!(small.starts_with("Error: invalid UTF-8 in text file"), "{small}");
+    assert!(head.contains("alpha \u{fffd} beta"), "{head}");
+    let tail = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "tail", "n": 1 })).await).1;
+    assert!(!tail.starts_with("Error:"), "{tail}");
+    for mode in ["count", "head"] {
+        let small = text_of(read.call(&ctx, serde_json::json!({ "file_path": "small.txt", "mode": mode })).await).1;
+        assert!(small.starts_with("Error: invalid UTF-8 in text file"), "{mode}: {small}");
+    }
 }
 
 /// A missing `list` / `grep` path carries Node's recovery hints.
@@ -3411,8 +3442,11 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
         ["docs/readme.md", "src/a.ts", "src/b.ts", "top.txt"],
         "{by_size}"
     );
+    // Below the first level the listing is the search server's inventory: it names a noise directory itself, and nothing in it.
     let dirs = run(serde_json::json!({ "path": ".", "depth": 2, "type": "dir" })).await;
-    assert_eq!(dirs.lines().collect::<Vec<_>>(), ["docs\tdir", "src\tdir"], "{dirs}");
+    assert_eq!(dirs.lines().collect::<Vec<_>>(), ["docs\tdir", "node_modules\tdir", "src\tdir"], "{dirs}");
+    let first_level = run(serde_json::json!({ "path": ".", "type": "dir" })).await;
+    assert_eq!(first_level.lines().collect::<Vec<_>>(), ["docs\tdir", "src\tdir"], "{first_level}");
     let none = run(serde_json::json!({ "path": "src", "type": "dir" })).await;
     assert_eq!(none, "(no entries match filter) type=dir, hidden=false path=src", "{none}");
     let noisy = run(serde_json::json!({ "path": ".", "depth": 2, "include_noise": true, "type": "dir" })).await;

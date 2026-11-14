@@ -242,4 +242,11 @@ fn the_argument_guard_answers_with_the_texts_of_the_argument_guard() {
     assert_eq!(kept, serde_json::json!({"mode": "imports", "file": "a.rs"}));
     let symbols = super::guard_args(serde_json::json!({"mode": "callers", "symbol": "x"})).unwrap();
     assert_eq!(symbols["symbol"], "x");
+    // A `file` list joins `files` ahead of its anchors, or takes the place of a `files` that is no list.
+    let joined = super::guard_args(serde_json::json!({"mode": "symbols", "file": ["a", ["b"]], "files": ["c"]})).unwrap();
+    assert_eq!(joined, serde_json::json!({"mode": "symbols", "files": ["a", "b", "c"]}));
+    let replaced = super::guard_args(serde_json::json!({"mode": "symbols", "file": [], "files": "c"})).unwrap();
+    assert_eq!(replaced, serde_json::json!({"mode": "symbols", "files": []}));
+    let one = super::guard_args(serde_json::json!({"mode": "symbols", "file": "a"})).unwrap();
+    assert_eq!(one, serde_json::json!({"mode": "symbols", "file": "a"}));
 }
