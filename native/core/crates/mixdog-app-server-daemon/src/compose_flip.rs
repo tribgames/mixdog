@@ -1796,7 +1796,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
     // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
     // The first start downloads the database runtime and the embedding model: each is a `notice` entry while it runs, so the app says so instead of looking hung (`runtime-fetcher.mjs` progress hooks).
-    let start_notices = MemoryStartNotices::new(state.publisher.clone());
+    let start_notices = MemoryStartNotices::new(desktop_notices.clone());
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
         let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
@@ -3852,19 +3852,18 @@ impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
     }
 }
 
-/// The first-start downloads of the memory runtime as `notice` entries (key `memory-runtime:<stage>`, code `memory-runtime-preparing`, param `stage`):
+/// The first-start downloads of the memory runtime as desktop notices (key `memory-runtime:<stage>`, code `memory-runtime-preparing`, param `stage`):
 /// raised by the first bytes of a download and removed when it ends, so the desktop shows "setting up" once per download and the first start does not look hung.
 struct MemoryStartNotices {
-    publisher: Arc<dyn mixdog_core_api::state::StatePublisher>,
-    raised: std::sync::Mutex<std::collections::HashSet<&'static str>>,
+    notices: Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>,
 }
 
 impl MemoryStartNotices {
     const DATABASE: &'static str = "database";
     const EMBEDDING: &'static str = "embedding";
 
-    fn new(publisher: Arc<dyn mixdog_core_api::state::StatePublisher>) -> Arc<Self> {
-        Arc::new(Self { publisher, raised: std::sync::Mutex::new(std::collections::HashSet::new()) })
+    fn new(notices: Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>) -> Arc<Self> {
+        Arc::new(Self { notices })
     }
 
     fn key(stage: &str) -> String {
@@ -3872,19 +3871,11 @@ impl MemoryStartNotices {
     }
 
     fn raise(&self, stage: &'static str) {
-        let mut raised = self.raised.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if raised.insert(stage) {
-            let key = Self::key(stage);
-            let notice = serde_json::json!({ "key": key, "code": "memory-runtime-preparing", "params": { "stage": stage } });
-            self.publisher.publish(mixdog_protocol::SectionName::Notice, Some(key), mixdog_core_base::state::change_of(&notice));
-        }
+        self.notices.raise(&Self::key(stage), "memory-runtime-preparing", &[("stage", stage)]);
     }
 
     fn clear(&self, stage: &'static str) {
-        let mut raised = self.raised.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if raised.remove(stage) {
-            self.publisher.publish(mixdog_protocol::SectionName::Notice, Some(Self::key(stage)), mixdog_core_api::state::SectionChange::Removed);
-        }
+        self.notices.clear(&Self::key(stage));
     }
 
     /// The sink of a download of `stage`: its bytes raise the notice.
@@ -3951,7 +3942,7 @@ mod tests {
     #[test]
     fn a_first_start_download_is_a_notice_until_it_ends() {
         let publisher = Arc::new(MockStatePublisher::default());
-        let notices = MemoryStartNotices::new(publisher.clone());
+        let notices = MemoryStartNotices::new(mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(publisher.clone()));
         let sink = notices.sink(MemoryStartNotices::DATABASE);
         for downloaded in [1, 2, 3] {
             sink(mixdog_services::model_install::Progress { label: "postgres".to_owned(), downloaded, total: 3 });
