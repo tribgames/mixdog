@@ -32,7 +32,7 @@ use crate::transport::HttpSend;
 use crate::transport::deadlines::credential_signal;
 
 const PROVIDER_ID: &str = "openai-oauth";
-pub const DEFAULT_ISSUER: &str = "https://auth.openai.com";
+const ISSUER: &str = "https://auth.openai.com";
 /// The user has 15 minutes to enter the code (`DEVICE_LOGIN_TIMEOUT_MS`).
 const LOGIN_WINDOW: Duration = Duration::from_secs(15 * 60);
 /// `DEFAULT_DEVICE_INTERVAL_S`: the poll interval when the server names none.
@@ -60,7 +60,6 @@ pub struct OpenAiDeviceLogin {
     pace: Arc<dyn Pace>,
     /// Where the sign-in goes when the issuer has no device flow.
     browser: Arc<dyn LoginFlow>,
-    issuer: String,
     running: Arc<AtomicBool>,
 }
 
@@ -72,15 +71,8 @@ impl OpenAiDeviceLogin {
             http,
             pace,
             browser,
-            issuer: DEFAULT_ISSUER.to_owned(),
             running: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    /// Points the device endpoints at another issuer (the code exchange goes to the login's token endpoint).
-    pub fn with_issuer(mut self, issuer: &str) -> Self {
-        self.issuer = issuer.trim_end_matches('/').to_owned();
-        self
     }
 }
 
@@ -106,7 +98,7 @@ impl LoginFlow for OpenAiDeviceLogin {
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
-        let api = format!("{}/api/accounts", self.issuer);
+        let api = format!("{ISSUER}/api/accounts");
         let started = try_call_under(
             self.http.as_ref(),
             credential_signal(START_WINDOW),
@@ -141,14 +133,15 @@ impl LoginFlow for OpenAiDeviceLogin {
             )));
         }
         let interval = field_text(body.get("interval")).parse::<f64>().ok().filter(|seconds| seconds.is_finite() && *seconds > 0.0);
-        let interval = interval.map_or(DEFAULT_INTERVAL, Duration::from_secs_f64);
+        // A wait never outlasts the login window, so a larger interval is the window (and cannot overflow a Duration).
+        let interval = interval.map_or(DEFAULT_INTERVAL, |seconds| Duration::from_secs_f64(seconds.min(LOGIN_WINDOW.as_secs_f64())));
         let now_ms = self.pace.now_ms();
         let first = LoginState::DeviceCode {
             user_code: user_code.clone(),
-            verification_uri: format!("{}/codex/device", self.issuer),
+            verification_uri: format!("{ISSUER}/codex/device"),
             expires_at: Some(UNIX_EPOCH + Duration::from_millis(now_ms) + LOGIN_WINDOW),
         };
-        let (login, http, pace, issuer) = (self.login.clone(), self.http.clone(), self.pace.clone(), self.issuer.clone());
+        let (login, http, pace) = (self.login.clone(), self.http.clone(), self.pace.clone());
         Ok(start_session(guard, first, false, move |ctx, _| async move {
             ctx.set(LoginState::Waiting);
             let deadline_ms = now_ms + LOGIN_WINDOW.as_millis() as u64;
@@ -174,7 +167,7 @@ impl LoginFlow for OpenAiDeviceLogin {
             })
             .await?;
             let text = |key: &str| field_text(granted.get(key));
-            login.exchange(&text("authorization_code"), &text("code_verifier"), &format!("{issuer}/deviceauth/callback")).await
+            login.exchange(&text("authorization_code"), &text("code_verifier"), &format!("{ISSUER}/deviceauth/callback")).await
         }))
     }
 }
