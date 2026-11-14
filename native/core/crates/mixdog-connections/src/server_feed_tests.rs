@@ -177,6 +177,8 @@ async fn server_feed_sessions_fold() {
     running["working"] = json!(true);
     client.events.send(notification("thread/summary/updated", json!({ "thread": running }))).unwrap();
     sessions.wait_for(|rows| rows[0].id == "a" && rows[0].running).await.unwrap();
+    // The whole row rides along for the readers of more than the lite fields.
+    assert_eq!(sessions.borrow()[0].summary.working, Some(true));
 
     client.events.send(notification("thread/archived", json!({ "threadId": "b" }))).unwrap();
     sessions.wait_for(|rows| rows.iter().any(|r| r.id == "b" && r.archived)).await.unwrap();
@@ -209,6 +211,21 @@ async fn server_feed_edge_outranks_the_listing_it_overlaps() {
     let rows = sessions.borrow().clone();
     assert_eq!((rows[0].id.as_str(), rows[0].title.as_str()), ("n", "started"));
     assert_eq!((rows[1].id.as_str(), rows[1].title.as_str()), ("a", "edge"));
+}
+
+#[tokio::test]
+async fn server_feed_relisting_after_reconnect_is_heard_unchanged() {
+    let listing = || Reply::Value(json!({ "data": [row("a", "same", 10)] }));
+    let client = stub(vec![("thread/list", vec![listing(), listing()])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut sessions = feed.sessions();
+    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
+    drop(sessions.borrow_and_update());
+    client.events.send(ClientEvent::Status(ConnectionStatus::Reconnecting { attempt: 1 })).unwrap();
+    client.events.send(ClientEvent::Status(ConnectionStatus::Ready { server_instance_id: "s".into() })).unwrap();
+    // The read after the reconnect is published although it equals the list already held.
+    sessions.changed().await.unwrap();
+    assert_eq!(ids(&feed), ["a"]);
 }
 
 #[tokio::test]

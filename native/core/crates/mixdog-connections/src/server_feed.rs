@@ -32,7 +32,7 @@ const LIST_PAGE_LIMIT: u64 = 1000;
 const STATE_CHANNEL_CAPACITY: usize = 256;
 
 /// One row of the server's session list.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionSummaryLite {
     pub id: String,
     pub title: String,
@@ -48,6 +48,9 @@ pub struct SessionSummaryLite {
     pub awaiting_approval: bool,
     pub awaiting_question: bool,
     pub agent_home: Option<String>,
+    /// The whole row as the server sent it: the notifier's conversation kind and turn tracker read more of it (`leadWorking`,
+    /// `agentWorking`, `agentRoom`, `taskAgent`, `sessionMode`, ...).
+    pub summary: ThreadSummary,
 }
 
 impl SessionSummaryLite {
@@ -65,6 +68,7 @@ impl SessionSummaryLite {
             awaiting_approval: row.awaiting_approval == Some(true),
             awaiting_question: row.awaiting_question == Some(true),
             agent_home: row.agent_home.clone(),
+            summary: row.clone(),
         }
     }
 }
@@ -271,11 +275,18 @@ fn set_if_changed<T: PartialEq>(sender: &watch::Sender<T>, next: T) {
 impl Shared {
     // ── sessions ──
 
-    fn publish_sessions(&self, rows: &HashMap<String, ThreadSummary>) {
+    /// `always`: a full listing is published even when it equals the last list (a reattach report waits for the list read
+    /// after the reconnect); an edge that changes nothing is not.
+    fn publish_sessions(&self, rows: &HashMap<String, ThreadSummary>, always: bool) {
         let mut ordered: Vec<&ThreadSummary> = rows.values().collect();
         // Catalog order: newest activity first, ties by id in code-unit order.
         ordered.sort_by(|a, b| activity_of(b).cmp(&activity_of(a)).then_with(|| a.id.as_str().cmp(b.id.as_str())));
-        set_if_changed(&self.sessions, ordered.into_iter().map(SessionSummaryLite::of).collect());
+        let next: Vec<SessionSummaryLite> = ordered.into_iter().map(SessionSummaryLite::of).collect();
+        if always {
+            self.sessions.send_replace(next);
+        } else {
+            set_if_changed(&self.sessions, next);
+        }
     }
 
     async fn read_listing(&self) -> Result<HashMap<String, ThreadSummary>, ClientError> {
@@ -313,7 +324,17 @@ impl Shared {
         roster.reading = false;
         // A connection that ends mid-read is read again by the next reconnect; the edges wait for that read.
         let Ok(mut listed) = listing else { return };
-        for (id, row) in std::mem::take(&mut roster.edges) {
+        let edges = std::mem::take(&mut roster.edges);
+        for (id, archived) in std::mem::take(&mut roster.pending_archive) {
+            // An edge for the row outranks an archive change that arrived before it.
+            if edges.contains_key(&id) {
+                continue;
+            }
+            if let Some(row) = listed.get_mut(&id) {
+                row.archived = Some(archived);
+            }
+        }
+        for (id, row) in edges {
             match row {
                 Some(row) => {
                     listed.insert(id, row);
@@ -323,14 +344,9 @@ impl Shared {
                 }
             }
         }
-        for (id, archived) in std::mem::take(&mut roster.pending_archive) {
-            if let Some(row) = listed.get_mut(&id) {
-                row.archived = Some(archived);
-            }
-        }
         roster.held = listed;
         roster.known = true;
-        self.publish_sessions(&roster.held);
+        self.publish_sessions(&roster.held, true);
     }
 
     fn on_edge(&self, method: &str, params: &Json) {
@@ -380,7 +396,7 @@ impl Shared {
                 None => return,
             },
         }
-        self.publish_sessions(&roster.held);
+        self.publish_sessions(&roster.held, false);
     }
 
     // ── session states ──
