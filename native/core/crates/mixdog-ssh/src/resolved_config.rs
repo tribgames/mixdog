@@ -191,15 +191,22 @@ fn key_of(destination: &str, port: &str) -> String {
     format!("{destination}\u{0}{port}")
 }
 
-/// The generated configs of the targets resolved so far, and Mixdog's generic config for everything else.
+/// The generated configs of the targets resolved so far, and Mixdog's generic config for everything else. Where Mixdog's ssh folder
+/// could not be prepared there is no config of its own: no target resolves and no generic config is named, so ssh reads the user's
+/// own files.
 pub struct ResolvedConfigs {
-    config: Arc<MixdogSshConfig>,
+    config: Option<Arc<MixdogSshConfig>>,
     files: Mutex<BTreeMap<String, PathBuf>>,
 }
 
 impl ResolvedConfigs {
     pub fn new(config: Arc<MixdogSshConfig>) -> Arc<Self> {
-        Arc::new(Self { config, files: Mutex::new(BTreeMap::new()) })
+        Arc::new(Self { config: Some(config), files: Mutex::new(BTreeMap::new()) })
+    }
+
+    /// For a machine whose Mixdog ssh folder could not be prepared.
+    pub fn without_config() -> Arc<Self> {
+        Arc::new(Self { config: None, files: Mutex::new(BTreeMap::new()) })
     }
 
     fn files(&self) -> MutexGuard<'_, BTreeMap<String, PathBuf>> {
@@ -209,9 +216,10 @@ impl ResolvedConfigs {
     /// Builds and verifies the generated config for `target` and makes it the one [`SshConfigFiles::for_args`]
     /// returns for the target's ssh arguments. `Err` means the generic config stays in use.
     pub async fn resolve_for_target(&self, env: &SshEnv, ctx: &AttemptContext, target: &SshTarget) -> Result<ResolvedConfig, Unresolved> {
+        let Some(config) = &self.config else { return Err(Unresolved::default()) };
         let key = key_of(&target.destination, &target.port.map(|port| port.to_string()).unwrap_or_default());
         self.files().remove(&key);
-        let own = self.config.known_hosts_file().to_string_lossy().into_owned();
+        let own = config.known_hosts_file().to_string_lossy().into_owned();
         let Some(blocks) = resolve_chain(env, ctx, target).await else { return Err(Unresolved::default()) };
         let mut forwards: Vec<String> = Vec::new();
         for forward in blocks.iter().flat_map(|block| block.host.forwards.iter().cloned()) {
@@ -226,7 +234,7 @@ impl ResolvedConfigs {
         }
         let digest = Sha256::digest(key.as_bytes());
         let name: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
-        let file = self.config.dir().join(format!("t-{name}.conf"));
+        let file = config.dir().join(format!("t-{name}.conf"));
         let mut text = vec!["# Written by Mixdog from what ssh resolves for this server; forwards are left out.".to_owned()];
         text.extend(blocks.iter().map(|block| resolved_block_text(&block.pattern, &block.lines, &block.host, &own)));
         text.push(String::new());
@@ -261,7 +269,7 @@ impl SshConfigFiles for ResolvedConfigs {
     }
 
     fn generic(&self) -> Option<PathBuf> {
-        self.config.generic()
+        self.config.as_ref()?.generic()
     }
 }
 

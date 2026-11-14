@@ -755,3 +755,38 @@ async fn configure_merges_the_desktops_known_hosts_when_its_folder_is_named() {
     let configured = MixdogSshConfig::configure(&env).await.expect("configured");
     assert_eq!(text(configured.known_hosts_file()), format!("10.0.0.2 ssh-ed25519 {}\n", key_of("b")));
 }
+
+#[tokio::test]
+async fn the_ssh_folder_is_locked_to_the_user_once_and_a_later_start_runs_no_icacls() {
+    let folder = temp();
+    let data = folder.path().to_str().expect("a path").to_owned();
+    let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "jdoe")];
+    let first = quiet();
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), first.clone());
+    MixdogSshConfig::configure(&env).await.expect("configured");
+    assert_eq!(first.named("icacls").len(), 1, "the folder is locked at the first start");
+    let second = quiet();
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), second.clone());
+    MixdogSshConfig::configure(&env).await.expect("configured");
+    assert!(second.named("icacls").is_empty(), "a folder already locked to this user is not locked again");
+    // Another account is another lock.
+    let other = quiet();
+    let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "someone")];
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), other.clone());
+    MixdogSshConfig::configure(&env).await.expect("configured");
+    assert_eq!(other.named("icacls").len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_lock_leaves_no_marker_so_the_next_start_tries_again() {
+    let folder = temp();
+    let data = folder.path().to_str().expect("a path").to_owned();
+    let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "jdoe")];
+    let denied = Tools::new(|_, _| Ok(ToolOutput { exit_code: Some(5), stdout: String::new(), stderr: "Access is denied.".into() }));
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), denied);
+    assert!(MixdogSshConfig::configure(&env).await.is_err());
+    let again = quiet();
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), again.clone());
+    MixdogSshConfig::configure(&env).await.expect("configured");
+    assert_eq!(again.named("icacls").len(), 1);
+}

@@ -1270,12 +1270,12 @@ impl Inner {
             }
             "remoteHosts/redeemCode" => {
                 let params: RemoteHostRedeemParams = decode(req)?;
-                let code = parse_pair_code_input(&params.code).ok_or_else(|| failed(DOMAIN, "Enter the 6-digit code shown on your PC."))?;
+                let code = parse_pair_code_input(&params.code).ok_or_else(|| failed(DOMAIN, (deps.translate)("Enter the 6-digit code shown on your PC.")))?;
                 let relay_url = (deps.relay_url)().ok_or_else(|| failed(DOMAIN, "Remote access is turned off on this PC."))?;
                 let origin = relay_http_origin(&relay_url).map_err(attempt_failure)?;
                 let redeemed = deps.relay.redeem(&origin, &code).await.map_err(|error| failed(DOMAIN, error.message(&*deps.translate)))?;
                 let link = parse_remote_host_link(&format!("{origin}/d/{}/", redeemed.device_id))
-                    .ok_or_else(|| failed(DOMAIN, "Codes are not available on this connection server yet. Use the QR code."))?;
+                    .ok_or_else(|| failed(DOMAIN, (deps.translate)("Codes are not available on this connection server yet. Use the QR code.")))?;
                 let saved = deps.remote_hosts.add(&link, &redeemed.name).await.map_err(attempt_failure)?;
                 // The one-time ticket rides the fragment, which is never sent to the relay with the page request: the window loads
                 // this address and the page drops the ticket once it has used it. The saved address has none.

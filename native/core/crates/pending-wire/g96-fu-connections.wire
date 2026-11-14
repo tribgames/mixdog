@@ -1,0 +1,48 @@
+# g96-fu-connections: what the wiring applies (hot files; the rest of the task is committed)
+
+## 1. compose_flip.rs: the connections composition call (around `compose_connections::compose_connections(`)
+
+compose_connections no longer fails (a failed ssh folder preparation is reported at error level and leaves the core running), so
+`.await?` becomes `.await`. ConnectionsInputs gains two fields:
+
+  style: the ToastStyleReader the notify engine is built with (build it once above `NotificationEngine::new(..)`:
+         `let toast_style: ToastStyleReader = { let config = config.clone(); Arc::new(move || ToastStyle::for_volume(config.desktop_settings().notification_volume)) };`
+         pass `toast_style.clone()` to the engine and `style: toast_style` here),
+  claims: `resource_claims.clone()`, an `Arc<crate::compose_connections::ResourceClaims>` made early (`let resource_claims: Arc<ResourceClaims> = Arc::default();`,
+          before the server's claim hook is set).
+
+## 2. host/claim: whoever records the claim sets the resources (mixdog-app-server outgoing.rs + server.rs, with the hook slot)
+
+`ClaimHook::claimed` gets the claim's resources:
+
+  fn claimed(&self, serves: &[HostCapability], resources: Option<&HostClaimResources>) -> Option<Box<dyn Any + Send>>;
+
+`Outgoing::claim(host, conn, methods)` takes `resources: Option<HostClaimResources>` and passes `resources.as_ref()` to the hook;
+server.rs `ClientRequest::HostClaim` passes `params.resources` (it already passes `params.serves`). `SystemProxyClaims::claimed` ignores the
+new argument. The one hook slot then holds a hook that runs both (the claim keeps what each returns, dropped with the claim):
+
+  pub struct ClaimHooks(pub Vec<Arc<dyn ClaimHook>>);
+  impl ClaimHook for ClaimHooks {
+      fn claimed(&self, serves: &[HostCapability], resources: Option<&HostClaimResources>) -> Option<Box<dyn Any + Send>> {
+          let attached: Vec<Box<dyn Any + Send>> = self.0.iter().filter_map(|hook| hook.claimed(serves, resources)).collect();
+          (!attached.is_empty()).then(|| Box::new(attached) as Box<dyn Any + Send>)
+      }
+  }
+
+and the resources hook (compose_connections.rs is not a hot file but the trait is; this is the whole impl, put it beside ResourceClaims
+once the trait has the new argument):
+
+  impl ClaimHook for ResourceClaimHook(pub Arc<ResourceClaims>) { fn claimed(&self, _: &[HostCapability], resources: Option<&HostClaimResources>) -> Option<Box<dyn Any + Send>> { Some(self.0.attach(resources.cloned())) } }
+
+(`ResourceClaims::attach(Option<HostClaimResources>)` is written and tested: it sets the resources and the returned guard clears them when the claim is
+replaced or its connection closes; a newer claim attaches before the older is dropped and the older guard clears nothing.) Register it in
+compose_flip.rs right after `resource_claims` is made (nothing calls `set_claim_hook` in production today: `SystemProxyClaims` is only built
+in its own test, so the slot is free):
+
+  b.outgoing.set_claim_hook(Arc::new(ResourceClaimHook(resource_claims.clone()))).map_err(|_| ComposeError::AlreadyBound("host claim hook"))?;
+
+When `SystemProxyClaims` is registered too, the slot holds `ClaimHooks(vec![system_proxy_claims, Arc::new(ResourceClaimHook(..))])` instead.
+
+## 3. lib.rs: nothing new (compose_connections_language.rs is a #[path] submodule of compose_connections.rs).
+
+## 4. SERVICE_PENDING: nothing to remove.
