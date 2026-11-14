@@ -1,0 +1,21 @@
+# s2b-askpass-server
+
+`crates/mixdog-ssh/src/askpass.rs` and `askpass_tests.rs` are written. `lib.rs` already declares `pub mod askpass;` (nothing to add there).
+
+## native/core/crates/mixdog-ssh/Cargo.toml
+
+`[dependencies]`, after `zeroize`:
+- `rand = { workspace = true }`   (the session token and the endpoint / folder names; same dependency mixdog-statefile has)
+
+`[dependencies]` `tokio` features must contain `"rt"`, `"sync"`, `"macros"`, `"time"`, `"net"`, `"io-util"` (they do now; keep them).
+
+`[dev-dependencies]` (new section if absent):
+- `mixdog-rt = { workspace = true, features = ["test-support"] }`   (`mixdog_rt::testing::tokens()` for the durability lane; no `virtual-clock`: the tests use real short timeouts)
+- `tempfile = { workspace = true }`
+
+Uses mixdog-fsio, mixdog-statefile and mixdog-rt, which are already `[dependencies]` of mixdog-ssh. No new workspace-crate edge. No new crate in Cargo.lock (rand, regex, zeroize, async-trait, tempfile are in it).
+
+## What the consumer wires (s2b-ssh-spawn / the desktop-side service)
+
+- `AskpassServer::new(prompter, mixdog_rt durability_io token, Platform::current())`, `.with_plain_base(<plain ASCII private folder>)` on Windows, then `start(&SshEnv.askpass_helper)`; the session is an `Arc<dyn AskpassEnv>` for `AttemptContext.askpass`.
+- No protocol method is registered by this task: nothing to remove from `SERVICE_PENDING`.
