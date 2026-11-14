@@ -9,24 +9,19 @@
  * lifts the lock on the user's Alt key or click, and nothing here can end a
  * lock this process held when it died.
  *
- * The lock is taken and ended by a lease owner on its own worker thread
- * (sources/foreground-lease-thread.cjs), never by this event loop: a lease
- * ends at its deadline however long this loop is blocked. A worker asks with a
+ * The lock is taken and ended by a lease owner on its own native thread
+ * (native/mixdog-window, foreground_lease.rs, loaded as mixdog_window.node),
+ * never by this event loop: a lease ends at its deadline however long this
+ * loop is blocked. A worker asks with a
  * line on its stdout; the answer goes back on its stdin, a pipe only this
  * process can write, and names the request (action and sequence) and the
  * lease it answers, so the worker accepts nothing else. A line that is not a
  * well-formed request of the worker's own in-flight action is ignored, never
  * thrown into the worker's output handling.
  */
-import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { Worker } from 'node:worker_threads';
-import { loadComputerSource } from './native-assets';
-
 export const FOREGROUND_LOCK_LINE_PREFIX = '@@MIXDOG_FGLOCK@@';
 /** Lease answers on a worker's stdin (MixForegroundLockHost.ReplyPrefix). */
 export const FOREGROUND_LOCK_REPLY_PREFIX = '@@MIXDOG_FGLOCK_REPLY@@';
-export const LEASE_THREAD_SOURCE = loadComputerSource('foreground-lease-thread.cjs');
 /** No lease holds every other app's foreground changes for longer. */
 const MAX_HOLD_MS = 1_000;
 const MAX_ID = 2 ** 31 - 1;
@@ -264,16 +259,21 @@ export function createHostForegroundLock(runtime: ForegroundLeaseRuntime): HostF
         if (line.op === 'acquire') {
           if (active) {
             unansweredAcquires++;
-            active.post({
-              type: 'acquire',
-              instance: worker.instance,
-              pid: worker.pid ?? 0,
-              action: line.action,
-              seq: line.seq,
-              holdMs: line.holdMs,
-              answerBy: line.answerBy,
-            });
-            return;
+            try {
+              active.post({
+                type: 'acquire',
+                instance: worker.instance,
+                pid: worker.pid ?? 0,
+                action: line.action,
+                seq: line.seq,
+                holdMs: line.holdMs,
+                answerBy: line.answerBy,
+              });
+              return;
+            } catch {
+              // A thread that cannot take the request ended (its exit is reported): none can answer.
+              threadDown ||= 'the lease thread did not take the request';
+            }
           }
           file(worker.instance, line.action, {
             lease: 0,
@@ -285,14 +285,18 @@ export function createHostForegroundLock(runtime: ForegroundLeaseRuntime): HostF
           return;
         }
         if (active) {
-          active.post({
-            type: 'release',
-            instance: worker.instance,
-            action: line.action,
-            seq: line.seq,
-            lease: line.lease,
-          });
-          return;
+          try {
+            active.post({
+              type: 'release',
+              instance: worker.instance,
+              action: line.action,
+              seq: line.seq,
+              lease: line.lease,
+            });
+            return;
+          } catch {
+            // The thread ended with this request (its exit is reported): the account below answers it.
+          }
         }
         // A thread that ended holding the lock got main's one unlock call, whose
         // outcome is the account; one that held nothing, or never started, left none.
@@ -346,63 +350,137 @@ export function createHostForegroundLock(runtime: ForegroundLeaseRuntime): HostF
   };
 }
 
-/** Starts the lease owner as a worker thread. `workerData` names how it loads
- *  user32: `koffiPath`, or a test's `nativeModule`. */
-export function leaseThreadStarter(workerData: Record<string, unknown>): StartLeaseThread {
+/** The lease functions of mixdog_window.node (native/mixdog-window, foreground_lease.rs). */
+export interface LeaseNative {
+  /** Starts the lease thread; `onEvent` gets the JSON of each lease end it reports. Throws when one is running. */
+  leaseStart(onEvent: (event: string) => void): void;
+  /** Takes a lease for the request on the lease thread, and waits for its answer. */
+  leaseRequest(request: {
+    instance: number;
+    pid: number;
+    action: number;
+    seq: number;
+    holdMs: number;
+    answerBy: number;
+  }): { holding: boolean; lease: number; answer: string; deadlineAt: number; facts: string };
+  leaseEnd(end: { instance: number; action: number; seq: number; lease: number }): void;
+  leaseGone(instance: number): void;
+  /** Ends any lease and stops the thread; released, unknown, failed or none. */
+  leaseDispose(): string;
+  /** One unlock call from the calling thread. */
+  leaseUnlock(): { outcome: string; error?: number | null };
+}
+
+const failureOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Loads the Node-API module from any file name (the dev build keeps cargo's .dll name). */
+export function loadLeaseNative(library: string): LeaseNative {
+  const module = { exports: {} as LeaseNative };
+  process.dlopen(module as NodeJS.Module, library);
+  return module.exports;
+}
+
+/** The lease thread of the module: an answer comes back from the call that asks,
+ *  a lease's end as an event. A call the module fails ends the thread for the
+ *  host (`exit`), which then unlocks from here once. */
+export function nativeLeaseThread(native: LeaseNative): StartLeaseThread {
   return (events) => {
-    const worker = new Worker(LEASE_THREAD_SOURCE, { eval: true, workerData });
-    // Never what keeps the app alive; a lease it holds ends at its deadline or at dispose.
-    worker.unref();
-    worker.on('message', (event: LeaseThreadEvent) => events.message(event));
-    worker.on('error', (error) => events.exit(`the lease thread failed: ${error.message}`));
-    worker.on('exit', (code) => events.exit(`the lease thread exited (${code})`));
+    native.leaseStart((json) => {
+      events.message({ type: 'released', ...JSON.parse(json) } as LeaseThreadEvent);
+    });
+    let stopped = false;
+    const call = <T>(step: () => T): T => {
+      try {
+        return step();
+      } catch (error) {
+        events.exit(`the lease thread failed: ${failureOf(error)}`);
+        throw error;
+      }
+    };
     return {
-      post: (message) => worker.postMessage(message),
-      stop: () => void worker.terminate(),
+      post(message) {
+        if (message.type === 'acquire') {
+          const { instance, action, seq } = message;
+          const answered = call(() => native.leaseRequest(message));
+          events.message({
+            holding: answered.holding,
+            type: 'answer',
+            instance,
+            action,
+            seq,
+            lease: answered.lease,
+            answer: answered.answer,
+            deadlineAt: answered.deadlineAt,
+            facts: JSON.parse(answered.facts),
+          });
+        } else if (message.type === 'release') {
+          call(() => native.leaseEnd(message));
+        } else if (message.type === 'gone') {
+          call(() => native.leaseGone(message.instance));
+        } else {
+          stopped = true;
+          events.message({ type: 'disposed', outcome: call(() => native.leaseDispose()) });
+        }
+      },
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        try {
+          native.leaseDispose();
+        } catch {
+          // Already ended.
+        }
+      },
     };
   };
 }
 
-/** The app's lease thread, loading user32 through koffi resolved from
- *  `resolveFrom`: this bundle, or the app directory for a harness bundled
- *  outside it. A packaged app keeps koffi unpacked beside its asar archive
- *  (electron-builder.yml asarUnpack), which the thread loads directly. */
-export function koffiLeaseThread(resolveFrom: string = import.meta.url): StartLeaseThread {
-  return (events) => {
-    const resolved = createRequire(resolveFrom).resolve('koffi');
-    const unpacked = resolved.replace(/\.asar([\\/])/, '.asar.unpacked$1');
-    const koffiPath = unpacked !== resolved && existsSync(unpacked) ? unpacked : resolved;
-    return leaseThreadStarter({ koffiPath })(events);
-  };
-}
-
-/** One LockSetForegroundWindow(LSFW_UNLOCK) from the calling (main) thread,
- *  with koffi loaded on first use. A false return is unknown, as on the lease
- *  thread; a load or call that throws is failed. */
-export function koffiFallbackUnlock(resolveFrom: string = import.meta.url): () => FallbackUnlock {
-  let unlock: (() => FallbackUnlock) | undefined;
+/** The one unlock call this process's main thread makes through the module;
+ *  false is unknown, as on the lease thread, and a call that throws is failed. */
+export function nativeFallbackUnlock(native: () => LeaseNative): () => FallbackUnlock {
   return () => {
     try {
-      unlock ??= (() => {
-        const koffi: typeof import('koffi') = createRequire(resolveFrom)('koffi');
-        const lockSetForegroundWindow = koffi
-          .load('user32.dll')
-          .func('bool __stdcall LockSetForegroundWindow(uint32_t code)');
-        const getLastError = koffi.load('kernel32.dll').func('uint32_t __stdcall GetLastError()');
-        return (): FallbackUnlock =>
-          lockSetForegroundWindow(2) ? { outcome: 'released' } : { outcome: 'unknown', error: Number(getLastError()) };
-      })();
-      return unlock();
+      const result = native().leaseUnlock();
+      return result.outcome === 'released'
+        ? { outcome: 'released' }
+        : { outcome: 'unknown', ...(result.error == null ? {} : { error: result.error }) };
     } catch (error) {
-      return { outcome: 'failed', error: error instanceof Error ? error.message : String(error) };
+      return { outcome: 'failed', error: failureOf(error) };
     }
   };
 }
 
-/** The app's lease thread and main-thread fallback, both through koffi
- *  resolved from `resolveFrom`. */
-export function koffiForegroundLease(resolveFrom: string = import.meta.url): ForegroundLeaseRuntime {
-  return { startThread: koffiLeaseThread(resolveFrom), fallbackUnlock: koffiFallbackUnlock(resolveFrom) };
+/** The lease thread and main-thread fallback through the module `load` gives,
+ *  loaded on first use. Where it cannot be loaded no lease is taken: the reason is
+ *  logged once at error level and every request is answered unavailable. */
+export function nativeForegroundLease(load: () => LeaseNative): ForegroundLeaseRuntime {
+  let loaded: LeaseNative | undefined;
+  let loadError: Error | undefined;
+  const native = (): LeaseNative => {
+    if (loaded) return loaded;
+    if (!loadError) {
+      try {
+        loaded = load();
+        return loaded;
+      } catch (error) {
+        loadError = new Error(`The foreground-lease module could not be loaded: ${failureOf(error)}`);
+        console.error(`[mixdog-window] ${loadError.message}. Computer Use runs without foreground-lock leases.`);
+      }
+    }
+    throw loadError;
+  };
+  return {
+    startThread: (events) => nativeLeaseThread(native())(events),
+    fallbackUnlock: nativeFallbackUnlock(native),
+  };
+}
+
+let leaseLibrary: string | undefined;
+
+/** The path of mixdog_window.node (window-mica.ts `micaLibraryPath`) that the
+ *  process's lease owner loads; set once at startup. */
+export function setForegroundLeaseLibrary(library: string): void {
+  leaseLibrary = library;
 }
 
 // One lease owner per process: LSFW_LOCK belongs to the process, so two owners
@@ -419,7 +497,11 @@ export function nextLeaseInstance(): number {
 
 /** The process's lease owner, created on first use. */
 export function processForegroundLock(
-  runtime: () => ForegroundLeaseRuntime = () => koffiForegroundLease()
+  runtime: () => ForegroundLeaseRuntime = () =>
+    nativeForegroundLease(() => {
+      if (!leaseLibrary) throw new Error('the path of mixdog_window.node was not set');
+      return loadLeaseNative(leaseLibrary);
+    })
 ): HostForegroundLock {
   processLock ??= createHostForegroundLock(runtime());
   return processLock;
