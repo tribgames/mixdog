@@ -73,8 +73,9 @@ Beside HostBrowserUpload (after it):
 # 3. HostBrowserEmulationResult: add after `applied`:
 
     /// What the host configured, in the command's words (`userAgent`, `locale=ko-KR`, `media`, ...), the siblings of a group the page kept included.
-    /// Absent when overrides were cleared.
+    /// Absent when overrides were cleared. (The struct has no `ts(optional_fields)`, so the field says it is optional itself.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
     pub labels: Option<Vec<String>>,
 
 # After the change the generated schema files and packages/protocol/src/index.ts carry the new types and fields (and the client method table the new request).
