@@ -8,7 +8,7 @@ import { dirname, join, isAbsolute as pathIsAbsolute, resolve as resolvePath } f
 import { DESKTOP_IPC, type DesktopWorkspace } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { createDialogFolderMemory } from './dialog-folder-memory';
-import { absoluteLocalPath, readLocalFileAbs } from './local-files';
+import { absoluteLocalPath } from './local-files';
 import type { IpcHandle as Handle } from './ipc';
 import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitizedFileName } from './ipc-validation';
 import type { ConnectionKind } from './connections/contract';
@@ -128,9 +128,9 @@ export function registerFileDialogIpc({
     describeLocalPaths(paths, sessionId, options)
   );
   handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) =>
-    connectionKind === 'ssh'
-      ? invokeDesktopOperation('readLocalFileAbs', [absoluteServerPath(rawPath)])
-      : readLocalFileAbs(rawPath)
+    invokeDesktopOperation('readLocalFileAbs', [
+      connectionKind === 'ssh' ? absoluteServerPath(rawPath) : absoluteLocalPath(rawPath),
+    ])
   );
   // Project file refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
