@@ -5,7 +5,7 @@
 // reads is one of the profile's folders.
 //
 // PARITY (what the capture host served, and what serves it now)
-//   CaptureService answer                          now provided by
+//   what the old capture host answered            now provided by
 //   listSessions / listProjects / listAgentPool    the core (empty profile; a new task is a real thread)
 //   getSnapshot / subscribe* / setVisibleSessions  the core over the window's port (core-direct sessions)
 //   submitNewTask / startTask / abortSession       the core: thread/start, turn/start on the scripted endpoint
