@@ -696,11 +696,12 @@ async fn a_poll_publishes_every_row_and_a_null_row_fails_the_read() {
     mixdog_rt::testing::tokens();
     let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
     let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
-    // A row that is not a job is published like any other (`jobs.map(emit)` does not test `isJob`), the rows after a `null` are not.
+    // A row that is not a job is published like any other (`jobs.map(emit)` does not test `isJob`); the number after it has the same
+    // key (no `jobId`) and the same stamp (`undefined:undefined:undefined`), so it is not published again. The rows after a `null` are not.
     assert_eq!(progress.emit_rows(&[job("a", 1, "done", 1), json!({ "noJobId": true }), json!(7)]), Some(false));
-    assert_eq!(source.published.lock().unwrap().len(), 3);
+    assert_eq!(source.published.lock().unwrap().len(), 2);
     assert_eq!(progress.emit_rows(&[job("a", 2, "running", 1), Value::Null, job("b", 1, "running", 0)]), None);
-    assert_eq!(source.published.lock().unwrap().len(), 4, "the row before the null was published, the one after it was not");
+    assert_eq!(source.published.lock().unwrap().len(), 3, "the row before the null was published, the one after it was not");
     assert_eq!(progress.emit_rows(&[job("b", 1, "stopping", 0)]), Some(true));
 }
 

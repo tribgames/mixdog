@@ -52,27 +52,21 @@ native/core/crates/mixdog-app-server-daemon/src/compose_domains.rs, `compose_dom
 with
 
     let import = Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default()));
-    let announce_publisher = state.publisher.clone();   // whatever carries an app-feed notification, see below
+    // conversation-import-progress.ts: each changed job snapshot reaches every client on the app feed.
+    let app = state.app.clone();
     services.push(Arc::new(mixdog_core_domains::domains::desktop_residual_b::ImportProgressService::new(
         import,
-        Arc::new(move |_event, job| { /* announce `import/progress/updated` { job } on the app feed, the way desktopPet/state/changed is announced */ }),
+        Arc::new(move |_event, job| app.notify("import/progress/updated", &serde_json::json!({ "job": job }))),
     )));
 
-The announce closure needs a protocol notification, which no table has yet (the desktop event `conversation-import-progress` was an Electron IPC
-event; the renderer listens to it through contract-ipc.ts). Rows for the protocol wiring (the lead pastes them; new type in a new v2 module,
-e.g. `v2/import_progress.rs`):
-
-    [notifications]
-    # after UiSettingsChanged in notification_definitions! (app feed, delivered to every window and paired device like settings-changed):
-    ImportProgressUpdated => "import/progress/updated" (ImportProgressUpdatedParams) @app,
-    # v2/import_progress.rs:  pub struct ImportProgressUpdatedParams { pub job: JsonValue }   (the job snapshot exactly as
-    # import/getConversationImportJobs returns it: jobId, seq, state, processed, ...), derives as UiSettingsChangedParams.
-    [free_text]
-    # the job's string fields are free text: add `import/progress/updated /job/**` to the payloads of free_text_fields.json.
+(`state` is the `PreDomains` field `compose_domains_post` already destructures; `SectionFeedState::notify` is the call `config.announce_to`
+uses for `ui/settings/changed`.) The notification row and its params type are in
+native/core/crates/mixdog-app-protocol/pending-rows/g95-fu-residual-b.rows (type module v2/import_progress.rs, written in this task).
 
 The desktop client task (x-residual-moves-b-client) maps this notification to the renderer's `conversation-import-progress` handler and then
-deletes conversation-import-progress.ts (+ its test in conversation-import.test.mjs); until then the TypeScript twin and this decorator would both
-publish, so the compose line and the TypeScript deletion land in the same wave. The decorator needs no entry in SERVICE_PENDING (it serves the
+deletes conversation-import-progress.ts (+ its test in conversation-import.test.mjs). The desktop's main process no longer calls
+`createConversationImportProgress` (only the definition is left), so nothing publishes twice meanwhile: the bridge (ipc-state-bridge.ts) still
+forwards a `conversation-import-progress` desktop event when one arrives. The decorator needs no entry in SERVICE_PENDING (it serves the
 methods `ImportService` serves, the same names).
 
 ## 4. Login-shell environment (finding #12)
@@ -100,7 +94,10 @@ an empty adoption). First statements of `run()`:
 set are left alone) with Homebrew's directories appended to `PATH` on macOS. Decision left to the lead: whether a daemon started from a terminal by
 the CLI (not by the desktop) also reads the shell (the old code read it for every desktop start only); gate it on the fact the desktop start
 carries today, if there is one, rather than on an environment switch. Then desktop index.ts `adoptLoginShellEnvironment` / `loginShellEnvironmentReady`
-and login-shell-environment.ts (+ test) are deleted by the client task.
+and login-shell-environment.ts (+ test) are deleted by the client task. Note for that task: the old adoption also set the Electron main
+process's own environment, which its own child processes inherit (ssh tunnels and port forwards of server windows, the core spawn itself); the
+daemon-side read covers the core and everything under it, not those, so the client task keeps that coverage (for example by taking the adopted
+variables from the core) before it deletes the TypeScript read, rather than dropping it.
 
 ## 5. Attachments (findings #213, #214)
 
