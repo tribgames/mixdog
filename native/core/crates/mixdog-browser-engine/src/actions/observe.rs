@@ -487,6 +487,7 @@ pub async fn locate(input: LocateInput<'_>) -> Result<ToolReply, ActionError> {
         image: Some(ReplyImage { mime_type: capture.mime_type.clone(), bytes: capture.bytes.clone() }),
         outcome: snapshot.outcome,
         timing: None,
+        file: None,
         grounding: Some(VisualGrounding::bind(ref_set, f64::from(capture.width), f64::from(capture.height), now)),
     })
 }

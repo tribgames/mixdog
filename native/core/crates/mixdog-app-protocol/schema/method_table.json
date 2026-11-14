@@ -12122,6 +12122,25 @@
     },
     {
       "class": "C2",
+      "method": "takeover/state",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::takeover_state::TakeoverStateParams",
+      "result": "v2::takeover_state::TakeoverStateResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "test/browserEngine/run",
       "mutation": {
         "kind": "none"
@@ -12547,6 +12566,11 @@
     },
     {
       "delivery": "connection",
+      "method": "host/notification/close",
+      "params": "HostNotificationCloseParams"
+    },
+    {
+      "delivery": "connection",
       "method": "host/browser/viewFrames",
       "params": "HostBrowserViewFramesParams"
     },
@@ -12659,6 +12683,16 @@
       "delivery": "app",
       "method": "ui/providerModels/changed",
       "params": "UiProviderModelsChangedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "ui/relayPayloadRefused",
+      "params": "UiRelayPayloadRefusedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "import/progress/updated",
+      "params": "crate::v2::import_progress::ImportProgressUpdatedParams"
     },
     {
       "delivery": "app",

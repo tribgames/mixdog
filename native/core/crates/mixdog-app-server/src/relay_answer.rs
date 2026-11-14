@@ -13,7 +13,6 @@ use mixdog_protocol::DomainErrorDetail;
 use mixdog_protocol::Origin;
 use serde_json::Value;
 
-const REDACTED: &str = "[redacted]";
 /// `MIN_REDACTED_SECRET_LENGTH`.
 const MIN_SECRET_LENGTH: usize = 6;
 /// How many levels of the arguments are walked (`visit`'s `depth < 6`).
@@ -99,16 +98,7 @@ impl RelayAnswer {
 
     /// `redactSecrets`: each secret, plain and as the inside of a JSON string, replaced by `[redacted]`.
     fn redact(&self, text: &str) -> String {
-        let mut safe = text.to_owned();
-        for secret in self.secrets.iter().filter(|secret| !secret.is_empty()) {
-            let json = serde_json::to_string(secret).expect("a string serializes");
-            let escaped = &json[1..json.len() - 1];
-            safe = safe.replace(secret.as_str(), REDACTED);
-            if escaped != secret {
-                safe = safe.replace(escaped, REDACTED);
-            }
-        }
-        safe
+        mixdog_protocol::redact::redact_secrets(text, &self.secrets)
     }
 }
 

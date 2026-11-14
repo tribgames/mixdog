@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn a_secret_goes_plain_and_as_the_inside_of_a_json_string() {
-        let secret = "ab\"cd\ef";
+        let secret = "ab\"cd\\ef";
         let text = format!("failed with {secret} and {}", serde_json::to_string(secret).unwrap());
         let safe = redact_secrets(&text, &[secret]);
         assert!(!safe.contains("cd"), "{safe}");

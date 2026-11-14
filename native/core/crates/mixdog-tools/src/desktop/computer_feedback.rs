@@ -139,7 +139,10 @@ async fn serve(mut inbox: mpsc::UnboundedReceiver<Value>, desktop: Arc<dyn HostC
             events.push(next);
         }
         let params = json!({"sessionId": session, "events": events});
-        let _ = mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await;
+        // A relay the desktop could not carry means the overlay surface that draws the arrow is gone: the next pointer action asks for the arrow again.
+        if !matches!(mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await, Ok(Ok(_))) {
+            super::computer_pointer::forget_ready(&session);
+        }
     }
 }
 

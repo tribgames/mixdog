@@ -83,6 +83,9 @@ impl BridgeSavedLogins for RegistryBridgeSavedLogins {
     async fn settle(&self, session: &str, turn: u64) {
         self.0.settle(&SavedLoginTurn { session: session.to_owned(), turn }).await;
     }
+    fn pixels_guarded(&self) -> bool {
+        !self.0.pixel_guards().is_empty()
+    }
 }
 
 /// The turn source of a session's saved-login fills: the runtime's own turn while the bridge runs a fill of the session, else the core's count.

@@ -11105,6 +11105,18 @@
       ],
       "type": "object"
     },
+    "TakeoverStateParams": {
+      "description": "Params of `takeover/state`: the secret request ids the client asks about (none: no slot is read).",
+      "properties": {
+        "secretRequestIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "TerminalAttachParams": {
       "description": "Params of `terminal/attach`.",
       "properties": {
@@ -14087,12 +14099,12 @@
         "focused": {
           "type": "boolean"
         },
-        "sessionId": {
-          "description": "The session the window shows, when it shows one.",
-          "type": [
-            "string",
-            "null"
-          ]
+        "sessionIds": {
+          "description": "Every session the window shows on screen (one per pane of a split view); empty when it shows none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "visible": {
           "type": "boolean"
@@ -22312,7 +22324,7 @@
       "type": "object"
     },
     {
-      "description": "What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).",
+      "description": "What a paired device's file preview reads first: kind, mime, size and modification time (Node's `previewProjectFile`).",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"
@@ -27063,6 +27075,29 @@
         },
         "params": {
           "$ref": "#/definitions/TakeoverReadyParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What the core holds for takeovers and secret slots: the sessions with an open takeover card (id, step, surface), the step of a screen takeover, and which of the named secret request ids hold a value (never the value). The desktop's takeover gate and secret request slots mirror it.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "takeover/state"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TakeoverStateParams"
         }
       },
       "required": [

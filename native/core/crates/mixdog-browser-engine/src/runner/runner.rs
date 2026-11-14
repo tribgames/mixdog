@@ -2991,7 +2991,7 @@ mod tests {
         }))
         .expect("mint");
         minted.observe(&store);
-        let joined = store.snapshot("p1", "p1-s1").expect("still observed").refs;
+        let joined = store.snapshot("p1", "p1-s1").expect("still observed").refs.clone();
         let found = joined.get("p1-s1-t1").expect("the minted ref joined");
         assert_eq!((found.role.as_str(), found.name.as_str(), found.url.as_str()), ("div", "card", "https://a.test/"));
         assert_eq!((joined.len(), joined.covered_elements, joined.document_id.as_str()), (2, covered, "p1:1"));

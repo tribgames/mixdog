@@ -67,6 +67,10 @@ fn reply_value(reply: ToolReply) -> Value {
     if let Some(image) = reply.image {
         value.insert("image".to_owned(), serde_json::json!({ "mimeType": image.mime_type, "data": STANDARD.encode(&image.bytes) }));
     }
+    // A completed download the command attached (`downloads` with `attach`): the old path's `result.file`.
+    if let Some(file) = reply.file {
+        value.insert("file".to_owned(), serde_json::json!({ "mimeType": file.mime_type, "name": file.name, "data": STANDARD.encode(&file.bytes) }));
+    }
     if let Some(outcome) = reply.outcome {
         value.insert("outcome".to_owned(), Value::String(outcome.as_str().to_owned()));
     }

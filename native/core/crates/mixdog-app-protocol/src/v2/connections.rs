@@ -1065,6 +1065,9 @@ pub struct RemoteHostPresenceParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteHostPresenceResult {
     pub online: Vec<String>,
+    /// Hosts the relay reported offline. A host in neither list could not be asked (its relay did not answer): its state is unknown.
+    #[serde(default)]
+    pub offline: Vec<String>,
 }
 
 // ---- connection-scoped notifications, core to client
@@ -1171,9 +1174,9 @@ pub struct WindowFocusEntry {
     pub connection_id: String,
     pub visible: bool,
     pub focused: bool,
-    /// The session the window shows, when it shows one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    /// Every session the window shows on screen (one per pane of a split view); empty when it shows none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_ids: Vec<String>,
 }
 
 /// The value of `host/state/set` key `windowFocus`: every window, for the server notifier's "is it on screen" rule.
@@ -1284,7 +1287,7 @@ mod tests {
         round_trip::<HostWindowOpenParams>(json!({"connectionId": "s", "kind": "ssh", "name": "n"}));
         round_trip::<HostWindowFocusParams>(json!({"connectionId": "local"}));
         round_trip::<HostWindowClosedParams>(json!({"connectionId": "s", "byUser": true}));
-        round_trip::<WindowFocusValue>(json!({"windows": [{"connectionId": "s", "visible": true, "focused": false, "sessionId": "t"}]}));
+        round_trip::<WindowFocusValue>(json!({"windows": [{"connectionId": "s", "visible": true, "focused": false, "sessionIds": ["t"]}]}));
         round_trip::<HostClaimResources>(json!({"serverCoresDir": "d", "askpassHelper": "h"}));
     }
 

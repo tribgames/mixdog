@@ -127,6 +127,22 @@ impl FilePort for EngineFiles {
     }
 }
 
+#[async_trait]
+impl mixdog_browser_engine::reply::downloads_text::DownloadFiles for EngineFiles {
+    async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes> {
+        let path = path.to_path_buf();
+        on_lane_wait(self.lane, &CancellationToken::new(), move |_| {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)?.take(limit).read_to_end(&mut bytes)?;
+            Ok::<_, std::io::Error>(Bytes::from(bytes))
+        })
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?
+    }
+}
+
+
 /// The session's filled secrets: the one secret fill's registry and the redactor that also hides saved-login passwords.
 pub struct FillSecretGuard {
     pub fill: Arc<SecretFill>,

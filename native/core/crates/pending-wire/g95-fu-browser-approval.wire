@@ -1,4 +1,0 @@
-# g95-fu-browser-approval: nothing in a hot file is needed.
-# ApprovalContext (mixdog-tools desktop/browser_approval.rs) gained `async fn save_failed(&self, thread)`; its only implementer,
-# BrowserApprovalContext in mixdog-app-server-daemon compose_browser_engine.rs, is changed in this task, so compose_flip.rs needs no edit.
-# Not done (needs a core-session change, not a hot file): closing the card when the engine drops the asking future. See the result notes.

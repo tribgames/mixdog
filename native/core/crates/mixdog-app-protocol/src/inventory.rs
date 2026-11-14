@@ -6,7 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InventoryList {
-    /// The 171 desktop operations.
+    /// The 173 desktop operations.
     Operations,
     /// The 61 DesktopService methods.
     Services,
@@ -684,6 +684,16 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     ),
     (
         InventoryList::Operations,
+        "pcAccessReadiness",
+        Target::Method("pcAccess/readiness"),
+    ),
+    (
+        InventoryList::Operations,
+        "pcAccessApprove",
+        Target::Method("pcAccess/approve"),
+    ),
+    (
+        InventoryList::Operations,
         "remoteAccessListClaims",
         Target::Section("remote"),
     ),
@@ -750,13 +760,13 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     ),
     (
         InventoryList::Operations,
-        "browserRemoteOpen",
-        Target::ClientNotification("host/browser/surface"),
+        "terminalRemoteOpen",
+        Target::Notification("ui/openRequested"),
     ),
     (
         InventoryList::Operations,
-        "terminalRemoteOpen",
-        Target::Notification("ui/openRequested"),
+        "relayPayloadRefused",
+        Target::Notification("ui/relayPayloadRefused"),
     ),
     (
         InventoryList::Operations,

@@ -82,6 +82,14 @@ pub(super) async fn build(
     services.push(ClientService::new(Arc::new(ActivityInput::new(seams.user_activity.clone())), Arc::new(perf)));
 
     let power = Arc::new(RemotePower::new(seams.remote.clone(), seams.local_target.clone()));
+    // network-watch.ts: the leg redials at once when the machine comes back online or its addresses change (the old main process reported
+    // `power('resume')` for it; `RemotePower` closes the leg and redials from the first delay, as a system resume does).
+    let on_network_change = power.clone();
+    drop(mixdog_core_domains::domains::desktop_residual_b::NetworkWatcher::start(
+        std::time::Duration::from_millis(mixdog_core_domains::domains::desktop_residual_b::NETWORK_POLL_MS),
+        Arc::new(mixdog_core_domains::domains::desktop_residual_b::network_snapshot),
+        Arc::new(move || mixdog_core_domains::domains::host::PowerSink::power(&*on_network_change, mixdog_app_protocol::v2::host::PowerEvent::Resume)),
+    ));
     services.push(HostService::new(publisher, power.clone(), power, seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.visualize_panes.clone()));
 
     services.push(InstructionsService::new(
