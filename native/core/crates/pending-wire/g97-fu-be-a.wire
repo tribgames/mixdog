@@ -4,7 +4,7 @@ g97-fu-be-a wiring
 Anchor: the `prompt: Arc::new(mixdog_core::run_host::prompt_rebuild::ComposedPrompt {` literal (in the surface host deps), the last field `skills: Arc::new(mixdog_core::run_host::prompt_rebuild::CatalogPromptSkills(mcp.catalog.clone())),`.
 Add after that field:
   user_cwd: mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
-(the same construction as the other `user_cwd:` lines of the file; use the binding that is in scope at that site, `b` or `data_dir`/`tokens`).
+(the same construction as the other `user_cwd:` lines of the file; `b` is in scope at that site: the neighbouring `prompt_io` and `prompt_facts` lines read `b.tokens` and `b.data_dir`).
 Effect: the prompt's env cwd of a session whose header names no cwd is `captureOriginalUserCwd()` (the explicit cwd, MIXDOG_PROJECT_DIR, the process cwd), as `opts.cwd || captureOriginalUserCwd()` was in Node; without the field ComposedPrompt does not compile.
 No Cargo edge needed (mixdog-core already depends on mixdog-core-session).
 No SERVICE_PENDING names to remove.
