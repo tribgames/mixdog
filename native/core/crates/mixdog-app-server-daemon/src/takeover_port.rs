@@ -112,9 +112,9 @@ impl CoreTakeover {
             let held = hold.held && hold.id.as_deref().is_none_or(|id| id == takeover_id);
             seen |= held;
             if held && self.shared.running(session_id) == 0 {
-                match (&self.shared.computer, hold.screen.is_some()) {
+                match (&self.shared.computer, hold.names_screen) {
                     (Some(lock), true) => {
-                        // A screen takeover waits for Computer Use to drain too; the takeover ending first drops the wait.
+                        // A takeover whose own surface is the screen waits for Computer Use to drain too; the takeover ending first drops the wait.
                         if tokio::time::timeout(POLL, lock.drained()).await.is_ok() {
                             return true;
                         }
@@ -247,7 +247,7 @@ mod tests {
         }
         fn take_with(&self, session: &str, screen: Option<&str>, id: &str) {
             let step = screen.unwrap_or("a step only the user can do").to_owned();
-            let hold = TakeoverHold { held: true, screen: screen.map(str::to_owned), step: Some(step), id: Some(id.to_owned()) };
+            let hold = TakeoverHold { held: true, screen: screen.map(str::to_owned), names_screen: screen.is_some(), step: Some(step), id: Some(id.to_owned()) };
             self.0.lock().unwrap().insert(session.to_owned(), hold);
         }
         fn end(&self, session: &str) {
@@ -383,6 +383,23 @@ mod tests {
         // A browser takeover never waits on Computer Use.
         holds.take("s2", None);
         assert!(owner.ready("s2", "t1").await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_drain_is_chosen_by_the_surface_of_the_takeover_that_is_held() {
+        let holds = Arc::new(Holds::default());
+        let lock = Arc::new(HumanOnlyLock::new(holds.clone()));
+        let owner = Arc::new(CoreTakeover::new(holds.clone()).with_computer_drain(lock.clone()));
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let backend = Arc::new(GatedComputerBackend::new(Arc::new(Running(finish.clone())), lock));
+        let call = tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        // A browser takeover is the one held; a later screen takeover of the session does not make it wait.
+        let hold = TakeoverHold { held: true, screen: Some("later".into()), names_screen: false, step: Some("s".into()), id: Some("t1".into()) };
+        holds.0.lock().unwrap().insert("s1".into(), hold);
+        assert!(owner.ready("s1", "t1").await);
+        finish.notify_one();
+        call.await.unwrap().unwrap();
     }
 
     #[tokio::test(start_paused = true)]

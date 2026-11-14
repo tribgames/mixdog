@@ -151,6 +151,72 @@ impl Host {
     /// (capture-source-plan.ts, capture-native-surface.ts:110-177).
     pub(super) fn window_capture(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
+        let output = Output::of(req)?;
+        let (mut capture, mut delivery) = self.capture_surface(req, &info, &output)?;
+        let mut served = info.clone();
+        let mut through_owner = false;
+        // A child window whose surface could not be read is retried once
+        // through its owner, whose composited surface includes the child
+        // (captureThroughOwner, capture-pixels.ts); the owner's attempts are
+        // appended to the child's, tagged scope owner.
+        if capture.surface.is_err() && !capture.terminal && info.owner != 0 && info.owner != info.handle {
+            // The owner is a capture of its own: a grant that names the child alone does not reach it.
+            let owner = self
+                .desktop
+                .info(info.owner)
+                .filter(|owner| owner.handle != 0 && self.authorize(req, owner.handle).is_ok());
+            if let Some(owner) = owner {
+                let (owner_capture, owner_delivery) = self.capture_surface(req, &owner, &output)?;
+                let mut attempts = std::mem::take(&mut capture.attempts);
+                attempts.extend(owner_capture.attempts.into_iter().map(|mut row| {
+                    if let Value::Object(fields) = &mut row {
+                        fields.insert("scope".into(), json!("owner"));
+                    }
+                    row
+                }));
+                let cleanup = worse(capture.cleanup, owner_capture.cleanup);
+                if owner_capture.surface.is_ok() {
+                    through_owner = true;
+                    served = owner;
+                    delivery = owner_delivery;
+                    capture = Capture { surface: owner_capture.surface, attempts, cleanup, terminal: false };
+                } else {
+                    capture.attempts = attempts;
+                    capture.cleanup = cleanup;
+                }
+            }
+        }
+        let mut reply = capture_reply(&served, capture);
+        if let (Ok(result), Some(delivery)) = (reply.result.as_mut(), delivery) {
+            delivery.apply(result);
+        }
+        if let (true, Ok(result)) = (through_owner, reply.result.as_mut()) {
+            result.insert("requested_window_id".into(), json!(info.id()));
+            let text = result.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+            result.insert(
+                "text".into(),
+                json!(format!(
+                    "{text}; requested child window {} was captured through owner {}",
+                    info.id(),
+                    served.id()
+                )),
+            );
+        }
+        if let Some(result) = reply.error_result {
+            self.error_result
+                .borrow_mut()
+                .get_or_insert_with(Obj::new)
+                .extend(result);
+        }
+        if reply.retire {
+            self.retire_after_reply.set(true);
+        }
+        reply.result
+    }
+
+    /// One window's capture through the plan its request names, the frame
+    /// cut and fitted for delivery.
+    fn capture_surface(&self, req: &Req, info: &WindowInfo, output: &Output) -> Res<(Capture, Option<Delivery>)> {
         let remembered = self.wgc_windows.borrow().get(&info.handle) == Some(&info.pid);
         let (plan, judged): (&[&str], bool) = match req.str("capture_backend").as_deref() {
             None if remembered => (&REMEMBERED_PLAN, true),
@@ -159,7 +225,6 @@ impl Host {
             Some("wgc") => (&CAPTURE_PLAN[1..], false),
             Some(_) => return Err(UNKNOWN_CAPTURE_BACKEND.into()),
         };
-        let output = Output::of(req)?;
         let mut capture = run_plan(
             plan,
             |backend| {
@@ -181,12 +246,12 @@ impl Host {
             },
         );
         if judged {
-            self.remember_backend(&info, &capture);
+            self.remember_backend(info, &capture);
         }
         let mut delivery = None;
         let mut refused = None;
         if let Ok(surface) = &capture.surface {
-            match self.deliver(&output, surface) {
+            match self.deliver(output, surface) {
                 Ok(None) if output.region.is_some() => {
                     // A crop that cannot be made is refused, never answered
                     // with the whole surface under the region's geometry.
@@ -200,21 +265,9 @@ impl Host {
         }
         if let Some(error) = refused {
             capture.surface = Err(error);
+            capture.terminal = true;
         }
-        let mut reply = capture_reply(&info, capture);
-        if let (Ok(result), Some(delivery)) = (reply.result.as_mut(), delivery) {
-            delivery.apply(result);
-        }
-        if let Some(result) = reply.error_result {
-            self.error_result
-                .borrow_mut()
-                .get_or_insert_with(Obj::new)
-                .extend(result);
-        }
-        if reply.retire {
-            self.retire_after_reply.set(true);
-        }
-        reply.result
+        Ok((capture, delivery))
     }
 
     /// Keeps the window as one that needs the compositor capture when that
@@ -518,6 +571,9 @@ struct Capture {
     surface: Result<Surface, String>,
     attempts: Vec<Value>,
     cleanup: Cleanup,
+    /// The plan ended on a failure no other source recovers from (or on a
+    /// platform without the backend): the owner is not asked.
+    terminal: bool,
 }
 
 /// The code a refusal text opens with (`code|message` or `code: message`),
@@ -584,6 +640,7 @@ fn run_plan(
     let mut cleanup = Cleanup::CONFIRMED;
     let mut flags = None;
     let mut previous = String::new();
+    let mut terminal = false;
     for (index, backend) in backends.iter().enumerate() {
         let started = Instant::now();
         let outcome = match acquire(backend) {
@@ -610,6 +667,7 @@ fn run_plan(
                     surface: Ok(surface),
                     attempts,
                     cleanup,
+                    terminal: false,
                 };
             }
             Err((failure, status)) => {
@@ -619,6 +677,7 @@ fn run_plan(
                         surface: Err(previous),
                         attempts,
                         cleanup,
+                        terminal: true,
                     };
                 }
                 row.insert("status".into(), json!(status));
@@ -629,6 +688,7 @@ fn run_plan(
                 let recoverable = falls_through(&failure);
                 previous = failure.text;
                 if !recoverable {
+                    terminal = true;
                     break;
                 }
             }
@@ -638,6 +698,7 @@ fn run_plan(
         surface: Err(previous),
         attempts,
         cleanup,
+        terminal,
     }
 }
 
@@ -1168,6 +1229,23 @@ mod tests {
             capture.surface.err().as_deref(),
             Some("capture_denied|Windows denied capture of the selected window")
         );
+    }
+
+    #[test]
+    fn only_a_plan_that_ran_out_of_recoverable_sources_may_ask_the_owner() {
+        let (exhausted, _) = run(
+            &CAPTURE_PLAN,
+            vec![
+                Err(refusal("capture_timeout|window is not responding")),
+                Err(refusal("capture_source_unavailable|no frame")),
+            ],
+            usable,
+        );
+        assert!(!exhausted.terminal);
+        let (cloaked, _) = run(&CAPTURE_PLAN, vec![Err(refusal("capture_cloaked|cloaked"))], usable);
+        assert!(cloaked.terminal);
+        let (captured, _) = run(&CAPTURE_PLAN, vec![Ok(surface(None))], usable);
+        assert!(!captured.terminal);
     }
 
     #[test]

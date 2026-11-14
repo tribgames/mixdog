@@ -165,7 +165,7 @@ fn cursor_feedback(value: Option<&Value>) -> Option<Value> {
 }
 
 /// `captureAttempts`: at most eight rows of bounded categories and timings, never an image or a message.
-fn capture_attempts(value: Option<&Value>) -> Vec<Value> {
+pub(super) fn capture_attempts(value: Option<&Value>) -> Vec<Value> {
     let Some(rows) = value.and_then(Value::as_array) else { return Vec::new() };
     let text = |row: &Value, key: &str, allowed: &[&str]| row.get(key).and_then(Value::as_str).filter(|s| allowed.contains(s)).map(str::to_owned);
     rows.iter()
