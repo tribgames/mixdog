@@ -223,6 +223,8 @@ mod tests {
     use std::sync::Mutex;
 
     use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::call::WindowRole;
+    use mixdog_core_api::call::WindowScope;
     use mixdog_core_api::domain::common::EventSource;
     use mixdog_core_api::domain::ext::ExtWorkerId;
     use mixdog_core_api::domain::ext::ExtWorkerStatus;
@@ -429,7 +431,13 @@ mod tests {
         let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), Arc::default());
         assert_eq!(service.call(relay("document/previewPages", params.clone())).await.unwrap_err(), refusal);
         assert!(service.call(request("document/previewPages", params.clone())).await.is_ok(), "a desktop call");
-        assert_eq!(pool.seen.lock().unwrap().len(), 1);
+        // A window's socket is `Local` (or `Ssh`), not `Relay`: main, and a server-role window, are not asked the phone's file rule.
+        for role in [WindowRole::Main, WindowRole::Server { connection_id: "c1".into() }] {
+            let mut req = request("document/previewPages", params.clone());
+            req.ctx = req.ctx.with_window(Some(WindowScope { id: "w1".into(), role: role.clone() }));
+            assert!(service.call(req).await.is_ok(), "{role:?}: a window call");
+        }
+        assert_eq!(pool.seen.lock().unwrap().len(), 3);
         let (bare, _) = service_failing("x");
         assert!(matches!(bare.call(relay("document/previewPages", params)).await, Err(CoreError::CapabilityUnavailable { .. })));
     }
