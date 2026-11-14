@@ -37,6 +37,7 @@ use super::mirror::Mirror;
 use crate::error::HostCallError;
 use crate::port::BlobPort;
 use crate::port::HostWire;
+use crate::queue::user_hold::UserHold;
 
 /// How long a result waits for the notifications the host sent before it, before the page is synced instead.
 pub const FACTS_SEQ_WAIT: Duration = Duration::from_secs(2);
@@ -48,6 +49,7 @@ pub struct HostLane {
     channel: Arc<dyn HostChannel>,
     blobs: Arc<dyn BlobPort>,
     mirror: Arc<Mirror>,
+    hold: Arc<UserHold>,
     seq_wait: Duration,
 }
 
@@ -74,7 +76,7 @@ fn facts_of(answer: &Value) -> Vec<PageFacts> {
 
 impl HostLane {
     pub fn new(channel: Arc<dyn HostChannel>, blobs: Arc<dyn BlobPort>) -> Self {
-        Self { channel, blobs, mirror: Arc::new(Mirror::new()), seq_wait: FACTS_SEQ_WAIT }
+        Self { channel, blobs, mirror: Arc::new(Mirror::new()), hold: Arc::new(UserHold::new()), seq_wait: FACTS_SEQ_WAIT }
     }
 
     /// A lane whose results wait `wait` for their notifications.
@@ -83,9 +85,15 @@ impl HostLane {
         self
     }
 
-    /// The ledgers this lane keeps; the sink that feeds them is `EngineSinkImpl::new(lane.mirror().clone(), hold)`.
+    /// The ledgers this lane keeps; the sink that feeds them is `EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone())`.
     pub fn mirror(&self) -> &Arc<Mirror> {
         &self.mirror
+    }
+
+    /// The person's holds of this lane's pages: the sink records them, the command queue refuses by them, and a page the host
+    /// closed lets go of its own.
+    pub fn hold(&self) -> &Arc<UserHold> {
+        &self.hold
     }
 
     /// A payload the host left in its blob store by digest (a large screenshot or a download).
@@ -121,6 +129,12 @@ impl HostLane {
         }
     }
 
+    /// The page is gone: its ledgers and the person's hold on it go with it.
+    fn forget(&self, page_id: &str) {
+        self.mirror.forget(page_id);
+        self.hold.release_page(page_id);
+    }
+
     /// `host/browser/page/sync`: the mirror takes the page's facts as the host holds them now.
     async fn sync(&self, page_id: &str, cancel: &CancellationToken, claim: &CancellationToken) -> Result<(), HostCallError> {
         let params = serde_json::to_value(HostBrowserPageSyncParams { page_id: page_id.to_owned() })
@@ -129,7 +143,7 @@ impl HostLane {
             Ok(answer) => answer,
             // The page closed after it answered: there is nothing left to catch up with.
             Err(HostCallError::PageGone) => {
-                self.mirror.forget(page_id);
+                self.forget(page_id);
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -153,7 +167,7 @@ impl HostWire for HostLane {
                 if let Some(page_id) = closing
                     && answer.get("closed").and_then(Value::as_bool) == Some(true)
                 {
-                    self.mirror.forget(&page_id);
+                    self.forget(&page_id);
                 }
                 Ok(answer)
             }
@@ -179,8 +193,10 @@ mod tests {
     use crate::lane::sink::EngineSinkImpl;
     use crate::port::BrowserHost;
     use crate::port::EngineSink;
-    use crate::queue::user_hold::UserHold;
+    use crate::queue::key::QueueKey;
     use mixdog_app_protocol::v2::browser_engine::BrowserPageCloseReason;
+    use mixdog_app_protocol::v2::browser_engine::BrowserUserInputReason;
+    use mixdog_app_protocol::v2::browser_engine::HostBrowserUserInputParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserEventsParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserLeaseReleaseParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserPageFactsParams;
@@ -269,7 +285,7 @@ mod tests {
     fn rig() -> (HostLane, Arc<Script>, EngineSinkImpl) {
         let script = Arc::new(Script::default());
         let lane = HostLane::new(script.clone(), Arc::new(Blobs));
-        let sink = EngineSinkImpl::new(lane.mirror().clone(), Arc::new(UserHold::new()));
+        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
         (lane, script, sink)
     }
 
@@ -321,7 +337,7 @@ mod tests {
     async fn a_gap_is_synced_at_once() {
         let script = Arc::new(Script::default());
         let lane = HostLane::new(script.clone(), Arc::new(Blobs)).with_seq_wait(Duration::from_secs(30));
-        let sink = EngineSinkImpl::new(lane.mirror().clone(), Arc::new(UserHold::new()));
+        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
         sink.events(events("p1", 2));
         sink.events(events("p1", 5));
         assert_eq!(lane.mirror().cursor("p1"), Some(2), "a batch after a gap is not applied");
@@ -340,7 +356,7 @@ mod tests {
     async fn notifications_that_never_come_end_in_a_sync_after_the_bound() {
         let script = Arc::new(Script::default());
         let lane = HostLane::new(script.clone(), Arc::new(Blobs)).with_seq_wait(Duration::from_millis(30));
-        let sink = EngineSinkImpl::new(lane.mirror().clone(), Arc::new(UserHold::new()));
+        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
         sink.events(events("p1", 3));
         script.reply(STOP, facts_result("p1", 5));
         script.reply(PAGE_SYNC, Reply::Result(json!({"facts": page_facts("p1", 5), "consoleFloor": 0})));
@@ -445,7 +461,7 @@ mod tests {
     async fn a_refused_precondition_is_returned_after_its_facts_are_in() {
         let data = json!({"reason": "document", "facts": page_facts("p1", 3)});
         let lane = HostLane::new(Arc::new(Precondition(data)), Arc::new(Blobs));
-        let sink = EngineSinkImpl::new(lane.mirror().clone(), Arc::new(UserHold::new()));
+        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
         sink.events(events("p1", 2));
         let token = CancellationToken::new();
         let driver = async {
@@ -468,6 +484,24 @@ mod tests {
         let params = HostBrowserPagesCloseParams { page_id: "p1".into(), reason: BrowserPageCloseReason::Agent };
         assert!(lane.pages_close(params, &CancellationToken::new()).await.expect("answered").closed);
         assert_eq!(lane.mirror().cursor("p1"), None);
+    }
+
+    #[tokio::test]
+    async fn closing_a_page_ends_the_hold_a_person_had_on_it() {
+        let (lane, script, sink) = rig();
+        sink.user_input(HostBrowserUserInputParams {
+            page_id: "p1".into(),
+            seq: 1,
+            held: true,
+            until: None,
+            reason: BrowserUserInputReason::Pointer,
+        });
+        let key = QueueKey::new("foreground", Some("p1".into()));
+        assert!(lane.hold().takeover_error(&key).is_err());
+        script.reply(PAGES_CLOSE, Reply::Result(json!({"closed": true})));
+        let params = HostBrowserPagesCloseParams { page_id: "p1".into(), reason: BrowserPageCloseReason::Agent };
+        lane.pages_close(params, &CancellationToken::new()).await.expect("answered");
+        assert_eq!(lane.hold().takeover_error(&key), Ok(()));
     }
 
     #[tokio::test]

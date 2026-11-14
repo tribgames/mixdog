@@ -362,7 +362,8 @@ impl<L: LaneToken> SshSpawner for ProcessSpawner<L> {
 
 // ---- the recording of a spawn ----
 
-fn now_ms() -> u64 {
+/// The wall clock in epoch milliseconds, the stamp of every diagnostics entry.
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 

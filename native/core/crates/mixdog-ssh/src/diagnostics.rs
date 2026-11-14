@@ -234,6 +234,11 @@ impl Diagnostics {
         }
     }
 
+    /// One line of the attempt's own account of what it did (`remote probe ...`, `uploading server runtime ...`), stamped now.
+    pub fn log(&self, key: Option<&str>, text: &str) {
+        self.record(key, DiagnosticKind::Log, text, crate::spawn::now_ms());
+    }
+
     pub fn entries(&self, key: &str) -> Vec<DiagnosticEntry> {
         let rings = self.rings.lock().unwrap_or_else(PoisonError::into_inner);
         rings.get(key).map(|ring| ring.iter().cloned().collect()).unwrap_or_default()

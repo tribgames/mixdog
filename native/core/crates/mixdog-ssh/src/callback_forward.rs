@@ -7,7 +7,9 @@
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use mixdog_rt::time::sleep;
 use tokio::io::{AsyncWriteExt, copy};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
@@ -21,6 +23,8 @@ use crate::tunnel::pump;
 /// A login's redirect needs one or two connections (a retry, a favicon); one ssh runs per connection, so a burst of
 /// connections is bounded here.
 pub const MAX_CONNECTIONS: usize = 8;
+/// How long the listener waits after an accept failed before it accepts again.
+const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CallbackForwardError {
@@ -60,6 +64,11 @@ impl CallbackForward {
     }
 }
 
+/// A line of the forward's account of itself, into the server's diagnostics ring.
+fn log(env: &SshEnv, ctx: Option<&AttemptContext>, text: &str) {
+    env.diagnostics.log(ctx.and_then(|attempt| attempt.diagnostics_key.as_deref()), text);
+}
+
 async fn accept_loop(listener: TcpListener, mut closed: watch::Receiver<bool>, env: SshEnv, ctx: Option<AttemptContext>, target: SshTarget, port: u16) {
     let mut carried = JoinSet::new();
     loop {
@@ -68,8 +77,17 @@ async fn accept_loop(listener: TcpListener, mut closed: watch::Receiver<bool>, e
             _ = closed.changed() => break,
             Some(_) = carried.join_next(), if !carried.is_empty() => {}
             accepted = listener.accept() => {
-                let Ok((socket, _)) = accepted else { continue };
+                let Ok((socket, _)) = accepted else {
+                    // A listener that keeps failing (no descriptors left) is retried at a pace, not spun on.
+                    tokio::select! {
+                        biased;
+                        _ = closed.changed() => break,
+                        () = sleep(ACCEPT_RETRY) => {}
+                    }
+                    continue;
+                };
                 if carried.len() >= MAX_CONNECTIONS {
+                    log(&env, ctx.as_ref(), &format!("callback forward refused a connection: {MAX_CONNECTIONS} already open"));
                     drop(socket);
                     continue;
                 }

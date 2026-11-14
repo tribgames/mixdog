@@ -14,6 +14,7 @@ use mixdog_app_protocol::v2::browser_engine::Precondition;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
 
+use super::probes::Point;
 use crate::error::HostCallError;
 use crate::port::BrowserHost;
 
@@ -113,6 +114,19 @@ pub fn checked_ref_result(result: Value, ref_id: &str) -> Result<Value, RefError
 /// `callRef`: `declaration` (a function expression) runs with the element as `this` and `args`; its value comes back, a
 /// function that returns nothing answers `null`, and a page-side exception is a [`RefError::Failed`].
 pub async fn call_ref(host: &dyn BrowserHost, target: &RefTarget<'_>, declaration: &str, args: Vec<Value>, cancel: &CancellationToken) -> Result<Value, RefError> {
+    call_ref_in_frame(host, target, declaration, args, cancel).await.map(|(value, _)| value)
+}
+
+/// [`call_ref`] and where the ref's frame sits: the offset, in top-viewport pixels, of the cross-origin frame the ref lives in
+/// (`frameOffsetForSession`), which a point measured in that frame needs added. Zero in the top document and in a same-origin
+/// frame, whose probes add their own offsets.
+pub async fn call_ref_in_frame(
+    host: &dyn BrowserHost,
+    target: &RefTarget<'_>,
+    declaration: &str,
+    args: Vec<Value>,
+    cancel: &CancellationToken,
+) -> Result<(Value, Point), RefError> {
     let params = HostBrowserRefCallParams {
         page_id: target.page_id.to_string(),
         snapshot_id: target.snapshot_id.to_string(),
@@ -127,7 +141,8 @@ pub async fn call_ref(host: &dyn BrowserHost, target: &RefTarget<'_>, declaratio
     if let Some(exception) = result.exception {
         return Err(RefError::Failed(exception.text));
     }
-    Ok(result.value.unwrap_or(Value::Null))
+    let offset = result.frame_offset.map_or(Point { x: 0.0, y: 0.0 }, |offset| Point { x: offset.x, y: offset.y });
+    Ok((result.value.unwrap_or(Value::Null), offset))
 }
 
 fn detached_message(ref_id: &str) -> String {
@@ -178,6 +193,19 @@ mod tests {
         let value = call_ref(&host, &target(), "function(a) { return a; }", vec![json!(7)], &CancellationToken::new()).await;
         assert_eq!(value, Ok(json!(7)));
         host.finish().expect("one call");
+    }
+
+    #[tokio::test]
+    async fn the_offset_of_a_cross_origin_frame_comes_back_with_the_value() {
+        let host = FakeHost::scripted(vec![
+            Expect::ok("host/browser/ref/call", json!({"value": 1, "frameOffset": {"x": 120.5, "y": 48}, "facts": page_facts("p1", 4)})),
+            answer(json!(2)),
+        ]);
+        let cancel = CancellationToken::new();
+        let inside = call_ref_in_frame(&host, &target(), "function() {}", Vec::new(), &cancel).await;
+        assert_eq!(inside, Ok((json!(1), Point { x: 120.5, y: 48.0 })));
+        let top = call_ref_in_frame(&host, &target(), "function() {}", Vec::new(), &cancel).await;
+        assert_eq!(top, Ok((json!(2), Point { x: 0.0, y: 0.0 })));
     }
 
     #[tokio::test]

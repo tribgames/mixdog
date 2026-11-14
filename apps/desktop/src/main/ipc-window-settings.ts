@@ -6,6 +6,7 @@ import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import { createSignInFocus } from './sign-in-focus';
+import { coreErrorForWindow } from './protocol/core-error';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 import {
@@ -322,7 +323,11 @@ export function registerWindowSettingsIpc({
   // Settings → Appearance: font families installed on this computer.
   handle(DESKTOP_IPC.listSystemFonts, async () => {
     if (!pcCore) throw new Error('The core connection is not available.');
-    return ((await pcCore.call('desktop/fonts/list', {})) as { families: string[] }).families;
+    try {
+      return ((await pcCore.call('desktop/fonts/list', {})) as { families: string[] }).families;
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
   });
   // A connector sign-in this window started on this PC's browser brings the
   // window back once the browser callback arrived (sign-in-focus.ts).

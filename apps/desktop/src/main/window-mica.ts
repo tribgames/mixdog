@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
+import { dlopenNativeModule } from './native-module';
 
 const WM_NCACTIVATE = 0x0086;
 const WM_THEMECHANGED = 0x031a;
@@ -53,14 +54,6 @@ interface MicaModule {
   activate(hwnd: bigint): void;
 }
 
-/** Loads a Node-API module from any file name (the dev build keeps cargo's
- *  .dll name). */
-function loadModule(library: string): MicaModule {
-  const module = { exports: {} as MicaModule };
-  process.dlopen(module as NodeJS.Module, library);
-  return module.exports;
-}
-
 /** The native bindings: the Node-API module's three functions, nothing else.
  *  The library's functions are plain calls: nothing in it calls back into
  *  JavaScript. A module that fails to load (a missing or stale build) makes
@@ -69,7 +62,7 @@ function loadModule(library: string): MicaModule {
 export function nativeMica(
   library: string,
   report: MicaReport,
-  load: (library: string) => MicaModule = loadModule
+  load: (library: string) => MicaModule = dlopenNativeModule<MicaModule>
 ): MicaNative {
   let native: MicaModule | undefined;
   try {
