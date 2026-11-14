@@ -39,7 +39,7 @@ async fn prepare(host: &dyn BrowserHost, page: &dyn ActionPage, cancel: &CancelV
     let waited = wait_for_actionable(
         move || async move {
             prepare_ref(host, target_ref, editable, cancel.token()).await.map_err(|error| match error {
-                RefError::Refused { reason, message } => ProbeFailure::NotActionable(ActionabilityError::new(message, reason.as_str())),
+                RefError::Refused { reason, message } => ProbeFailure::NotActionable(ActionabilityError::new(message, reason)),
                 other => ProbeFailure::Other(other),
             })
         },

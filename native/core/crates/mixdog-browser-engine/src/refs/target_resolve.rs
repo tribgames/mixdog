@@ -365,6 +365,7 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: cx.expect.cloned(),
+        check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.cancel).await?;
     if let Some(exception) = answer.exception {

@@ -743,8 +743,8 @@ mod tests {
             FileFacts::default()
         }
 
-        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes) -> PathBuf {
-            run_dir.to_path_buf()
+        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(run_dir.to_path_buf())
         }
     }
 

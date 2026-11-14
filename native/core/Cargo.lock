@@ -4025,6 +4025,7 @@ dependencies = [
  "mixdog-secrets",
  "mixdog-services",
  "mixdog-spawn",
+ "mixdog-ssh",
  "mixdog-statefile",
  "mixdog-store",
  "mixdog-testkit",
@@ -4081,6 +4082,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "icu_locale_core",
  "mixdog-app-protocol",
  "mixdog-browser-policy",
  "mixdog-core-api",
@@ -5298,6 +5300,35 @@ dependencies = [
  "tokio",
  "tokio-util",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "mixdog-ssh"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "hmac 0.12.1",
+ "mixdog-app-protocol",
+ "mixdog-app-server-client",
+ "mixdog-core-api",
+ "mixdog-fsio",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-spawn",
+ "mixdog-statefile",
+ "mixdog-workspace",
+ "mixdog-workspace-hack",
+ "rand 0.9.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

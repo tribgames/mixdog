@@ -159,7 +159,7 @@ async fn ref_point_waiting(host: &dyn BrowserHost, page: &dyn ActionPage, cancel
     let waited = wait_for_actionable(
         move || async move {
             ref_point(host, target_ref, cancel.token()).await.map_err(|error| match error.reason() {
-                Some(reason) => ProbeFailure::NotActionable(ActionabilityError::new(error.to_string(), reason.as_str())),
+                Some(reason) => ProbeFailure::NotActionable(ActionabilityError::new(error.to_string(), reason)),
                 None => ProbeFailure::Other(error),
             })
         },
@@ -171,7 +171,7 @@ async fn ref_point_waiting(host: &dyn BrowserHost, page: &dyn ActionPage, cancel
         Ok(point) => return Ok(point),
         Err(ActionableError::Cancelled(_)) => return Err(HostCallError::Cancelled),
         Err(ActionableError::Failed(error)) => error,
-        Err(ActionableError::NotActionable(blocker)) if blocker.reason == ActionabilityReason::Covered.as_str() => {
+        Err(ActionableError::NotActionable(blocker)) if blocker.reason == ActionabilityReason::Covered => {
             RefError::Refused { reason: ActionabilityReason::Covered, message: blocker.message }
         }
         Err(ActionableError::NotActionable(blocker)) => RefError::Failed(blocker.message),
@@ -321,6 +321,7 @@ async fn collect_frames<T: DeserializeOwned>(cx: &ActionContext<'_>, expression:
             world: None,
             timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
             expect: Some(cx.page.precondition()),
+            check_unchanged: None,
         };
         let answer = cx.host.page_eval(params, cx.token()).await?;
         if let Some(exception) = answer.exception {
@@ -458,6 +459,7 @@ pub async fn scroll(cx: &mut ActionContext<'_>) -> Result<ActionOutput, ActionEr
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: Some(cx.page.precondition()),
+        check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.token()).await?;
     if let Some(exception) = answer.exception {
@@ -781,7 +783,7 @@ mod tests {
             Expect::ok("host/browser/ref/call", json!({"value": true, "facts": page_facts("p1", 2)})),
             Expect::ok("host/browser/ref/call", json!({"exception": {"text": "node detached after input"}, "facts": page_facts("p1", 2)})),
         ]);
-        let page = page();
+        let page = self::page();
         let error = run!(&page, &host, json!({"ref": "p1-s1-e1", "dy": 300}), scroll).await.expect_err("failed after dispatch");
         assert!(error.to_string().ends_with("input may have executed and was not replayed; take a fresh snapshot before continuing"), "{error}");
         assert_eq!(page.get(|state| state.fresh_snapshots), 0, "no recovery after the script ran");
