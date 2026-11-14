@@ -102,8 +102,8 @@ impl Inner {
                     }
                 }
             }
-            if std::fs::metadata(&paths.legacy_marker).is_ok() {
-                candidates.push(paths.legacy_marker.clone());
+            if std::fs::metadata(&paths.single_marker).is_ok() {
+                candidates.push(paths.single_marker.clone());
             }
         }
         let (mut occupied, mut vanished) = (Vec::new(), Vec::new());

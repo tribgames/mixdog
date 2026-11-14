@@ -29,8 +29,8 @@ pub(super) struct Paths {
     pub ledger: PathBuf,
     pub previous: PathBuf,
     pub marker_dir: PathBuf,
-    /// The one marker file older writers kept instead of a folder of them.
-    pub legacy_marker: PathBuf,
+    /// The single marker file kept by writers before the folder of markers (`process-lifecycle.active.json`).
+    pub single_marker: PathBuf,
     pub lock: PathBuf,
 }
 
@@ -40,7 +40,7 @@ impl Paths {
             ledger: dir.join("process-lifecycle.jsonl"),
             previous: dir.join("process-lifecycle.jsonl.1"),
             marker_dir: dir.join("process-lifecycle.active"),
-            legacy_marker: dir.join("process-lifecycle.active.json"),
+            single_marker: dir.join("process-lifecycle.active.json"),
             lock: dir.join("process-lifecycle.lock"),
             dir,
         }
