@@ -201,6 +201,17 @@ pub(crate) fn is_image_processing_error(error: &ProviderError) -> bool {
         && (error.message.contains("Could not process image") || says_invalid_image(error))
 }
 
+/// `isLikelyImageBodyRejected`: a socket the server dropped or closed under the request (`ECONNRESET`, `EPIPE`) is how an
+/// upload it will not take, an inline image too large for it, usually ends. Only the caller's check that the latest turn
+/// carries an image makes it an image refusal.
+pub(crate) fn is_image_body_dropped(error: &ProviderError) -> bool {
+    error
+        .transport
+        .as_ref()
+        .and_then(|fault| fault.errno_name())
+        .is_some_and(|name| matches!(name, "ECONNRESET" | "EPIPE"))
+}
+
 /// `confirmedImageRejection`.
 fn confirmed_image_rejection(error: &ProviderError) -> bool {
     error.status == Some(400) && (is_invalid_image_code(&error_code(error)) || says_invalid_image(error))
@@ -409,6 +420,26 @@ mod tests {
             Content::Parts(vec![other, ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None)])
         );
         assert!(strip.persist);
+    }
+
+    /// A dropped socket under a request with an image strips the image; one under a request without an image names
+    /// no image, and a closed peer or a refusal is not a dropped socket.
+    #[test]
+    fn a_dropped_socket_with_an_image_in_the_turn_is_an_image_refusal() {
+        use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, TransportFault};
+        let dropped = |fault: TransportFault| {
+            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
+            error.transport = Some(fault);
+            error
+        };
+        assert!(is_image_body_dropped(&dropped(TransportFault::Reset)));
+        assert!(!is_image_body_dropped(&dropped(TransportFault::Closed)));
+        assert!(!is_image_body_dropped(&dropped(TransportFault::Dns)));
+        let with_image = vec![AgentMessage::user_content(Content::Parts(vec![ContentPart::Image(ImageSource::Url("u".into()))]))];
+        let without = vec![AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("hi".into(), None)]))];
+        let error = dropped(TransportFault::Reset);
+        assert!(latest_turn_strip(&with_image, &error).is_some_and(|s| !s.persist));
+        assert!(latest_turn_strip(&without, &error).is_none());
     }
 
     #[test]
