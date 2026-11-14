@@ -39,6 +39,8 @@ import { type EnginePageCall, type EngineParams, registerEngineMethod } from './
 
 /** The most text one `read` of kind text returns; the registry moves nothing but base64, so this keeps a result under its limit. */
 const READ_MAX_CHARS_WIRE = 120_000;
+/** The page text the observation reads is cut at a million characters; no read starts past it. */
+const READ_MAX_OFFSET = 1_000_000;
 /** Page attributes `read` with a selector brings back beside each match's text. */
 const READ_SELECTOR_ATTRIBUTES = ['href', 'src', 'alt', 'title', 'name', 'value'];
 const EVAL_MIN_TIMEOUT_MS = 500;
@@ -374,6 +376,8 @@ async function read(host: PageHost, ctx: EngineContext, params: EngineParams, si
   const kind = params.kind;
   const options = isObject(params.options) ? params.options : {};
   const maxChars = clamp(options.maxChars, READ_DEFAULT_CHARS, 1, READ_MAX_CHARS_WIRE);
+  // Where a text read starts: a text longer than one read returns is read in parts, each from where the last ended.
+  const offset = clamp(options.offset, 0, 0, READ_MAX_OFFSET);
   const frame = frameTarget(page, options.frame);
   // The frame a ref names: by id, or by the child session that owns it.
   const frameId = frame.frameId ?? (frame.sessionId ? page.state.cdpSessions.get(frame.sessionId)?.frameId : undefined);
@@ -399,12 +403,12 @@ async function read(host: PageHost, ctx: EngineContext, params: EngineParams, si
       const texts = await inFrame<string>(options.includeHidden === true ? HIDDEN_TEXT_OF_FRAME : TEXT_OF_FRAME);
       const joined = texts.map(([, value]) => value).join('\n').replace(/\n{3,}/g, '\n\n').trim();
       return {
-        payload: { url: guest.getURL(), title: guest.getTitle(), text: joined.slice(0, maxChars), total: joined.length },
-        truncated: joined.length > maxChars,
+        payload: { url: guest.getURL(), title: guest.getTitle(), text: joined.slice(offset, offset + maxChars), total: joined.length, offset },
+        truncated: joined.length > offset + maxChars,
       };
     }
-    const result = await host.documents.readPage(guest, '', maxChars, 0, signal);
-    return { payload: result, truncated: result.total > result.text.length };
+    const result = await host.documents.readPage(guest, '', maxChars, offset, signal);
+    return { payload: result, truncated: result.total > result.offset + result.text.length };
   }
   if (kind === 'documents') {
     const documents = await inFrame<Record<string, unknown>>(DOCUMENT_OF_FRAME);

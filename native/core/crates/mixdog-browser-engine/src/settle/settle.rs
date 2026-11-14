@@ -31,9 +31,12 @@ use crate::ledger::network::NetworkLedger;
 use crate::limits::ACTION_SETTLE_DOM_TIMEOUT;
 use crate::limits::ACTION_SETTLE_LOAD_TIMEOUT;
 use crate::limits::ACTION_SETTLE_QUIET;
-use crate::limits::CDP_REQUEST_TIMEOUT;
 use crate::port::BrowserHost;
+use crate::queue::barrier::Either;
+use crate::queue::barrier::race;
 
+/// How long a cancelled command waits for the host to answer the stop of the page's load.
+const STOP_GRACE: Duration = Duration::from_secs(1);
 /// How often the page's `loading` fact is read while a load is awaited.
 const LOAD_POLL: Duration = Duration::from_millis(25);
 /// How often the network observer reads the ledger.
@@ -106,27 +109,6 @@ pub async fn pause(duration: Duration, cancel: &CancelView) -> Result<(), Cancel
         Either::Left(()) => Ok(()),
         Either::Right(()) => Err(cancelled(cancel)),
     }
-}
-
-pub(super) enum Either<A, B> {
-    Left(A),
-    Right(B),
-}
-
-/// Whichever of the two is ready first (the left one when both are).
-pub(super) async fn race<A: Future, B: Future>(left: A, right: B) -> Either<A::Output, B::Output> {
-    let mut left = pin!(left);
-    let mut right = pin!(right);
-    poll_fn(|cx| {
-        if let Poll::Ready(done) = left.as_mut().poll(cx) {
-            return Poll::Ready(Either::Left(done));
-        }
-        if let Poll::Ready(done) = right.as_mut().poll(cx) {
-            return Poll::Ready(Either::Right(done));
-        }
-        Poll::Pending
-    })
-    .await
 }
 
 /// All three, or the first failure (`Promise.all`): the others are dropped at once.
@@ -470,8 +452,9 @@ pub async fn settle_after_action(
         let state = page.probe.state();
         if state.loading && !state.destroyed {
             let params = HostBrowserPageStopParams { page_id: page.id.to_string() };
-            // Teardown can race the cancellation: a stop that fails or hangs changes nothing the caller is told.
-            let _ = time::timeout(CDP_REQUEST_TIMEOUT, page.host.page_stop(params, &CancellationToken::new())).await;
+            // The old listener did not wait for the stop: the request goes out and the cancelled command is not held for its answer
+            // beyond a moment. Teardown can race the cancellation: a stop that fails or hangs changes nothing the caller is told.
+            let _ = time::timeout(STOP_GRACE, page.host.page_stop(params, &CancellationToken::new())).await;
         }
     }
     outcome
@@ -560,8 +543,8 @@ pub(super) mod support {
         /// The page navigates while its text is read.
         pub url_after_read: Mutex<Option<String>>,
         pub read_fails: Mutex<bool>,
-        /// The read answers only the first part of a longer text.
-        pub read_truncated: Mutex<bool>,
+        /// The read keeps answering a part of a text that never ends.
+        pub read_endless: Mutex<bool>,
     }
 
     impl TestHost {
@@ -575,7 +558,7 @@ pub(super) mod support {
                 loading_at_checkpoint: Mutex::new(None),
                 url_after_read: Mutex::new(None),
                 read_fails: Mutex::new(false),
-                read_truncated: Mutex::new(false),
+                read_endless: Mutex::new(false),
             }
         }
 
@@ -590,7 +573,7 @@ pub(super) mod support {
 
     #[async_trait]
     impl HostWire for TestHost {
-        async fn call(&self, method: &'static str, _params: Value, cancel: &CancellationToken) -> Result<Value, HostCallError> {
+        async fn call(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, HostCallError> {
             let name = method.rsplit('/').next().unwrap_or(method).to_string();
             self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(name.clone());
             let facts = page_facts("p1", 1);
@@ -620,9 +603,18 @@ pub(super) mod support {
                     if let Some(url) = self.url_after_read.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone() {
                         self.probe.set(|state| state.url = url);
                     }
+                    // As the host reads: `maxChars` units of the text from `offset`, with the whole length beside them.
                     let text = self.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-                    let truncated = *self.read_truncated.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    Ok(json!({"payload": {"url": "u", "title": "", "text": text}, "truncated": truncated, "facts": facts}))
+                    let units: Vec<u16> = text.encode_utf16().collect();
+                    let options = &params["options"];
+                    let offset = options["offset"].as_u64().unwrap_or(0) as usize;
+                    let max = options["maxChars"].as_u64().unwrap_or(units.len() as u64) as usize;
+                    let part = String::from_utf16_lossy(&units[offset.min(units.len())..(offset + max).min(units.len())]);
+                    if *self.read_endless.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) {
+                        return Ok(json!({"payload": {"url": "u", "title": "", "text": "y", "total": units.len() + 1_000_000}, "truncated": true, "facts": facts}));
+                    }
+                    let truncated = units.len() > part.encode_utf16().count();
+                    Ok(json!({"payload": {"url": "u", "title": "", "text": part, "total": units.len(), "offset": offset}, "truncated": truncated, "facts": facts}))
                 }
                 other => Err(HostCallError::Failed { message: format!("unscripted {other}") }),
             }

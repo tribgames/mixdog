@@ -69,7 +69,14 @@ function harness({ policy, loadURL, dialog = null } = {}) {
       },
     },
     documents: {
-      readPage: async () => ({ url: 'u', title: 't', text: 'hello', total: 5, unfilteredTotal: 5, offset: 0 }),
+      readPage: async (_guest, _query, maxChars, offset) => ({
+        url: 'u',
+        title: 't',
+        text: 'hello'.slice(offset, offset + maxChars),
+        total: 5,
+        unfilteredTotal: 5,
+        offset: Math.min(offset, 5),
+      }),
       extractPage: async () => ({ rows: [{ text: 'x' }], total: 3, columns: '' }),
       renderCheckpoint: async () => true,
       revision: async () => `0:1:1:1:0:0:${++revisions * 4}:0`,
@@ -261,6 +268,13 @@ test('read answers text, a selector, a frame, documents and frames', async () =>
   const text = await h.call('read', { pageId: 'p1', kind: 'text' });
   assert.equal(text.payload.text, 'hello');
   assert.equal(text.truncated, false);
+  // A text longer than one read returns is read in parts, each from where the last ended.
+  const first = await h.call('read', { pageId: 'p1', kind: 'text', options: { maxChars: 2, offset: 1 } });
+  assert.deepEqual([first.payload.text, first.payload.offset, first.truncated], ['el', 1, true]);
+  const last = await h.call('read', { pageId: 'p1', kind: 'text', options: { maxChars: 4, offset: 3 } });
+  assert.deepEqual([last.payload.text, last.truncated], ['lo', false]);
+  const tail = await h.call('read', { pageId: 'p1', kind: 'text', options: { frame: { sessionId: 's1' }, maxChars: 10, offset: 2 } });
+  assert.deepEqual([tail.payload.text, tail.payload.offset, tail.truncated], ['ner', 2, false]);
   const rows = await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a' } });
   assert.equal(rows.payload.total, 3);
   assert.equal(rows.truncated, true);

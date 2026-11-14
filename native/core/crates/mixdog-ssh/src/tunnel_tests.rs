@@ -292,6 +292,30 @@ async fn the_tunnel_writes_its_starts_readiness_and_exits_into_the_servers_log()
 }
 
 #[tokio::test]
+async fn ready_waits_through_a_restart_for_the_forward_and_reports_a_terminal_failure_or_the_deadline() {
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
+    assert_eq!(tunnel.ready(Duration::from_secs(5)).await, Ok(port));
+    assert_eq!(tunnel.ready(Duration::from_millis(1)).await, Ok(port), "an up forward answers at once");
+    tunnel.stop().await;
+    let closed = tunnel.ready(Duration::from_secs(1)).await.unwrap_err();
+    assert_eq!((closed.kind, closed.message.as_str()), (FailureClass::Terminal, "The ssh tunnel is closed."));
+
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
+    until(|| spawner.count() == 1).await;
+    spawner.probe(0).finish(255, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+Host key verification failed.
+").await;
+    let failure = tunnel.ready(Duration::from_secs(5)).await.unwrap_err();
+    assert_eq!(failure.kind, FailureClass::Terminal);
+    assert!(failure.message.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "{}", failure.message);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
 async fn backoff_schedule() {
     let port = free_local_port().unwrap();
     let spawner = Spawner::new(false);

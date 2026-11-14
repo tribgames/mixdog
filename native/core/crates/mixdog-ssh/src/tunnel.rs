@@ -127,6 +127,7 @@ pub struct SshTunnel {
     state: watch::Receiver<TunnelState>,
     local_port: Arc<AtomicU16>,
     companion_port: Arc<AtomicU16>,
+    display: String,
 }
 
 impl SshTunnel {
@@ -141,6 +142,7 @@ impl SshTunnel {
         let local_port = Arc::new(AtomicU16::new(0));
         let companion_port = Arc::new(AtomicU16::new(0));
         let invalid = invalid_spec(&spec);
+        let display = spec.target.display.clone();
         let (state, state_rx) = watch::channel(match &invalid {
             Some(error) => TunnelState::Stopped { failure: Some(error.clone()) },
             None => TunnelState::Starting,
@@ -169,7 +171,7 @@ impl SshTunnel {
             };
             tokio::spawn(supervisor.run());
         }
-        Arc::new(Self { commands, state: state_rx, local_port, companion_port })
+        Arc::new(Self { commands, state: state_rx, local_port, companion_port, display })
     }
 
     /// The local end of the primary forward (0 before the first is chosen); it changes only when a restart finds it
@@ -186,6 +188,27 @@ impl SshTunnel {
 
     pub fn state(&self) -> watch::Receiver<TunnelState> {
         self.state.clone()
+    }
+
+    /// Waits for the forward to accept connections, through the supervised restarts, up to `wait` (`ensure` of the desktop's tunnel).
+    /// Answers the primary forward's local port; a terminal failure ends the wait with that failure, and a tunnel that is not up
+    /// in time fails as a transient one. A daemon that moved to another port is a new tunnel (with the old `local_port`), not a
+    /// change to this one.
+    pub async fn ready(&self, wait: Duration) -> Result<u16, SshError> {
+        let mut state = self.state.clone();
+        let reached = timeout(wait, state.wait_for(|now| matches!(now, TunnelState::Up | TunnelState::Stopped { .. }))).await;
+        match reached {
+            Ok(Ok(now)) => match &*now {
+                TunnelState::Up => Ok(self.local_port()),
+                TunnelState::Stopped { failure: Some(failure) } => Err(failure.clone()),
+                _ => Err(SshError::new("The ssh tunnel is closed.", FailureClass::Terminal)),
+            },
+            Ok(Err(_)) => Err(SshError::new("The ssh tunnel is closed.", FailureClass::Terminal)),
+            Err(_) => Err(SshError::new(
+                format!("The ssh tunnel to {} is not ready after {} ms.", self.display, wait.as_millis()),
+                FailureClass::Transient,
+            )),
+        }
     }
 
     /// Replaces the ssh child now, with a fresh backoff: for a link whose health probes keep failing although the

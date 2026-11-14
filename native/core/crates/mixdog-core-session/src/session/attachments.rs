@@ -129,13 +129,15 @@ mod tests {
         DesktopAttachmentHost::new(directory, mixdog_store::blobs::BlobStore::new(data_dir), &mixdog_rt::testing::tokens())
     }
 
-    async fn stored_conversation(data_dir: &std::path::Path) -> DesktopAttachmentHost {
+    /// The host over a stored conversation of one session; the rig that owns its lanes is returned beside it, to be kept alive.
+    async fn stored_conversation(data_dir: &std::path::Path) -> (Rig, DesktopAttachmentHost) {
         let rig = Rig::new();
         let store = Arc::new(MemStore::default());
         store.seed(&ThreadId::from("sess_att"), conversation());
         let mut deps = rig.deps_parts(store);
         deps.transcript = Arc::new(RecordTranscript::new());
-        host(Arc::new(SessionDirectory::new(Arc::new(deps))), data_dir)
+        let host = host(Arc::new(SessionDirectory::new(Arc::new(deps))), data_dir);
+        (rig, host)
     }
 
     /// `transcript-file-links.ts` `sessionAttachments` over the rows the transcript shows: a user row's files and its images, a
@@ -143,7 +145,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn user_rows_and_member_speech_name_attachments() {
         let dir = tempfile::tempdir().expect("data dir");
-        let host = stored_conversation(dir.path()).await;
+        let (_rig, host) = stored_conversation(dir.path()).await;
         let snapshot = host.session_history("sess_att").await.expect("the stored history");
         let ids = ['a', 'b', 'd', 'e', 'f'].map(hex);
         let named: Vec<String> = session_attachments(&snapshot).into_iter().map(|attachment| attachment.id).collect();
@@ -161,7 +163,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_history_names_what_the_window_does_not() {
         let dir = tempfile::tempdir().expect("data dir");
-        let host = stored_conversation(dir.path()).await;
+        let (_rig, host) = stored_conversation(dir.path()).await;
         assert!(host.session_transcript("sess_att").await.is_none(), "the session is not loaded: no window");
         let found = host.named("sess_att", &hex('d')).await.expect("named by the stored speech");
         assert_eq!((found.name.as_deref(), found.mime_type.as_deref()), (Some("chart.png"), Some("image/png")));
@@ -175,7 +177,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn attachment_bytes_come_from_the_store_by_content_hash() {
         let dir = tempfile::tempdir().expect("data dir");
-        let host = stored_conversation(dir.path()).await;
+        let (_rig, host) = stored_conversation(dir.path()).await;
         let id = hex('c');
         assert!(host.attachment_bytes(&id).await.is_none(), "nothing stored under this hash");
         let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).expect("digest");

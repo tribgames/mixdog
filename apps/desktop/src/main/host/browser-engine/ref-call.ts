@@ -2,9 +2,9 @@
  * `host/browser/ref/call`: a function called on the element a snapshot ref
  * names. A ref is bound to the CDP node and target session that minted it, so
  * the call resolves the node in that session, runs the function and releases
- * the object. A page whose accessibility tree was unavailable has DOM refs
- * instead (the page-side ref table), reached through a page evaluation. A
- * ref of a snapshot that is no longer the page's current one is -32013; the
+ * the object; a ref in a cross-origin frame also answers that frame's offset.
+ * A page whose accessibility tree was unavailable has DOM refs instead (the
+ * page-side ref table), reached through a page evaluation. A ref of a snapshot that is no longer the page's current one is -32013; the
  * page's own exception is returned as `exception`, not thrown.
  */
 import type { WebContents } from 'electron';
@@ -12,6 +12,7 @@ import type { WebContents } from 'electron';
 import type { BrowserExceptionDetails, Precondition } from '../../../../../../packages/protocol/src/index.ts';
 import { redactBrowserText } from '../../browser/redaction';
 import { browserRefElementSource } from '../../browser/ref-access';
+import { createFrameOffsetResolver } from '../../browser/snapshot-frame-offset';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext, EnginePage } from './context';
 import { ENGINE_ERROR } from './errors';
@@ -146,7 +147,16 @@ export function registerRefCall(connection: HostConnection, ctx: EngineContext, 
       if (response.exceptionDetails) return { exception: exceptionOf(response.exceptionDetails) };
       // A result kept by reference has no value to send; its description says what it is.
       const value = returnByValue !== false ? response.result?.value : response.result?.description;
-      return value === undefined ? {} : { value };
+      const answer = value === undefined ? {} : { value };
+      // A ref inside a cross-origin frame is measured in that frame: where the frame sits in the top viewport goes with the
+      // answer, so the core can place a point or a box there.
+      if (!target.sessionId) return answer;
+      const frameOffset = await createFrameOffsetResolver({ cdp: ctx.cdp, sessions: () => page.state.cdpSessions })(
+        page.guest,
+        target.sessionId,
+        signal
+      );
+      return frameOffset.x || frameOffset.y ? { ...answer, frameOffset } : answer;
     } finally {
       ctx.cdp.releaseObject(page.guest, objectId, target.sessionId);
     }
