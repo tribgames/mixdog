@@ -1,0 +1,47 @@
+nr-office-pdf-jpx-codestream: what the lead applies after the wave
+
+1. native/core/crates/mixdog-pdf/src/codec/mod.rs (created by nr-office-pdf-jbig2-generic): add the line
+       pub mod jpx;
+   next to its other `pub mod` lines (alphabetical: after `pub mod jbig2;` and before any later module). The module is
+   native/core/crates/mixdog-pdf/src/codec/jpx/mod.rs with boxes.rs, markers.rs, packets.rs and tiles.rs beside it.
+   If codec/mod.rs does not exist when the wave is applied, create it containing only `pub mod jpx;` and add
+   `pub mod codec;` to native/core/crates/mixdog-pdf/src/lib.rs (before `pub mod codec_glue;`) unless the
+   jbig2-generic fragment already does.
+
+2. native/core/crates/mixdog-pdf/Cargo.toml, section [dev-dependencies] (after `flate2 = { workspace = true }`), the
+   tests/jpx_codestream.rs test reads the fixtures through the test kit and parses expected.json:
+       mixdog-testkit = { workspace = true }
+       serde_json = { workspace = true }
+   native/core/Cargo.lock: the `mixdog-pdf` package entry gains "mixdog-testkit" and "serde_json" in its dependency
+   list (both are already locked for other members; no new crate). mixdog-workspace-hack needs nothing new.
+
+3. native/core/crates/mixdog-pdf/NOTICE: append
+       The JPEG 2000 reader (src/codec/jpx) follows OpenJPEG 2.5 (BSD-2-Clause), as compiled into pdfjs-dist 6.4.299
+       wasm/openjpeg.wasm:
+           Copyright (c) 2002-2014, Universite catholique de Louvain (UCL), Belgium
+           Copyright (c) 2002-2014, Professor Benoit Macq
+           Copyright (c) 2003-2014, Antonin Descampe
+           Copyright (c) 2003-2009, Francois-Olivier Devaux
+           Copyright (c) 2005, Herve Drolon, FreeImage Team
+           Copyright (c) 2002-2003, Yannick Verschueren
+           Copyright (c) 2001-2003, David Janssens
+           Copyright (c) 2011-2012, Centre National d'Etudes Spatiales (CNES), France
+           Copyright (c) 2012, CS Systemes d'Information, France
+       (the licence text is wasm/LICENSE_OPENJPEG of pdfjs-dist).
+
+4. native/core/fixtures/MANIFEST.json (the index): run
+       node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index
+   so the new set native/core/fixtures/office-jpx (MANIFEST.json written by record-office-jpx.mjs with fileCount,
+   totalBytes and per-file sha256) is listed. The recorder writes the set by itself and needs no --tree: it is built
+   from pdfjs-dist in node_modules (the reference decoder) and has no product tree to record an identity for.
+
+5. SERVICE_PENDING in mixdog-app-server-daemon compose_flip.rs: nothing to remove, no protocol method or service.
+
+Not applicable: protocol rows, desktop wire, packaging.
+
+For the follow-up task nr-office-pdf-jpx-decode (tier-1, dequantisation, inverse wavelet, component transforms):
+   Codestream::tile(index) returns TileStructure whose CodeBlock carries numbps, passes, segments (passes, max_passes,
+   len) and the concatenated data; Band carries orient, numbps, expn, mant and stepsize (OpenJPEG's value); the
+   component parameters (CodingStyle: levels, cbw, cbh, style bits, reversible, precincts; Quant; roi_shift) are in
+   TileStructure.params.comps; TileParams.mct and Siz.comps (precision, signed, dx, dy) complete what the decoder needs.
+   Jp2Info gives colr, pclr, cmap and cdef (alpha_channels for SMaskInData).
