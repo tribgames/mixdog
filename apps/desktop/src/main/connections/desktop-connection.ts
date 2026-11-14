@@ -1,12 +1,10 @@
-// One daemon connection: its service client, the protocol connection to the connection's core and the terminal host
-// of its windows. This PC's core is dialed from its discovery file; a server window's core is where this PC's core says
+// One daemon connection: its service client and the protocol connection to the connection's core (a window's terminals
+// are the renderer's own, over its core connection). This PC's core is dialed from its discovery file; a server window's core is where this PC's core says
 // the server listens (the ssh session, the tunnel, the link and the model proxy are the core's, not built here).
 import type { SessionSnapshot } from '../../shared/contract';
 import { DesktopServiceClient } from '../desktop-service-client';
 import type { SerializableDesktopServiceOptions } from '../desktop-service-contract';
-import type { DesktopTerminalHost } from '../ipc-terminal';
 import type { ConnectionIdentity } from './contract';
-import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
 import { withSectionCapabilities } from '../protocol/section-capability-lane';
 import { createOperationLane, watchAnnouncements } from '../protocol/desktop-operation-route';
@@ -20,7 +18,6 @@ export interface DesktopConnection extends ConnectionIdentity {
   /** This process's one protocol connection to the connection's core: pushed sections, detail calls, host role.
    *  Every session capability, read and operation is a request on it. */
   readonly protocol: ProtocolConnection;
-  readonly terminals: DesktopTerminalHost;
   /** The daemon-side user data directory: this PC's profile. A server's core keeps its own data. */
   serviceUserDataPath(): string;
   start(): Promise<void>;
@@ -98,7 +95,6 @@ export function createDesktopConnection(spec: DesktopConnectionSpec, deps: Deskt
     ...identity,
     client,
     protocol,
-    terminals: createServiceTerminalHost(client, protocol),
     serviceUserDataPath() {
       // A server's core keeps its own data; only this PC's profile is addressable from here.
       if (spec.kind === 'local') return deps.sessionOptions().userDataPath;

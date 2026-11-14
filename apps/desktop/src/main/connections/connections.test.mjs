@@ -3,9 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { DESKTOP_IPC } from '../../shared/contract.ts';
-import { waitUntil } from '../bounded-wait.mjs';
-import { ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
+import { CONVERSATION_IMPORT_PROGRESS_EVENT, DESKTOP_IPC } from '../../shared/contract.ts';
 import { registerDesktopIpc } from '../ipc.ts';
 import { fakeProtocol } from './fake-core-protocol.mjs';
 import {
@@ -15,7 +13,6 @@ import {
   createConnectionIpcRouter,
   createConnectionWindowOpener,
   createDesktopConnection,
-  createServiceTerminalHost,
   resolveWindowConnection,
 } from './index.ts';
 
@@ -56,6 +53,7 @@ function fakeService(label) {
       return { label, method, args };
     },
     notifyDesktopOperation: (method, args) => calls.push(`${method}:${JSON.stringify(args)}`),
+    perfLog: (line) => calls.push(`perfLog:${line}`),
   };
 }
 
@@ -121,7 +119,6 @@ function twoConnectionFixture(t) {
         trashItem: async () => {},
       },
       connectionKind: kind,
-      terminals: createServiceTerminalHost(service, protocol),
       ...(kind === 'ssh'
         ? { serviceUserDataPath: () => '/root/.mixdog-remote/user-data' }
         : { updater, previewNotificationSound: async () => 'played' }),
@@ -144,76 +141,57 @@ function twoConnectionFixture(t) {
 }
 
 test('each window is answered by its own connection', async (t) => {
+  // The session, git and file members are the renderer's own (renderer/core-direct over the window's core connection); what
+  // main still serves is routed by the sender: a daemon operation and a fire-and-forget line.
   const f = twoConnectionFixture(t);
-  assert.deepEqual(await f.invoke(f.local.webContents, DESKTOP_IPC.listSessions), [{ id: 'local-session' }]);
-  assert.deepEqual(await f.invoke(f.server.webContents, DESKTOP_IPC.listSessions), [{ id: 'server-a-session' }]);
-  const status = await f.invoke(f.server.webContents, DESKTOP_IPC.gitStatus, '/srv/repo', {});
-  assert.equal(status.label, 'server-a');
-  assert.deepEqual(f.local.service.calls, ['listSessions']);
-  assert.deepEqual(f.server.service.calls, ['listSessions', 'gitStatus']);
+  const local = await f.invoke(f.local.webContents, DESKTOP_IPC.listServerDirectories, '/home');
+  const server = await f.invoke(f.server.webContents, DESKTOP_IPC.listServerDirectories, '/srv', true);
+  assert.equal(local.label, 'local');
+  assert.equal(server.label, 'server-a');
+  assert.deepEqual(f.local.service.calls, ['listServerDirectories']);
+  assert.deepEqual(f.server.service.calls, ['listServerDirectories']);
   // Fire-and-forget lanes route by sender too.
-  f.send(f.server.webContents, DESKTOP_IPC.termWrite, 'term-1', 'ls\r');
-  assert.deepEqual(f.server.service.calls.at(-1), 'termWrite:["term-1","ls\\r"]');
+  f.send(f.server.webContents, DESKTOP_IPC.perfLog, 'server line');
+  assert.deepEqual(f.server.service.calls.at(-1), 'perfLog:server line');
   assert.equal(f.local.service.calls.length, 1);
 });
 
 test('a window without a route or connection is refused, never served by this PC', async (t) => {
   const f = twoConnectionFixture(t);
   const stranger = fakeWindow(99).webContents;
-  await assert.rejects(f.invoke(stranger, DESKTOP_IPC.listSessions), /connection-route-missing/);
-  f.send(stranger, DESKTOP_IPC.termWrite, 'term-1', 'x');
+  await assert.rejects(f.invoke(stranger, DESKTOP_IPC.listServerDirectories, '/'), /connection-route-missing/);
+  f.send(stranger, DESKTOP_IPC.perfLog, 'x');
 
   f.pool.remove('server-a');
-  await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.listSessions), /connection-missing/);
-  f.send(f.server.webContents, DESKTOP_IPC.termWrite, 'term-1', 'x');
+  await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.listServerDirectories, '/'), /connection-missing/);
+  f.send(f.server.webContents, DESKTOP_IPC.perfLog, 'x');
 
   f.server.webContents.emit('destroyed');
   assert.equal(f.routes.connectionIdFor(2), undefined);
-  await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.listSessions), /connection-route-missing/);
+  await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.listServerDirectories, '/'), /connection-route-missing/);
   assert.deepEqual(f.local.service.calls, [], 'the local connection never answers for another window');
   assert.deepEqual(f.server.service.calls, []);
   assert.throws(() => resolveWindowConnection(f.routes, f.pool, 99), /connection-route-missing/);
 });
 
 test('service events and snapshots reach only their connection windows', async (t) => {
+  // The session list, folder and terminal feeds reach the renderer over its own core connection (renderer/core-direct);
+  // what main still forwards (the engine state, the conversation import progress) goes to the connection's own windows.
   const f = twoConnectionFixture(t);
   const channels = (sent, channel) => sent.filter(([name]) => name === channel).map(([, value]) => value);
-  f.server.service.publishSessions([{ id: 'remote' }]);
-  f.local.service.publishSessions([{ id: 'here' }]);
-  assert.deepEqual(channels(f.server.sent, DESKTOP_IPC.sessionsChanged), [[{ id: 'remote' }]]);
-  assert.deepEqual(channels(f.local.sent, DESKTOP_IPC.sessionsChanged), [[{ id: 'here' }]]);
-
   f.server.service.publishState({ sessionId: 'remote', items: [] });
   assert.equal(channels(f.server.sent, DESKTOP_IPC.state).length, 1);
   assert.equal(channels(f.local.sent, DESKTOP_IPC.state).length, 0);
 
-  // A tab's output is read on its own feed of the connection's core; the phones' lane (`process:relay`) is not a window's.
-  const output = (feedId, text) => ({
-    type: 'notification',
-    notification: {
-      method: 'process/outputDelta',
-      params: { processHandle: 'term-1', bytesB64: Buffer.from(text).toString('base64') },
-      feed: { id: feedId },
-    },
-  });
-  // A window is sent the tabs it shows: its ensure of the tab names it (the fixture's service answers no session, which leaves the request standing).
-  await f.invoke(f.server.webContents, DESKTOP_IPC.termEnsure, 'term-1').catch(() => undefined);
-  f.server.protocol.emit(output('process:relay', 'lane output'));
-  f.server.protocol.emit(output('process:term-1', 'server output'));
+  f.server.service.publishEvent(CONVERSATION_IMPORT_PROGRESS_EVENT, { done: 1 });
+  f.local.service.publishEvent(CONVERSATION_IMPORT_PROGRESS_EVENT, { done: 2 });
+  assert.deepEqual(channels(f.server.sent, DESKTOP_IPC.conversationImportProgress), [{ done: 1 }]);
+  assert.deepEqual(channels(f.local.sent, DESKTOP_IPC.conversationImportProgress), [{ done: 2 }]);
+  // A feed the renderer reads itself is not forwarded by main any more.
   f.server.service.publishEvent('folder-changed', '/srv/repo');
-  await waitUntil(
-    () =>
-      channels(f.server.sent, DESKTOP_IPC.termData).length > 0 &&
-      channels(f.server.sent, DESKTOP_IPC.folderChanged).length > 0,
-    'the server window to receive its terminal and folder events'
-  );
-  assert.deepEqual(
-    channels(f.server.sent, DESKTOP_IPC.termData).map((event) => event.data),
-    ['server output']
-  );
-  assert.deepEqual(channels(f.server.sent, DESKTOP_IPC.folderChanged), ['/srv/repo']);
-  assert.equal(channels(f.local.sent, DESKTOP_IPC.termData).length, 0);
-  assert.equal(channels(f.local.sent, DESKTOP_IPC.folderChanged).length, 0);
+  f.server.service.publishSessions([{ id: 'remote' }]);
+  assert.equal(channels(f.server.sent, DESKTOP_IPC.folderChanged).length, 0);
+  assert.equal(channels(f.server.sent, DESKTOP_IPC.sessionsChanged).length, 0);
 });
 
 test('a server window refuses the features that act on this PC', async (t) => {
@@ -223,9 +201,6 @@ test('a server window refuses the features that act on this PC', async (t) => {
     DESKTOP_IPC.requestLinuxInputAccess,
     DESKTOP_IPC.browserPageFrame,
     DESKTOP_IPC.browserProfileImportSources,
-    DESKTOP_IPC.remoteAccessInfo,
-    DESKTOP_IPC.remotePairCode,
-    DESKTOP_IPC.setRemoteAccessEnabled,
     DESKTOP_IPC.chooseFile,
     DESKTOP_IPC.openFilePath,
     DESKTOP_IPC.openProjectInExplorer,
@@ -234,22 +209,18 @@ test('a server window refuses the features that act on this PC', async (t) => {
     assert.ok(SSH_UNSUPPORTED_CHANNELS.has(channel), channel);
     await assert.rejects(f.invoke(f.server.webContents, channel, 'session-1'), /ssh-unsupported/, channel);
   }
+  // Phone access is the renderer's own member (renderer/core-direct/server-gates.ts refuses it in a server window); the
+  // channel gate still names it.
+  for (const channel of [DESKTOP_IPC.remoteAccessInfo, DESKTOP_IPC.remotePairCode, DESKTOP_IPC.setRemoteAccessEnabled]) {
+    assert.ok(SSH_UNSUPPORTED_CHANNELS.has(channel), channel);
+  }
   await assert.rejects(f.invoke(f.server.webContents, DESKTOP_IPC.chooseProject), /remote-picker-required/);
   assert.deepEqual(f.dialogCalls, [], 'no local dialog opens for a server window');
-  // A server window's grants name server files only: this PC's never apply.
-  const refused = ipcErrorFromEnvelope(
-    await f.invoke(f.server.webContents, DESKTOP_IPC.readProjectFile, '/srv/repo', 'a.txt', 'token')
-  );
-  assert.equal(refused.code, 'SELECTED_FILE_GRANT_UNAVAILABLE');
-  assert.match(refused.message, /selected-file permission is unavailable/);
-  // Server paths stay POSIX paths when the daemon watches them.
-  const watched = await f.invoke(f.server.webContents, DESKTOP_IPC.folderWatch, '/srv/repo/../repo', true);
-  assert.deepEqual(watched.args, ['/srv/repo', true]);
   // The same features stay available to this PC's window.
   assert.equal(await f.invoke(f.local.webContents, DESKTOP_IPC.chooseProject), null);
   assert.deepEqual(f.dialogCalls, ['local']);
   await assert.rejects(f.invoke(f.local.webContents, DESKTOP_IPC.computerReadiness), /not available in this host/);
-  assert.deepEqual(f.server.service.calls, ['folderWatch']);
+  assert.deepEqual(f.server.service.calls, []);
 });
 
 test("the updater and the notification sound stay with this PC's window", async (t) => {

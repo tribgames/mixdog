@@ -13,6 +13,5 @@ export {
   type DesktopConnectionDependencies,
   type DesktopConnectionSpec,
 } from './desktop-connection';
-export { createServiceTerminalHost } from './terminal-host';
 export { createConnectionWindowOpener, type ConnectionWindowOpenerDependencies } from './window-opener';
 export { forwardConnectionLink, registerConnectionLinkIpc } from './link-ipc';
