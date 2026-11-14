@@ -529,7 +529,7 @@ impl UserControlState {
         }
         match blocked {
             None => Ok(None),
-            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await.map(Some),
+            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await,
             Some(Block::Takeover) => Err(takeover_refusal()),
             Some(Block::Yielded) => Ok(Some(reply(yielded_payload(refusal_payload(action, text(command, "window_id"), false), self.manual())))),
         }
@@ -542,8 +542,10 @@ impl UserControlState {
 
     /// `waitUntilRunnable` + `attemptUntilSettled`: a request meeting the person's pause parks, never dispatched, until Resume
     /// (it then answers with the pending-work reply, since the desktop changed hands) or until `PAUSE_WAIT` passes (it then
-    /// answers `paused` and will not dispatch later). A hold that becomes any other takeover refuses it; a cancelled turn ends it.
-    async fn park(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+    /// answers `paused` and will not dispatch later). A read that only observes runs once the pause ended (`None`), as a changed
+    /// takeover generation stales only input (`runAttempt`). A hold that becomes any other takeover refuses it; a cancelled turn
+    /// ends it.
+    async fn park(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
         let mut changes = self.changes.subscribe();
         let deadline = Instant::now() + PAUSE_WAIT;
         loop {
@@ -555,7 +557,7 @@ impl UserControlState {
             }
             let now = Instant::now();
             if now >= deadline {
-                return Ok(reply(paused_work_reply(command, USER_PAUSE)));
+                return Ok(Some(reply(paused_work_reply(command, USER_PAUSE))));
             }
             tokio::select! {
                 () = cancel.cancelled() => return Err(ComputerError::Cancelled),
@@ -563,7 +565,10 @@ impl UserControlState {
                 () = sleep(deadline - now) => {}
             }
         }
-        self.pending_work(backend, command, cancel).await
+        if computer_lane::observes_only(text(command, "action")) {
+            return Ok(None);
+        }
+        self.pending_work(backend, command, cancel).await.map(Some)
     }
 
     /// `recaptureRequiredReply` + `pendingWorkReply`: the fresh look at the request's window, with what the request still has to do.
@@ -831,9 +836,21 @@ fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Val
         "accessibility_status",
         "accessibility_error",
     ];
-    let named = |key: &str| observation.get(key).and_then(Value::as_str).is_some_and(|id| !id.is_empty());
-    let fresh = observation.get("ok") == Some(&Value::Bool(true)) && observation.get("action") == Some(&json!("capture")) && (named("requested_window_id") || named("window_id"));
-    let observation: Map<String, Value> = if fresh { observation } else { observation.into_iter().filter(|(field, _)| FAILED_FIELDS.contains(&field.as_str())).collect() };
+    // `isFreshRecaptureObservation`: a capture of a named window, the request's own when it named one.
+    let named = |key: &str| observation.get(key).and_then(Value::as_str).filter(|id| !id.is_empty());
+    let expected = text(command, "window_id");
+    let ok = observation.get("ok") == Some(&Value::Bool(true));
+    let fresh = ok
+        && observation.get("action") == Some(&json!("capture"))
+        && named("requested_window_id").or_else(|| named("window_id")).is_some_and(|target| expected.is_empty() || target == expected);
+    // A successful capture of another window is not reported at all; a failed one only by the fields that say why.
+    let observation: Option<Map<String, Value>> = if fresh {
+        Some(observation)
+    } else if ok {
+        None
+    } else {
+        Some(observation.into_iter().filter(|(field, _)| FAILED_FIELDS.contains(&field.as_str())).collect())
+    };
     let mut payload = Map::new();
     payload.insert("ok".into(), json!(fresh));
     payload.insert("action".into(), json!(text(command, "action")));
@@ -846,7 +863,9 @@ fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Val
             "guidance": "The request waited for user control to end. Keep the task active. Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. Completed steps must not be replayed. An uncertain step may already have dispatched input: resolve its effect before deciding what remains. Never resend it blindly.",
         }),
     );
-    payload.insert("observation".into(), Value::Object(observation));
+    if let Some(observation) = observation {
+        payload.insert("observation".into(), Value::Object(observation));
+    }
     payload.insert("status".into(), json!("resumed"));
     payload.extend(work_progress(command));
     (payload, fresh)
@@ -1345,6 +1364,28 @@ mod tests {
         let (unnamed, is_fresh) = pending_work_reply(&command, object(json!({"ok": true, "action": "capture"})));
         assert!(!is_fresh, "a capture of no window is not fresh");
         assert_eq!(unnamed["ok"], false);
+        assert!(unnamed.get("observation").is_none(), "a successful capture that is not fresh is not reported");
+        let (other, is_fresh) = pending_work_reply(&command, object(json!({"ok": true, "action": "capture", "window_id": "hwnd:0x9"})));
+        assert!(!is_fresh, "a capture of another window is not fresh");
+        assert!(other.get("observation").is_none());
+        assert_eq!(other["verdict"], json!({"decision": "escalate", "recommended": "recapture"}));
+    }
+
+    /// A read parked behind the pause runs once the person resumes: only input is staled by the desktop changing hands.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_read_runs_after_resume() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let a = Arc::new(session(&manager, &control, "a"));
+        assert!(control.pause());
+        let parked = {
+            let (control, a) = (control.clone(), a.clone());
+            tokio::spawn(async move { control.admit(&a, &object(json!({"action": "capture", "window_id": "hwnd:0x2"})), &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(1)).await;
+        assert!(!parked.is_finished(), "the read waits while the pause lasts");
+        assert!(control.resume(None));
+        assert_eq!(parked.await.unwrap(), Ok(None), "the read is let through");
     }
 
     /// The pause budget runs out: the request answers `paused` with every step pending, and the person's pause stays.

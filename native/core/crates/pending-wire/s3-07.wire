@@ -2,20 +2,16 @@
 
 No new module, workspace member, dependency or registration: the task edits computer_user_control.rs only (computer_lane.rs unchanged).
 
-## mixdog-protocol/src/section.rs (hot file, protocol type edit), together with the one place that fills it
+## The section's idleResumeSeconds (after s3-02's rows are applied)
 
-`ComputerUserControlSection` gains the interval the pill and the model read:
+The field is s3-02's: `ComputerSection.idle_resume_seconds: u32` (mixdog-protocol/src/section.rs, s3-02.rows [type_edits] 5); no
+second field is added to `ComputerUserControlSection`. In `mixdog-core/src/run_host/native_tools.rs`, the `ComputerSection { .. }`
+literal that publishes the section (the one that sets `user_control: self.control.section()`) takes
 
-    /// The idle-resume interval in seconds, 0 to 60; 0 means only Resume ends a hold (`idleResumeSeconds`).
-    #[serde(default)]
-    pub idle_resume_seconds: u32,
+    idle_resume_seconds: self.control.idle_resume_seconds(),
 
-(camelCase on the wire: `idleResumeSeconds`; schema and TS types regenerate.) Then in
-`mixdog-tools/src/desktop/computer_user_control.rs`, `UserControlState::section()`, both constructors of
-`ComputerUserControlSection` take `idle_resume_seconds: self.idle_resume_seconds(),`, and the inline tests that build the struct
-(`ComputerUserControlSection { active, reason, resume_mode }` in computer_user_control.rs) add `idle_resume_seconds: 5` (the default
-interval; `0` for the ones built with `UserControlState::new(Duration::ZERO)`). Also `mixdog-core/src/run_host/native_tools.rs`
-if it builds the struct literally (it only reads `self.control.section()`).
+in place of the literal `5` s3-02's rows give every literal; the test helper `section` there keeps `5`. `set_idle_resume` already
+calls the section listener, so a change is published at once.
 
 ## s3-19 (daemon ComputerUserControlService) consumes
 
