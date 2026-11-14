@@ -197,6 +197,18 @@
       ],
       "type": "object"
     },
+    "ComputerPointerReleasedParams": {
+      "description": "Params of `computer/pointerReleased` (desktop -> core notification): the user moved the real pointer over an agent arrow, so the core ends that session's pointer hold.",
+      "properties": {
+        "sessionThreadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionThreadId"
+      ],
+      "type": "object"
+    },
     "HostBrowserEventsParams": {
       "description": "`host/browser/events` (host to core notification): ordered with the page's other notifications on the same writer; a batch stays under 200 KiB serialized.",
       "properties": {
@@ -1975,6 +1987,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostWindowClosedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The user moved the real pointer over an agent arrow: the core ends that session's pointer hold.",
+      "properties": {
+        "method": {
+          "enum": [
+            "computer/pointerReleased"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ComputerPointerReleasedParams"
         }
       },
       "required": [

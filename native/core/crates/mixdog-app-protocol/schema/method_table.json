@@ -11241,6 +11241,42 @@
     },
     {
       "class": "C2",
+      "method": "migrate/profile/status",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::migrate_profile::MigrateProfileStatusParams",
+      "result": "v2::migrate_profile::MigrateProfileStatus",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "migrate/profile/adopt",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::migrate_profile::MigrateProfileAdoptParams",
+      "result": "v2::migrate_profile::MigrateProfileAdopted",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/command",
       "mutation": {
         "kind": "none"
@@ -11294,6 +11330,24 @@
       ],
       "params": "v2::host::ComputerUserControlParams",
       "result": "v2::host::ComputerUserControlResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "dev/computer/run",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::computer_host::DevComputerRunParams",
+      "result": "v2::computer_host::DevComputerRunResult",
       "scope": {
         "kind": "none"
       }
@@ -11654,6 +11708,11 @@
       "delivery": null,
       "method": "host/window/closed",
       "params": "HostWindowClosedParams"
+    },
+    {
+      "delivery": null,
+      "method": "computer/pointerReleased",
+      "params": "ComputerPointerReleasedParams"
     },
     {
       "delivery": null,
@@ -12460,6 +12519,42 @@
       "params": "HostComputerPointerFeedbackParams",
       "requires": "host.computer",
       "result": "()"
+    },
+    {
+      "method": "host/computer/pixels",
+      "params": "HostComputerPixelsParams",
+      "requires": "host.computer",
+      "result": "HostComputerPixelsResult"
+    },
+    {
+      "method": "host/computer/appWindows",
+      "params": "HostComputerAppWindowsParams",
+      "requires": "host.computer",
+      "result": "HostComputerAppWindowsResult"
+    },
+    {
+      "method": "host/computer/appInput",
+      "params": "HostComputerAppInputParams",
+      "requires": "host.computer",
+      "result": "HostComputerAppInputResult"
+    },
+    {
+      "method": "host/computer/cursorPrepare",
+      "params": "HostComputerCursorPrepareParams",
+      "requires": "host.computer",
+      "result": "HostComputerCursorPrepareResult"
+    },
+    {
+      "method": "host/computer/permissions",
+      "params": "HostComputerPermissionsParams",
+      "requires": "host.computer",
+      "result": "HostComputerPermissionsResult"
+    },
+    {
+      "method": "host/computer/command",
+      "params": "HostComputerCommandParams",
+      "requires": "host.computer",
+      "result": "HostComputerCommandResult"
     },
     {
       "method": "host/visualize/command",
