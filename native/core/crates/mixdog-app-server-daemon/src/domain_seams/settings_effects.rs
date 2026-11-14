@@ -216,6 +216,11 @@ mod tests {
         let fresh = Arc::new(ConfiguredShell::default());
         let _follow = ShellFollow::start(&empty, &fresh);
         assert_eq!(fresh.configured(), "");
+        // A hand-edited command is applied as written, trimmed, on every platform (Node's `clean`, not the setter's check).
+        let edited = open_config(dir.path(), Some("  /usr/bin/bash ")).await;
+        let by_hand = Arc::new(ConfiguredShell::default());
+        let _follow = ShellFollow::start(&edited, &by_hand);
+        assert_eq!(by_hand.configured(), "/usr/bin/bash");
     }
 
     /// An outside edit of the config file (an editor, another process) is adopted by the reload the file watch runs, and the

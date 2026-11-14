@@ -125,7 +125,7 @@ pub struct ExecEvents {
 /// The built runtime. `wakes` is the hub `SessionDeps::wakes` must share: the session calls
 /// `WakeHub::interrupt` on user input or a notification. `configured_shell` is the one
 /// `ConfiguredShell` every spawn reads: the settings effects (`DaemonSettingsEffects::new`) take
-/// this same `Arc`, set from `config.shell` at boot and at every adoption of the document (`ShellFollow`).
+/// this same `Arc`, and the boot value from `config.shell` is `set` on it.
 pub struct Exec {
     pub runtime: Arc<ExecRuntime>,
     pub wakes: Arc<WakeHub>,
