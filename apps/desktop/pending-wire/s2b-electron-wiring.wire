@@ -1,0 +1,165 @@
+# s2b-electron-wiring: desktop wiring lines for DESKTOP-WIRE-G9 (the wave's wiring task applies them, then deletes this file)
+
+What exists (this task, none of it called yet; main/index.ts does not typecheck until the lines below are applied, see 0):
+- connections/server-window-record.ts: ServerWindowRecord {id, kind:'ssh', name, endpoint()}, createServerWindowRecord,
+  createServerWindows(deps) -> ServerWindows {open, get, release, endpointsFor}, openEnvSshTarget(core, target), CoreCaller.
+- connections/link-ipc.ts: registerConnectionLinkIpc({ipcMain, routes, closeWindow, showConnectionSettings}) registers ONLY
+  connectionCloseWindow and connectionOpenSettings (the sender must be a routed window); forwardConnectionLink(target) pushes only
+  hostListsChanged. The link state, retry, Ports, reopen setting and restore progress channels are the core's, read by the window
+  over its own port (renderer/connections-core-api.ts); their DESKTOP_IPC names in shared/contract-ipc.ts are dead (G9 removes them).
+- remote-hosts.ts: window rules only (remoteHostPartition, remoteWindowTitle, remoteWindowUserAgent, isRemoteHostNavigation,
+  externalLinkTarget) plus watchHostListsFeed(source, notify, log) / touchesHostLists. The saved-host store, pair-code parser,
+  redeem and presence fetch are gone: the core's remoteHosts/* do them (mixdog-connections remote_hosts.rs).
+- remote-host-windows.ts: createRemoteHostWindows(core: CoreCaller, preloadPath, {showConnectionSettings}) (no store, no
+  relayOrigin); list/connectByCode/open/rename/forget call remoteHosts/list|presence|redeemCode|touch|rename|forget.
+- pending-rows/s2b-electron-wiring.rows: remoteHosts/touch and the redeem answer's `ticket` (RemoteHostRedeemed). Until the lead
+  applies it the window opens without the ticket (the page then asks the host for approval) and the touch call fails silently.
+
+## 0. main/index.ts: what goes
+
+Remove the imports of, and every use of: createConnectionManager, createDesktopConnection (for ssh), ConnectionPool,
+createServerWindowRestore, createServerNotifier / ServerNotifier, registerServerPortsIpc, createPortForwardStore /
+createServerPortForwards, SshTunnel, currentSshContext / runWithSshContext, loadSshHostStore, resolveTunnelEndpoint, parseSshTarget,
+hostGraceMs, the server-window half of allowedProvidersForHost, and `registerLocalSshHostIpc` (the function and its call).
+Symbols that go: `sshConnections`, `serverWindowRestore`, `serverNotifiers`, `createServerWindowNotifier`, `runWithHostSettings`,
+`connectionDependencies.createPortForwards`, the ssh branch of `connectionDependencies.createProtocol` (`connector`,
+`resolveTunnelEndpoint`), the power link loop (`for (const connection of connectionPool.list()) connection.link?.resume()` and
+`.suspend()` in the resume/suspend handlers) and the `connectionPool.onAdd` server-login bridge. `connectionPool` goes with them: this
+PC's connection is `localConnection` alone. Keep `windowRoutes` (WindowRouteRegistry), `coreEndpoints` and `coreInitialized` for the
+local connection only.
+
+## 1. main/index.ts: the server windows (after `localConnection` and `localProtocol` exist)
+
+  import { createServerWindows, openEnvSshTarget, type ServerWindowRecord } from './connections/server-window-record';
+
+  /** The server windows the core asked for (host/window/open): one record each; its endpoint is asked of this PC's core. */
+  const serverWindows = createServerWindows({
+    core: localProtocol,
+    showWindow: (record) => showConnectionWindow(record),
+    localEndpoint: async () => {
+      const resolve = coreEndpoints.get(LOCAL_CONNECTION_ID);
+      if (!resolve) throw new Error('This PC has no core link.');
+      const { url, token } = await resolve();
+      return { url, token };
+    },
+  });
+
+`localProtocol` is this PC's ProtocolConnection (`call(method, params)`, `onEvent`), already in index.ts.
+
+## 2. main/index.ts: corePortRelay.endpointFor (replace the body)
+
+  endpointFor: async (webContentsId) => {
+    const connectionId = windowRoutes.connectionIdFor(webContentsId);
+    if (connectionId === undefined) {
+      throw new ConnectionError('connection-route-missing', 'This window is not attached to a Mixdog connection.');
+    }
+    return serverWindows.endpointsFor(connectionId);
+  },
+
+`endpointsFor('local')` answers slot primary, role main. A server window gets slot primary from connections/endpoint (the host
+claimant only, by the core's own rule) and slot pc from this PC's resolver, both under role server:<id>. The `CoreEndpoint` import
+stays only if still used.
+
+## 3. main/index.ts: opener, createWindow and installWindowIpc take a window subject
+
+`showConnectionWindow = createConnectionWindowOpener<WindowSubject, BrowserWindow>` with
+`type WindowSubject = DesktopConnection | ServerWindowRecord` (the opener is generic over `{ id: string }`; it does not change).
+createWindow(subject): `const local = subject.kind === 'local'`. What it read off the connection for a server window becomes:
+- statePath, partition and pane layout file (`connectionWindowStatePath`, `connectionPartition`, `connectionPaneLayoutFile`): they
+  read only `id`, `kind` and `name`; type them `Pick<WindowSubject, 'id' | 'kind' | 'name'>`.
+- `windowRoutes.register(window.webContents, subject.id)`; `connectionWindows.set(subject.id, window)`.
+- the input reporter: `report: (at) => (subject.kind === 'local' ? localConnection.protocol?.noteUserInput(at) : undefined)` (a
+  server window's input is noted by its core over the window's own port).
+- no `forwardConnectionLink(connection, ...)`, no `createServerWindowNotifier`, no `serverWindowRestore.remember`. For a server
+  window: `const stopHostLists = local ? () => {} : forwardConnectionLink(window.webContents);` and call it in the
+  `windowIpcDisposers` entry (the server notifier and the reopen list are the core's; its notifications arrive as
+  host/notification/show).
+- installWindowIpc(window, subject, windowBrowserHost): for `local` unchanged (localConnection.client, protocol, terminals,
+  serviceUserDataPath(), modelLogin). For a server window registerDesktopIpc gets `connectionKind: 'ssh'`, `corePort: corePortRelay`,
+  `pcCore: localProtocol`, the `pcHost` of this PC (invokeCapability / readCapabilities; `inUse` and `isProviderAllowed` come from the
+  core's model proxy answer, not from the ssh host store), and no `protocol`, no `terminals`, no `serviceUserDataPath`. ipc.ts (G9):
+  make those optional where it reads them; the feature gates and pcHost are otherwise unchanged apart from the type of the
+  connection argument. `remoteHosts: remoteHostsHandle()` is unchanged.
+
+## 4. main/index.ts: the host role's `windows` (replace the object passed to createDesktopHost)
+
+  windows: {
+    // The core asks for a saved server's window: a record is made from the params and its window opens.
+    open: (params) => serverWindows.open(params),
+    close: (connectionId) => {
+      const window = connectionWindows.get(connectionId);
+      if (window && !window.isDestroyed()) window.close();
+    },
+    focus: (connectionId, sessionId) => focusConnectionWindow(connectionId, sessionId),
+  },
+
+focusConnectionWindow: `const subject = connectionId === LOCAL_CONNECTION_ID ? localConnection : serverWindows.get(connectionId);`
+(was connectionPool.get).
+
+## 5. main/index.ts: the window's close (installWindowCloseCleanup)
+
+Replace the `if (connection.kind !== 'local') { serverWindowRestore.forget ...; windowClosed ...; sshConnections.close ... }` block with
+
+    if (subject.kind !== 'local') {
+      serverWindows.release(subject.id);
+      // The core is told its window is gone, by the user unless the app is quitting (it decides what to reopen and detaches).
+      hostRole.host.windowHost?.windowClosed(subject.id, !quitApproved);
+    }
+
+Release goes before windowClosed: the core may answer by opening the window again, which makes a new record.
+`serverNotifiers.get(window)?.dispose()` and its delete go.
+
+## 6. main/index.ts: ready handler
+
+Replace `registerLocalSshHostIpc(); registerServerPortsIpc({...}); registerConnectionLinkIpc({... pool, restore, requestSignIn ...});` with
+
+  registerConnectionLinkIpc({
+    ipcMain,
+    routes: windowRoutes,
+    closeWindow: (sender) => BrowserWindow.fromWebContents(sender)?.close(),
+    showConnectionSettings: showLocalConnectionSettings,
+  });
+
+and remove `void serverWindowRestore.restore()...`: the core reopens the windows it remembers after the host claim, through
+host/window/open. MIXDOG_SSH_TARGET: replace the `sshConnections.open(...)` block with
+
+  if (envSshConfig) {
+    // After the host claim the core connects the target and asks this desktop for its window (host/window/open).
+    void afterFirstHostClaim()
+      .then(() => openEnvSshTarget(localProtocol, envSshConfig.target))
+      .catch((error: unknown) => {
+        diagnostics?.write('ssh-target-window-failed', { errorName: error instanceof Error ? error.name : typeof error });
+        console.error('Failed to open the MIXDOG_SSH_TARGET server window:', error);
+      });
+  }
+
+`afterFirstHostClaim` is a promise resolved by the host claim that protocol/desktop-host-wiring.ts runs on each ready link (its
+first success); there is no such hook yet: add a one-shot resolve in the place that awaits `host.claim()`. MIXDOG_SSH_REMOTE_CWD has
+no parameter on connections/ssh/openEphemeral ({target, name}), so the remote folder of this development switch is not carried.
+
+## 7. main/index.ts: remoteHostsHandle
+
+  const { createRemoteHostWindows } = await import('./remote-host-windows');   // drop loadRemoteHostStore, relayHttpOrigin, resolveRelayUrl
+  return createRemoteHostWindows(localProtocol, join(import.meta.dirname, '../preload/remote-window.js'), {
+    showConnectionSettings: showLocalConnectionSettings,
+  });
+
+and once, after localProtocol exists (the saved hosts changed in another window or on the core):
+
+  import { watchHostListsFeed } from './remote-hosts';
+  import { notifyHostListsChanged } from './host-lists-changed';
+  const stopHostListsFeed = watchHostListsFeed(localProtocol, notifyHostListsChanged, (message) => console.error(`[mixdog] ${message}`));
+
+Call `stopHostListsFeed()` in the quit path with the other disposers.
+
+## 8. Core side (lead)
+
+Nothing from this task. The connections/* and remoteHosts/* services are registered by s2b-daemon-wiring; which names it removes from
+SERVICE_PENDING in mixdog-app-server-daemon compose_flip.rs is its to state (connections/endpoint, connections/ssh/openEphemeral,
+connections/subscribe, remoteHosts/*, and remoteHosts/touch once the rows fragment is applied).
+
+## 9. Deleted by s2b-delete-ts (not here)
+
+main/ssh/*, connections/manager.ts, pool.ts, desktop-connection.ts, connection-link.ts, server-notifier.ts, server-port-forwards.ts,
+port-forward-store.ts, ports-ipc.ts, window-restore.ts, reattach-report.ts, ipc-ssh-hosts.ts and their tests, once nothing imports
+them (index.ts no longer does after 0-7; connections/index.ts re-exports them and is trimmed by that task).

@@ -1,0 +1,57 @@
+# s2b-electron-wiring: two gaps of the remoteHosts/* rows that the desktop's remote-host-windows.ts needs (it calls them through
+# this PC's core now): the one-time ticket of a redeemed code, and the "last connected" mark of a host whose window opened.
+# Both are served by the connections service that serves remoteHosts/* (RemoteHostStore::touch exists in mixdog-connections
+# remote_hosts.rs; redeem_pair_code's RedeemedPairCode carries `ticket`). Desktop callers: remote-host-windows.ts connectByCode
+# reads `ticket` off the result and opens the window with `#pair=<ticket>`; openWindow sends remoteHosts/touch (a core that does
+# not serve it leaves the list order as it was; the call is not awaited for its failure).
+
+[methods]
+# Replace the result of RemoteHostsRedeemCode (symbol: RemoteHostsRedeemCode => "remoteHosts/redeemCode") `result: RemoteHost,` with
+#   result: RemoteHostRedeemed,
+# and paste after the RemoteHostsPresence row:
+    /// A saved remote PC's window opened: its `lastConnectedAt` is now (`store.touch`). Caller: H.
+    RemoteHostsTouch => "remoteHosts/touch" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none (the frozen 1.4.5 list has no remoteHosts/* row; these are the same-window additions of the connections move).
+
+[free_text]
+# none
+
+[type_edits]
+# native/core/crates/mixdog-app-protocol/src/v2/connections.rs, after `pub struct RemoteHost`:
+
+/// The answer to `remoteHosts/redeemCode`: the saved host and the one-time proof the relay redeemed the code (it rides the
+/// first claim of the host's page; it is never stored and never in a list).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostRedeemed {
+    #[serde(flatten)]
+    pub host: RemoteHost,
+    pub ticket: String,
+}
+
+# and the desktop's TS (apps/desktop/src/main/remote-host-windows.ts) narrows its local `RedeemedHost` alias to the generated
+# `RemoteHostRedeemed` once the protocol is regenerated: `(await core.call('remoteHosts/redeemCode', params)) as RemoteHostRedeemed`,
+# `const { ticket, ...host } = redeemed;` stays.
+
+[remove]
+# none
+
+[window]
+# nothing: the window scope is the whole table minus the host-role list (boundary/window_scope.rs), and remoteHosts/touch is no
+# host-role method, like its siblings remoteHosts/list|redeemCode|rename|forget|presence.
