@@ -1,0 +1,24 @@
+# comment
+CC := gcc
+CFLAGS ?= -Wall -O2 \
+	-g
+OBJS = main.o util.o
+.PHONY: all clean
+all: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^
+%.o: %.c
+	@echo "compile $<"
+	$(CC) -c $< -o $@
+clean:
+	rm -f *.o app
+ifeq ($(OS),Windows_NT)
+  RM = del
+else
+  RM = rm
+endif
+include config.mk
+define RUN
+	echo $(1)
+endef
+target: dep | order-only
+	cd sub && $(MAKE) VAR=${X}

@@ -1,0 +1,16 @@
+package com.example
+import scala.collection.mutable.{Map => MMap, _}
+/** Scaladoc */
+sealed trait Shape extends Product with Serializable
+case class Circle(r: Double) extends Shape
+object Main extends App {
+  val x: Int = 0x1F + 1_000; var y = 3.14e2f; lazy val z = "esc \" \n"; val t = """raw "x" """
+  val i = s"interp ${x + 1} $y"; val c = 'a'; val sym = 'sym
+  def f[T <: Ordered[T]](a: T, b: => T)(implicit ord: Ordering[T]): T = if (a < b) a else b
+  val r = List(1, 2, 3).map(_ * 2).filter { case n if n > 2 => true; case _ => false }
+  for { a <- 1 to 3; b <- Some(a) if b > 1 } yield a + b
+  x match { case Circle(r) => println(r); case _: String => ; case 1 | 2 => }
+  try { throw new Exception("x") } catch { case e: Exception => } finally { }
+  implicit class RichInt(val n: Int) extends AnyVal { def double = n * 2 }
+  type Alias = Map[String, List[Int]]; private[this] val p = new Thread(() => ())
+} // end

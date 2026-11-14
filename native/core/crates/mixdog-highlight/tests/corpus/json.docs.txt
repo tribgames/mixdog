@@ -1,0 +1,303 @@
+"phpmailer/phpmailer": "^6.5"
+@@@@
+[
+	{
+		"type": "PARAGRAPH",
+		"value": [
+			{ "type": "PLAIN_TEXT", "value": "Hello " },
+			{ "type": "BOLD", "value": [{ "type": "PLAIN_TEXT", "value": "world" }] },
+			{ "type": "PLAIN_TEXT", "value": ", " },
+			{ "type": "MENTION_USER", "value": { "type": "PLAIN_TEXT", "value": "john" } },
+			{ "type": "PLAIN_TEXT", "value": "! See " },
+			{ "type": "MENTION_CHANNEL", "value": { "type": "PLAIN_TEXT", "value": "general" } },
+			{ "type": "PLAIN_TEXT", "value": " " },
+			{ "type": "EMOJI", "value": { "type": "PLAIN_TEXT", "value": "smile" }, "shortCode": "smile" }
+		]
+	}
+]
+@@@@
+{
+	"id": "6f1d4ad5-41b4-4f1d-9e9c-2a3d1b4c5e6f",
+	"name": "Hello",
+	"nameSlug": "hello",
+	"version": "1.0.0",
+	"description": "Says hello",
+	"requiredApiVersion": "^1.0.0",
+	"author": {
+		"name": "Jane Doe",
+		"support": "https://example.com/support"
+	},
+	"classFile": "HelloApp.ts",
+	"iconFile": "icon.png"
+}
+@@@@
+{
+    "require": {
+        "nesbot/carbon": "^2.16"
+    }
+}
+@@@@
+{
+    "status": "healthy"
+}
+@@@@
+{
+    "texts": "Your text here"
+}
+@@@@
+{
+    "texts": ["First text", "Second text", "Third text"]
+}
+@@@@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:HeadObject"],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    },
+    {
+      "Effect": "Allow", 
+      "Action": ["s3:HeadBucket"],
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+@@@@
+{
+  "_class": "task:class:Issue",
+  "_id": "issue-123",
+  "space": "project-1",
+  "data": {
+    "title": "Fix bug",
+    "description": "...",
+    "assignee": "John Doe",
+    "status": "In Progress"
+  },
+  "markdownFields": ["description"],
+  "refFields": ["assignee", "status"],
+  "collectionFields": ["comments"],
+  "attachments": [
+    {
+      "id": "attach-1",
+      "name": "screenshot.png",
+      "size": 45678,
+      "contentType": "image/png"
+    }
+  ]
+}
+@@@@
+{
+  "_class": "task:class:Issue",
+  "query": {
+    "status": "active"
+  },
+  "attributesOnly": false
+}
+@@@@
+{
+  "checkoutId": "checkout_abc123",
+  "checkoutUrl": "https://checkout.polar.sh/session/abc123"
+}
+@@@@
+{
+  "data": {
+    "title": "Notification Title",
+    "body": "Notification message",
+    "icon": "/icon.png",
+    "badge": "/badge.png",
+    "tag": "notification-tag",
+    "url": "/target-url"
+  },
+  "subscriptions": [
+    {
+      "_id": "subscription-id",
+      "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+      "keys": {
+        "p256dh": "client-public-key",
+        "auth": "client-auth-secret"
+      }
+    }
+  ]
+}
+@@@@
+{
+  "embeddings": [[0.123, -0.456, ...], ...]
+}
+@@@@
+{
+  "externalId": { "entityId": "bsuid-123", "metadata": { "username": "@johndoe" } },
+  "phone": "+1234567890"
+}
+@@@@
+{
+  "indexer": {
+    "enabled": true,
+    "provider": {
+      "type": "elasticsearch",
+      "endpoint": "http://127.0.0.1:8666"
+    }
+  }
+}
+@@@@
+{
+  "indexer": {
+    "enabled": true,
+    "provider": {
+      "type": "manticoresearch",
+      "endpoint": "http://127.0.0.1:9308"
+    }
+  }
+}
+@@@@
+{
+  "mcpServers": {
+    "schedule-x": {
+      "command": "npx",
+      "args": ["-y", "@schedule-x/mcp"]
+    }
+  }
+}
+@@@@
+{
+  "message": "Export started"
+}
+@@@@
+{
+  "name": "@affine/demo",
+  "scripts": {
+    "dev": "node ./dev.ts"
+  }
+}
+@@@@
+{
+  "name": "@affine/demo",
+  "scripts": {
+    "dev": "r ./src/index.ts"
+  },
+  "devDependencies": {
+    "@affine-tools/cli": "workspace:*"
+  }
+}
+@@@@
+{
+  "provides": {
+    "psr/clock-implementation": "1.0"
+  }
+}
+@@@@
+{
+  "require": {
+    "soundasleep/html2text": "~0.5"
+  }
+}
+@@@@
+{
+  "result": ["subscription-id-1", "subscription-id-2"]
+}
+@@@@
+{
+  "scripts": {
+    "test": "npx --node-options=\"--experimental-vm-modules\" jest src"
+  }
+}
+@@@@
+{
+  "servers": [
+    {
+      "id": "typescript-language-server",
+      "name": "TypeScript Language Server",
+      "languages": ["typescript", "javascript"],
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "candidates": ["node_modules/.bin/typescript-language-server"]
+    }
+  ]
+}
+@@@@
+{
+  "targetWorkspace": "target-workspace-uuid",
+  "_class": "documents:class:ControlledDocument",
+  "query": {
+    "_id": { "$in": ["doc-id-1", "doc-id-2"] }
+  },
+  "conflictStrategy": "duplicate",
+  "includeAttachments": true,
+  "relations": [
+    {
+      "field": "references",
+      "class": "documents:class:ControlledDocument",
+      "direction": "forward"
+    }
+  ],
+  "fieldMappers": {
+    "documents:class:ControlledDocument": {
+      "author": "$currentUser",
+      "owner": "$currentUser",
+      "state": "draft",
+      "code": "$ensureUnique",
+      "seqNumber": "$ensureUnique"
+    }
+  },
+  "objectId": "doc-id-1",
+  "objectSpace": "space-id"
+}
+@@@@
+{
+  "terminal.integrated.env.osx": {
+    "PATH": "${env:PATH}:${cwd}"
+  },
+  "terminal.integrated.env.linux": {
+    "PATH": "${env:PATH}:${cwd}"
+  },
+  "terminal.integrated.env.windows": {
+    "PATH": "${env:PATH};${cwd}"
+  }
+}
+@@@@
+{
+  "token": "<workspace-token>",
+  "onlyDrop": false
+}
+@@@@
+{
+  "version": "v0.51.18-alpha",
+  "from": "v0.51.17-alpha",
+  "generatedAt": "2025-12-02T10:00:00.000Z",
+  "tasks": [
+    {
+      "id": "JS-8441",
+      "title": "Fix critical authentication bug",
+      "description": "Full description...",
+      "state": "Done",
+      "priority": 1,
+      "team": "JavaScript",
+      "assignee": "John Doe",
+      "labels": ["bug", "security"],
+      "commits": [
+        {
+          "hash": "de7281ad42...",
+          "subject": "JS-8441: fix",
+          "author": "Developer Name",
+          "date": "2025-12-02 10:00:00 +0000"
+        }
+      ]
+    }
+  ],
+  "otherCommits": [...]
+}
+@@@@
+{
+  "version": 1,
+  "actions": ["list", "capture", "act", "verify"],
+  "windows": [{ "id": "hwnd:0x1234", "pid": 5678 }],
+  "launchTargets": [],
+  "allowElevatedInput": false,
+  "expiresAt": "2026-09-05T12:00:00Z"
+}
+@@@@
+{
+  "visitorId": "visitor-123",
+  "externalId": { "entityId": "bsuid-123", "metadata": { "username": "@johndoe" } }
+}

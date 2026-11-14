@@ -1,0 +1,2 @@
+(deftest ^:focus my-test
+  ...)

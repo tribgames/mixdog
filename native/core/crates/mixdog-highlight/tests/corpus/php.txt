@@ -1,0 +1,26 @@
+<?php
+declare(strict_types=1);
+namespace App\Models;
+use Illuminate\Support\Facades\DB;
+/** Doc */
+abstract class User extends Model implements JsonSerializable {
+    public const ROLE = 'admin'; private ?string $name = null; protected static int $count = 0;
+    public function __construct(private readonly int $id, string ...$tags) {}
+    public static function find(int|string $id): ?static { return static::query()->where('id', '=', $id)->first(); }
+    final public function greet(): string { return "Hello {$this->name} $this->id ${var}" . 'single $x' . PHP_EOL; }
+}
+$a = [1, 2.5, 0x1F, 0b11, 017, 'k' => "v", ...$rest];
+$f = fn($x) => $x * 2; $g = function () use ($a) { return $a; };
+echo <<<EOT
+heredoc {$a['k']}
+EOT;
+echo <<<'NOW'
+nowdoc $x
+NOW;
+foreach ($a as $k => $v) { if ($v === null || !isset($a[$k])) continue; elseif ($v instanceof Foo) break; }
+try { throw new \Exception("x"); } catch (A | B $e) {} finally {}
+match($x) { 1, 2 => 'a', default => 'b' }; # hash comment
+// line
+?>
+<div><?= $title ?></div>
+<?php if ($x): ?><p>yes</p><?php endif; ?>

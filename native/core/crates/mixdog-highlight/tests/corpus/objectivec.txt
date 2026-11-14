@@ -1,0 +1,19 @@
+#import <Foundation/Foundation.h>
+#import "Local.h"
+@interface Person : NSObject <NSCopying, NSCoding>
+@property (nonatomic, strong, readonly) NSString *name;
+@property (atomic, assign) NSInteger age;
++ (instancetype)personWithName:(NSString *)name;
+- (void)greet:(NSString *)other times:(NSUInteger)n;
+@end
+@implementation Person
++ (instancetype)personWithName:(NSString *)name { Person *p = [[Person alloc] init]; p->_name = [name copy]; return p; }
+- (void)greet:(NSString *)other times:(NSUInteger)n {
+    NSLog(@"Hello %@ %d \"esc\" \n", other, (int)n);
+    for (NSUInteger i = 0; i < n; i++) { if (self.age >= 0x1F && !other) continue; }
+    NSArray *a = @[@1, @2.5, @"s", @YES]; NSDictionary *d = @{@"k": @(1)};
+    dispatch_async(dispatch_get_main_queue(), ^{ [self doIt]; });
+    @try { @throw [NSException exceptionWithName:@"x" reason:nil userInfo:nil]; } @catch (NSException *e) { } @finally { }
+    SEL s = @selector(greet:times:); BOOL ok = YES; id obj = nil; // comment
+}
+@end

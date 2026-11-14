@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+require 'json'
+module Greeter
+  class Person < Struct.new(:name)
+    attr_accessor :age
+    CONST = %w[a b c].freeze
+    def initialize(name, age = 0, *rest, key: nil, **opts, &blk)
+      @name, @age = name, age
+    end
+    def to_s; "Hi #{@name}! #{age > 1 ? 'old' : "young"}" end
+    def self.build(h) = new(h[:name])
+    private
+    def secret?; !!@secret end
+  end
+end
+x = [1, 2.5, 0x1f, 1_000, 3e2].map { |n| n * 2 }.select(&:even?)
+h = { a: 1, "b" => 2, :c => 3 }
+puts <<~HEREDOC
+  indented #{x.size}
+HEREDOC
+str = 'single \' quote'; sym = :"quoted sym"; re = /a(b)+\d/i; r2 = %r{path/(\w+)}
+case v when 1..3 then puts "r" when String, Symbol then 1 else 0 end
+begin; raise ArgumentError, "x"; rescue => e; puts e.message; ensure; end
+unless x.nil? || y then z end ; while i < 3 do i += 1 end
+$stdout.puts __FILE__ if defined?(Foo) # comment
+=begin
+block comment
+=end
