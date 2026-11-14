@@ -748,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn sgr_fragments() {
+    fn sgr_codes_split_into_fragments() {
         let fragments = sgr_fragments("\x1b[1;38;5;9;49;0m");
         assert_eq!(
             fragments,

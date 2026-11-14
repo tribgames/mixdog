@@ -210,7 +210,7 @@ pub fn build_exec(
         oem: mixdog_tools::exec::codepage::host_oem(),
         skill_runtime: Some(skill_runtime),
         shell: configured_shell.clone(),
-        script_syntax: Arc::new(ExtSyntax::new(hosts.ext_pool)),
+        script_syntax: Arc::new(ExtSyntax::new()),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),
