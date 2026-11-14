@@ -165,6 +165,7 @@ test('a staged Windows package without the helper for its architecture is refuse
   t.after(() => rmSync(resources, { recursive: true, force: true }));
   mkdirSync(join(resources, 'core'));
   writeFileSync(join(resources, 'core', 'mixdogd.exe'), peImage(0x8664));
+  writeFileSync(join(resources, 'core', 'mixdog-askpass.exe'), 'askpass');
   const verify = () => verifyStagedResources({ resources, platform: 'win32', arch: 'x64', deleted: new Set() });
   assert.throws(verify, /the Computer Use helper .*mixdog-computer\.exe is not in the package/);
 
