@@ -203,6 +203,19 @@ struct Under {
     attacher: OnceLock<Attacher>,
 }
 
+/// The progress of every dial of a link is written to the server's diagnostics ring as the daemon's log (the user's first dial
+/// included, as `dialNow` wrote it); the dial of a user's attempt also reports to that attempt.
+fn dial_log(dialer: &dyn LinkDialer, target: &SshTarget, attempt: Option<Progress>) -> Progress {
+    let ring = dialer.diagnostics();
+    let key = diagnostics_key_for(target);
+    Arc::new(move |phase| {
+        ring.log(Some(key.as_str()), &format!("remote-daemon-log: {}", phase_line(&phase)));
+        if let Some(attempt) = &attempt {
+            attempt(phase);
+        }
+    })
+}
+
 /// One line of a dial's progress, as the diagnostics ring keeps it.
 fn phase_line(phase: &SessionPhase) -> String {
     match phase {
@@ -228,14 +241,6 @@ impl Under {
         self.dialer.diagnostics().log(Some(diagnostics_key_for(&self.target).as_str()), line);
     }
 
-    /// The progress of a dial the link makes on its own (a reconnect, a restart in another model login) is written to the ring
-    /// as the daemon's log; the dial of a user's attempt reports to that attempt.
-    fn dial_log(&self) -> Progress {
-        let ring = self.dialer.diagnostics();
-        let key = diagnostics_key_for(&self.target);
-        Arc::new(move |phase| ring.log(Some(key.as_str()), &format!("remote-daemon-log: {}", phase_line(&phase))))
-    }
-
     /// Opens the session again from scratch behind the same link; the stopped one is returned to be closed. The settings the
     /// session runs under are kept only by [`Self::keep_settings`].
     fn replace_session(&self, context: Option<AttemptContext>, model_login: Option<ModelLogin>, force_restart: bool) -> Arc<RemoteSession> {
@@ -243,7 +248,7 @@ impl Under {
         if let Some(login) = model_login {
             bound.config.model_login = ssh_login(login);
         }
-        let config = RemoteSessionConfig { progress: Some(self.dial_log()), force_restart, ..bound.config.clone() };
+        let config = RemoteSessionConfig { progress: Some(dial_log(&*self.dialer, &self.target, None)), force_restart, ..bound.config.clone() };
         let session = self.dialer.session(config, context.unwrap_or_else(|| bound.context.clone()));
         std::mem::replace(&mut bound.session, session)
     }
@@ -643,7 +648,7 @@ impl ServerLink {
             grace_ms: own_grace,
             remote_cwd: settings.remote_cwd.clone(),
             tunnel_ready_timeout: Some(TUNNEL_READY_TIMEOUT),
-            progress,
+            progress: Some(dial_log(&*parts.dialer, &spec.target, progress)),
             force_restart: context.force_restart,
             ..RemoteSessionConfig::new(spec.target.clone())
         };
