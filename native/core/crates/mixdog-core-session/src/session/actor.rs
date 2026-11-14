@@ -3595,7 +3595,7 @@ impl SessionActor {
             // `onSessionApprovalWaitChange`: the wait this session's turn holds changed.
             self.deps.agent_signals.approval_wait(self.id.as_str());
         }
-        let takeover = super::secret_input::takeover_hold(self.book.open_asks());
+        let takeover = super::secret_input::takeover_hold(self.book.open_requests());
         if **self.cell.takeover.load() != takeover {
             self.cell.takeover.store(Arc::new(takeover));
         }

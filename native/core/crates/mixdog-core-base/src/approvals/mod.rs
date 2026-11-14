@@ -230,6 +230,11 @@ impl ApprovalBook {
         self.open.values().map(|open| &open.request.ask)
     }
 
+    /// The requests still held, each with its id (what a takeover card is told apart by).
+    pub fn open_requests(&self) -> impl Iterator<Item = (ApprovalId, &ApprovalAsk)> {
+        self.open.iter().map(|(aid, open)| (*aid, &open.request.ask))
+    }
+
     pub fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.first().map(|(at, _)| *at)
     }
@@ -703,7 +708,7 @@ mod tests {
         book.answer(aid, &interrupted);
         assert!(matches!(answered.try_recv(), Ok(ApprovalResolution::Interrupted { at: 7 })), "answered before the ack");
         book.resolved(aid, &interrupted);
-        assert!(book.decidable().is_empty() && book.open_asks().next().is_none(), "the ack forgets the request");
+        assert!(book.decidable().is_empty() && book.open_requests().next().is_none(), "the ack forgets the request");
     }
 
     /// A takeover card the core times out is announced to clients as `serverRequest/resolved`: that
