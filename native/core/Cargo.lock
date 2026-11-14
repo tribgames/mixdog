@@ -6090,6 +6090,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-xlsx-formula"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
