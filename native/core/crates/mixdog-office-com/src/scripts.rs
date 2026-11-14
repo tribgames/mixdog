@@ -7,6 +7,8 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use mixdog_fsio::WriteProof;
 use sha2::Digest;
@@ -14,6 +16,9 @@ use sha2::Sha256;
 
 pub(crate) const HOST_SCRIPT: &str = "office-com-host.ps1";
 pub(crate) const SESSION_HOST_SCRIPT: &str = "office-com-session-host.ps1";
+
+/// Numbers the staging files of this process.
+static NEXT_STAGING: AtomicU64 = AtomicU64::new(0);
 
 /// Every script, by the file name the hosts dot-source it under.
 const SCRIPTS: [(&str, &[u8]); 4] = [
@@ -53,7 +58,9 @@ pub(crate) fn ensure<P: WriteProof>(proof: &P, data_dir: &Path) -> io::Result<Pa
         if mixdog_fsio::read(proof, &path).is_ok_and(|found| found == bytes) {
             continue;
         }
-        let staging = dir.join(format!("{name}.{}.tmp", std::process::id()));
+        // Two first calls can write at once: each writes its own staging file, and either rename leaves the same bytes.
+        let serial = NEXT_STAGING.fetch_add(1, Ordering::Relaxed);
+        let staging = dir.join(format!("{name}.{}.{serial}.tmp", std::process::id()));
         mixdog_fsio::write(proof, &staging, bytes)?;
         if let Err(error) = mixdog_fsio::rename(proof, &staging, &path) {
             let _ = mixdog_fsio::remove_file(proof, &staging);
