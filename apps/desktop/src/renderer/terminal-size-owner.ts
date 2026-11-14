@@ -1,5 +1,5 @@
 /** A PTY size claim made by the phone and followed by every other view. The
- *  host side lives in main/terminal-manager.ts; this is the renderer half. */
+ *  host side lives in the core terminal host; this is the renderer half. */
 
 export interface TermSizeOwner {
   cols: number;
