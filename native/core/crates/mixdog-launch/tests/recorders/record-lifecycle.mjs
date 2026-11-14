@@ -50,7 +50,7 @@ async function until(ok, ms, what) {
 
 const SELF = 'self';
 const DEAD = 2147483000;
-const LEGACY_DEAD = 2147482999;
+const SINGLE_MARKER_DEAD = 2147482999;
 const isLinux = process.platform === 'linux';
 const ownIdentity = isLinux
   ? { kind: 'linux-start-ticks', value: '1' }
@@ -70,7 +70,7 @@ function labelOf(pid) {
   if (pid === process.pid) return SELF;
   if (pid === process.ppid) return 'parent';
   if (pid === DEAD) return 'dead';
-  if (pid === LEGACY_DEAD) return 'legacy';
+  if (pid === SINGLE_MARKER_DEAD) return 'legacy';
   return String(pid);
 }
 
@@ -163,7 +163,7 @@ function sizes(api) {
 }
 
 function seedMarker(dir, spec) {
-  const pid = { self: process.pid, parent: process.ppid, dead: DEAD, legacy: LEGACY_DEAD }[spec.pid];
+  const pid = { self: process.pid, parent: process.ppid, dead: DEAD, legacy: SINGLE_MARKER_DEAD }[spec.pid];
   const file = spec.legacy ? path.join(dir, 'process-lifecycle.active.json') : path.join(dir, 'process-lifecycle.active', spec.file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (spec.raw !== undefined) {
@@ -301,7 +301,8 @@ async function recordCap() {
       sizes: sizes(api),
       seedInLedger: seedLines(api.ledgerPath),
       seedInPrevious: seedLines(`${api.ledgerPath}.1`),
-      reasons: entries.map((entry) => `${entry.pid}:${entry.reason}`).sort(),      first: entries[0].reason,
+      reasons: entries.map((entry) => `${entry.pid}:${entry.reason}`).sort(),
+      first: entries[0].reason,
     });
   }
   return out;

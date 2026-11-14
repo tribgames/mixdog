@@ -31,7 +31,7 @@ use serde_json::json;
 const T0: i64 = 1_794_625_445_678;
 const PARENT: u32 = 4242;
 const DEAD: u32 = 2_147_483_000;
-const LEGACY_DEAD: u32 = 2_147_482_999;
+const SINGLE_MARKER_DEAD: u32 = 2_147_482_999;
 const MAX_BYTES: usize = 64 * 1024;
 
 fn golden() -> Value {
@@ -141,7 +141,7 @@ fn label_of(pid: u64) -> String {
         pid if pid == u64::from(std::process::id()) => "self".to_owned(),
         pid if pid == u64::from(PARENT) => "parent".to_owned(),
         pid if pid == u64::from(DEAD) => "dead".to_owned(),
-        pid if pid == u64::from(LEGACY_DEAD) => "legacy".to_owned(),
+        pid if pid == u64::from(SINGLE_MARKER_DEAD) => "legacy".to_owned(),
         pid => pid.to_string(),
     }
 }
@@ -251,7 +251,7 @@ fn seed_marker(dir: &Path, spec: &Value) {
         "self" => std::process::id(),
         "parent" => PARENT,
         "dead" => DEAD,
-        "legacy" => LEGACY_DEAD,
+        "legacy" => SINGLE_MARKER_DEAD,
         other => panic!("a seed for {other}"),
     };
     let file = if spec["legacy"].as_bool() == Some(true) {
@@ -384,7 +384,7 @@ fn a_start_reaps_the_markers_of_processes_that_are_gone_and_only_those() {
     assert_eq!(ledger_entries(&run).len(), 1);
     host.run_jobs();
     let while_running = marker_files(&run);
-    let legacy_left = dir.join("process-lifecycle.active.json").exists();
+    let single_marker_left = dir.join("process-lifecycle.active.json").exists();
     let finish = run.finish("clean-shutdown", 0);
     let entries = ledger_entries(&run);
     let first = entries[0].clone();
@@ -393,7 +393,7 @@ fn a_start_reaps_the_markers_of_processes_that_are_gone_and_only_those() {
     assert_eq!(first, golden["first"]);
     assert_eq!(Value::Array(rest), golden["rest"]);
     assert_eq!(json!(while_running), golden["markersWhileRunning"]);
-    assert_eq!(json!(legacy_left), golden["legacyLeft"]);
+    assert_eq!(json!(single_marker_left), golden["legacyLeft"]);
     assert_eq!(json!(finish.recorded), golden["finish"]);
     assert_eq!(json!(marker_files(&run)), golden["markersAfter"]);
 }
