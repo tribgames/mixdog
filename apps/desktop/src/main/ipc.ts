@@ -39,6 +39,9 @@ import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { registerWindowSettingsIpc, type PcQuotaHost } from './ipc-window-settings';
 import { createAllowAllActionsConfirm } from './developer-risk-confirm';
+import { registerHostExtrasIpc } from './ipc-host-extras';
+import { raiseDesktopWindow } from './notification-window';
+import { createSignInFocus } from './sign-in-focus';
 import { SelectedFileAccess } from './selected-file-access';
 import { registerScreenSessions } from './screen-sessions';
 import type { ConnectionKind } from './connections/contract';
@@ -391,6 +394,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.visualizeConsumeGesture,
     async (_event, target) => (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
   );
+  const confirmAllowAllActions = createAllowAllActionsConfirm({ dialog, window, nativeT });
   registerWindowSettingsIpc({
     window,
     app,
@@ -404,8 +408,17 @@ export function registerDesktopIpc(
     settingsStore,
     onDesktopSettingsChanged,
     previewNotificationSound,
-    confirmAllowAllActions: createAllowAllActionsConfirm({ dialog, window, nativeT }),
+    confirmAllowAllActions,
     writesAnnounceThemselves: Boolean(protocol),
+  });
+  const disposeHostExtrasIpc = registerHostExtrasIpc({
+    handle,
+    removeHandler: (channel) => ipcMain.removeHandler(channel),
+    host,
+    pcHost: connectionKind === 'local' ? undefined : pcHost,
+    confirmAllowAllActions,
+    signInFocus:
+      connectionKind === 'local' ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null,
   });
 
   const stateBridge = new DesktopStateBridge({
@@ -489,6 +502,7 @@ export function registerDesktopIpc(
     disposeProtocolIpc();
     void server?.dispose();
     disposeTerminalIpc();
+    disposeHostExtrasIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeScreenSessions();
     disposePaneLayoutIpc();
