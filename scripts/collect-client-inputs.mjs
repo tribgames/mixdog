@@ -34,13 +34,14 @@ const SENDERS = {
   phone: [
     ['apps/mobile/src', /\.ts$/],
     ['apps/desktop/src/renderer', /^remote-.*\.(ts|tsx)$/],
-    ['apps/desktop/src/main/protocol/service-route.ts', null],
-    ['apps/desktop/src/main/protocol/capability-route.ts', null],
+    ['apps/desktop/src/shared/core-lanes/service-route.ts', null],
+    ['apps/desktop/src/shared/core-lanes/capability-route.ts', null],
   ],
   'protocol-client': [['packages/protocol-client/src/client.ts', null]],
   desktop: [
     ['apps/desktop/src/main', /\.(ts|tsx)$/],
     ['apps/desktop/src/renderer', /\.(ts|tsx)$/],
+    ['apps/desktop/src/shared/core-lanes', /\.(ts|tsx)$/],
   ],
 };
 
