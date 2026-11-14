@@ -223,18 +223,15 @@ impl Settings {
 
     /// `normalizeSystemShellConfig(config.shell)`.
     pub fn system_shell(&self) -> Value {
-        let agent = self.config.agent();
-        let command = self.effects.configured_shell().unwrap_or_else(|| {
-            clean(agent.get("shell").and_then(Value::as_object).and_then(|m| m.get("command")))
-        });
+        let command = self.effects.configured_shell().unwrap_or_else(|| Self::stored_shell_command(&self.config.agent()));
         shell_config(command, &*self.env)
     }
 
-    /// `normalizeSystemShellConfig(config.shell).command`: the command the agent config stores, which boot and every adoption of
-    /// the document hand to `setConfiguredShell`. A stored command the platform refuses (`shell_command`) is none.
+    /// `normalizeSystemShellConfig(config.shell).command`: the command the agent config stores, trimmed, which boot and every
+    /// adoption of the document hand to `setConfiguredShell` as Node did (a hand-edited file is applied as it is written; only
+    /// `setSystemShell` checks what it is given).
     pub fn stored_shell_command(agent: &Doc) -> String {
-        let stored = agent.get("shell").and_then(Value::as_object).and_then(|m| m.get("command"));
-        shell_command(stored).unwrap_or_default()
+        clean(agent.get("shell").and_then(Value::as_object).and_then(|m| m.get("command")))
     }
 
     /// `setSystemShell(input)`: a string or `{ command }`.
