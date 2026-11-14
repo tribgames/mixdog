@@ -72,6 +72,10 @@ pub trait InheritanceFit: Send + Sync {
     /// `inheritanceCompactionPlan(target).budgetTokens`: what a conversation compacted for this heir must fit; `None` when
     /// the route has no boundary to compact toward.
     async fn compaction_budget(&self, target: &InheritTarget) -> Option<u64>;
+    /// `rebindToChangedPrefix` for a carry (`carryConversation`): thinking replay is bound to the request prefix (system
+    /// prompt and tools) that produced it, so when the heir's differs from the source's (`system_differs`, or the tools
+    /// the two sessions send) the carried rows go to the heir without it. The rows as they are when the prefix is the same.
+    async fn bind_to_heir_prefix(&self, source: &ThreadId, heir: &ThreadId, system_differs: bool, rows: Vec<Value>) -> Vec<Value>;
 }
 
 fn clean(value: Option<&Value>) -> String {
@@ -243,6 +247,11 @@ impl SessionDirectory {
             source: Some(source.clone()),
         };
         let Plan { rows: mut carried, compacted } = self.plan_carry(source, &target, compact).await?;
+        // `requestPrefixIdentity`: the system blocks the two sessions hold (a session that holds none yet names no prefix).
+        let system_of = |rows: Vec<Value>| -> Vec<Value> { rows.into_iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).collect() };
+        let (source_system, heir_system) = (system_of(self.rows_of(source.as_str()).await?), system_of(self.rows_of(heir.as_str()).await?));
+        let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
+        carried = self.deps().inherit.bind_to_heir_prefix(source, heir, system_differs, carried).await;
         let source_title = clean(source_header.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
