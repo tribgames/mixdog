@@ -3,8 +3,6 @@ import type { App, BrowserWindow } from 'electron';
 import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import type { PcQuotaHost } from './ipc-host-extras';
-
-export type { PcQuotaHost };
 import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
@@ -23,6 +21,8 @@ import {
   requiredZoomFactor,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
+
+export type { PcQuotaHost };
 
 interface WindowSettingsIpcOptions {
   window: BrowserWindow;
