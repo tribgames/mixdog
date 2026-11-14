@@ -4,7 +4,6 @@
 //! core catches up and the file only shrinks (`nr-tui-core-gaps` empties it).
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 use mixdog_app_protocol::client_method_spec;
 use mixdog_app_server_client::SectionName;
@@ -12,14 +11,15 @@ use mixdog_session_view::action_route::{RouteContext, resolve_action};
 use mixdog_session_view::state::PROJECTED_FIELDS;
 use serde_json::Value;
 
+/// A checked-in fixture of `tests/fixtures`, compiled in (the workspace bans blocking file reads).
 fn fixture(name: &str) -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name);
-    serde_json::from_str(
-        &std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
-    )
-    .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    let text = match name {
+        "tui-store-calls.json" => include_str!("fixtures/tui-store-calls.json"),
+        "tui-state-fields.json" => include_str!("fixtures/tui-state-fields.json"),
+        "core-gaps.json" => include_str!("fixtures/core-gaps.json"),
+        other => panic!("no fixture {other}"),
+    };
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
 fn names(list: &Value) -> BTreeSet<String> {
