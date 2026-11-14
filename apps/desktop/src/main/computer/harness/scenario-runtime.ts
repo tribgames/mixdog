@@ -11,9 +11,9 @@ import type {
   ScenarioCommandOptions,
   ScenarioMetrics,
   ScenarioResult,
-  BridgeDiscovery,
   ActionMetrics,
 } from './scenario-types';
+import type { CommandTransport } from './core-transport';
 
 export class ScenarioSkip extends Error {}
 
@@ -120,7 +120,7 @@ function emptyMetrics(): ScenarioMetrics {
   };
 }
 
-export const { eventually, readDiscovery } = createPolling({
+export const { eventually } = createPolling({
   timeoutMs: 20_000,
   intervalMs: 120,
   onRetry: () => {
@@ -259,11 +259,11 @@ function recordCommandResponse(
 }
 
 /**
- * One scenario command: classification and request accounting, the bridge
- * round trip, and the response folded back into the active metrics. The
- * discovery accessor is read per call because a bridge restart republishes it.
+ * One scenario command: classification and request accounting, the round trip
+ * to the core (`dev/computer/run`), and the response folded back into the
+ * active metrics.
  */
-export function createScenarioCommand(session: string, discovery: () => BridgeDiscovery): ScenarioCommand {
+export function createScenarioCommand(session: string, transport: Pick<CommandTransport, 'runCommand'>): ScenarioCommand {
   return async (
     input: Record<string, unknown>,
     sessionId = session,
@@ -316,32 +316,17 @@ export function createScenarioCommand(session: string, discovery: () => BridgeDi
       }
     }
     previousCommandHadCaptureAfter = false;
-    const response = await fetch(`http://127.0.0.1:${discovery().port}/command`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${discovery().token}`,
-        'content-type': 'application/json',
-      },
-      body,
-      signal: AbortSignal.timeout(45_000),
-    });
-    const payload = (await response.json()) as {
-      ok?: boolean;
-      value?: CommandResult;
-      error?: string;
-    };
-    if (!payload.ok) {
-      if (isScenarioUserControl(computerErrorCode(payload.error))) userInterventionSeen = true;
+    let value: CommandResult;
+    try {
+      value = await transport.runCommand({ ...input }, sessionId);
+    } catch (error) {
+      if (isScenarioUserControl(computerErrorCode(error))) userInterventionSeen = true;
       if (actionMetrics) {
         actionMetrics.failures += 1;
         actionMetrics.durations_ms.push(Math.round(performance.now() - commandStartedAt));
       }
-      throw new Error(payload.error || 'computer command failed');
+      throw error;
     }
-    const value = {
-      text: String(payload.value?.text || ''),
-      ...(payload.value?.image ? { image: payload.value.image } : {}),
-    };
     recordCommandResponse(actionName, value, actionMetrics, Math.round(performance.now() - commandStartedAt));
     if (userInterventionSeen && !mayFollowUserInput) {
       let reply: Record<string, unknown> = {};
