@@ -134,7 +134,8 @@ impl Frame {
 #[cfg_attr(not(test), expect(dead_code, reason = "judged by assert_display_unchanged, whose caller is the wiring of the screen capture"))]
 impl DisplaySource {
     /// Whether `display` is the one this source was cut from, as it is now: its id, its origin and its size (in physical pixels, or in
-    /// the host's own units where it reports points) and its scale.
+    /// the host's own units where it reports points). A new scale over the same rectangle moves no pixel, so it is no change
+    /// (`assertDisplayUnchanged` compares the native rectangle only).
     fn matches(&self, display: &HostComputerDisplay) -> bool {
         let physical = |edge: u32| (f64::from(edge) * display.scale_factor).round() as i64;
         let same_size = |edge: i64, host: u32| edge == i64::from(host) || edge == physical(host);
@@ -143,7 +144,6 @@ impl DisplaySource {
             && i64::from(display.y) == self.y
             && same_size(self.width, display.width)
             && same_size(self.height, display.height)
-            && (display.scale_factor - self.scale_factor).abs() < 1e-6
     }
 }
 
@@ -248,7 +248,7 @@ impl FrameStore {
     }
 
     /// `assertDisplayUnchanged` (`session/frame-validity.ts`): a display frame whose display is gone from `displays`, or has another
-    /// rectangle or scale, is a stale frame, since every pixel coordinate in it would point somewhere else. The frame is forgotten, so a
+    /// rectangle, is a stale frame, since every pixel coordinate in it would point somewhere else. The frame is forgotten, so a
     /// step that names it is refused too. A window frame, or no frame, is not judged here.
     #[cfg_attr(not(test), expect(dead_code, reason = "the act path of a screen (the wiring of computer_pixels) checks the layout before a step"))]
     pub(super) fn assert_display_unchanged(&self, displays: &[HostComputerDisplay]) -> Result<(), ComputerError> {
@@ -745,14 +745,16 @@ mod tests {
         assert!(store.display_of("frame-d").is_none() && store.display_of("frame-w").is_none());
     }
 
-    /// The layout the frame was cut from still stands: the same display at the same rectangle and scale. A display that moved, resized,
-    /// rescaled or went away makes the frame stale, and a click that names it is refused.
+    /// The layout the frame was cut from still stands: the same display at the same physical rectangle. A display that moved, resized,
+    /// was rescaled to another physical size or went away makes the frame stale, and a click that names it is refused.
     #[test]
     fn a_click_on_a_display_frame_after_the_layout_changed_is_refused() {
         let same = [display("6", 0, 0, 800, 600, 1.0), display("7", -3000, 0, 1500, 750, 2.0)];
         let store = display_store();
         store.assert_display_unchanged(&same).unwrap();
         assert!(store.lookup(Some("frame-d"), Instant::now()).unwrap().is_some());
+        // A new scale over the same physical rectangle moves no pixel.
+        store.assert_display_unchanged(&[display("7", -3000, 0, 3000, 1500, 1.0)]).unwrap();
         for changed in [
             vec![display("7", -2000, 0, 1500, 750, 2.0)],
             vec![display("7", -3000, 0, 1600, 750, 2.0)],
