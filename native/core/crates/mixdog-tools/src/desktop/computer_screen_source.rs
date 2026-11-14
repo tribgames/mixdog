@@ -36,6 +36,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::Shared;
 use futures::future::join_all;
+use mixdog_core_api::HostChannel;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::DisplayId;
@@ -45,8 +46,12 @@ use mixdog_core_api::domain::media::FrameSourceKind;
 use mixdog_core_api::domain::media::MediaError;
 use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::media::VideoFrame;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
+
+use super::super::computer_pixels::read_display_values;
 
 use super::helper_client::LinkConnector;
 use super::installer::Credential;
@@ -306,10 +311,90 @@ pub trait DisplayPixels: Send + Sync {
     fn frame(&self, display: DisplayId) -> BoxFuture<Result<VideoFrame, MediaError>>;
 }
 
+/// One monitor as its enumerator reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Monitor {
+    pub info: DisplayInfo,
+    /// The OS's name for the monitor; absent: "Display N".
+    pub label: Option<String>,
+    /// Absent: the monitor at the origin is the primary one.
+    pub primary: Option<bool>,
+}
+
+/// The per-monitor display list of the PC, read where the monitors are enumerated. A failed read leaves the list as it was.
+pub trait DisplayLister: Send + Sync {
+    fn read(&self) -> BoxFuture<Result<Vec<Monitor>, ComputerError>>;
+}
+
+/// The displays of the desktop beside the core (`host/computer/displays`: every monitor with its id, OS label, primary flag, scale and
+/// native rectangle, the list the desktop's screen module gives).
+pub struct HostDisplays {
+    desktop: Arc<dyn HostChannel>,
+}
+
+impl HostDisplays {
+    pub fn new(desktop: Arc<dyn HostChannel>) -> Self {
+        Self { desktop }
+    }
+}
+
+impl DisplayLister for HostDisplays {
+    fn read(&self) -> BoxFuture<Result<Vec<Monitor>, ComputerError>> {
+        let desktop = self.desktop.clone();
+        Box::pin(async move { monitors(read_display_values(desktop.as_ref(), &CancellationToken::new()).await?) })
+    }
+}
+
+/// A display of `host/computer/displays` as this list reads it.
+#[derive(Deserialize)]
+struct ReportedDisplay {
+    index: u32,
+    id: String,
+    primary: bool,
+    scale_factor: f64,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    x: i32,
+    #[serde(default)]
+    y: i32,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// The monitors of a `host/computer/displays` answer. The host reports each display's size in DIPs (Electron `display.size`) and its
+/// origin in native pixels: the monitor's rectangle is that size times the scale (`nativeDisplayGeometry`, `dipToScreenRect`). A
+/// scale that is not a positive number reads as 1. A display id that is not a number of the capture's id space takes its index.
+fn monitors(reply: Value) -> Result<Vec<Monitor>, ComputerError> {
+    let reported: Vec<ReportedDisplay> =
+        serde_json::from_value(reply).map_err(|_| ComputerError::Failed { code: "computer_failed".into(), message: "the display list is malformed".into() })?;
+    Ok(reported
+        .into_iter()
+        .map(|display| {
+            let scale = if display.scale_factor.is_finite() && display.scale_factor > 0.0 { display.scale_factor } else { 1.0 };
+            let physical = |edge: u32| (f64::from(edge) * scale).round() as u32;
+            Monitor {
+                info: DisplayInfo {
+                    id: DisplayId(display.id.parse().unwrap_or(display.index)),
+                    x: display.x,
+                    y: display.y,
+                    width: physical(display.width),
+                    height: physical(display.height),
+                    scale_percent: (scale * 100.0).round().max(1.0) as u32,
+                },
+                label: display.label.filter(|label| !label.is_empty()),
+                primary: Some(display.primary),
+            }
+        })
+        .collect())
+}
+
 /// What the screen sources are built from.
 pub struct ScreenSourcesDeps {
     /// The in-process computer backend: the displays and their capture.
     pub backend: Arc<dyn ComputerBackend>,
+    /// Where the monitors are enumerated one by one (the desktop's, [`HostDisplays`]). Absent: the backend's own display list.
+    pub displays: Option<Arc<dyn DisplayLister>>,
     /// PC access's handle on the one secure-desktop installer: the screen control's helper is installed through the same
     /// instance, so there is one admin action at a time across both.
     pub installer: Arc<PcAccessHelper>,
@@ -465,11 +550,12 @@ impl ViewerAuthorization for SessionAccess {
 // ---------------------------------------------------------------------------------------------------------------
 // Displays
 
-fn screen_display(index: usize, info: &DisplayInfo, primary: bool) -> ScreenDisplay {
+fn screen_display(index: usize, monitor: &Monitor, primary: bool) -> ScreenDisplay {
+    let info = &monitor.info;
     let scale = f64::from(info.scale_percent.max(1)) / 100.0;
     ScreenDisplay {
         screen_id: info.id.0.to_string(),
-        label: format!("Display {}", index + 1),
+        label: monitor.label.clone().unwrap_or_else(|| format!("Display {}", index + 1)),
         primary,
         scale_factor: scale,
         bounds: DipRect { x: f64::from(info.x) / scale, y: f64::from(info.y) / scale, width: f64::from(info.width) / scale, height: f64::from(info.height) / scale },
@@ -478,10 +564,14 @@ fn screen_display(index: usize, info: &DisplayInfo, primary: bool) -> ScreenDisp
     }
 }
 
-/// The displays as the picker lists them; the primary one is the display at the origin, else the first.
-fn screen_displays(infos: &[DisplayInfo]) -> Vec<ScreenDisplay> {
-    let primary = infos.iter().position(|info| info.x == 0 && info.y == 0).unwrap_or(0);
-    infos.iter().enumerate().map(|(index, info)| screen_display(index, info, index == primary)).collect()
+/// The displays as the picker lists them; the primary one is the one its enumerator names, else the display at the origin, else the first.
+fn screen_displays(monitors: &[Monitor]) -> Vec<ScreenDisplay> {
+    let primary = monitors
+        .iter()
+        .position(|monitor| monitor.primary == Some(true))
+        .or_else(|| monitors.iter().position(|monitor| monitor.info.x == 0 && monitor.info.y == 0))
+        .unwrap_or(0);
+    monitors.iter().enumerate().map(|(index, monitor)| screen_display(index, monitor, index == primary)).collect()
 }
 
 /// A display as the phone's picker lists it (`summarizeScreenDisplay`).
@@ -496,28 +586,51 @@ fn summarize_display(display: &ScreenDisplay) -> Value {
     })
 }
 
-/// The PC's displays: read from the backend, kept until the next read (a read that fails leaves the list as it was).
+/// The PC's displays: read from the monitor enumerator (the backend's own list where none is given), kept until the next read (a read
+/// that fails leaves the list as it was).
 struct DisplaySet {
     backend: Arc<dyn ComputerBackend>,
+    lister: Option<Arc<dyn DisplayLister>>,
     current: Mutex<Vec<ScreenDisplay>>,
     changes: Arc<ListenerSet<()>>,
 }
 
 impl DisplaySet {
-    fn new(backend: Arc<dyn ComputerBackend>) -> Self {
-        let set = Self { backend, current: Mutex::new(Vec::new()), changes: ListenerSet::new() };
+    fn new(backend: Arc<dyn ComputerBackend>, lister: Option<Arc<dyn DisplayLister>>) -> Self {
+        let set = Self { backend, lister, current: Mutex::new(Vec::new()), changes: ListenerSet::new() };
         set.refresh();
         set
     }
 
+    /// The backend's list, read at once. A set over a monitor enumerator is read by [`DisplaySet::load`] instead.
     fn refresh(&self) {
-        if let Ok(infos) = self.backend.displays() {
-            *lock(&self.current) = screen_displays(&infos);
+        if self.lister.is_none()
+            && let Ok(infos) = self.backend.displays()
+        {
+            let monitors: Vec<Monitor> = infos.into_iter().map(|info| Monitor { info, label: None, primary: None }).collect();
+            *lock(&self.current) = screen_displays(&monitors);
         }
     }
 
-    fn changed(&self) {
-        self.refresh();
+    /// Reads the list again from where the monitors are enumerated.
+    async fn load(&self) {
+        match &self.lister {
+            Some(lister) => {
+                if let Ok(monitors) = lister.read().await {
+                    *lock(&self.current) = screen_displays(&monitors);
+                }
+            }
+            None => self.refresh(),
+        }
+    }
+
+    /// Whether the monitors are enumerated beside the core, so no capture of one is made in this process.
+    fn enumerated(&self) -> bool {
+        self.lister.is_some()
+    }
+
+    async fn changed(&self) {
+        self.load().await;
         self.changes.call(&());
     }
 }
@@ -897,7 +1010,7 @@ impl ScreenSources {
     pub fn new(deps: ScreenSourcesDeps) -> Self {
         let timers: Arc<dyn Timers> = Arc::new(TokioTimers::new());
         let control = ScreenControl::new(Arc::new(LinkConnector::installed(timers.clone())), deps.installer, timers.clone());
-        Self::assemble(control, timers, deps.backend, deps.input_host, deps.indicator, deps.pc_access, deps.pixels, deps.sink, deps.log)
+        Self::assemble(control, timers, deps.backend, deps.displays, deps.input_host, deps.indicator, deps.pc_access, deps.pixels, deps.sink, deps.log)
     }
 
     #[allow(clippy::too_many_arguments, reason = "the parts of one composition, named at its two call sites")]
@@ -905,6 +1018,7 @@ impl ScreenSources {
         control: ScreenControl,
         timers: Arc<dyn Timers>,
         backend: Arc<dyn ComputerBackend>,
+        displays: Option<Arc<dyn DisplayLister>>,
         input_host: Arc<dyn Fn() -> Arc<dyn ScreenInputHost> + Send + Sync>,
         indicator: Arc<dyn Fn() -> Arc<dyn ScreenIndicatorPort> + Send + Sync>,
         pc_access: Option<Arc<dyn ScreenPcAccessPort>>,
@@ -914,7 +1028,7 @@ impl ScreenSources {
     ) -> Self {
         let parts = Parts {
             control,
-            displays: Arc::new(DisplaySet::new(backend.clone())),
+            displays: Arc::new(DisplaySet::new(backend.clone(), displays)),
             backend,
             book: Arc::new(AccessBook::default()),
             input_host,
@@ -947,15 +1061,16 @@ impl ScreenSources {
         self.parts.book.withdraw(client, ended);
     }
 
-    /// The displays a phone may choose, as it reads them now.
-    pub fn displays(&self) -> Vec<Value> {
-        self.parts.displays.refresh();
+    /// The displays a phone may choose, as the monitors are now.
+    pub async fn displays(&self) -> Vec<Value> {
+        self.parts.displays.load().await;
         self.parts.displays.list().iter().map(summarize_display).collect()
     }
 
-    /// Displays were added, removed or rescaled: sessions re-read their geometry.
-    pub fn displays_changed(&self) {
-        self.parts.displays.changed();
+    /// Displays were added, removed or rescaled (the desktop's `host/screen/displaysChanged`): the list is read again and
+    /// sessions re-read their geometry.
+    pub async fn displays_changed(&self) {
+        self.parts.displays.changed().await;
     }
 
     /// The pictures of display `screen_id` for the sender's capture track.
@@ -965,7 +1080,13 @@ impl ScreenSources {
         if !self.parts.displays.list().iter().any(|listed| listed.screen_id == screen_id) {
             return Err(unknown());
         }
-        match self.parts.backend.screen_source(display) {
+        // A monitor the desktop enumerates is captured by the desktop: the in-process capture is of the whole virtual screen.
+        let captured = if self.parts.displays.enumerated() {
+            Err(ComputerError::Unavailable { reason: "the monitors are captured by the desktop".to_string() })
+        } else {
+            self.parts.backend.screen_source(display)
+        };
+        match captured {
             Ok(source) => Ok(source),
             Err(error @ (ComputerError::Unavailable { .. } | ComputerError::Failed { .. })) => match &self.parts.pixels {
                 Some(pixels) => Ok(Box::new(PixelsSource { display, pixels: pixels.clone(), timers: self.parts.timers.clone(), seq: 0 })),
@@ -1323,6 +1444,14 @@ mod tests {
     }
 
     fn sources_with(backend: Arc<dyn ComputerBackend>, pixels: Option<Arc<dyn DisplayPixels>>) -> (ScreenSources, UnboundedReceiver<Told>) {
+        sources_over(backend, None, pixels)
+    }
+
+    fn sources_over(
+        backend: Arc<dyn ComputerBackend>,
+        displays: Option<Arc<dyn DisplayLister>>,
+        pixels: Option<Arc<dyn DisplayPixels>>,
+    ) -> (ScreenSources, UnboundedReceiver<Told>) {
         let (events, received) = tokio::sync::mpsc::unbounded_channel();
         let timers: Arc<dyn Timers> = Arc::new(TokioTimers::new());
         let control = ScreenControl::new(Arc::new(NoHelper), Arc::new(NotInstalled), timers.clone());
@@ -1330,6 +1459,7 @@ mod tests {
             control,
             timers,
             backend,
+            displays,
             Arc::new(|| Arc::new(Host) as Arc<dyn ScreenInputHost>),
             Arc::new(|| Arc::new(Pill) as Arc<dyn ScreenIndicatorPort>),
             None,
@@ -1418,13 +1548,29 @@ mod tests {
 
     // ---- displays
 
+    fn monitor(id: u32, x: i32, width: u32, height: u32, scale_percent: u32) -> Monitor {
+        Monitor { info: DisplayInfo { id: DisplayId(id), x, y: 0, width, height, scale_percent }, label: None, primary: None }
+    }
+
+    /// A monitor list a test changes between reads.
+    struct Listed(Mutex<Result<Vec<Monitor>, ComputerError>>);
+
+    impl Listed {
+        fn of(monitors: Vec<Monitor>) -> Arc<Self> {
+            Arc::new(Self(Mutex::new(Ok(monitors))))
+        }
+    }
+
+    impl DisplayLister for Listed {
+        fn read(&self) -> BoxFuture<Result<Vec<Monitor>, ComputerError>> {
+            done(lock(&self.0).clone())
+        }
+    }
+
     #[test]
     fn a_display_carries_its_dip_bounds_scale_and_physical_pixels() {
-        let infos = [
-            DisplayInfo { id: DisplayId(2), x: 1920, y: 0, width: 3840, height: 2160, scale_percent: 200 },
-            DisplayInfo { id: DisplayId(1), x: 0, y: 0, width: 1920, height: 1080, scale_percent: 100 },
-        ];
-        let displays = screen_displays(&infos);
+        let monitors = [monitor(2, 1920, 3840, 2160, 200), monitor(1, 0, 1920, 1080, 100)];
+        let displays = screen_displays(&monitors);
         assert_eq!(displays.len(), 2);
         assert!(!displays[0].primary && displays[1].primary, "the display at the origin is the primary one");
         let second = &displays[0];
@@ -1436,28 +1582,95 @@ mod tests {
     }
 
     #[test]
+    fn the_monitor_the_enumerator_names_primary_is_primary_and_its_label_is_kept() {
+        let mut named = monitor(7, -1920, 1920, 1080, 125);
+        named.label = Some("DELL U2720Q".to_string());
+        named.primary = Some(true);
+        let displays = screen_displays(&[monitor(1, 0, 1920, 1080, 100), named]);
+        assert!(!displays[0].primary && displays[1].primary);
+        assert_eq!(displays[1].label, "DELL U2720Q");
+        assert_eq!(displays[0].label, "Display 1");
+        assert_eq!(displays[1].scale_factor, 1.25);
+    }
+
+    #[test]
+    fn the_desktops_display_list_becomes_one_monitor_per_display() {
+        let reply = json!([
+            {"index": 0, "id": "2528732444", "primary": true, "scale_factor": 1.5, "width": 2560, "height": 1440, "x": 0, "y": 0, "label": "Built-in"},
+            {"index": 1, "id": "left", "primary": false, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": -1920, "y": -200, "label": ""},
+            {"index": 2, "id": "9", "primary": false, "scale_factor": 0.0, "width": 800, "height": 600}
+        ]);
+        let listed = monitors(reply).expect("a list");
+        assert_eq!(listed.len(), 3);
+        assert_eq!(listed[0].info, DisplayInfo { id: DisplayId(2528732444), x: 0, y: 0, width: 3840, height: 2160, scale_percent: 150 }, "the DIP size times the scale");
+        assert_eq!((listed[0].label.as_deref(), listed[0].primary), (Some("Built-in"), Some(true)));
+        assert_eq!((listed[1].info.id, listed[1].info.x, listed[1].info.y, listed[1].label.clone()), (DisplayId(1), -1920, -200, None));
+        assert_eq!((listed[2].info.scale_percent, listed[2].info.width), (100, 800), "a scale that is not positive reads as 1");
+        assert!(matches!(monitors(json!({"not": "a list"})), Err(ComputerError::Failed { .. })));
+    }
+
+    #[test]
     fn a_failed_display_read_keeps_the_list_as_it_was() {
-        let set = DisplaySet::new(Backend::new(true, true));
+        let set = DisplaySet::new(Backend::new(true, true), None);
         assert_eq!(set.list().len(), 1);
-        let unreadable = DisplaySet { backend: Backend::new(true, false), current: Mutex::new(set.list()), changes: ListenerSet::new() };
+        let unreadable = DisplaySet { backend: Backend::new(true, false), lister: None, current: Mutex::new(set.list()), changes: ListenerSet::new() };
         unreadable.refresh();
         assert_eq!(unreadable.list(), set.list());
     }
 
-    #[test]
-    fn a_display_change_re_reads_the_list_and_tells_the_sessions() {
-        let set = DisplaySet::new(Backend::new(true, true));
+    #[tokio::test]
+    async fn a_display_change_re_reads_the_list_and_tells_the_sessions() {
+        let set = DisplaySet::new(Backend::new(true, true), None);
         let told = Arc::new(Mutex::new(0));
         let count = told.clone();
         drop(set.on_change(Arc::new(move |_: &()| *lock(&count) += 1)));
-        set.changed();
+        set.changed().await;
         assert_eq!(*lock(&told), 1);
     }
 
     #[tokio::test]
     async fn the_phone_lists_the_displays_with_their_size_and_scale() {
         let (sources, _) = sources();
-        assert_eq!(sources.displays(), vec![json!({"screenId": "0", "label": "Display 1", "primary": true, "pixelWidth": 1920, "pixelHeight": 1080, "scaleFactor": 1})]);
+        assert_eq!(sources.displays().await, vec![json!({"screenId": "0", "label": "Display 1", "primary": true, "pixelWidth": 1920, "pixelHeight": 1080, "scaleFactor": 1})]);
+    }
+
+    #[tokio::test]
+    async fn the_phone_lists_every_monitor_the_desktop_enumerates() {
+        let lister = Listed::of(vec![monitor(11, 0, 2560, 1440, 150), monitor(12, 2560, 1920, 1080, 100)]);
+        let (sources, _) = sources_over(Backend::new(true, true), Some(lister), None);
+        assert!(sources.parts.displays.list().is_empty(), "nothing is read before the first ask");
+        let listed = sources.displays().await;
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0], json!({"screenId": "11", "label": "Display 1", "primary": true, "pixelWidth": 2560, "pixelHeight": 1440, "scaleFactor": 1.5}));
+        assert_eq!(listed[1]["screenId"], json!("12"));
+    }
+
+    #[tokio::test]
+    async fn a_display_change_reads_the_monitors_again_and_a_failed_read_keeps_them() {
+        let lister = Listed::of(vec![monitor(11, 0, 1920, 1080, 100)]);
+        let (sources, _) = sources_over(Backend::new(true, true), Some(lister.clone()), None);
+        let told = Arc::new(Mutex::new(0));
+        let count = told.clone();
+        drop(sources.parts.displays.on_change(Arc::new(move |_: &()| *lock(&count) += 1)));
+        sources.displays_changed().await;
+        assert_eq!((sources.parts.displays.list().len(), *lock(&told)), (1, 1));
+        *lock(&lister.0) = Ok(vec![monitor(11, 0, 1920, 1080, 100), monitor(12, 1920, 1280, 720, 100)]);
+        sources.displays_changed().await;
+        assert_eq!((sources.parts.displays.list().len(), *lock(&told)), (2, 2));
+        *lock(&lister.0) = Err(ComputerError::Unavailable { reason: "no desktop".to_string() });
+        sources.displays_changed().await;
+        assert_eq!((sources.parts.displays.list().len(), *lock(&told)), (2, 3), "the sessions are told, the list stays");
+    }
+
+    #[tokio::test]
+    async fn a_monitor_the_desktop_enumerates_is_captured_by_the_desktops_pixels() {
+        let lister = Listed::of(vec![monitor(11, 0, 1920, 1080, 100)]);
+        let (sources, _) = sources_over(Backend::new(true, true), Some(lister), Some(Arc::new(Pixels)));
+        sources.displays().await;
+        let mut source = sources.capture("11").expect("a source");
+        assert_eq!(source.kind(), FrameSourceKind::Screen { display: 11 });
+        assert_eq!(source.next_frame().await.expect("a frame").expect("one").seq, 99);
+        assert!(matches!(sources.capture("0"), Err(ComputerError::InvalidInput { .. })), "the virtual screen is not one of the monitors");
     }
 
     // ---- frames
