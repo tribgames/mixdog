@@ -102,7 +102,7 @@ impl DevComputerRun {
         // The command runs under the call's own cancel: the connection closing, or the wait ending, stops it.
         let cancel = req.ctx.cancel.child_token();
         let backend = self.sessions.backend(&params.session_thread_id);
-        let outcome = match tokio::time::timeout(Duration::from_millis(u64::from(timeout_ms)), backend.run(request, cancel.clone())).await {
+        let outcome = match mixdog_rt::time::timeout(Duration::from_millis(u64::from(timeout_ms)), backend.run(request, cancel.clone())).await {
             Ok(outcome) => outcome,
             Err(_) => {
                 cancel.cancel();
