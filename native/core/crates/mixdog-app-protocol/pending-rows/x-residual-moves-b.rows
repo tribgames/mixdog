@@ -1,0 +1,209 @@
+# x-residual-moves-b: the protocol rows of DesktopResidualBService (mixdog-core-domains domains/desktop_residual_b.rs), the Rust twins of
+# local-file-links.ts, attachment-files.ts, attachment-thumbnail.ts, launch-version.ts, model-bootstrap.ts, native-runtime-cache-gc.mjs,
+# user-file-write.ts and linux-input-access.ts. The service answers untyped JSON, so every result is JsonValue (as the rows of desktop_residual).
+
+[methods]
+Beside DesktopFontsList (after it; params live in the new module v2/desktop_residual_b.rs, see [type_edits]):
+
+    /// The decision for a chat link to a file or folder under a project (`openLocalFileLink` up to the OS hand-off): `{result: "editor"}` hands the file to Mixdog's editor, `{result: "file" | "folder", path}` asks the caller to open `path` with the OS, `{confirmationPath}` asks the user first (an executable target; ask again with `confirmedPath` set to it). A link that escapes the project (lexically or through a junction or symlink), names a network path, a missing file or a device name is refused with the old texts.
+    DesktopLocalLinkOpen => "desktop/localLink/open" {
+        params: v2::desktop_residual_b::DesktopLocalLinkOpenParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A `data:` attachment written under `<temp>/mixdog-attachments/<stem>-<digest16>.<ext>` on the PC (owner-only), only for an inert type; answers `{path}`.
+    DesktopAttachmentWrite => "desktop/attachment/write" {
+        params: v2::desktop_residual_b::DesktopAttachmentWriteParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The thumbnail of a stored attachment image by content hash, `{dataUrl: string | null}`: a JPEG scaled to 320 pixels when the picture decodes, else the original while it is at most 512 KiB.
+    DesktopAttachmentThumbnail => "desktop/attachment/thumbnail" {
+        params: v2::desktop_residual_b::DesktopAttachmentThumbnailParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Records `version` as launched in the profile's launch record and answers `{announce, writeError?}`: whether its update is still to be announced.
+    DesktopLaunchVersionRecord => "desktop/launchVersion/record" {
+        params: v2::desktop_residual_b::DesktopLaunchVersionRecordParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The renderer showed (or could never show) `version`'s update notice: stop retrying it. Answers `{writeError?}`.
+    DesktopLaunchVersionAcknowledge => "desktop/launchVersion/acknowledge" {
+        params: v2::desktop_residual_b::DesktopLaunchVersionAcknowledgeParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The persisted model route of the config file for the first renderer snapshot, `{snapshot: object | null}`.
+    DesktopModelBootstrapRead => "desktop/modelBootstrap/read" {
+        params: v2::desktop_residual_b::DesktopModelBootstrapReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Removes the caches of the native tool kinds (`graph`, `patch`, `spawn`, `supervisor`) a bundled copy superseded; answers `{removed: string[], failed: {kind, error}[]}`.
+    DesktopNativeToolCacheGc => "desktop/nativeToolCache/gc" {
+        params: v2::desktop_residual_b::DesktopNativeToolCacheGcParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Writes a user-owned file (`text` or `dataBase64`) so a crash cannot leave it NUL-filled: an existing file is rewritten in place and flushed (identity and mode kept; a symlink stays a link), a new one is created through a temp file. Answers `{bytes}`.
+    DesktopUserFileWrite => "desktop/userFile/write" {
+        params: v2::desktop_residual_b::DesktopUserFileWriteParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Computer Use on Linux needs write access to /dev/uinput: installs the uaccess udev rule with one polkit prompt when access is missing (one prompt at a time) and answers `{ok: true}` or `{ok: false, reason, message?, exitCode?, detail?}`; `{ok: false, reason: "failed"}` off Linux.
+    DesktopComputerInputAccessRequest => "desktop/computer/inputAccess/request" {
+        params: v2::desktop_residual_b::DesktopComputerInputAccessRequestParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# native/core/crates/mixdog-app-protocol/src/free_text.rs: beside the (Kind::Request, "desktop/link/resolvePath", ...) entry add (file names, paths and attachment text may carry any UTF-16 unit)
+#     (Kind::Request, "desktop/localLink/open", &["/projectPath", "/href", "/confirmedPath"]),
+#     (Kind::Request, "desktop/attachment/write", &["/dataUrl", "/name"]),
+#     (Kind::Request, "desktop/launchVersion/record", &["/path"]),
+#     (Kind::Request, "desktop/launchVersion/acknowledge", &["/path"]),
+#     (Kind::Request, "desktop/userFile/write", &["/path", "/text"]),
+# and the same paths in tests/it/free_text_fields.json, in its sorted place ("request <method> <pointer>" lines).
+
+[type_edits]
+# 1. native/core/crates/mixdog-app-protocol/src/v2/mod.rs: beside `pub mod desktop_residual;` add `pub mod desktop_residual_b;`
+# 2. native/core/crates/mixdog-app-protocol/src/methods.rs: nothing beside `use crate::v2::desktop_residual::*;` (the rows above spell the path).
+# 3. NEW FILE native/core/crates/mixdog-app-protocol/src/v2/desktop_residual_b.rs, exactly:
+
+//! Params of the desktop's second batch of residual methods (`DesktopResidualBService`, mixdog-core-domains `domains/desktop_residual_b.rs`).
+//! The service answers untyped JSON, so the results are `JsonValue`.
+
+use serde::Deserialize;
+use serde::Serialize;
+
+/// Params of `desktop/localLink/open`: the project folder (absolute), the link's href, and the path the user confirmed (an executable target).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopLocalLinkOpenParams {
+    pub project_path: String,
+    pub href: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_path: Option<String>,
+}
+
+/// Params of `desktop/attachment/write`: a `data:` URL and the attachment's name (any text; its extension is checked against an allowlist).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopAttachmentWriteParams {
+    pub data_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Params of `desktop/attachment/thumbnail`: the attachment's content hash (anything else answers `dataUrl: null`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopAttachmentThumbnailParams {
+    pub attachment_ref: String,
+}
+
+/// Params of `desktop/launchVersion/record`: the record file, the launched version and the process arguments (`--updated` marks a relaunch after an update).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopLaunchVersionRecordParams {
+    pub path: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub argv: Vec<String>,
+}
+
+/// Params of `desktop/launchVersion/acknowledge`: the record file and the version whose notice was shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopLaunchVersionAcknowledgeParams {
+    pub path: String,
+    pub version: String,
+}
+
+/// Params of `desktop/modelBootstrap/read`: none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopModelBootstrapReadParams {}
+
+/// Params of `desktop/nativeToolCache/gc`: the kinds of native tool a bundled copy now serves (`graph`, `patch`, `spawn`, `supervisor`; others are ignored).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopNativeToolCacheGcParams {
+    pub bundled_kinds: Vec<String>,
+}
+
+/// Params of `desktop/userFile/write`: the file and exactly one of `text` (UTF-8) and `dataBase64`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopUserFileWriteParams {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+}
+
+/// Params of `desktop/computer/inputAccess/request`: none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopComputerInputAccessRequestParams {}
+
+[window]
+# window_methods.json (the desktop main process calls these on the window's own connection, like desktop/workflowConfig/read): add, in its sorted place,
+#   desktop/attachment/write, desktop/computer/inputAccess/request, desktop/launchVersion/acknowledge, desktop/launchVersion/record,
+#   desktop/localLink/open, desktop/modelBootstrap/read, desktop/nativeToolCache/gc, desktop/userFile/write
+# and in boundary/window_scope.rs, beside "desktop/link/resolve", "desktop/attachment/resolve" ... in the test list, desktop/localLink/open and desktop/attachment/thumbnail
+# (the renderer reaches the link and thumbnail lanes through main today, as the link and attachment lanes).
