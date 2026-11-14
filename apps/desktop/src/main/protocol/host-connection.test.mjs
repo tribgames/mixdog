@@ -10,7 +10,7 @@ import { connect } from '../../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts';
 import { createBrowserCommandHost } from '../host/browser-command.ts';
 import { createProtocolConnection } from './connection.ts';
-import { createHostConnection } from './host-connection.ts';
+import { createHostConnection, HOST_METHOD_NOT_FOUND } from './host-connection.ts';
 
 const options = JSON.parse(
   readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
@@ -135,4 +135,56 @@ test("a restarted core's resolved frame ends its own command, not the old connec
   } finally {
     await connection.close();
   }
+});
+
+test('a request nobody here serves is answered -32601; a served one is unaffected', async () => {
+  const { connection, conn } = await browserHost();
+  try {
+    conn.serverSend({ id: 'host-1', method: 'host/screen/displays', params: {} });
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the refusal')), {
+      id: 'host-1',
+      error: { code: HOST_METHOD_NOT_FOUND, message: 'host/screen/displays is not served by this desktop' },
+    });
+    // An approval card is not the host role's: it is left to the window that answers it.
+    conn.serverSend({ id: 'appr-1', method: 'item/tool/requestApproval', params: { threadId: 't1' } });
+    conn.serverSend(command('host-2', 'snapshot'));
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the answer')), { id: 'host-2', result: { text: 'ok' } });
+  } finally {
+    await connection.close();
+  }
+});
+
+test('a reply is dropped when the client was replaced while the handler ran', async () => {
+  const { net, connection, conn, hanging } = await browserHost();
+  try {
+    conn.serverSend(command('host-1', 'hang'));
+    await turns();
+    conn.serverClose(1006);
+    const next = await within(net.accept(), 'the client to reconnect');
+    await handshake(next, 's2');
+    await turns();
+    hanging[0]({ text: 'late' });
+    await turns();
+    assert.deepEqual(next.sent, [], 'the old answer does not reach the new connection');
+  } finally {
+    await connection.close();
+  }
+});
+
+test('servedMethods lists request and notification handlers sorted; a second request handler for a method throws', () => {
+  const host = createHostConnection({
+    call: async () => null,
+    notify() {},
+    respond() {},
+    sendBinary() {},
+    onEvent() {},
+    client: () => null,
+    onReplaced() {},
+  });
+  assert.deepEqual(host.servedMethods(), []);
+  host.handleRequest('host/b', async () => null);
+  host.handleNotification('host/a', () => {});
+  host.handleRequest('host/c', async () => null);
+  assert.deepEqual(host.servedMethods(), ['host/a', 'host/b', 'host/c']);
+  assert.throws(() => host.handleRequest('host/b', async () => null), /already served/);
 });

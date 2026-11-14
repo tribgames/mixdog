@@ -5,6 +5,9 @@ import { HostRpcError } from '../host/connection';
 import type { HostConnection } from '../host/connection';
 import type { ProtocolConnection } from './connection';
 
+/** JSON-RPC method not found: a core→host request this desktop registered no handler for. */
+export const HOST_METHOD_NOT_FOUND = -32601;
+
 type Source = Pick<ProtocolConnection, 'call' | 'notify' | 'respond' | 'sendBinary' | 'onEvent' | 'client' | 'onReplaced'>;
 
 export function createHostConnection(source: Source): HostConnection {
@@ -40,7 +43,15 @@ export function createHostConnection(source: Source): HostConnection {
     if (event.type === 'serverRequest') {
       const { id, method, params } = (event as { request: { id: string | number; method: string; params: unknown } }).request;
       const handler = requestHandlers.get(method);
-      if (!handler) return;
+      // A host request nobody here serves is answered, on the connection that asked it (`live`, read just now), rather than
+      // left to time out in the core. Other server requests on this connection (approval cards, the takeover feed) are not
+      // the host role's: their own consumers answer them.
+      if (!handler) {
+        if (method.startsWith('host/')) {
+          source.respond(id, { error: { code: HOST_METHOD_NOT_FOUND, message: `${method} is not served by this desktop` } });
+        }
+        return;
+      }
       const key = JSON.stringify(id);
       const abort = new AbortController();
       inflight.set(key, abort);
@@ -89,8 +100,12 @@ export function createHostConnection(source: Source): HostConnection {
       }
     },
     sendBinary: (frame) => source.sendBinary(frame),
-    handleRequest: (method, handler) => void requestHandlers.set(method, handler),
+    handleRequest(method, handler) {
+      if (requestHandlers.has(method)) throw new Error(`host request ${method} is already served`);
+      requestHandlers.set(method, handler);
+    },
     handleNotification: (method, handler) => void notificationHandlers.set(method, handler),
+    servedMethods: () => [...new Set([...requestHandlers.keys(), ...notificationHandlers.keys()])].sort(),
     onClose: (listener) => void closeListeners.add(listener),
   };
 }
