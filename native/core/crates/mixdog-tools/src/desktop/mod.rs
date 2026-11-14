@@ -2,11 +2,14 @@
 //! `computer` and `terminal` in-process.
 
 pub mod browser;
+pub mod browser_approval;
+pub mod browser_engine;
 pub mod computer;
 mod computer_abort;
 mod computer_act;
 mod computer_app_owned;
 pub mod computer_backend;
+pub mod computer_bridge_run;
 pub mod computer_budget;
 mod computer_capture;
 mod computer_command;
@@ -36,6 +39,9 @@ mod computer_reply;
 mod computer_screen;
 #[cfg(windows)]
 pub use computer_screen::pc_access_helper;
+#[cfg(windows)]
+pub use computer_screen::screen_source;
+pub mod computer_screen_input;
 mod computer_settle;
 mod computer_targets;
 pub mod computer_user_control;
