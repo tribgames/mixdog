@@ -8,7 +8,7 @@ use mixdog_protocol::SubscriptionId;
 use serde::Deserialize;
 use serde::Serialize;
 
-/// Kinds of scoped feeds; the feed id is `<kind>:<key>` (`ports` has no key).
+/// Kinds of scoped feeds; the feed id is `<kind>:<key>` (`ports` and `connections` have no key).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +29,8 @@ pub enum ScopedFeedKind {
     Media,
     /// `ports`, from `system/ports/subscribe`.
     Ports,
+    /// `connections`, from `connections/subscribe`.
+    Connections,
 }
 
 impl ScopedFeedKind {
@@ -42,6 +44,7 @@ impl ScopedFeedKind {
             Self::Lsp => "lsp",
             Self::Media => "media",
             Self::Ports => "ports",
+            Self::Connections => "connections",
         }
     }
 }

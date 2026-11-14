@@ -1,9 +1,0 @@
-# s1-page-policy
-[module]
-file: native/core/crates/mixdog-workspace/src/lib.rs
-after symbol: `pub mod pathguard;`
-add: `pub mod pageserver;`
-note: pageserver/mod.rs declares http and serve (created by s1-page-http); the module compiles only once those exist.
-
-[cargo]
-none: base64, uuid, serde, serde_json and (dev) tempfile are already dependencies of mixdog-workspace; no new workspace edge.

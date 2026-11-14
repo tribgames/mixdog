@@ -467,7 +467,7 @@ pub struct BrowserApprovalPrompt {
     pub files: Option<Vec<BrowserApprovalFile>>,
     /// `null` = the step only asks once.
     #[serde(default)]
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "BrowserApprovalRemember | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub remember: Option<BrowserApprovalRemember>,
     /// The page holds payment fields: this step asks once, every time. Always `true` when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1404,7 +1404,7 @@ pub struct HostBrowserPerformanceResult {
 pub struct HostBrowserEmulationParams {
     pub page_id: String,
     #[serde(default)]
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "EmulationSpec | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub overrides: Option<EmulationSpec>,
 }
 
@@ -1414,7 +1414,7 @@ pub struct HostBrowserEmulationParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostBrowserEmulationResult {
     #[serde(default)]
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "EmulationSpec | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub applied: Option<EmulationSpec>,
     pub facts: PageFacts,
 }

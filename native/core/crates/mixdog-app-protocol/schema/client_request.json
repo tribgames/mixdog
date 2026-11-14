@@ -1241,6 +1241,45 @@
       ],
       "type": "object"
     },
+    "BrowserEngineCapability": {
+      "description": "`capabilities.host.browserEngine`: this host serves the `host/browser/*` engine lane. `features` names optional parts of version 1 the host implements; a host that omits the capability gets the `host/browser/command` forward path.",
+      "properties": {
+        "features": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
+    "BrowserEngineTestRunParams": {
+      "description": "`test/browserEngine/run`: one tool call run through the engine. Registered only when mixdogd starts with MIXDOGD_TEST_HOOKS=1.",
+      "properties": {
+        "args": true,
+        "threadId": {
+          "type": "string"
+        },
+        "tool": {
+          "$ref": "#/definitions/BrowserTestTool"
+        }
+      },
+      "required": [
+        "args",
+        "threadId",
+        "tool"
+      ],
+      "type": "object"
+    },
     "BrowserStreamParams": {
       "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions` `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null` options). A subscription lapses 4 s after its last renewal. On every change the core sends the host `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last one ends; the phone's live-view signals name only a session it streams.",
       "properties": {
@@ -1257,6 +1296,13 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "BrowserTestTool": {
+      "enum": [
+        "browser",
+        "browser_devtools"
+      ],
+      "type": "string"
     },
     "BrowserWebrtcSignalParams": {
       "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
@@ -1604,6 +1650,34 @@
         "kind",
         "name",
         "version"
+      ],
+      "type": "object"
+    },
+    "ComputerUserControlAction": {
+      "description": "What the Computer Use pill asks of `computer/userControl`.",
+      "enum": [
+        "resume",
+        "stop",
+        "pause"
+      ],
+      "type": "string"
+    },
+    "ComputerUserControlParams": {
+      "description": "Params of `computer/userControl` (desktop → core): the pill's Resume or Stop of the user's hold on the desktop.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ComputerUserControlAction"
+        },
+        "sessionThreadId": {
+          "description": "The session the pill acts for; absent: every session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
       ],
       "type": "object"
     },
@@ -2772,6 +2846,18 @@
         }
       ]
     },
+    "ConnectionIdParams": {
+      "description": "A connection (`local` or a saved server's id): `link/get`, `link/retry`, `link/retryNow`, `link/requestSignIn`, `ports/list`, `endpoint`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
     "ConnectionKind": {
       "enum": [
         "desktop",
@@ -2782,6 +2868,73 @@
         "channelBridge"
       ],
       "type": "string"
+    },
+    "ConnectionsIdParams": {
+      "description": "A saved server or a saved remote PC by its id (`ssh/forget`, `ssh/open`, `ssh/serverLogins`, `remoteHosts/forget`).",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ConnectionsNoParams": {
+      "description": "Params of a method that takes nothing.",
+      "type": "object"
+    },
+    "ConnectionsRenameParams": {
+      "description": "`connections/ssh/rename`, `remoteHosts/rename`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ConnectionsRestoreState": {
+      "description": "`connections/restore/get` result and `connections/restore/set` params: \"Reopen server windows when the app starts\".",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "ConnectionsSubscribeParams": {
+      "description": "`connections/subscribe`: with `connectionId` only `link/<id>` and `ports/<id>` are delivered.",
+      "properties": {
+        "connectionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ConnectionsUnsubscribeParams": {
+      "properties": {
+        "subscriptionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscriptionId"
+      ],
+      "type": "object"
     },
     "ConnectorAddConnectorAccountParams": {
       "description": "Params of `connector/addConnectorAccount`.",
@@ -4261,6 +4414,17 @@
           "description": "In-app browser: `host/browser/command`, `item/browser/requestApproval` presentation.",
           "type": "boolean"
         },
+        "browserEngine": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserEngineCapability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The browser engine lane (`host/browser/*`, version 1); absent = the `host/browser/command` forward path."
+        },
         "computer": {
           "default": false,
           "description": "Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.",
@@ -4299,6 +4463,11 @@
         "visualize": {
           "default": false,
           "type": "boolean"
+        },
+        "windows": {
+          "default": false,
+          "description": "Window objects of the desktop: `host/window/open`, `host/window/close`, `host/window/focus`; sends `host/window/closed`.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -4308,11 +4477,42 @@
       "properties": {
         "hostId": {
           "type": "string"
+        },
+        "resources": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostClaimResources"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the desktop keeps the server cores and the askpass helper the core launches."
         }
       },
       "required": [
         "hostId"
       ],
+      "type": "object"
+    },
+    "HostClaimResources": {
+      "description": "Where the desktop keeps what the core launches: `host/claim` `resources`. The core reads them after the environment variables `MIXDOG_SERVER_CORES_DIR` and `MIXDOG_ASKPASS_HELPER`.",
+      "properties": {
+        "askpassHelper": {
+          "description": "The `mixdog-askpass` binary ssh runs as `SSH_ASKPASS`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serverCoresDir": {
+          "description": "The server cores a connection installs on a server.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "HostHumanOnlyBeginParams": {
@@ -4420,6 +4620,24 @@
               "type": "string"
             },
             "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "windowFocus"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/WindowFocusValue"
+            }
           },
           "required": [
             "key",
@@ -6080,6 +6298,14 @@
       ],
       "type": "object"
     },
+    "PcAccessApproveParams": {
+      "description": "Params of `pcAccess/approve`: none. The person is at the PC: this is the one UAC prompt.",
+      "type": "object"
+    },
+    "PcAccessReadinessParams": {
+      "description": "Params of `pcAccess/readiness`: none.",
+      "type": "object"
+    },
     "PluginsAddPluginParams": {
       "description": "Params of `plugins/addPlugin`.",
       "properties": {
@@ -6192,6 +6418,68 @@
       "required": [
         "opId",
         "plugin"
+      ],
+      "type": "object"
+    },
+    "PortsDismissParams": {
+      "description": "`connections/ports/dismiss`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "port"
+      ],
+      "type": "object"
+    },
+    "PortsForwardParams": {
+      "description": "`connections/ports/forward`; `localPort: null` picks the same number when free.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "localPort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "remotePort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "remotePort"
+      ],
+      "type": "object"
+    },
+    "PortsStopParams": {
+      "description": "`connections/ports/stop`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "remotePort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "remotePort"
       ],
       "type": "object"
     },
@@ -6411,6 +6699,13 @@
         },
         "path": {
           "type": "string"
+        },
+        "standalone": {
+          "description": "Answer `path` itself as the root of a standalone folder (a folder opened without registering a Project).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6602,6 +6897,55 @@
       ],
       "type": "object"
     },
+    "ProjectFsGrantDescribeParams": {
+      "description": "Params of `projectFs/grant/describe` (Node's `describeLocalPaths`, selected-file-access.ts): stat each path (1 to 100) and say which project it is in, or, when `mint` is true and it is outside every project, hand back a one-file grant.",
+      "properties": {
+        "mint": {
+          "description": "Mint a grant for a file outside every project (the desktop sends `true` unless a link only needs its name).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sessionId": {
+          "description": "The session the paths are described for; its project list decides which project owns a path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "ProjectFsGrantRedeemParams": {
+      "description": "Params of `projectFs/grant/redeem` (Node's `requireGrant`, selected-file-access.ts): the file a grant names, checked against the path the caller asks for; answers the file's folder and name.",
+      "properties": {
+        "accessToken": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": "string"
+        },
+        "relPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessToken",
+        "projectPath",
+        "relPath"
+      ],
+      "type": "object"
+    },
     "ProjectFsListDirParams": {
       "description": "Params of `projectFs/listDir`.",
       "properties": {
@@ -6618,11 +6962,34 @@
       ],
       "type": "object"
     },
+    "ProjectFsLocalPageOriginParams": {
+      "description": "Params of `projectFs/localPage/origin` (local-page-server.ts `localPageOrigin`): none; answers the page server's origin.",
+      "type": "object"
+    },
+    "ProjectFsLocalPageRevokeOwnerParams": {
+      "description": "Params of `projectFs/localPage/revokeOwner` (Node's `revokeLocalPagesForOwner`, local-page-server.ts): end every page lease an owner (a desktop window) holds. Internal: the desktop's main process calls it when a window closes.",
+      "properties": {
+        "ownerId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ownerId"
+      ],
+      "type": "object"
+    },
     "ProjectFsLocalPageUrlParams": {
       "description": "Params of `projectFs/localPageUrl`.",
       "properties": {
         "accessToken": {
           "description": "A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownerId": {
+          "description": "The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).",
           "type": [
             "string",
             "null"
@@ -8750,6 +9117,31 @@
       "description": "Params of `remoteAccess/state`.",
       "type": "object"
     },
+    "RemoteHostPresenceParams": {
+      "properties": {
+        "ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "type": "object"
+    },
+    "RemoteHostRedeemParams": {
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -9299,6 +9691,350 @@
         "desc"
       ],
       "type": "string"
+    },
+    "SshAskpassReplyParams": {
+      "description": "`connections/ssh/askpassReply`; `secret: null` cancels the question. At most 4096 characters.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "secret": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attemptId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "SshCancelParams": {
+      "description": "`connections/ssh/cancel`.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId"
+      ],
+      "type": "object"
+    },
+    "SshCleanupParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/SshCleanupRequest"
+        }
+      },
+      "required": [
+        "id",
+        "request"
+      ],
+      "type": "object"
+    },
+    "SshCleanupRequest": {
+      "properties": {
+        "forget": {
+          "description": "Forget the saved entry afterwards.",
+          "type": "boolean"
+        },
+        "operationId": {
+          "description": "The window's own id for this run; its questions arrive with it as `attemptId`.",
+          "type": "string"
+        },
+        "removeUserData": {
+          "description": "Also delete the server's work history.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "forget",
+        "operationId",
+        "removeUserData"
+      ],
+      "type": "object"
+    },
+    "SshConnectParams": {
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/SshConnectRequest"
+        }
+      },
+      "required": [
+        "attemptId",
+        "request"
+      ],
+      "type": "object"
+    },
+    "SshConnectRequest": {
+      "properties": {
+        "acceptForwards": {
+          "description": "The user accepted the forwards listed in the inspection summary.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "attemptId": {
+          "description": "From `connections/ssh/inspect`; also pairs the progress notifications with this call.",
+          "type": "string"
+        },
+        "forceRestart": {
+          "description": "Stop whatever daemon runs on the server and start this app's (after the user confirmed).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "replaceHostKey": {
+          "description": "Replace the changed key: the server name typed to confirm (must equal the name `check.host` showed).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshConnectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Entered in the connect dialog's advanced options: used for this attempt and saved with the server."
+        },
+        "trustHostKey": {
+          "description": "The user confirmed the fingerprint the inspection reported: save that key first.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attemptId"
+      ],
+      "type": "object"
+    },
+    "SshConnectSettings": {
+      "description": "The settings a connect dialog's advanced options carry (`Pick<SshHostSettings, 'identityFile' | 'remoteCwd'>`).",
+      "properties": {
+        "identityFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remoteCwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshDiagnosticsRefParams": {
+      "description": "`connections/ssh/diagnosticsLog`, `diagnosticsCopy`, `serverLog`: `ref` is a saved server's id or an address; a server window always gets its own server.",
+      "properties": {
+        "ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "type": "object"
+    },
+    "SshHostSettings": {
+      "description": "What a saved server remembers besides its name and address.",
+      "properties": {
+        "allowedProviders": {
+          "description": "Model providers this server may use through this PC; `null` or absent: every provider enabled on this PC.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "autoReconnect": {
+          "description": "Re-dial the tunnel when it drops; on unless `false`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "graceMinutes": {
+          "description": "Minutes the server keeps its work after the connection drops (1-10080, default 30).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "identityFile": {
+          "description": "Private key file on this PC (passed to ssh with `-i`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelLogin": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshModelLogin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`server`: the server's daemon runs models with the logins stored on the server; absent or `pc`: with this PC's."
+        },
+        "remoteCwd": {
+          "description": "Server folder the session opens in: `~`, `~/x` or an absolute server path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshInspectParams": {
+      "properties": {
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "SshModelLogin": {
+      "description": "Whose provider logins a server's models run on: this PC's (the default) or the server's own.",
+      "enum": [
+        "pc",
+        "server"
+      ],
+      "type": "string"
+    },
+    "SshOpenEphemeralParams": {
+      "description": "`connections/ssh/openEphemeral`: a dev window for `MIXDOG_SSH_TARGET`, not remembered.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "target"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginCompleteParams": {
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "redirectUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId",
+        "id",
+        "redirectUrl"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlowParams": {
+      "description": "`connections/ssh/serverLoginStatus`, `serverLoginCancel`.",
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginProviderParams": {
+      "description": "`connections/ssh/serverLoginBegin`, `serverLoginLogout`, `serverLoginRemoveCustom`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginSaveKeyParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "SshUpdateSettingsParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "#/definitions/SshHostSettings"
+        }
+      },
+      "required": [
+        "id",
+        "settings"
+      ],
+      "type": "object"
     },
     "SubmitOptions": {
       "additionalProperties": false,
@@ -12301,6 +13037,48 @@
       "required": [
         "input",
         "opId"
+      ],
+      "type": "object"
+    },
+    "WindowFocusEntry": {
+      "description": "One window of `windowFocus`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "focused": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The session the window shows, when it shows one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connectionId",
+        "focused",
+        "visible"
+      ],
+      "type": "object"
+    },
+    "WindowFocusValue": {
+      "description": "The value of `host/state/set` key `windowFocus`: every window, for the server notifier's \"is it on screen\" rule.",
+      "properties": {
+        "windows": {
+          "items": {
+            "$ref": "#/definitions/WindowFocusEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "windows"
       ],
       "type": "object"
     }
@@ -20358,6 +21136,98 @@
       "type": "object"
     },
     {
+      "description": "Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/grant/describe"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsGrantDescribeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Check a one-file grant against the path asked for and answer the file's folder and name (Node's `requireGrant`, selected-file-access.ts).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/grant/redeem"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsGrantRedeemParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "End every page lease a desktop window holds (Node's `revokeLocalPagesForOwner`, local-page-server.ts).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/localPage/revokeOwner"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsLocalPageRevokeOwnerParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Origin of the core's local page server (Node's `localPageOrigin`, local-page-server.ts).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/localPage/origin"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsLocalPageOriginParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).",
       "properties": {
         "id": {
@@ -22704,6 +23574,972 @@
       "type": "object"
     },
     {
+      "description": "Subscribe the `connections` scoped feed; with `connectionId` only that server's `link/<id>` and `ports/<id>` are delivered. Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/subscribe"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsSubscribeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "End a `connections/subscribe` subscription. Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/unsubscribe"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsUnsubscribeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The saved SSH servers (the desktop's `sshListHosts`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Local name of a saved SSH server (`sshRenameHost`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/rename"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsRenameParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove only the saved entry (`sshForgetHost`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/forget"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Open (or focus) a saved server's window; a failure comes back as a result (`sshOpenHost`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/open"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Host aliases of this PC's `~/.ssh/config`, wildcard patterns skipped (`sshConfigHosts`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/configHosts"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Read the server's host key, compare it with this PC's known_hosts and open an attempt bound to the caller (`sshInspectHostKey`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/inspect"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshInspectParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Connect the inspected address, save the server and open its window; progress arrives as `connections/ssh/progress` (`sshConnect`). Caller: M, the caller that minted attemptId.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/connect"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshConnectParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Cancel a connect attempt (`sshCancel`). Caller: M, the caller that minted attemptId.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/cancel"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshCancelParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Answer a question ssh asked; `secret: null` cancels it (`sshAskpassReply`). Caller: M, the caller that minted attemptId.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/askpassReply"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshAskpassReplyParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove Mixdog from a saved server over ssh, then optionally forget the entry (`sshCleanupHost`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/cleanup"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshCleanupParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Per-server settings: folder, login key file, auto-reconnect, model login, providers, grace (`sshUpdateHostSettings`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/updateSettings"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshUpdateSettingsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The connection log of a server (`sshDiagnosticsLog`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/diagnosticsLog"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshDiagnosticsRefParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The text to copy for a bug report (`sshDiagnosticsCopy`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/diagnosticsCopy"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshDiagnosticsRefParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The last 200 lines of the server's daemon.log (`sshServerLog`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLog"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshDiagnosticsRefParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The provider logins stored on a saved server (`sshServerLogins`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLogins"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Start a subscription login on the server; the flow carries `openUrl` for the renderer's `openExternal` (`sshServerLoginBegin`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginBegin"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginProviderParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "State of a server login flow (`sshServerLoginStatus`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginStatus"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginFlowParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Complete a pending login with the address the browser was redirected to (`sshServerLoginComplete`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginComplete"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginCompleteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Cancel a server login flow (`sshServerLoginCancel`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginCancel"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginFlowParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Store an API key on the server (`sshServerLoginSaveKey`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginSaveKey"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginSaveKeyParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove a provider login from the server (`sshServerLoginLogout`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginLogout"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginProviderParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete a custom provider and its models from the server (`sshServerLoginRemoveCustom`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginRemoveCustom"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginProviderParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Open a server window for `MIXDOG_SSH_TARGET` that is not remembered; the desktop host's own call. Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ssh/openEphemeral"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshOpenEphemeralParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A server window's link to its daemon as last pushed (`getConnectionLink`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/link/get"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Reconnect now; a stopped connection is opened again (`retryConnection`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/link/retry"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Run the waiting reconnect attempt now instead of after its countdown (`retryConnectionNow`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/link/retryNow"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A server window needs the user's connect attempt: the core focuses the main window and sends `connections/signIn`. Caller: S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/link/requestSignIn"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A server window's Ports panel as last pushed (`listServerPorts`). Caller: M or S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ports/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Forward a server port to 127.0.0.1 on this PC (`forwardServerPort`). An error message leads with port-invalid, port-privileged, port-busy, port-not-active or window-closed. Caller: S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ports/forward"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/PortsForwardParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Stop a port forward (`stopServerPortForward`). Caller: S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ports/stop"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/PortsStopParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Dismiss a suggested port (`dismissServerPort`). Caller: S.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/ports/dismiss"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/PortsDismissParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "\"Reopen server windows when the app starts\" (`getReopenServerWindows`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/restore/get"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Set \"Reopen server windows when the app starts\" (`setReopenServerWindows`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/restore/set"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsRestoreState"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The reopenings still running or failed (`getServerRestoreProgress`). Caller: M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/restore/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Where a server window's relay dials the tunnel: its url, token and server instance id. The server token reaches the host. Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "connections/endpoint"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The saved \"Connect to another PC\" hosts, `open: false` (the desktop fills it) (`listRemoteHosts`). Caller: H or M.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Redeem the main PC's 6-digit code and save that host (`connectRemoteHostByCode`). Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/redeemCode"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteHostRedeemParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Local name of a saved remote PC (`renameRemoteHost`). Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/rename"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsRenameParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Forget a saved remote PC and clear its stored pairing (`forgetRemoteHost`). Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/forget"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Which of the saved hosts' desktops are connected to their relay right now. Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/presence"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteHostPresenceParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "Enable remote access.",
       "properties": {
         "id": {
@@ -23072,6 +24908,52 @@
       "type": "object"
     },
     {
+      "description": "PC access readiness: the secure-desktop service install state, the paired phones' keys it holds or lacks, and the revocations owed (Node's `PcAccess.readiness`, pc-access.ts). Local only.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "pcAccess/readiness"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/PcAccessReadinessParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "PC access Approve: one UAC install-or-enroll of every paired phone's key, applying the owed revocations in the same call (Node's `PcAccess.approve`, pc-access.ts). Local only.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "pcAccess/approve"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/PcAccessApproveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "UI-originated in-app browser control; forwarded as `host/browser/command`.",
       "properties": {
         "id": {
@@ -23108,6 +24990,29 @@
         },
         "params": {
           "$ref": "#/definitions/VisualizeCommandParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The Computer Use pill's Resume or Stop (Node's coordinator `resumeAfterUserTakeover`, the pill's Stop).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "computer/userControl"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ComputerUserControlParams"
         }
       },
       "required": [
@@ -23315,6 +25220,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostHumanOnlyEndParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Run one `browser` or `browser_devtools` tool call through the Rust engine (test hook, MIXDOGD_TEST_HOOKS=1 only).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "test/browserEngine/run"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserEngineTestRunParams"
         }
       },
       "required": [

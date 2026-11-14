@@ -26,6 +26,7 @@ pub use connection::AcceptedConnection;
 pub use connection::ConnectionOrigin;
 pub use connection::InboundFrames;
 pub use connection::Transport;
+pub use connection::WindowRole;
 pub use hub::ConnectionHub;
 pub use hub::ConnectionLimit;
 pub use hub::Pending;

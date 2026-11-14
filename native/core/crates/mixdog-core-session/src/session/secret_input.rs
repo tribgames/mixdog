@@ -11,6 +11,8 @@ mod computer;
 mod fill;
 mod gates;
 mod human_only;
+#[cfg(test)]
+mod human_only_merge_tests;
 mod redact;
 mod replies;
 mod saved_login;

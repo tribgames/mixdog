@@ -12,6 +12,7 @@
 //!   operator ends a stuck worker with `stop_worker`. Process exit is the only crash signal.
 
 mod browser;
+pub mod browser_validate;
 mod containment;
 mod document;
 mod domain_browser;

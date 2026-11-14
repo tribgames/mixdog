@@ -53,6 +53,13 @@ pub struct HostCapabilities {
     /// Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.
     #[serde(default)]
     pub computer: bool,
+    /// Window objects of the desktop: `host/window/open`, `host/window/close`, `host/window/focus`; sends `host/window/closed`.
+    #[serde(default)]
+    pub windows: bool,
+    /// The browser engine lane (`host/browser/*`, version 1); absent = the `host/browser/command` forward path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub browser_engine: Option<crate::v2::browser_engine::BrowserEngineCapability>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

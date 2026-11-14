@@ -1,0 +1,8 @@
+# PROTO-WIRE-G1: the regenerated HostCapabilities (packages/protocol/src/index.ts) has `windows: boolean` (required, as every
+# boolean member of it; serde default false on the wire) and `browserEngine?: BrowserEngineCapability`.
+# apps/desktop/src/main/host/connection.ts (hot file, desktop wiring), the `HOST_CAPABILITIES` literal (`... as const satisfies HostCapabilities`):
+1. After `computer: true,` add:
+     // `host/window/open|close|focus` (s2b): not served by this desktop until the connections host handlers land.
+     windows: false,
+   Without it `tsc -p tsconfig.node.json` fails with TS1360 "Property 'windows' is missing". Set it to true in the task that
+   registers the host/window/* handlers. `browserEngine` stays absent (the host/browser/command forward path) until the engine host lands.
