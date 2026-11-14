@@ -587,9 +587,6 @@ impl MediaMeter for MediaLowering {
         Ok(())
     }
 
-    /// `rawJsonFallbackFromPart` and the image and document allowances, for a part of a stored
-    /// message. A stored file is read from the memo, so [`MediaText::prepare_pdf_text`] (or the
-    /// host's warm of the history) comes first.
     fn text_pdf_discount(&self, part: &ContentPart) -> u64 {
         let (size_bytes, facts) = if let Some(reference) = is_pdf_ref(part) {
             let facts = self.stored_facts(reference).unwrap_or_default();
@@ -605,6 +602,9 @@ impl MediaMeter for MediaLowering {
         pdf_allowance(size_bytes, facts.page_count, facts.text_chars, true) - pdf_allowance(size_bytes, facts.page_count, facts.text_chars, false)
     }
 
+    /// `rawJsonFallbackFromPart` and the image and document allowances, for a part of a stored
+    /// message. A stored file is read from the memo, so [`MediaText::prepare_pdf_text`] (or the
+    /// host's warm of the history) comes first.
     fn part(&self, part: &ContentPart) -> PartMeter {
         if let Some(reference) = stored_text_ref(part) {
             // `attachmentTextForPart`; a blob gone for good prices as the part's own JSON (`rawJsonFallbackFromPart`).

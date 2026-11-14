@@ -119,7 +119,7 @@ impl HostRuntime for LiveHostRuntime {
         // Node `getMemoryAgentId()` = `resolveSessionMode({ session, sessionId, profile }).agentId`: the reserved id, then the owning agent; a Lead created with a
         // `homeAgent` profile keeps that agent in its header `agent` (never the `lead` default), which is the profile's seat in the resolver.
         let memory_agent_id = {
-            let mut record = header.clone();
+            let mut record = (*header).clone();
             record.insert("id".to_owned(), Value::String(id.to_owned()));
             let owner_agent = text(&header, "ownerAgentId").filter(|a| !a.trim().is_empty()).or_else(|| text(&header, "agent").filter(|a| a != "lead"));
             if let Some(agent) = owner_agent {
