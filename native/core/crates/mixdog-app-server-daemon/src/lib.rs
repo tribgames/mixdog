@@ -25,6 +25,7 @@ pub mod compose_core;
 #[cfg(all(test, windows))]
 mod lead_request_tests;
 pub mod compose_mcp;
+pub mod compose_computer;
 pub mod computer_control;
 pub mod computer_gate;
 pub mod computer_pointer_service;
@@ -34,6 +35,7 @@ pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod worktree_cache_cleanups;
 pub mod compose_flip;
+mod compose_desktop_files;
 #[cfg(feature = "replay-controls")]
 mod replay_stores_settled;
 #[cfg(feature = "test-hooks")]
@@ -98,6 +100,7 @@ pub mod system_proxy_claim;
 pub mod terminal_folder_release;
 pub mod startup;
 pub mod stop_watch;
+pub mod takeover_port;
 pub mod sweep_store;
 pub mod update_installer;
 pub mod verdict;

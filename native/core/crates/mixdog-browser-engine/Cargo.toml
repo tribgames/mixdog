@@ -17,6 +17,10 @@ mixdog-core-api = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-browser-policy = { workspace = true }
+mixdog-core-base = { workspace = true }
+mixdog-js = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
 # Only for `FakeHost::from_transcript` (a test-support item: reading a recorded file is the testkit's job, the fsio bans stay).
 mixdog-testkit = { workspace = true, optional = true }
 async-trait = { workspace = true }

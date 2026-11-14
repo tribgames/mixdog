@@ -351,9 +351,9 @@ fn remote(dir: &Path) -> Arc<RemoteRuntime> {
 }
 
 /// The namespaces this composition builds services for.
-const OWNED: [&str; 17] = [
+const OWNED: [&str; 18] = [
     "import", "localProvider", "media", "tidy", "voice", "config", "plugins", "system", "blob", "client",
-    "diagnostics", "feedback", "host", "instructions", "update", "browser", "visualize",
+    "diagnostics", "feedback", "host", "instructions", "update", "browser", "visualize", "takeover",
 ];
 
 /// Methods of an owned namespace whose service another work package is still building, with the owner.
@@ -366,6 +366,7 @@ const OTHER_OWNERS: &[(&str, &str)] = &[("host/claim", "wp-compaction-world: the
 const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] = &[
     ("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"]),
     ("secret_input::HumanOnlyService", &["host/humanOnly/begin", "host/humanOnly/end"]),
+    ("takeover_port::TakeoverReadyService", &["takeover/ready"]),
 ];
 
 impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {

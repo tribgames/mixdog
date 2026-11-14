@@ -19,6 +19,7 @@ mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+mixdog-browser-engine = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-core-run = { workspace = true }
