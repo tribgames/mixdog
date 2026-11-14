@@ -78,6 +78,8 @@ members = [
     "crates/mixdog-termtext",
     "crates/mixdog-tui-style",
     "crates/mixdog-view-model",
+    "crates/mixdog-office-base",
+    "crates/mixdog-pdf",
     "crates/mixdog-cli",
     "crates/mixdog-workspace-hack",
 ]
@@ -182,6 +184,8 @@ mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
 # Wired by CORE-WIRE-G1 (s2b-scaffold); not members yet: their module files land in later waves (see members above).
 mixdog-ssh = { path = "crates/mixdog-ssh" }
 mixdog-connections = { path = "crates/mixdog-connections" }
+mixdog-office-base = { path = "crates/mixdog-office-base" }
+mixdog-pdf = { path = "crates/mixdog-pdf" }
 mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }
 mixdog-highlight = { path = "crates/mixdog-highlight" }
 mixdog-imaging = { path = "crates/mixdog-imaging" }
