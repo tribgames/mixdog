@@ -47,10 +47,11 @@ test('large_image_ref', async () => {
   assert.equal(blobs.length, 2);
   assert.deepEqual([...blobs[0].bytes.subarray(0, 4)], [7, 7, 7, 7]);
   assert.equal(blobs[0].bytes.length, raw.length);
-  assert.equal(blobs[1].mediaType, 'image/png');
+  // A data URL travels as its text: a "base64" reference would expand without the `data:...;base64,` prefix.
+  assert.equal(new TextDecoder().decode(blobs[1].bytes), params.input.prompt[2].data);
   const prompt = sent[0].params.input.prompt;
   assert.deepEqual(prompt[1].data, { $blobRef: 'sha256:1', as: 'base64' });
-  assert.deepEqual(prompt[2].data, { $blobRef: 'sha256:2', as: 'base64' });
+  assert.deepEqual(prompt[2].data, { $blobRef: 'sha256:2', as: 'text' });
   assert.equal(prompt[0].text, 'see');
 });
 
@@ -59,6 +60,8 @@ test('still_too_large_refused', async () => {
   const files = Array.from({ length: 6 }, (_, i) => ({ rel: `f${i}`, content: 'y'.repeat(60 * 1024) }));
   const params = { root: 'r', files, note: 'z'.repeat(300 * 1024) };
   await assert.rejects(sizedCall(client, 'projectFs/writeTextBatch', params), (e) => e instanceof TypeError && /too large to send/.test(e.message));
+  // A method with no listed fields cannot shrink: over the frame bound it is refused here, not sent to be cut off by the core.
+  await assert.rejects(sizedCall(client, 'thread/rename', { name: 'n'.repeat(300 * 1024) }), (e) => e instanceof TypeError && /thread\/rename is too large/.test(e.message));
   assert.equal(sent.length, 0);
 });
 

@@ -11,7 +11,7 @@ const ENVELOPE_BYTES = 4 * 1024;
 const DEFAULT_MAX_INBOUND_FRAME_BYTES = 256 * 1024;
 
 export interface SizedCallClient {
-  readonly server: { readonly limits: { readonly maxInboundFrameBytes?: number; readonly maxBlobPutChunkBytes?: number } };
+  readonly server: { readonly limits: { readonly maxInboundFrameBytes?: number } };
   call(method: never, params: never): Promise<unknown>;
   putBlob(bytes: Uint8Array, mediaType: string): Promise<{ readonly blob: { readonly digest: string } }>;
 }
@@ -42,12 +42,14 @@ function stringSlots(root: Json, pointer: string): Array<[Container, string]> {
 
 const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 
-/** The bytes of a base64 string, or null when it is not one. */
+/**
+ * The bytes of a padded standard base64 string, or null when it is not one. The core expands a "base64" reference as the
+ * padded standard encoding of the blob, so only text that encoding gives back is sent that way.
+ */
 function decodeBase64(text: string): Uint8Array | null {
-  const body = text.replace(/\s+/g, '');
-  if (body.length % 4 === 1 || !BASE64_BODY.test(body)) return null;
+  if (text.length % 4 !== 0 || !BASE64_BODY.test(text)) return null;
   try {
-    const raw = atob(body);
+    const raw = atob(text);
     const out = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
     return out;
@@ -56,13 +58,12 @@ function decodeBase64(text: string): Uint8Array | null {
   }
 }
 
-/** What a string field uploads as: a data URL's base64 payload or a base64 image/audio/attachment field as "base64", any other text as "text". */
+/**
+ * What a string field uploads as: a base64 image/audio/attachment field as "base64" (its bytes), anything else, a data URL
+ * included, as "text", so the method receives exactly the string the caller gave (a "base64" reference expands without the
+ * `data:...;base64,` prefix).
+ */
 function blobOf(pointer: string, value: string): { bytes: Uint8Array; as: 'text' | 'base64'; mediaType: string } {
-  const dataUrl = /^data:([^;,]*)(?:;[^,]*)?;base64,/i.exec(value);
-  if (dataUrl) {
-    const bytes = decodeBase64(value.slice(dataUrl[0].length));
-    if (bytes) return { bytes, as: 'base64', mediaType: dataUrl[1] || 'application/octet-stream' };
-  }
   if (isBase64Field(pointer)) {
     const bytes = decodeBase64(value);
     if (bytes) return { bytes, as: 'base64', mediaType: 'application/octet-stream' };
@@ -81,10 +82,14 @@ function isBase64Field(pointer: string): boolean {
  */
 export async function sizedCall(client: SizedCallClient, method: string, params: unknown): Promise<unknown> {
   const send = (body: unknown): Promise<unknown> => (client.call as (m: string, p: unknown) => Promise<unknown>)(method, body);
-  if (bytesOf(params) <= SEND_BOUND_BYTES) return send(params);
-  const pointers = BLOB_REF_FIELDS[method];
   const frameBound = (client.server.limits.maxInboundFrameBytes ?? DEFAULT_MAX_INBOUND_FRAME_BYTES) - ENVELOPE_BYTES;
-  if (!pointers) return send(params);
+  const size = bytesOf(params);
+  if (size <= Math.min(SEND_BOUND_BYTES, frameBound)) return send(params);
+  const pointers = BLOB_REF_FIELDS[method];
+  if (!pointers) {
+    if (size <= frameBound) return send(params);
+    throw new TypeError(`${method} is too large to send: the request is ${size} bytes and the core accepts ${frameBound} bytes in one frame.`);
+  }
   const body = structuredClone(params) as Json;
   for (const pointer of pointers) {
     for (const [container, key] of stringSlots(body, pointer)) {
