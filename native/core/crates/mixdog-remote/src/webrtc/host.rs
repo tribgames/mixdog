@@ -1,5 +1,5 @@
 //! The live-view host (`apps/desktop/src/main/remote-webrtc/host.ts` at b6f10295a): one
-//! [`Viewer`] per paired client × browser source, the sources' newest pictures, and the peer
+//! [`Viewer`] per paired client × source (a browser page or the whole-PC screen), the sources' newest pictures, and the peer
 //! connections' events routed back to their viewer. Phone signals arrive validated by the relay.
 //!
 //! The host hands pictures over exactly as Node's did: one in flight per source, the newest
@@ -34,6 +34,7 @@ use super::signal::ClientSignal;
 use super::signal::CloseReason;
 use super::signal::DesktopSignal;
 use super::signal::Geometry;
+use super::signal::HelperCredential;
 use super::signal::Resize;
 use super::signal::Source;
 use super::signal::TransportState;
@@ -42,7 +43,8 @@ use super::viewer::Page;
 use super::viewer::Viewer;
 use super::viewer::ViewerEffects;
 
-/// A browser page the host streams: what the host shows now and how it takes the phone's input.
+/// A source the host streams (a browser page or the whole-PC screen): what it shows now and how it takes the phone's input. The
+/// screen's hooks are no-ops for a page.
 #[async_trait]
 pub trait VideoSource: Send + Sync {
     /// A viewer needs pictures (idempotent).
@@ -56,6 +58,25 @@ pub trait VideoSource: Send + Sync {
     async fn resize(&self, request: &Resize) -> Result<(), String>;
     /// The phone's video limit: the source may capture larger, locking a new geometry.
     fn video_limit(&self, limit: VideoLimit);
+    /// Input left the channel (demotion or the viewer leaving): releases what the source holds for the viewer. `releases` are the
+    /// mouse releases the viewer tracked; a page takes them as input, a screen tracks its own holds and lets them all go.
+    async fn release(&self, releases: Vec<Value>) {
+        for control in releases {
+            let _ = self.dispatch(&control).await;
+        }
+    }
+    /// What a channel is told when it is promoted (a screen's status, run and cursor), before any later `channel_push`.
+    fn channel_state(&self) -> Vec<Value> {
+        Vec::new()
+    }
+    /// The phone rendered a frame of the screen's video run `epoch` (`screen-frame-seen`).
+    fn frame_seen(&self, _epoch: u64) {}
+    /// The phone signed a screen's helper challenge (`screen-helper-grant`).
+    fn helper_grant(&self, _epoch: u64, _challenge: String, _signature: String) {}
+    /// The phone asks for the secure-desktop helper, with its controller key (`screen-helper-install`).
+    fn helper_install(&self, _controller_key: String) {}
+    /// The same with the Windows password the phone typed: no UAC prompt on the PC.
+    fn helper_credential(&self, _controller_key: String, _credential: HelperCredential) {}
 }
 
 /// One picture of a source, as it arrived: the document and geometry generation it shows.
@@ -335,10 +356,7 @@ impl ViewerEffects for Effects {
     }
 
     async fn release(&self, releases: Vec<Value>) {
-        // A browser source has no release of its own: the mouse releases the channel still owes.
-        for control in releases {
-            let _ = self.source.dispatch(&control).await;
-        }
+        self.source.release(releases).await;
     }
 
     fn page(&self) -> Page {
@@ -392,6 +410,26 @@ impl ViewerEffects for Effects {
     fn receiver_stats(&self, _stats: &Value) {}
 
     fn promoted(&self) {}
+
+    fn channel_state(&self) -> Vec<String> {
+        self.source.channel_state().iter().map(Value::to_string).collect()
+    }
+
+    fn frame_seen(&self, epoch: u64) {
+        self.source.frame_seen(epoch);
+    }
+
+    fn helper_grant(&self, epoch: u64, challenge: String, signature: String) {
+        self.source.helper_grant(epoch, challenge, signature);
+    }
+
+    fn helper_install(&self, controller_key: String) {
+        self.source.helper_install(controller_key);
+    }
+
+    fn helper_credential(&self, controller_key: String, credential: HelperCredential) {
+        self.source.helper_credential(controller_key, credential);
+    }
 }
 
 /// The host: cheap to clone, shared by the signal handler and the peers' event pumps.
@@ -426,7 +464,7 @@ impl LiveHost {
         }
         let source_ref = signal.source();
         let source = self.shared.env.source(source_ref, client, signal.type_name());
-        let (Some(source), Source::Browser { .. }) = (source, source_ref) else { return Err(SOURCE_NOT_STREAMED.to_owned()) };
+        let Some(source) = source else { return Err(SOURCE_NOT_STREAMED.to_owned()) };
         let source_key = source_ref.key();
         let key = viewer_key(client, &source_key);
         let existing = lock(&self.shared.state).viewers.get(&key).cloned();
@@ -500,7 +538,7 @@ impl LiveHost {
                 source_ref.clone(),
                 Effects { shared, entry: weak.clone(), client: client.to_owned(), source_key: source_key.to_owned(), source },
             )
-            .expect("a browser source has a viewer"),
+            .expect("every source has a viewer"),
         })
     }
 
