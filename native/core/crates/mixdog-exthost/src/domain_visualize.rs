@@ -474,6 +474,31 @@ mod tests {
         assert_eq!(value(&service, Origin::Relay, json!({ "action": "close", "input": input })).await.unwrap(), Value::Null);
     }
 
+    /// A desktop window's socket carries `Local` (or `Ssh` through a forward), so it is not narrowed as a phone: it may allow the
+    /// outside network and export to a file, and gets the host's raw answer.
+    #[tokio::test]
+    async fn a_window_gets_the_desktops_rule() {
+        use mixdog_core_api::call::WindowRole;
+        use mixdog_core_api::call::WindowScope;
+        let (service, channel) = rig(json!({ "anything": true }));
+        let windowed = |origin: Origin, role: WindowRole, params: Value| {
+            let mut req = request(origin, params);
+            req.ctx = req.ctx.with_window(Some(WindowScope { id: "w1".into(), role }));
+            req
+        };
+        let network = json!({ "action": "network", "input": { "sessionId": "s", "tabId": "t", "allow": true } });
+        let export = json!({ "action": "export", "input": { "sessionId": "s", "tabId": "t", "format": "png" } });
+        for role in [WindowRole::Main, WindowRole::Server { connection_id: "c1".into() }] {
+            for params in [network.clone(), export.clone()] {
+                let Reply::Value(answer) = service.call(windowed(Origin::Local, role.clone(), params.clone())).await.unwrap() else {
+                    panic!("a value reply")
+                };
+                assert_eq!(answer, json!({ "anything": true }), "{role:?} {params}");
+            }
+        }
+        assert_eq!(channel.sent().len(), 4, "every window command reached the host");
+    }
+
     #[test]
     fn thumbnails_need_the_png_data_url_shape_and_the_size_cap() {
         assert!(thumbnail(Some(&json!(format!("{THUMBNAIL_PREFIX}AAAA==")))).is_some());

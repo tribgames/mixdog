@@ -11,6 +11,26 @@
 //!
 //! Only the subtrees in [`PUBLISHED_SUBTREES`] reach clients through the `config` section; the
 //! rest of the document (provider credentials among it) is never serialized to a client.
+//!
+//! # Who is narrowed as a phone
+//!
+//! A desktop window's socket carries the origin of the listener it came through (`Local`, or `Ssh`
+//! for an SSH forward), never `Relay`: `CallContext::window` names the window, it does not change
+//! the rule. So a local window (main role or server role) gets the `Local` rule at every site below
+//! (what main gave the renderer), an SSH window the `Ssh` rule, and only a paired phone's `Relay`
+//! call is narrowed. `config/value/write` and `config/batchWrite` accept for a window every path
+//! the renderer wrote before; there is no per-window write list.
+//!
+//! | site | `Origin::Relay` narrowing | reason |
+//! |---|---|---|
+//! | `config/service.rs` `ConfigService::call` | a phone writes only Node's relay paths and may not turn "Allow all actions" on | the phone table is about phones |
+//! | `agents/service.rs` `AgentService::call` | the same phone flag for agent settings | same table |
+//! | `project/service.rs` `project/setProjectConnectorEnabled` | a phone's connector switch never widens | a remote client's call, not a window's |
+//! | `mixdog-exthost` `document.rs` `document/previewPages` | a phone's file is admitted by the workspace | phone files rule |
+//! | `mixdog-exthost` `domain_browser.rs` `browser/command` | a phone's action is held to the phone table | phone table |
+//! | `mixdog-exthost` `domain_visualize.rs` `visualize/command` | no outside network, no export to file, narrow answer | phone table |
+//! | `mixdog-scm` `service.rs` `github/status` | a phone cannot refresh | Node's phone call took no arguments |
+//! | `mixdog-tools` `orch/status.rs` `tools/toolsStatus` | snapshot for `Local` only (a window is `Local`, or `Ssh` and refused as before) | a remote origin gets the plain readout |
 
 pub mod agent_routes;
 mod agent_store;

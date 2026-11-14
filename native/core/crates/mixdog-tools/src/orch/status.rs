@@ -399,6 +399,8 @@ mod tests {
     #[tokio::test]
     async fn a_snapshot_is_given_to_a_local_client_only() {
         use mixdog_core_api::call::CallContext;
+        use mixdog_core_api::call::WindowRole;
+        use mixdog_core_api::call::WindowScope;
         use mixdog_core_api::ids::ConnectionId;
         use mixdog_protocol::Origin;
         let surface = StatusSurface { mode: "lead".into(), ..StatusSurface::default() };
@@ -418,6 +420,12 @@ mod tests {
                 }
             }
             assert!(service.call(from(origin, json!({"threadId": "t1"}))).await.is_ok(), "{origin:?}: the plain readout");
+        }
+        // A local window's socket is a `Local` connection (its main or its server-role socket): it is given the snapshot as main gave it.
+        for role in [WindowRole::Main, WindowRole::Server { connection_id: "c1".into() }] {
+            let mut req = from(Origin::Local, json!({"threadId": "t1", "snapshot": true}));
+            req.ctx = req.ctx.with_window(Some(WindowScope { id: "w1".into(), role: role.clone() }));
+            assert!(service.call(req).await.is_ok(), "{role:?}: a local window is given the snapshot");
         }
     }
 }
