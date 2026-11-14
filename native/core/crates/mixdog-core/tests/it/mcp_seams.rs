@@ -217,6 +217,25 @@ async fn explicit_selection_adds_what_node_adds_to_the_transcript() {
     }
 }
 
+/// A native tool-search provider's Skill result (`{"nativeToolSearch": ..}`) is a paired call and result carrying the
+/// deferred tools, never the raw payload as text, and its summary says the skill loaded (`prepareExplicitSkills`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
+    let mut golden = golden();
+    let payload = json!({"nativeToolSearch": {"provider": "openai", "toolReferences": ["mcp__x__y"], "summary": "Loaded skill: alpha"}}).to_string();
+    golden["answers"] = json!({ "alpha": payload });
+    let (selector, _) = selector(&golden, None, false);
+    let mut transcript = Vec::new();
+    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    assert_eq!(applied, ["alpha"]);
+    assert_eq!(transcript.len(), 2);
+    assert_eq!(transcript[0].message.tool_calls[0].name, "Skill");
+    let result = &transcript[1];
+    assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned()));
+    let native = result.message.native_tool_search.as_ref().expect("the payload rides the result");
+    assert_eq!(native["toolReferences"], json!(["mcp__x__y"]));
+}
+
 /// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
