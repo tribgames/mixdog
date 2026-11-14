@@ -1,17 +1,12 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
 //! A paired device's file previews (Node `remote-file-preview.ts`): what a file is for a preview (`previewProjectFile`), one bounded
-//! window of its bytes (`previewProjectFileRange`), and the short-lived media lease the encrypted media lane serves it by
-//! (`media-leases.ts`). Every read opens the file first and authorizes the OPEN file (`inplace::open_authorized_ro`), so a path swapped
+//! window of its bytes (`previewProjectFileRange`). No media lease is minted: a paired device streams by ranged reads. Every read opens the file first and authorizes the OPEN file (`inplace::open_authorized_ro`), so a path swapped
 //! for a link between the checks and the read reaches nothing.
 
-use std::collections::VecDeque;
-use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Mutex;
 
 use base64::Engine;
 use serde_json::Value;
@@ -19,20 +14,14 @@ use serde_json::json;
 
 use crate::error::WsError;
 use crate::error::WsResult;
-use crate::ident::FileId;
-use crate::ident::file_id;
 use crate::ident::mtime_ms;
 use crate::inplace::open_authorized_ro;
 use crate::nodeerr::AtPath;
-use crate::pathguard::canonical;
 use crate::pathguard::is_within;
 use crate::pathguard::project_entry_path;
 
 /// `REMOTE_PREVIEW_MAX_READ_BYTES`.
 pub const RANGE_MAX: u64 = 4 * 1024 * 1024;
-/// `MAX_LEASES` and `LEASE_TTL_MS` of `media-leases.ts`.
-const MAX_LEASES: usize = 256;
-const LEASE_TTL_MS: i64 = 60 * 60 * 1000;
 const UNSUPPORTED: &str = "This file type does not support an in-app preview.";
 
 /// `fileExtension`: the text after the last dot of the last path segment, lower case; none when the dot ends the name.
@@ -120,77 +109,13 @@ fn page_asset_type(root: &Path, file: &Path) -> Option<&'static str> {
     })
 }
 
-/// A leased file: where it was authorized and which file that was.
-struct Lease {
-    id: String,
-    location: PathBuf,
-    mime: String,
-    within: PathBuf,
-    identity: FileId,
-    expires_at: i64,
-}
-
-/// The file previews' media leases (`leaseMediaFile` / `leasedMediaFile`): an unguessable id for a file a preview authorized, which the
-/// media lane resolves back to the file and authorizes again.
-#[derive(Default)]
-pub struct FileLeases {
-    leases: Mutex<VecDeque<Lease>>,
-}
-
-/// A leased file opened again for the media lane: the open file, its size and mime.
-pub struct LeasedFile {
-    pub file: File,
-    pub size: u64,
-    pub mime: String,
-    pub mtime_ms: f64,
-}
-
-impl FileLeases {
-    fn mint(&self, location: PathBuf, mime: &str, within: PathBuf, identity: FileId) -> String {
-        let id = uuid::Uuid::new_v4().to_string();
-        let mut leases = self.leases.lock().expect("file leases");
-        leases.push_back(Lease { id: id.clone(), location, mime: mime.to_owned(), within, identity, expires_at: crate::catalog::now_ms() + LEASE_TTL_MS });
-        while leases.len() > MAX_LEASES {
-            leases.pop_front();
-        }
-        id
-    }
-
-    /// The leased file, opened again and authorized again inside the folder it was authorized within, and still the very file that was
-    /// authorized; none when the lease is unknown, expired, or its file is not that file any more.
-    pub fn open(&self, asset_id: &str) -> Option<LeasedFile> {
-        let (location, mime, within, identity) = {
-            let mut leases = self.leases.lock().expect("file leases");
-            let at = leases.iter().position(|lease| lease.id == asset_id)?;
-            if leases[at].expires_at <= crate::catalog::now_ms() {
-                leases.remove(at);
-                return None;
-            }
-            let lease = &leases[at];
-            (lease.location.clone(), lease.mime.clone(), lease.within.clone(), lease.identity)
-        };
-        let opened = open_authorized_ro(&location, &within).ok()?;
-        if opened.id != identity {
-            return None;
-        }
-        let meta = opened.file.metadata().ok()?;
-        Some(LeasedFile { size: meta.len(), mtime_ms: mtime_ms(&meta), file: opened.file, mime })
-    }
-}
-
-/// `previewProjectFile`: what the file is for a preview, its size and time, and a lease of it when the kind streams.
-pub fn preview_file(leases: &FileLeases, root: &Path, rel: &str) -> WsResult<Value> {
+/// `previewProjectFile`: what the file is for a preview, its size and time.
+pub fn preview_file(root: &Path, rel: &str) -> WsResult<Value> {
     let absolute = project_entry_path(root, rel)?;
     let (kind, mime) = file_preview_type(&absolute).ok_or_else(|| WsError::plain(UNSUPPORTED))?;
     let opened = open_authorized_ro(&absolute, root)?;
     let meta = opened.file.metadata().at("fstat", &absolute)?;
-    let mut answer = json!({ "kind": kind, "mime": mime, "mtimeMs": mtime_ms(&meta), "size": meta.len() });
-    if kind != "pdf" {
-        let location = canonical(&absolute).at("realpath", &absolute)?;
-        let within = canonical(root).at("realpath", root)?;
-        answer["mediaAssetId"] = Value::String(leases.mint(location, mime, within, file_id(&opened.file).at("fstat", &absolute)?));
-    }
-    Ok(answer)
+    Ok(json!({ "kind": kind, "mime": mime, "mtimeMs": mtime_ms(&meta), "size": meta.len() }))
 }
 
 /// `readPreviewRange`: up to `length` bytes of the file from `offset`, base64, with the file's size and time.
