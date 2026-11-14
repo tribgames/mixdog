@@ -1,0 +1,43 @@
+# nr-exthost-pdf-syntax: new crate mixdog-pdf (native/core/crates/mixdog-pdf), written; not yet a workspace member.
+
+## 1. native/core/Cargo.toml, [workspace] members: add the line (after "crates/mixdog-js")
+    "crates/mixdog-pdf",
+
+## 2. native/core/Cargo.toml, [workspace.dependencies]
+Internal crates block, after the `mixdog-js = ...` line:
+    mixdog-pdf = { path = "crates/mixdog-pdf" }
+External block: nothing. The crate uses `tracing` (0.1.44) and, as a dev-dependency, `flate2` (1.1.8); both entries exist.
+
+## 3. native/core/Cargo.lock
+Resolves with the existing entries only. The only lock change is the new package entry, after `mixdog-js`'s:
+    [[package]]
+    name = "mixdog-pdf"
+    version = "1.5.0"
+    dependencies = [
+     "flate2",
+     "tracing",
+    ]
+(`cargo metadata --offline --locked` rewrites it the same way.)
+
+## 4. native/core/crates/mixdog-workspace-hack/Cargo.toml
+Nothing: mixdog-pdf does not depend on the hack crate (as mixdog-js does not).
+
+## 4a. native/core/.config/hakari.toml, [final-excludes] workspace-members: add "mixdog-pdf" (as mixdog-js is listed)
+    workspace-members = ["mixdog-askpass", "mixdog-browser-rules", "mixdog-js", "mixdog-pdf"]
+
+## 5. Seams the later tasks of the track fill (nothing to wire now)
+- `mixdog_pdf::StreamFilters` (FlateDecode, LZW, ASCII85, ASCIIHex, RunLength, DCT, ... with predictors) and
+  `mixdog_pdf::Decryptor` / `DecryptorFactory` (the PasswordException surface: `PdfError::need_password()` and
+  `incorrect_password()`) are implemented by the codec crate (nr-exthost-pdf-codec); `codec_glue.rs` is the placeholder
+  where mixdog-pdf will depend on it. The crate has no dependency edge to mixdog-pdf-codec yet.
+- `mixdog_pdf::repair::triggers_rebuild(&err, in_recovery_mode)` and `Xref::rebuild()` are what the document task
+  (checkFirstPage / checkLastPage / getAllPageDicts of pdf.js) calls to index the file again after an `XRefEntryException`.
+- Placeholders written empty (one doc line each): document.rs, page.rs, codec_glue.rs, fonts/mod.rs, text/mod.rs,
+  fontfile/{mod,cmap,truetype,cff,type1}.rs, inspect.rs. lib.rs declares every module, so a wave-2 task overwrites its
+  files and edits no shared one.
+
+## 6. No SERVICE_PENDING names, no protocol rows: the crate registers no service.
+
+## 7. Verify (after 1-3)
+cargo nextest run -p mixdog-pdf --offline
+cargo clippy -p mixdog-pdf --all-targets --offline -- -D warnings
