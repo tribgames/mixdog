@@ -679,7 +679,9 @@ impl Tool for BrowserTool {
         if input.to_string().len() > MAX_REQUEST_BYTES {
             return Err(invalid("input", format!("browser command exceeds {MAX_REQUEST_BYTES} bytes")));
         }
-        match self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel).await {
+        // A Browser Use card the engine raises for this call asks through the call's own gate (s4-tool-adapter).
+        let approvals = crate::orch::service::CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() };
+        match crate::orch::service::with_call_approvals(approvals, self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
             Ok(value) => browser_output(&value),
             // An observation can be asked again; a state-changing action may already have run.
             Err(HostCommandError::Cancelled) => Err(command_cancelled("browser", !OBSERVATION_ACTIONS.contains(&&*call.action))),

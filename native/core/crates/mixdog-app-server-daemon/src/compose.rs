@@ -790,6 +790,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         app_feed: app_feed.clone(),
         scoped_feeds,
         host: outgoing.clone(),
+        outgoing: outgoing.clone(),
         claimed_host: outgoing.clone(),
         presence: outgoing.clone(),
         approval_presence: outgoing.clone(),

@@ -76,8 +76,9 @@ impl ConnectionOwners {
         devices: Arc<DeviceRegistry>,
         live_view: Arc<crate::live_view::LiveViewService>,
         scm: Arc<ScmService>,
+        browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>,
     ) -> Self {
-        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm] }
+        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
     }
 
     /// Every owner releases what `connection` held, in a fixed order.

@@ -133,6 +133,12 @@ impl SecretFill {
         self.sessions.redact(thread.as_str(), text)
     }
 
+    /// `remember` of the same registry: `value` is hidden from every later reply of the session (the browser engine registers a
+    /// value before a page sees it).
+    pub fn remember(&self, thread: &ThreadId, value: &str) {
+        self.sessions.remember(thread.as_str(), value);
+    }
+
     /// The session ended: its secrets and focus leave memory.
     pub fn forget(&self, thread: &ThreadId) {
         self.sessions.forget(thread.as_str());

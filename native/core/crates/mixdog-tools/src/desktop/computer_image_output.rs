@@ -126,6 +126,11 @@ impl ImageOutput {
         Self { root: data_dir.join("frames").join("computer") }
     }
 
+    /// The same frame files under another surface's folder (the browser engine's `<data>/frames/browser`).
+    pub fn at(root: PathBuf) -> Self {
+        Self { root }
+    }
+
     /// Writes the pixels for `frame_id` of `session` and prunes older frames; returns the file's path.
     pub fn write(&self, session: &str, frame_id: &str, bytes: &[u8], mime: &str) -> Result<PathBuf, ComputerError> {
         if bytes.is_empty() || bytes.len() > FRAME_MAX_BYTES {
