@@ -21,10 +21,8 @@ use url::Url;
 
 use super::auth::CLIENT_ID;
 use super::auth::SCOPE;
-use super::auth::StoredTokens;
-use super::auth::email_from_jwts;
-use super::auth::identity_of;
 use super::auth::saved_document;
+use super::auth::tokens_from_grant;
 use super::auth::trusted_xai_endpoint;
 use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
@@ -145,30 +143,6 @@ fn classify_poll(reply: &Reply) -> Poll<JsonValue> {
     }
 }
 
-/// `tokensFromGrant`: the stored tokens a granted device code yields.
-fn tokens_of(grant: &JsonValue, token_endpoint: &str, now_ms: u64) -> Result<StoredTokens, LoginFailure> {
-    let text = |key: &str| grant.get(key).and_then(JsonValue::as_str).filter(|s| !s.is_empty()).unwrap_or_default();
-    let (access, refresh) = (text("access_token"), text("refresh_token"));
-    if access.is_empty() || refresh.is_empty() {
-        return Err(failed("token_exchange", "[grok-oauth] token exchange response missing access_token or refresh_token"));
-    }
-    let identity = identity_of(access);
-    let first = |own: &str, claimed: String| if own.is_empty() { claimed } else { own.to_owned() };
-    Ok(StoredTokens {
-        access_token: access.to_owned(),
-        refresh_token: refresh.to_owned(),
-        expires_at: match grant.get("expires_in").and_then(JsonValue::as_f64) {
-            Some(seconds) => now_ms + (seconds * 1000.0) as u64,
-            None => grant.get("expires_at").and_then(JsonValue::as_u64).unwrap_or(0),
-        },
-        token_endpoint: token_endpoint.to_owned(),
-        user_id: identity.user_id,
-        principal_type: first(text("principal_type"), identity.principal_type),
-        principal_id: first(text("principal_id"), identity.principal_id),
-        email: email_from_jwts(&[text("id_token"), access]).unwrap_or_default(),
-    })
-}
-
 pub struct GrokDeviceLogin {
     target: LoginTarget,
     http: Arc<dyn HttpSend>,
@@ -268,7 +242,7 @@ impl LoginFlow for GrokDeviceLogin {
                 }
             })
             .await?;
-            let tokens = tokens_of(&grant, &endpoint, pace.now_ms())?;
+            let tokens = tokens_from_grant(&grant, &endpoint, pace.now_ms())?;
             file.keep(&[&tokens.access_token, &tokens.refresh_token]);
             file.replace(saved_document(&tokens)).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;
             Ok((!tokens.email.is_empty()).then_some(tokens.email))
