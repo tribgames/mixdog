@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
+import { createComputerPresence } from './computer/presence/mirror.ts';
 import { ComputerUseCoordinator } from './computer/session/coordinator.ts';
 import { CLIENT_ACTIVITY_MIN_GAP_MS, createProtocolConnection } from './protocol/connection.ts';
 import { computerUseOperates, createUserInputReporter } from './user-input-report.ts';
@@ -119,4 +120,31 @@ test('client/activity goes out at most once per minute under continuous typing a
   await connection.close();
   connection.noteUserInput(t0 + 10 * CLIENT_ACTIVITY_MIN_GAP_MS);
   assert.equal(sent.length, 2, 'a closed connection sends nothing');
+});
+
+test("a window the core's section names for a running command is the agent's, not the user's", () => {
+  const mixdog = {};
+  const presence = createComputerPresence({ notifyPointerReleased: () => {}, now: () => 1 });
+  const r = rig();
+  r.reporter.watch(r.source, () => computerUseOperates(presence, (id) => (id === 'hwnd:0x64' ? mixdog : null), mixdog));
+  r.input('keyDown');
+  assert.equal(r.reports.length, 1, 'no section: counts');
+  presence.applySection({
+    active: true,
+    observeOnly: false,
+    controller: null,
+    sessionThreadId: 't1',
+    sessions: [{ sessionThreadId: 't1', observeOnly: false, windowIds: ['hwnd:0x64'], mode: 'background' }],
+  });
+  r.input('keyDown');
+  assert.equal(r.reports.length, 1, 'a command runs against the window: not counted');
+  presence.applySection({
+    active: true,
+    observeOnly: false,
+    controller: null,
+    sessionThreadId: 't1',
+    sessions: [{ sessionThreadId: 't1', observeOnly: false, windowIds: [], mode: null }],
+  });
+  r.input('keyDown');
+  assert.equal(r.reports.length, 2, 'the command ended: counts again');
 });
