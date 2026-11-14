@@ -259,7 +259,13 @@ impl Attempts {
 
     /// What puts ssh's questions of this attempt in front of the user, on the connection that minted it.
     pub fn prompter(self: &Arc<Self>, attempt: Arc<Attempt>, host: String) -> Arc<dyn AskpassPrompter> {
-        Arc::new(AttemptPrompter { attempts: self.clone(), attempt, host })
+        Arc::new(AttemptPrompter { attempts: self.clone(), caller: attempt.caller, id: attempt.id.clone(), attempt: Some(attempt), host })
+    }
+
+    /// What puts ssh's questions of another operation of `caller` (a server cleanup, named by the caller's own id) in front of
+    /// the user; they are answered with `askpass_reply` naming that id, and answer nothing when the connection closes.
+    pub fn operation_prompter(self: &Arc<Self>, caller: ConnectionId, operation_id: String, host: String) -> Arc<dyn AskpassPrompter> {
+        Arc::new(AttemptPrompter { attempts: self.clone(), caller, id: operation_id, attempt: None, host })
     }
 
     pub(crate) fn push(&self) -> &dyn ConnectionsPush {
@@ -283,7 +289,12 @@ impl Attempts {
 
 struct AttemptPrompter {
     attempts: Arc<Attempts>,
-    attempt: Arc<Attempt>,
+    /// The connection the questions are put to.
+    caller: ConnectionId,
+    /// The connect attempt or operation the questions belong to.
+    id: String,
+    /// A connect attempt: once it is cancelled, no question is put.
+    attempt: Option<Arc<Attempt>>,
     host: String,
 }
 
@@ -314,9 +325,9 @@ impl Drop for Withdraw<'_> {
 impl AttemptPrompter {
     fn tell(&self, request_id: &str, kind: SshAskpassKind, prompt: String, retry: bool) {
         self.attempts.push.askpass(
-            self.attempt.caller,
+            self.caller,
             SshAskpass {
-                attempt_id: self.attempt.id.clone(),
+                attempt_id: self.id.clone(),
                 request_id: request_id.to_owned(),
                 kind,
                 host: Some(self.host.clone()),
@@ -331,14 +342,14 @@ impl AttemptPrompter {
 #[async_trait]
 impl AskpassPrompter for AttemptPrompter {
     async fn ask(&self, question: AskpassQuestion) -> Option<String> {
-        if self.attempt.cancelled() {
+        if self.attempt.as_ref().is_some_and(|attempt| attempt.cancelled()) {
             return None;
         }
         let request_id = uuid::Uuid::new_v4().to_string();
         let (answer, answered) = oneshot::channel();
         locked(&self.attempts.state)
             .questions
-            .insert(request_id.clone(), Question { caller: self.attempt.caller, attempt_id: self.attempt.id.clone(), answer });
+            .insert(request_id.clone(), Question { caller: self.caller, attempt_id: self.id.clone(), answer });
         let _withdraw = Withdraw { prompter: self, request_id: request_id.clone() };
         self.tell(&request_id, kind_of(question.kind), question.prompt, question.retry);
         answered.await.ok().flatten()
