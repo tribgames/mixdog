@@ -1,0 +1,15 @@
+# s2a-del-terminal: hot-file and other-task edits that go with the deleted main terminal path (DELETE-HOT-G11)
+Deleted here: main/ipc-terminal.ts(+test), main/connections/terminal-host.ts(+test), main/terminal-contract.ts.
+Moved: main/terminal-data-buffer.ts(+test) -> renderer/core-direct/terminal-data-buffer.ts(+test); api-terminal.ts import fixed.
+The batch must also remove these now-dangling references (tsc fails until they are applied):
+- apps/desktop/src/main/ipc.ts: delete `import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal'`, the
+  `terminals?: DesktopTerminalHost` option (and its destructure `terminals,` in the register function), the
+  `const disposeTerminalIpc = registerTerminalIpc({... terminals, ...})` call and `disposeTerminalIpc()` in the dispose.
+- apps/desktop/src/main/index.ts: delete `terminals: connection.terminals,` passed to registerIpc.
+- apps/desktop/src/main/connections/desktop-connection.ts (s2b-delete-ts): delete the DesktopTerminalHost import, the
+  `readonly terminals` member, the createServiceTerminalHost import and `terminals: createServiceTerminalHost(client, protocol)`.
+- apps/desktop/src/main/connections/index.ts (s2b-delete-ts): delete `export { createServiceTerminalHost } from './terminal-host'`.
+- apps/desktop/src/main/terminal-manager.ts (s1-del-terminal): deleted by that task; it is the only importer of
+  terminal-contract.ts and of main/terminal-data-buffer.ts.
+- shared/contract-ipc.ts (DESKTOP_IPC.termEnsure/termAttach/termProfiles/termActivity/termDispose/terminalRunClaim/termWrite/termResize/
+  termAcknowledge/termFocus) and shared/desktop-ipc-preload.parity.test.mjs: drop the channels with the other deleted IPC rows (s2a-del-ipc-handlers).
