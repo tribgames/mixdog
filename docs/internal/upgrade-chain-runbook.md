@@ -16,10 +16,10 @@ node scripts/live/upgrade-145.mjs --app=<unpacked folder or Mixdog.exe> --profil
   - `profile/`: the files a 1.4.5 Electron userData holds. The synthetic set is
     `native/core/crates/mixdog-migrate/tests/vectors/profile-145-supplement/profile` (SSH hosts, port forwards, paired
     PCs, server windows; formats in that folder's README). Use it as the `profile/` of a vector directory.
-  - `data/` (optional): a 1.4.5 data directory, for example the recorded one under
-    `native/core/crates/mixdog-migrate/tests/vectors/migration-145`. Without it the core starts on an empty data
-    directory and only the profile move is exercised.
-  - `expect.json` (optional): `{ "projects": [path], "sshHosts": [id], "remoteHosts": [id], "notifications": true, "owedRevokes": [key] }`.
+  - `.mixdog/` (optional): a 1.4.5 `MIXDOG_HOME` (its `data/` directory and `projects.json`), for example the recorded
+    one, `native/core/fixtures/migration-145/.mixdog`. Without it the core starts on an empty data directory and only
+    the profile move is exercised.
+  - `expect.json` (optional): `{ "projects": [path], "sshHosts": [id], "remoteHosts": [id], "notifications": true | {key: value}, "owedRevokes": [key] }`.
     SSH hosts and paired PCs default to the ids in `profile/ssh-hosts.json` and `profile/remote-hosts.json`.
 
 The script copies the vector under an isolated root (the vector is never written), starts the app with
@@ -33,7 +33,7 @@ say `serving`, and then asserts, each as its own line:
 | projects | `project/list` holds every path of `expect.projects` |
 | SSH hosts | `connections/ssh/list` holds every expected host id |
 | paired PCs | `remoteAccess/state` names every expected paired PC |
-| notification preferences | with `expect.notifications`, `notify/state` returns a stored notifications object |
+| notification preferences | with `expect.notifications`, `notify/state` returns a stored notifications object (holding each given key's value when it is an object) |
 | owed revokes | `pcAccess/readiness` still owes every key of `expect.owedRevokes` |
 
 It exits 0 when all pass and 1 otherwise; `<out>/summary.json` (default: a folder beside the isolated root in the system

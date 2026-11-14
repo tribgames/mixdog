@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { findApp, loadVector, markerProblems, missingIds } from './upgrade-145.mjs';
+import { checksFor, findApp, loadVector, markerProblems, missingIds, runChecks } from './upgrade-145.mjs';
 
 test('findApp: an executable is used as it is, a folder yields its Mixdog executable, otherwise an error', () => {
   assert.equal(findApp('a.exe', { exists: () => true, isDir: () => false }), resolve('a.exe'));
@@ -20,7 +20,7 @@ test('loadVector derives the expected SSH hosts and paired PCs from the profile 
   const v = loadVector('v', { exists, read: (p) => files[p.split(/[\\/]/).pop()] });
   assert.deepEqual(v.expect.sshHosts, ['s1']);
   assert.deepEqual(v.expect.remoteHosts, ['p1']);
-  assert.equal(v.data, null);
+  assert.equal(v.home, null);
   assert.throws(() => loadVector('v', { exists: () => false }), /no profile/);
 });
 
@@ -35,4 +35,20 @@ test('markerProblems names every missing or wrong marker', () => {
 test('missingIds lists the expected ids a list lacks', () => {
   assert.deepEqual(missingIds(['a', 'b'], [{ id: 'a' }]), ['b']);
   assert.deepEqual(missingIds(['a'], null), ['a']);
+});
+
+test('the read-back checks fail on a missing host, owed key or differing notification preference', async () => {
+  const answers = {
+    'project/list': [{ path: 'C:\work\a' }],
+    'connections/ssh/list': [{ id: 's1' }],
+    'notify/state': { supported: true, notifications: { sound: false } },
+    'pcAccess/readiness': { owed: { keys: ['k1'], unknown: 0 } },
+    'remoteAccess/state': { hosts: [{ id: 'p1' }] },
+  };
+  const core = { call: async (method) => answers[method] };
+  const run = (expect) => runChecks(checksFor({ expect, dataDir: 'd' }).filter((c) => c.name !== 'migration markers'), { core }, () => {});
+  const good = await run({ projects: ['C:\work\a'], sshHosts: ['s1'], remoteHosts: ['p1'], notifications: { sound: false }, owedRevokes: ['k1'] });
+  assert.deepEqual(good.filter((r) => !r.ok), []);
+  const bad = await run({ projects: ['C:\work\b'], sshHosts: ['s2'], remoteHosts: ['p2'], notifications: { sound: true }, owedRevokes: ['k2'] });
+  assert.deepEqual(bad.filter((r) => !r.ok).map((r) => r.name), ['projects', 'SSH hosts', 'notification preferences', 'owed revokes', 'paired PCs']);
 });
