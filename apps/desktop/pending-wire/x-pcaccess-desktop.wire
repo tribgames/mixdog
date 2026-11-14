@@ -7,9 +7,10 @@
 2. apps/desktop/src/main/ipc.ts, registerComputerIpc call: pass `invokeDesktopOperation`
      registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
    and drop the `pcAccess: computer?.pcAccess,` line of the registerSessionIpc call (ipc-sessions.ts no longer takes it).
-3. apps/desktop/src/main/index.ts: remove windowsPcAccess() / `pcAccess` / createPcAccess / pendingRevokesFile imports, the
-   `pcAccess: windowsPcAccess()` entry of the computer option, and the REMOTE_CONTROLLER_KEY_DELIVERED_EVENT and
-   REMOTE_CONTROLLER_KEYS_OWED_EVENT handlers (the core's PcAccessService enrolls on delivery and revokes owed keys).
-   The phone screen's `pcAccess.approveWithCredential` (createScreenSourceHost options, ~line 2322) stays until s3-screen-source /
-   x-screen-source-desktop moves it to the core's approve_with_credential; until then it is the only remaining user of
-   the TS queue, so two installer queues coexist for the phone password path only.
+3. apps/desktop/src/main/index.ts: remove the `pcAccess: windowsPcAccess(),` entry of the `computer:` option passed to the IPC
+   registration, and the REMOTE_CONTROLLER_KEY_DELIVERED_EVENT and REMOTE_CONTROLLER_KEYS_OWED_EVENT handlers in the
+   desktop-event listener with their two imports (the core's PcAccessService enrolls on delivery and revokes owed keys).
+   KEEP windowsPcAccess(), the `pcAccess` variable and the createPcAccess / pendingRevokesFile / PcAccess imports: the phone
+   screen's `pcAccess.approveWithCredential` (createScreenSourceHost options) still calls windowsPcAccess() until
+   s3-screen-source / x-screen-source-desktop moves it to the core's approve_with_credential (that task then deletes them);
+   until then it is the only remaining user of the TS queue, so two installer queues coexist for the phone password path only.
