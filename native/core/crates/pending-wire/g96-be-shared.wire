@@ -1,0 +1,28 @@
+# g96-be-shared: what the wiring applies (no Cargo edge, no protocol row, nothing to remove from SERVICE_PENDING)
+
+1. compose_flip.rs, where the DirectorySessions of the agent homes and rooms is built (the value that gets
+   `.with_archive_stamps(..)`), once the session directory can open threads (boot, after the session service is up):
+
+       if let Err(error) = sessions.import_node_hidden(data_dir.clone(), tokens.interactive_io).await {
+           tracing::warn!("[session-hidden] the Node daemon's hidden set was not imported: {error:?}");
+       }
+
+   It reads `<data>/session-hidden.json` once, stamps `archivedAt` on the sessions it names that still exist and are
+   not archived, and records the import in `<data>/session-hidden.imported` (the file itself is kept).
+
+2. compose_flip.rs, where the `AgentDefinitions` is built with `.with_writes(..)` (the agent catalog of the core), before the
+   first catalog read of the boot (the Node `migrateAgentKindMarkers` then `migrateBotStore` ran from the agent editor's first use):
+
+       let backup_guard = <the UserDataGuard of the config>;           // already built for the config writes
+       let data = data_dir.clone();
+       definitions.migrate_agent_store(Arc::new(move |lane, reason| {
+           if let Err(error) = backup_guard.backup_user_data(lane, &data, reason, &mixdog_core_agents::agents::store_migration::BACKUP_DIRS) {
+               tracing::warn!("[user-data-backup] {reason}: {error:?}");
+           }
+       })).await   // Ok((KindReport, SplitReport)); each step reports and retries itself at the next start
+
+   `backup_user_data` takes a WriteLane: the closure receives the DurabilityIo lane of the job.
+
+3. `SessionHandle::captured_cwd()` (mixdog-core-session handle.rs) is `captureOriginalUserCwd()`: where a turn
+   resolves a relative path or the prompt's env cwd for a session whose header has no cwd, call it in place of `explicit_cwd()`.
+   `explicit_cwd` stays for project classification (Node's `explicitSessionCwd`).
