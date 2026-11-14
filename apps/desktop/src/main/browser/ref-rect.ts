@@ -11,6 +11,17 @@ export const BROWSER_REF_RECT = `async function(target, frames = []) {
   if (!target?.isConnected) return { error: 'stale' };
   const view = target.ownerDocument?.defaultView;
   if (!view) return { error: 'stale' };
+  // The same-origin frames the target sits in, outermost first, are brought into view too (a page-side record names them; a ref
+  // of the accessibility tree does not, so the chain is read from the target itself).
+  if (!frames.length) {
+    for (let frameView = view; frameView;) {
+      let frame;
+      try { frame = frameView.frameElement; } catch { break; }
+      if (!frame) break;
+      frames.unshift(frame);
+      frameView = frame.ownerDocument?.defaultView;
+    }
+  }
   const style = view.getComputedStyle(target);
   if (style.display === 'none' || style.visibility === 'hidden') return { error: 'not-visible' };
   const rect = await (${BROWSER_STABLE_RECT})(target, frames);
