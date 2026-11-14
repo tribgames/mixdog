@@ -284,6 +284,11 @@ impl ScopeRuntime {
     /// 0 disables the wait, as the connect may then never settle. Returns at once when the scope is not open or its
     /// first connect settled.
     pub async fn await_initial(&self, scope: &str) {
+        self.await_initial_within(scope, Duration::MAX).await;
+    }
+
+    /// [`await_initial`](Self::await_initial) that waits no longer than `cap` (`awaitInitialConnect(maxWaitMs)`).
+    pub async fn await_initial_within(&self, scope: &str, cap: Duration) {
         let Some(cell) = self.cell(scope) else { return };
         if *cell.ready.borrow() {
             return;
@@ -295,7 +300,7 @@ impl ScopeRuntime {
         if budgets.contains(&None) {
             return;
         }
-        let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
+        let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT).min(cap);
         let _ = mixdog_rt::time::timeout(budget, Self::ready(&cell)).await;
     }
 
