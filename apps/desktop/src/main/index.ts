@@ -29,7 +29,7 @@ import {
   type NotificationConversation,
   notificationConversationOf,
 } from './notification-decision';
-import { notificationPreferencesPath, readPcNotificationView } from './notification-preferences';
+import { createPcNotificationView } from './pc-notification-view';
 import { captureTakeoverOrDecline } from './takeover-capture';
 import { createTakeoverFeed } from './takeover-feed';
 import { observeCoreForMain } from './core-observers';
@@ -808,10 +808,10 @@ let unsubscribeTakeovers: (() => void) | null = null;
 let unsubscribeUpdaterRelay: (() => void) | null = null;
 let unsubscribeCoreObservers: (() => void) | null = null;
 // OS notification on final answers and failed turns: whether one shows is this
-// PC's notification preferences (notification-decision.ts), read fresh from
-// the file the desktop service writes. App-lifetime like keep-awake: a window
-// hidden to the tray still wants it.
-const pcNotificationView = () => readPcNotificationView(notificationPreferencesPath(app.getPath('userData')));
+// PC's notification preferences from the core's live notifications config section.
+// Settings changes apply to the next toast, taskbar flash and Browser Use approval.
+// App-lifetime like keep-awake: a window hidden to the tray still wants it.
+const pcNotificationView = createPcNotificationView({ snapshot: () => localProtocol.snapshot() });
 let notificationVolume = NOTIFICATION_VOLUME_DEFAULT;
 const playNotificationSound = async (): Promise<string> => {
   if (notificationVolume === 0) return 'suppressed:volume-muted';
