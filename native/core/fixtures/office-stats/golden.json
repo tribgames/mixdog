@@ -62287,6 +62287,60 @@
           "t": "undefined"
         }
       }
+    },
+    {
+      "name": "LOGEST",
+      "label": "second-x-conversion-whitespace",
+      "args": [
+        [
+          1,
+          2
+        ],
+        [
+          " ",
+          2
+        ]
+      ],
+      "expected": {
+        "value": {
+          "t": "error",
+          "v": "#VALUE!"
+        }
+      }
+    },
+    {
+      "name": "LOGEST",
+      "label": "second-x-conversion-date",
+      "args": [
+        [
+          1,
+          2
+        ],
+        [
+          {
+            "$": "date",
+            "v": 1704067200000
+          },
+          2
+        ]
+      ],
+      "expected": {
+        "value": {
+          "t": "error",
+          "v": "#VALUE!"
+        }
+      }
+    },
+    {
+      "name": "PERMUT",
+      "label": "factorial-decrement-does-not-progress",
+      "args": [
+        18014398509481984,
+        1
+      ],
+      "expected": {
+        "threw": "Maximum call stack size exceeded"
+      }
     }
   ]
 }

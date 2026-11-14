@@ -11,8 +11,8 @@
     "node": "v22.20.0"
   },
   "recorder": "benchmarks/rust-core/recorders/record-office-stats.mjs",
-  "goldenSha256": "c3d084f643f5ea721a3a83d7060a6b9b91cf85977ae861a0588c0f91e4e04655",
-  "cases": 3223,
+  "goldenSha256": "480a3b978990642efd8d995f4ed6bd345127eaad64eb027f99efc923bdcf6784",
+  "cases": 3226,
   "functions": [
     "AVEDEV",
     "AVERAGE",

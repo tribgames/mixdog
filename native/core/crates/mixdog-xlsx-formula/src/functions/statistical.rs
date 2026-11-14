@@ -214,6 +214,9 @@ fn factorial(n: f64) -> Result<f64, Failure> {
         return Err(Failure::thrown("Maximum call stack size exceeded"));
     }
     let n = n.floor();
+    if n > 1.0 && n - 1.0 == n {
+        return Err(Failure::thrown("Maximum call stack size exceeded"));
+    }
     // The memoized source has reached +Infinity by 171; further products stay so.
     let mut value = 1.0;
     for i in 2..=(n.min(171.0) as u32) {
@@ -715,10 +718,9 @@ fn regression_call(name: &str, args: &[Value]) -> Result<Value, Failure> {
     } else {
         y
     };
-    // LOGEST calls LINEST, which parses the logged values again: negative y
-    // becomes NaN then #VALUE!, and assignments to that Error object are not
-    // observable in the returned error.
-    if name == "LOGEST" && y.iter().any(|n| n.is_nan()) {
+    // LOGEST calls LINEST, which reparses both arrays: negative y or an x
+    // whose first conversion produced NaN becomes #VALUE! on the second pass.
+    if name == "LOGEST" && y.iter().chain(x.iter()).any(|n| n.is_nan()) {
         return Ok(Value::Error(ErrorValue::Value));
     }
     let (slope, intercept, left, numerator, denominator) = regression(&y, &x, name == "STEYX");

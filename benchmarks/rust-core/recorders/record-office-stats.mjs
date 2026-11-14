@@ -90,6 +90,9 @@ for(const name of ['MEDIAN','MODE.MULT','MODE.SNGL','PERCENTILE.INC','LARGE','SM
   const large = Array.from({length:96},(_,i)=>i%13===0?' ':i%17===0?U:((i*37)%29));
   record(name,[large,0.5],'long-mixed-sort');
 }
+record('LOGEST',[[1,2],[' ',2]],'second-x-conversion-whitespace');
+record('LOGEST',[[1,2],[D,2]],'second-x-conversion-date');
+record('PERMUT',[2**54,1],'factorial-decrement-does-not-progress');
 const source = await readFile(`${tree}/node_modules/@formulajs/formulajs/lib/esm/index.mjs`);
 const jstat = await readFile(`${tree}/node_modules/jstat/dist/jstat.js`);
 const golden = {format:1, library:'@formulajs/formulajs', version:pkg.version, node:process.version,
