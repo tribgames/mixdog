@@ -828,6 +828,14 @@ struct Inherited {
 impl AgentPort for AgentRuntime {
     async fn execute(&self, request: AgentRequest<'_>) -> Result<AgentReply, PortError> {
         let caller = Caller { scope: self.deps.scopes.scope_of(request.thread), cwd: request.cwd.as_path().to_string_lossy().into_owned() };
-        Ok(self.handle(&request.args, &caller).await)
+        // The resolved image, PDF and file parts ride in the call's arguments, where the spawn and
+        // send flows read them for the worker's turn (and its queued follow-up).
+        let mut args = request.args;
+        if !request.attachment_parts.is_empty() {
+            if let Some(object) = args.as_object_mut() {
+                object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
+            }
+        }
+        Ok(self.handle(&args, &caller).await)
     }
 }
