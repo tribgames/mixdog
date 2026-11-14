@@ -1,0 +1,20 @@
+# s1-ws-wire: the one composition call, the module line and the pending names to remove.
+
+[daemon lib.rs]
+Add next to `pub mod compose_flip;` (native/core/crates/mixdog-app-server-daemon/src/lib.rs):
+    mod compose_desktop_files;
+(`compose_flip.rs` calls it as `crate::compose_desktop_files::compose_desktop_files`; make it `pub mod` only if another crate needs it.)
+
+[daemon compose_flip.rs]
+1. In the workspace composition, right after `workspace.set_phone_grants(...)` (symbol: `workspace.set_phone_grants(phone_grants.clone(), ...)`):
+    crate::compose_desktop_files::compose_desktop_files(&workspace, &b.data_dir);
+2. SERVICE_PENDING: remove the block "s1-ws-wire (wave 3)" and its four names:
+    "projectFs/grant/describe", "projectFs/grant/redeem", "projectFs/localPage/revokeOwner", "projectFs/localPage/origin"
+
+[Cargo]
+No new dependency edge, no workspace member, no Cargo.lock change: mixdog-workspace already lists hyper, hyper-util, http-body-util and tokio "net";
+this task adds tokio feature "io-util" to mixdog-workspace's own [dependencies] line (already edited, features only, no new crate).
+The daemon already depends on mixdog-workspace.
+
+[mixdog-workspace lib.rs]
+Nothing: `desktop_grants`, `openedpath`, `pageserver` and `serverdownload` are already declared `pub mod`.
