@@ -816,6 +816,7 @@ async fn the_links_losses_and_restores_are_written_to_the_servers_diagnostics_ri
     let _again = handshake(&rig.net, "s2").await;
     view_until(&link, |state| *state == LinkState::Connected).await;
     let lines = rig.diagnostics.lines(&key, 100).join("\n");
+    assert!(lines.contains("remote-daemon-log: connect"), "the user's first dial is in the ring too: {lines}");
     assert!(lines.contains("core-link-lost"), "{lines}");
     assert!(lines.matches("core-link-restored").count() >= 2, "the first attach and the one after the drop: {lines}");
 }
