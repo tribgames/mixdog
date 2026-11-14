@@ -9,6 +9,8 @@ The batch must also remove these now-dangling references (tsc fails until they a
 - apps/desktop/src/main/connections/desktop-connection.ts (s2b-delete-ts): delete the DesktopTerminalHost import, the
   `readonly terminals` member, the createServiceTerminalHost import and `terminals: createServiceTerminalHost(client, protocol)`.
 - apps/desktop/src/main/connections/index.ts (s2b-delete-ts): delete `export { createServiceTerminalHost } from './terminal-host'`.
+- apps/desktop/src/main/connections/connections.test.mjs (s2b-delete-ts's connections.test.mjs cases): delete `createServiceTerminalHost,` from its
+  import of './index.ts' and the `terminals: createServiceTerminalHost(service, protocol),` option passed to registerIpc.
 - apps/desktop/src/main/terminal-manager.ts (s1-del-terminal): deleted by that task; it is the only importer of
   terminal-contract.ts and of main/terminal-data-buffer.ts.
 - shared/contract-ipc.ts (DESKTOP_IPC.termEnsure/termAttach/termProfiles/termActivity/termDispose/terminalRunClaim/termWrite/termResize/
