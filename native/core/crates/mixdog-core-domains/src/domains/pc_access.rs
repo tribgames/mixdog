@@ -407,20 +407,20 @@ async fn enrollment(installer: &dyn PcAccessInstaller, paired: &[String]) -> (us
     (enrolled, missing)
 }
 
-/// Counts a delivery as in flight until dropped (the readiness row waits for it).
-struct InFlight<'a> {
-    inner: &'a Inner,
+/// Counts a delivery as in flight from the moment it arrives until dropped (the readiness row waits for it).
+struct InFlight {
+    inner: Arc<Inner>,
     key: String,
 }
 
-impl<'a> InFlight<'a> {
-    fn new(inner: &'a Inner, key: &str) -> Self {
+impl InFlight {
+    fn new(inner: &Arc<Inner>, key: &str) -> Self {
         *held(&inner.in_flight).entry(key.to_owned()).or_insert(0) += 1;
-        Self { inner, key: key.to_owned() }
+        Self { inner: inner.clone(), key: key.to_owned() }
     }
 }
 
-impl Drop for InFlight<'_> {
+impl Drop for InFlight {
     fn drop(&mut self) {
         let mut flights = held(&self.inner.in_flight);
         if let Some(count) = flights.get_mut(&self.key) {
@@ -747,8 +747,10 @@ impl PcAccessEvents for PcAccessService {
     fn key_delivered(&self, public_key: &str) {
         let inner = self.inner.clone();
         let key = public_key.to_owned();
+        // Counted before the task is queued, as `delivered` counts it when called.
+        let flight = InFlight::new(&inner, &key);
         drop(mixdog_rt::spawn("pc-access-delivered", mixdog_rt::TaskClass::Work, async move {
-            let _flight = InFlight::new(&inner, &key);
+            let _flight = flight;
             if let Err(error) = inner.serial(inner.deliver(&key)).await {
                 tracing::error!("[mixdog-pc-access] enroll after delivery failed: {error}");
             }
