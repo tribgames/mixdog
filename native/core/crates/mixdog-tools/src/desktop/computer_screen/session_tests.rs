@@ -42,8 +42,8 @@ use super::session::SessionHelper;
 use super::session::SharedCredential;
 use super::session::ViewerAuthorization;
 use super::session::number;
+use super::super::computer_screen_input::InputDesktop;
 use super::switch::HelperView;
-use super::switch::LocalDesktop;
 use super::testing::Gate;
 use super::testing::Log;
 use super::testing::Replay;
@@ -162,7 +162,7 @@ struct World {
     host_stop_hangs: bool,
     host_fails: Option<String>,
     host_hangs: bool,
-    local: LocalDesktop,
+    local: InputDesktop,
     runs: u64,
 }
 
@@ -171,7 +171,7 @@ struct Fakes {
     log: Log,
     display_change: Arc<ListenerSet<()>>,
     auth_change: Arc<ListenerSet<()>>,
-    host_desktop: Arc<ListenerSet<LocalDesktop>>,
+    host_desktop: Arc<ListenerSet<InputDesktop>>,
     host_exit: Arc<ListenerSet<()>>,
     helper_change: Arc<ListenerSet<()>>,
     helper_frame: Arc<ListenerSet<HelperFrame>>,
@@ -212,13 +212,13 @@ impl ScreenHost for Host {
         }
         answer(Ok(Vec::new()))
     }
-    fn desktop(&self) -> Option<LocalDesktop> {
+    fn desktop(&self) -> Option<InputDesktop> {
         Some(lock(&self.0.world).local.clone())
     }
     fn session(&self) -> Option<u32> {
         Some(1)
     }
-    fn on_desktop(&self, listener: Listener<LocalDesktop>) -> Unsub {
+    fn on_desktop(&self, listener: Listener<InputDesktop>) -> Unsub {
         self.0.host_desktop.add(listener)
     }
     fn on_exit(&self, listener: Listener<()>) -> Unsub {
@@ -417,7 +417,7 @@ fn world_of(world: &Value) -> World {
         host_stop_hangs: world.get("hostStopHangs").and_then(Value::as_bool).unwrap_or(false),
         host_fails: None,
         host_hangs: false,
-        local: LocalDesktop { input_desktop: Some("Default".to_string()), consent: false, logon_ui: false },
+        local: InputDesktop { name: Some("Default".to_string()), consent: false, logon_ui: false },
         runs: 0,
     }
 }
@@ -537,7 +537,7 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
             ),
             "listDisplays" => log_push(&log, json!({"ev": "displays", "list": session.list_displays()})),
             "hostDesktop" => {
-                let local: LocalDesktop = serde_json::from_value(step["local"].clone()).expect("a local desktop");
+                let local: InputDesktop = serde_json::from_value(step["local"].clone()).expect("a local desktop");
                 lock(&fakes.world).local = local.clone();
                 fakes.host_desktop.call(&local);
             }
