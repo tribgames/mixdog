@@ -1,6 +1,7 @@
 # Crate-local clippy config for mixdog-askpass: a separate std-only process (the ssh askpass helper) that links no
-# workspace crate, so it reads and writes files itself. Restates the workspace bans except std::fs, the disk-touching
-# std::path::Path methods and the std::os symlink helpers. Keep the rest in step with ../../clippy.toml.
+# workspace crate, so it reads and writes files, waits and runs processes itself. Restates the workspace bans except
+# std::fs, the disk-touching std::path::Path methods, the std::os symlink helpers, std::process::Command and
+# std::thread::sleep (the same set mixdog-fsio's clippy.toml lifts). Keep the rest in step with ../../clippy.toml.
 
 disallowed-methods = [
   { path = "tokio::task::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
