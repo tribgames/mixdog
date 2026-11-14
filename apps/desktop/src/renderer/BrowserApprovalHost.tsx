@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { actionLabel, actionQuestion, alwaysAllowScope, sessionAllowScope } from './ApprovalCard';
 import { type ApprovalButton, ApprovalPrompt } from './approval-prompt';
+import { subscribeBrowserApprovals, type BrowserApprovalAnswer } from './browser-approval-protocol';
+import { pcCoreClient } from './core-direct/client';
 import { setBrowserApprovalSessionIds, setHostBrowserApprovalSessionIds } from './browser-approval-marks';
 import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
@@ -101,7 +103,18 @@ export function useBrowserApprovals(sessionId: string): BrowserApprovalPrompt[] 
   return sessionId ? queue.filter((prompt) => surfaceOf(prompt) === sessionId) : [];
 }
 
+// How a card the core raised is answered, by prompt id; a card without an entry came over the IPC channel.
+const protocolAnswers = new Map<string, BrowserApprovalAnswer>();
+
 function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'session' | 'always' | 'deny', reason = '') {
+  const viaCore = protocolAnswers.get(prompt.id);
+  if (viaCore) {
+    if (viaCore(decision, reason || undefined)) {
+      protocolAnswers.delete(prompt.id);
+      drop(prompt.id);
+    }
+    return;
+  }
   drop(prompt.id);
   void window.mixdogDesktop?.browserApprovalDecide?.(prompt.id, decision, reason || undefined);
 }
@@ -239,7 +252,23 @@ export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApp
  *  leaves when answered, closed or expired), tells a failed "always allow"
  *  save. It renders nothing: a prompt docks in its own chat when that chat is
  *  open, and otherwise only marks its session (see browser-approval-marks). */
-export function BrowserApprovalHost() {
+export function BrowserApprovalHost({ client = pcCoreClient() }: { client?: Parameters<typeof subscribeBrowserApprovals>[0] | null } = {}) {
+  // The core's own cards: each leaves when answered or when the core resolved it elsewhere.
+  useEffect(() => {
+    if (!client) return;
+    return subscribeBrowserApprovals(
+      client,
+      (prompt, viaCore) => {
+        protocolAnswers.set(prompt.id, viaCore);
+        queue = [...queue.filter((entry) => entry.id !== prompt.id), prompt];
+        notify();
+      },
+      (id) => {
+        protocolAnswers.delete(id);
+        drop(id);
+      }
+    );
+  }, [client]);
   useEffect(
     () =>
       window.mixdogDesktop?.onBrowserApproval?.((prompt) => {
