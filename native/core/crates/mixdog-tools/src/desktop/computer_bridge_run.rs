@@ -989,7 +989,7 @@ mod tests {
                     let state = locked(&self.fate).clone();
                     Ok(json!({ "state": state, "created": "133000000000000000" }).as_object().cloned().unwrap_or_default())
                 }
-                "close_window" => Err("computer_policy_denied: not authorized".into()),
+                "key_down" => Err("computer_policy_denied: not authorized".into()),
                 _ => Ok(json!({ "text": "typed hunter2" }).as_object().cloned().unwrap_or_default()),
             }
         }
@@ -1119,7 +1119,7 @@ mod tests {
         let answer = run(&f, "s1", json!({ "action": "type", "session_id": "s1", "text": "x", "turn_id": 3, "runtime_id": OWNER })).await;
         assert_eq!(answer["value"]["text"], json!("typed [redacted]"));
         assert_eq!(locked(&f.host.helper)[0].1, json!({ "action": "type", "text": "x" }).as_object().cloned().unwrap_or_default());
-        let refused = run(&f, "s1", json!({ "action": "close_window", "window_id": "w" })).await;
+        let refused = run(&f, "s1", json!({ "action": "key_down", "key": "a" })).await;
         assert_eq!(error_of(&refused), "computer_policy_denied: not authorized");
         let failing = fixture_with(Host { fail: true, ..Host::default() }, Saved::default());
         let answer = run(&failing, "s1", json!({ "action": "list_windows" })).await;
