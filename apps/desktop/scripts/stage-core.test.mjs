@@ -13,6 +13,7 @@ function builtTargets(dir, targets) {
     mkdirSync(join(dir, target, 'release'), { recursive: true });
     const name = target.includes('windows') ? 'mixdogd.exe' : 'mixdogd';
     writeFileSync(join(dir, target, 'release', name), `binary for ${target}`);
+    writeFileSync(join(dir, target, 'release', target.includes('windows') ? 'mixdog-askpass.exe' : 'mixdog-askpass'), `askpass for ${target}`);
   }
 }
 
@@ -35,12 +36,14 @@ test('a local deploy stages the host core from a plain cargo release build, and 
   const runtimeDir = makeTempDirSync('stage-core-host-rt');
   const binary = join(dir, 'mixdogd.exe');
   writeFileSync(binary, 'cargo release build');
+  writeFileSync(join(dir, 'mixdog-askpass.exe'), 'cargo askpass build');
   const options = { binary, runtimeDir, host: { platform: 'win32', arch: 'x64' } };
   await assert.rejects(stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.5' }), /reports version 1\.4\.5/);
   assert.equal(existsSync(join(runtimeDir, 'core', 'mixdogd.exe')), false);
 
   await stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.6' });
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'cargo release build');
+  assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'), 'cargo askpass build');
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), jsRuntimeManifest('win32', 'x64'));
   // The SSH install's bundles need every platform's build: a local deploy ships none.
   assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
@@ -81,6 +84,7 @@ test('staging puts the host core and every server runtime where the build and th
     verifyPayload,
   });
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
+  assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'), 'askpass for x86_64-pc-windows-msvc');
   // The core finds the app binary (interpreter, node mode) and the package as real files beside the archive:
   // plain fs cannot read inside runtime.asar.
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), {
