@@ -1,0 +1,30 @@
+[package]
+name = "mixdog-browser-engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `FakeHost` (scripted host answers and JSONL transcript replay) for the tests of later tasks and of the replay package.
+test-support = ["dep:mixdog-testkit"]
+
+[dependencies]
+mixdog-app-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-browser-policy = { workspace = true }
+# Only for `FakeHost::from_transcript` (a test-support item: reading a recorded file is the testkit's job, the fsio bans stay).
+mixdog-testkit = { workspace = true, optional = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-testkit = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
