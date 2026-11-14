@@ -221,6 +221,29 @@ test('a replay of the resumed epoch emits no reset; a snapshot or a new epoch em
   assert.equal(resets.length, 2);
 });
 
+test('a tab that printed nothing resumes from the position its attach answered; a tab with no position to resume from is drawn anew', async () => {
+  const protocol = fakeProtocol();
+  let subscription = { mode: 'snapshot', epoch: 'e1', startSeq: 5 };
+  const core = fakeService({
+    termEnsure: (id) => ({ id, replay: '' }),
+    termAttach: (id) => ({ id, replay: 'SCREEN', ...(id === 't1' ? { subscription } : {}) }),
+  });
+  const host = createServiceTerminalHost(core, protocol);
+  const resets = [];
+  host.subscribeReset((event) => resets.push(event));
+  await host.ensure('t1', null, null);
+  assert.deepEqual(resets, [], 'a first attach draws its replay itself');
+  subscription = { mode: 'replay', epoch: 'e1', startSeq: 5 };
+  const before = core.calls.length;
+  await relink(protocol);
+  assert.deepEqual(core.calls[before], ['termAttach', 't1', { epoch: 'e1', seq: 4 }]);
+  assert.deepEqual(resets, []);
+  // An attach answered without a subscription leaves nothing to resume from: the screen is drawn anew.
+  await host.ensure('t2', null, null);
+  await relink(protocol);
+  assert.deepEqual(resets, [{ id: 't2', replay: 'SCREEN' }]);
+});
+
 test('a tab that is not running on the new link forgets its position and draws nothing', async () => {
   const protocol = fakeProtocol();
   let running = true;
