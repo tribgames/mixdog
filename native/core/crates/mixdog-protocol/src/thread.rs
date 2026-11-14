@@ -253,7 +253,7 @@ pub enum PromptPart {
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
-        size_bytes: Option<i64>,
+        size_bytes: Option<serde_json::Number>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional))]
         mime_type: Option<String>,
@@ -273,7 +273,7 @@ pub enum PromptPart {
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
-        size_bytes: Option<i64>,
+        size_bytes: Option<serde_json::Number>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
@@ -292,7 +292,7 @@ pub enum PromptPart {
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
-        size_bytes: Option<i64>,
+        size_bytes: Option<serde_json::Number>,
     },
 }
 

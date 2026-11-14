@@ -1890,6 +1890,18 @@ async fn a_merge_target_with_only_the_identity_marker_untracked_is_clean() {
     std::fs::write(repo.join(".mixdog/other"), "x\n").unwrap();
     let dirty = scm.merge_branch_into_checkout(&cancel, &repo, "feature", Some("main"), true, None).await.unwrap_err();
     assert_eq!(dirty.code(), Some(crate::worktree::errors::MERGE_TARGET_DIRTY));
+
+    // An untracked folder is named once, as Node's `uncommittedPaths` names it, not file by file.
+    std::fs::remove_file(repo.join(".mixdog/other")).unwrap();
+    std::fs::create_dir_all(repo.join("newdir")).unwrap();
+    std::fs::write(repo.join("newdir/x.txt"), "x
+").unwrap();
+    std::fs::write(repo.join("newdir/y.txt"), "y
+").unwrap();
+    let dirty = scm.merge_branch_into_checkout(&cancel, &repo, "feature", Some("main"), true, None).await.unwrap_err();
+    let crate::error::ScmFailure::Coded { detail, .. } = dirty else { panic!("coded") };
+    let shown = format!("{detail:?}");
+    assert!(shown.contains("newdir/") && !shown.contains("x.txt"), "{shown}");
 }
 
 /// `assertManagedCheckoutPath`: the record's path is exactly the managed path of its id and its `.git` links back into this

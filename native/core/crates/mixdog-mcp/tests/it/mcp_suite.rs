@@ -124,6 +124,18 @@ async fn progress_resets_the_idle_timeout_and_silence_cancels_the_request() {
     server.close().await;
 }
 
+/// A call that keeps reporting progress past `maxTotalTimeoutMs` ends with the text of an idle timeout (`mcpCallTimeout` fires at the cap).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_total_cap_ends_a_progressing_call_with_the_timeout_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = ready(json!({"timeoutMs": 300, "maxTotalTimeoutMs": 400}), dir.path()).await;
+    match call(&server, "slow", json!({})).await {
+        Err(CallError::TimedOut(text)) => assert_eq!(text, "MCP tool call timed out after 300ms without progress (server=\"mock\", tool=\"slow\")"),
+        other => panic!("{other:?}"),
+    }
+    server.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn caller_cancel_ends_the_call() {
     let dir = tempfile::tempdir().unwrap();

@@ -494,7 +494,7 @@ async fn remove_dir_with_retry(lane: DurabilityIo, path: &Path, recursive: bool)
 }
 
 /// A `data_dir` without `PG_VERSION` that holds something is renamed to `<data_dir>.broken-<unix seconds>` (never deleted) and the path is warned
-/// about; an empty one is removed and a missing one is left. Node's `initdb` refuses such a directory for good; the core makes the cluster anew.
+/// about in the daemon log; an empty one is removed and a missing one is left. Node's `initdb` refuses such a directory for good; the core makes the cluster anew.
 async fn quarantine_without_cluster(lane: DurabilityIo, data_dir: &Path) -> Result<()> {
     match remove_dir_with_retry(lane, data_dir, false).await {
         Ok(()) => Ok(()),
@@ -507,7 +507,8 @@ async fn quarantine_without_cluster(lane: DurabilityIo, data_dir: &Path) -> Resu
             fsio::rename(lane, data_dir, &aside).await.map_err(|error| {
                 MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be moved aside: {error}", data_dir.display()))
             })?;
-            tracing::warn!(from = %data_dir.display(), to = %aside.display(), "[pg-process] a data directory without PG_VERSION was moved aside and a new cluster is made");
+            // The daemon log (the daemon's node_log sink), not `tracing`, which the default subscriber hides.
+            mixdog_rt::node_console_warn!("[pg-process] the memory database folder {} has no PG_VERSION; it was kept as {} and a new database is made", data_dir.display(), aside.display());
             Ok(())
         }
     }

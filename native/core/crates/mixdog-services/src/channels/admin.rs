@@ -12,7 +12,7 @@ use chrono_tz::Tz;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, WebhookProbe, is_truthy};
+use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, WebhookProbe, WebhookSettings, is_truthy};
 use super::runtime::ChannelRuntime;
 use crate::bots::attachments::normalize_attachments;
 use crate::bots::ids::{MIXY_AGENT_ID, agent_home_session_id};
@@ -24,7 +24,7 @@ use crate::scheduler::cron::CronExpr;
 use crate::scheduler::{Clock, Schedule, ScheduleError, ScheduleRecords};
 use crate::webhooks::prompt::{webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::hmac_hex;
-use crate::webhooks::{EndpointRecord, EndpointRecords};
+use crate::webhooks::{EndpointRecord, EndpointRecords, WebhookStore};
 
 const PARSERS: [&str; 4] = ["github", "generic", "stripe", "sentry"];
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -379,17 +379,38 @@ impl ChannelAdmin {
         Ok(shown)
     }
 
-    /// Any enabled schedule or webhook endpoint: what decides whether the runtime boots.
+    /// Any enabled schedule or webhook endpoint (an endpoint of the config file's `channels.endpoints` included, which
+    /// the receiver serves too): what decides whether the runtime boots.
     pub async fn has_active_automation(&self) -> bool {
         let (Ok(schedules), Ok(webhooks)) = (self.list_schedules().await, self.list_webhooks().await) else {
             return false;
         };
-        schedules.iter().chain(webhooks.iter()).any(|row| row["enabled"] != Value::Bool(false))
+        if schedules.iter().chain(webhooks.iter()).any(|row| row["enabled"] != Value::Bool(false)) {
+            return true;
+        }
+        self.config_endpoint_registered().await
+    }
+
+    /// An endpoint of `channels.endpoints` that is not switched off.
+    async fn config_endpoint_registered(&self) -> bool {
+        self.d.settings.webhook_config().await.is_ok_and(|config| config.endpoints.values().any(|e| e.enabled != Some(false)))
+    }
+
+    /// The receiver's settings as they are shown: `enabled` is what the receiver does, so an unset one shows the
+    /// automatic rule's answer (something registered receives through it).
+    async fn webhook_view(&self, settings: WebhookSettings) -> Done<Value> {
+        let on = match settings.enabled {
+            Some(stored) => stored,
+            None => self.config_endpoint_registered().await || self.d.webhooks.any_enabled_endpoint().await?,
+        };
+        let mut view = serde_json::to_value(settings).map_err(|e| e.to_string())?;
+        view["enabled"] = Value::Bool(on);
+        Ok(view)
     }
 
     pub async fn get_channel_setup(&self) -> Done {
         let webhook = self.d.settings.webhook().await?;
-        let mut view = serde_json::to_value(webhook).map_err(|e| e.to_string())?;
+        let mut view = self.webhook_view(webhook).await?;
         // `channelSetup` (channel-admin.mjs:707-715) reads the rows first and the identity file
         // after them, so a start that lands in between shows its identity with the older rows.
         let schedules = self.list_schedules().await?;
@@ -451,7 +472,7 @@ impl ChannelAdmin {
     pub async fn set_webhook_config(&self, patch: &Value) -> Done {
         let settings = self.d.settings.update_webhook(&WebhookPatch::from_params(patch)).await?;
         self.reload_soon();
-        Ok(json!({"webhook": settings}))
+        Ok(json!({"webhook": self.webhook_view(settings).await?}))
     }
 
     // ---- schedules ---------------------------------------------------------------------

@@ -25,13 +25,17 @@ use serde_json::{Map, Value};
 const DEFAULT_PORT: u16 = 3333;
 const IDENTITY_FILE: &str = "relay-hook-device.json";
 
-/// `CHANNELS_DEFAULTS.webhook` filled under what the file stores, in Node's key order; `enabled` defaults to off here
-/// (owner-approved difference from Node).
+/// `CHANNELS_DEFAULTS.webhook` filled under what the file stores, in Node's key order. `enabled` has no default here
+/// (owner rule, a difference from Node's `true`): it is there only when the file stores it, and a stored `true` or
+/// `false` is kept as it is; without one the receiver follows what is registered (see [`WebhookSettings`]).
 fn effective_webhook(channels: &Map<String, Value>) -> Map<String, Value> {
     let mut webhook = Map::new();
-    webhook.insert("enabled".into(), Value::Bool(false));
+    let stored = channels.get("webhook").and_then(Value::as_object);
+    if let Some(enabled) = stored.and_then(|stored| stored.get("enabled")) {
+        webhook.insert("enabled".into(), enabled.clone());
+    }
     webhook.insert("port".into(), Value::from(DEFAULT_PORT));
-    if let Some(stored) = channels.get("webhook").and_then(Value::as_object) {
+    if let Some(stored) = stored {
         for (key, value) in stored {
             webhook.insert(key.clone(), value.clone());
         }
@@ -63,14 +67,16 @@ fn listen_port(port: &Value) -> Result<u16, String> {
     }
 }
 
-/// What the receiver reads of its settings: it runs when `enabled === true`, on `port || 3333`.
+/// What the receiver reads of its settings: a stored `enabled` decides (`true` runs it, anything else does not), no
+/// stored one leaves it to the automatic rule; on `port || 3333`.
 fn settings_of(webhook: &Map<String, Value>) -> WebhookSettings {
     let port = match webhook.get("port") {
         Some(port) if truthy(port) => port.clone(),
         _ => Value::from(DEFAULT_PORT),
     };
     let domain = webhook.get("domain").and_then(Value::as_str).filter(|d| !d.is_empty()).map(str::to_owned);
-    WebhookSettings { enabled: webhook.get("enabled") == Some(&Value::Bool(true)), port, domain }
+    let enabled = webhook.get("enabled").map(|stored| stored == &Value::Bool(true));
+    WebhookSettings { enabled, port, domain }
 }
 
 /// The `channels` section of the live config (`readSection('channels')`).
@@ -109,7 +115,11 @@ impl ChannelSettings for ConfigChannelSettings {
                 stored.shift_remove("schedules");
                 let mut webhook = effective_webhook(&stored);
                 if let Some(enabled) = patch.enabled {
-                    webhook.insert("enabled".into(), Value::Bool(enabled));
+                    // `enabled` leads the section, as Node's defaults put it.
+                    let mut ordered = Map::new();
+                    ordered.insert("enabled".into(), Value::Bool(enabled));
+                    ordered.extend(std::mem::take(&mut webhook).into_iter().filter(|(key, _)| key != "enabled"));
+                    webhook = ordered;
                 }
                 if let Some(port) = patch.port {
                     webhook.insert("port".into(), port.clone());
@@ -119,9 +129,6 @@ impl ChannelSettings for ConfigChannelSettings {
                 }
                 *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(settings_of(&webhook));
                 // withoutDefaults
-                if webhook.get("enabled") == Some(&Value::Bool(false)) {
-                    webhook.shift_remove("enabled");
-                }
                 if webhook.get("port") == Some(&Value::from(DEFAULT_PORT)) {
                     webhook.shift_remove("port");
                 }

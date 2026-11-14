@@ -11,12 +11,16 @@ use serde_json::Value;
 use crate::channels::running::WorkGuard;
 use crate::webhooks::{WebhookConfig, WebhookService};
 
-/// The webhook receiver's settings (`channels.webhook`), defaults filled in. Off by default (owner-approved difference from
-/// Node, which defaults on); a stored `enabled: true` keeps it running.
+/// The webhook receiver's settings (`channels.webhook`), defaults filled in.
+///
+/// `enabled` is what the file stores: `Some(true)` / `Some(false)` win over everything; `None` (nothing stored) is
+/// automatic (owner rule, a difference from Node, which defaults on): the receiver and its public relay run while at
+/// least one thing that receives through it is registered (an enabled endpoint in the endpoint table or in
+/// `channels.endpoints`), and are off, with no port open and no outside connection, when nothing is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookSettings {
-    pub enabled: bool,
+    pub enabled: Option<bool>,
     /// Whatever number the settings hold (`config.port || 3333`); the listener refuses one that is
     /// not a port, as Node's `listen` does.
     pub port: Value,
@@ -26,7 +30,7 @@ pub struct WebhookSettings {
 
 impl Default for WebhookSettings {
     fn default() -> Self {
-        Self { enabled: false, port: Value::from(3333), domain: None }
+        Self { enabled: None, port: Value::from(3333), domain: None }
     }
 }
 
@@ -74,7 +78,7 @@ impl WebhookPatch {
 
     pub fn apply(&self, mut current: WebhookSettings) -> WebhookSettings {
         if let Some(enabled) = self.enabled {
-            current.enabled = enabled;
+            current.enabled = Some(enabled);
         }
         if let Some(port) = &self.port {
             current.port = port.clone();
@@ -175,12 +179,20 @@ impl WebhookAutomation {
     }
 
     async fn sync_turn(&self, reload: bool) -> Result<(), String> {
-        let settings = self.settings.webhook().await?;
-        if !settings.enabled {
+        let mut settings = self.settings.webhook().await?;
+        // The config-file endpoints are part of what is registered: the service holds them before it is asked.
+        self.service.set_config(self.settings.webhook_config().await?);
+        // A stored value wins; nothing stored means "on while something is registered", asked afresh by every sync
+        // (a save, a delete or an enable of an endpoint reloads the runtime, which syncs).
+        let on = match settings.enabled {
+            Some(stored) => stored,
+            None => self.service.has_registered().await?,
+        };
+        if !on {
             self.listening.lock().unwrap().take();
             return self.listener.stop().await;
         }
-        self.service.set_config(self.settings.webhook_config().await?);
+        settings.enabled = Some(true);
         let bound = self.listening.lock().unwrap().as_ref().map(|(_, port)| port.clone());
         // A listener whose port the reload keeps goes on listening: closing it to bind the same port
         // again would refuse every request arriving in between.
@@ -294,8 +306,8 @@ mod tests {
         for (given, kept) in [(json!(70000), json!(70000)), (json!("3.5"), json!(3.5)), (json!(-5), json!(-5)), (json!("1e3"), json!(1000)), (json!("Infinity"), Value::Null)] {
             assert_eq!(WebhookPatch::from_params(&json!({ "port": given })).port, Some(kept), "{given}");
         }
-        assert!(!WebhookSettings::default().enabled, "the receiver is off until it is turned on");
-        let applied = WebhookPatch { enabled: Some(true), ..Default::default() }.apply(WebhookSettings::default());
-        assert_eq!(applied, WebhookSettings { enabled: true, port: json!(3333), domain: None });
+        assert_eq!(WebhookSettings::default().enabled, None, "nothing stored is the automatic rule");
+        let applied = WebhookPatch { enabled: Some(false), ..Default::default() }.apply(WebhookSettings::default());
+        assert_eq!(applied, WebhookSettings { enabled: Some(false), port: json!(3333), domain: None });
     }
 }

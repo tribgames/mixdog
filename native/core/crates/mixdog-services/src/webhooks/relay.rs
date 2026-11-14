@@ -19,19 +19,20 @@ use tokio_util::sync::CancellationToken;
 use super::lifecycle::{HookTunnel, LocalPort, TunnelStarter};
 use super::tunnel::{MAX_HOOK_FRAME_BYTES, answer};
 
+/// Packaged default mirrors the desktop pairing relay.
+const DEFAULT_RELAY_URL: &str = "wss://192-255-139-161.sslip.io";
 const IDENTITY_FILE: &str = "relay-hook-device.json";
 
-/// `resolveHookRelayUrl`: `None` when the tunnel is switched off (`0`, `false`, `off`) or no relay is named (the relay is
-/// opt-in: owner-approved difference from Node, which falls back to the packaged relay), else the validated URL; the
-/// error is Node's `TypeError` message.
+/// `resolveHookRelayUrl`: `None` when the tunnel is switched off (`0`, `false`, `off`), else the
+/// validated URL (the packaged relay when none is named); the error is Node's `TypeError` message.
+/// The tunnel only ever starts with the receiver's listener, which runs only while something is registered
+/// to receive (or `channels.webhook.enabled` says so), so the default relay is not dialled otherwise.
 pub fn resolve_relay_url(raw: Option<&str>) -> Result<Option<String>, String> {
     let raw = js_trim(raw.unwrap_or(""));
     if matches!(raw.to_lowercase().as_str(), "0" | "false" | "off") {
         return Ok(None);
     }
-    if raw.is_empty() {
-        return Ok(None);
-    }
+    let raw = if raw.is_empty() { DEFAULT_RELAY_URL } else { raw };
     validated_relay_url(raw).map(|url| Some(url.to_string())).map_err(|e| e.hook_text().to_owned())
 }
 
@@ -234,8 +235,8 @@ mod tests {
         assert!(resolve_relay_url(Some("ws://relay.example")).unwrap_err().contains("must use wss"));
         assert!(resolve_relay_url(Some("wss://token@relay.example")).unwrap_err().contains("must not contain credentials"));
         assert_eq!(resolve_relay_url(Some("not a url")), Err("MIXDOG_RELAY_URL is invalid".into()));
-        assert_eq!(resolve_relay_url(None), Ok(None));
-        assert_eq!(resolve_relay_url(Some("  ")), Ok(None));
+        assert_eq!(resolve_relay_url(None), Ok(Some("wss://192-255-139-161.sslip.io/".into())));
+        assert_eq!(resolve_relay_url(Some("  ")), Ok(Some("wss://192-255-139-161.sslip.io/".into())));
         assert_eq!(hook_public_base("wss://relay.example/", "dev-1").unwrap(), "https://relay.example/hook/dev-1");
         assert_eq!(hook_public_base("ws://127.0.0.1:9800/x?y#z", "dev-1").unwrap(), "http://127.0.0.1:9800/hook/dev-1");
     }

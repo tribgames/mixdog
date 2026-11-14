@@ -1026,8 +1026,11 @@ impl McpServer {
         let result = ready.client.request(method, params, options).await;
         drop(permit);
         // The call's own deadline, worded as `runMcpRequest`'s caller words it (`executeMcpTool`, `_callMcpFeatureWithTimeout`).
+        // The total cap ends the call the same way: Node's own timer is re-armed on a progress to no more than the cap's remainder, so
+        // it fires at the cap with the same text (`mcpCallTimeout`). A cap that is the caller's deadline is not the call's own.
+        let caller_bound = from_deadline.is_some_and(|d| self.config.max_total_timeout.is_none_or(|m| d < m));
         let result = result.map_err(|error| match (error, self.config.call_timeout) {
-            (RpcError::IdleTimeout, Some(limit)) => {
+            (error @ (RpcError::IdleTimeout | RpcError::TotalTimeout), Some(limit)) if !(caller_bound && matches!(error, RpcError::TotalTimeout)) => {
                 let (kind, field, name) = match request {
                     Request::Tool(tool) => ("tool", "tool", tool),
                     Request::Feature(feature) => ("feature", "operation", feature.operation()),

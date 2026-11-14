@@ -233,6 +233,10 @@ impl WebhookStore for StateWebhookStore {
             .map(|e| Endpoint { enabled: Some(e.enabled), parser: e.parser, allow_unsigned: None }))
     }
 
+    async fn any_enabled_endpoint(&self) -> Result<bool, String> {
+        Ok(EndpointRecords::list(self).await?.iter().any(|e| e.enabled))
+    }
+
     async fn read_secret(&self, name: &str) -> Result<Option<String>, String> {
         Ok(self.load(name).await?.and_then(|e| e.secret).map(|s| mixdog_js::js_trim(&s).to_string()).filter(|s| !s.is_empty()))
     }

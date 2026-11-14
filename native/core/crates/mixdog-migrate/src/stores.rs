@@ -278,7 +278,10 @@ pub(crate) fn read_config(data: &Path) -> Result<Option<(Vec<u8>, Value)>> {
 /// Strict parse of the JSON formats among a store's files.
 fn parse_check(path: &Path, rel: &str, bytes: &[u8]) -> std::result::Result<(), String> {
     let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(bytes);
-    if rel.ends_with(".json") {
+    if rel == CONFIG_FILE {
+        // The config is read as Node reads it (`JSON.parse(readFileSync(path, 'utf8'))`): invalid UTF-8 as U+FFFD, any nesting, 1e400 as null.
+        json::parse_config(bytes).map(drop).map_err(|e| format!("{}: {e}", path.display()))
+    } else if rel.ends_with(".json") {
         json::parse_source(text).map(drop).map_err(|e| format!("{}: {e}", path.display()))
     } else if rel.ends_with(".jsonl") {
         for (n, line) in text.split(|&b| b == b'\n').enumerate() {
@@ -883,5 +886,18 @@ mod tests {
         assert_eq!(moved_quota_config(&serde_json::json!({"quotaResume": {"note": 1}})), None);
         let moved = moved_quota_config(&off).unwrap();
         assert_eq!(moved_quota_config(&moved), None);
+    }
+
+    #[test]
+    fn the_verify_reads_the_config_as_json_parse_does() {
+        let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
+        let mut bytes = b"{\"a\":\"\xff\",\"n\":1e400,\"deep\":".to_vec();
+        bytes.extend_from_slice(deep.as_bytes());
+        bytes.push(b'}');
+        let path = Path::new("mixdog-config.json");
+        assert_eq!(parse_check(path, CONFIG_FILE, &bytes), Ok(()));
+        // Another store's JSON keeps the strict parse.
+        assert!(parse_check(path, "other.json", &bytes).is_err());
+        assert!(parse_check(path, CONFIG_FILE, b"{\"a\":").is_err());
     }
 }

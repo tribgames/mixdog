@@ -179,7 +179,7 @@ fn part_attachment(part: &PromptPart, sizes: Option<&std::collections::BTreeMap<
     Some(json!({
         "id": reference, "kind": kind, "name": pick(name.as_ref(), default_name, 200),
         "mimeType": pick(mime, default_mime, 100),
-        "size": sizes.and_then(|s| s.get(reference)).copied().map(i64::from).or(size.filter(|s| *s > 0)).unwrap_or(0),
+        "size": sizes.and_then(|s| s.get(reference)).copied().map(serde_json::Number::from).or(size.clone().filter(|s| s.as_f64().is_some_and(|n| n > 0.0))).unwrap_or_else(|| 0.into()),
     }))
 }
 
@@ -495,5 +495,20 @@ mod tests {
         assert_eq!(records[1], Some(json!({ "id": digest, "kind": "text", "name": "n.md", "mimeType": "text/markdown", "size": 5 })));
         assert_eq!(records[2], Some(json!({ "id": "c".repeat(64), "kind": "image", "name": "attachment", "mimeType": "image/png", "size": 0 })));
         assert_eq!(records[3], None);
+    }
+
+    /// `sizeBytes` is any JS number (`Number(claimed) || 0`, `attachments/store.mjs:410`): a fractional claim parses, is echoed as given and
+    /// is the record's size when no stored blob names one.
+    #[test]
+    fn a_fractional_size_bytes_parses_and_is_recorded_as_given() {
+        let wire = json!([
+            { "type": "image", "attachmentRef": "d".repeat(64), "sizeBytes": 1.5, "mimeType": "image/png" },
+            { "type": "file", "attachmentRef": "e".repeat(64), "sizeBytes": -5, "mimeType": "x/y" },
+        ]);
+        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("a fractional size parses");
+        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
+        assert_eq!(part_attachment(&parts[0], None).unwrap()["size"], json!(1.5));
+        let content: mixdog_protocol::PromptContent = serde_json::from_value(wire).expect("the untagged content parses");
+        assert!(matches!(content, mixdog_protocol::PromptContent::Parts(_)));
     }
 }

@@ -39,14 +39,14 @@ use crate::webhooks::relay::{RelayTunnelStarter, hook_public_base};
 use crate::webhooks::signature::{Headers, hmac_hex};
 use crate::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore, WebhookConfig, WebhookService, WebhookStore};
 
-/// The recordings' receiver is enabled; the default of the core's settings is off.
+/// The recordings' receiver is enabled (stored); the core's default is the automatic rule (`None`).
 struct FakeSettings {
     webhook: Mutex<WebhookSettings>,
 }
 
 impl Default for FakeSettings {
     fn default() -> Self {
-        Self { webhook: Mutex::new(WebhookSettings { enabled: true, ..WebhookSettings::default() }) }
+        Self { webhook: Mutex::new(WebhookSettings { enabled: Some(true), ..WebhookSettings::default() }) }
     }
 }
 
@@ -628,7 +628,7 @@ async fn the_webhook_settings_patch_and_the_setup_view() {
     *e.base.0.lock().unwrap() = Some("https://hooks.example".into());
     let patched = e.admin.set_webhook_config(&json!({"enabled": false, "port": "4000", "domain": " d.example "})).await.unwrap();
     assert_eq!(patched, json!({"webhook": {"enabled": false, "port": 4000, "domain": "d.example"}}));
-    assert_eq!(*e.settings.webhook.lock().unwrap(), WebhookSettings { enabled: false, port: json!(4000), domain: Some("d.example".into()) });
+    assert_eq!(*e.settings.webhook.lock().unwrap(), WebhookSettings { enabled: Some(false), port: json!(4000), domain: Some("d.example".into()) });
     let setup = e.admin.get_channel_setup().await.unwrap();
     assert_eq!(setup["webhook"], json!({"enabled": false, "port": 4000, "domain": "d.example", "publicUrl": "https://hooks.example"}));
     assert_eq!((setup["schedules"].clone(), setup["webhooks"].clone()), (json!([]), json!([])));
@@ -1267,6 +1267,44 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
     let id = stored["deviceId"].as_str().unwrap();
     assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], format!("http://127.0.0.1:9/hook/{id}"));
     runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// The receiver's automatic rule: with nothing stored it listens while an endpoint that is not switched off is
+/// registered and stops when the last one goes; a stored value wins either way. Real receiver and table, no relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_receiver_follows_what_is_registered_unless_the_settings_say_otherwise() {
+    let e = env().await;
+    let data = tempfile::tempdir().unwrap();
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some("off".into())));
+    let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, None));
+    let automation = WebhookAutomation::new(e.settings.clone(), service, listener.clone());
+    *e.settings.webhook.lock().unwrap() = WebhookSettings::default();
+
+    automation.sync(false).await.unwrap();
+    assert!(!listener.listening().await, "nothing registered: no port is open");
+    e.webhooks.upsert(&EndpointRecord { name: "gh".into(), instructions: "x".into(), ..Default::default() }).await.unwrap();
+    automation.sync(true).await.unwrap();
+    assert!(listener.listening().await, "the first registered endpoint turns the receiver on");
+    e.webhooks.set_enabled("gh", false).await.unwrap();
+    automation.sync(true).await.unwrap();
+    assert!(!listener.listening().await, "the last one switched off turns it off again");
+
+    e.webhooks.set_enabled("gh", true).await.unwrap();
+    e.settings.webhook.lock().unwrap().enabled = Some(false);
+    automation.sync(true).await.unwrap();
+    assert!(!listener.listening().await, "a stored false wins over a registered endpoint");
+    e.webhooks.set_enabled("gh", false).await.unwrap();
+    e.settings.webhook.lock().unwrap().enabled = Some(true);
+    automation.sync(true).await.unwrap();
+    assert!(listener.listening().await, "a stored true wins over nothing being registered");
+    automation.stop().await;
 }
 
 /// The schedule store of the scheduler with its next-fire write held until a permit is given: the

@@ -310,6 +310,16 @@ fn wire_pin_of(route: Option<&Value>) -> Option<mixdog_core_api::domain::provide
     mixdog_core_api::domain::provider::WirePin::from_route(route?)
 }
 
+/// A provider no family serves is one that is not there: a custom provider just removed has no entry for the readiness to build
+/// (`ensureProviderEnabled` adds only `enabled: true`), and a live Node turn finds `getProvider` empty and says `Provider "<id>" not available`
+/// (`ask-turn-execute.mjs:178`). Any other readiness failure escapes as it is.
+fn unserved_provider(provider_id: &str, message: String) -> Result<Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>>, TurnError> {
+    if message == format!("[provider] Failed to init \"{provider_id}\": unknown enabled provider: {provider_id}") {
+        return Ok(None);
+    }
+    Err(refuse(message))
+}
+
 fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
@@ -402,7 +412,7 @@ impl HostRunParts {
         let provider = match s.registry.get(provider_id).await {
             Some(provider) => Some(provider),
             None => match seams.hop_host(thread, header) {
-                Some(host) => host.provider(provider_id).await.map_err(refuse)?,
+                Some(host) => host.provider(provider_id).await.or_else(|message| unserved_provider(provider_id, message))?,
                 None => None,
             },
         }
@@ -876,5 +886,19 @@ mod identity_tests {
         assert_eq!(request_of(&thread, &other).session_id.as_deref(), Some("thread_b"));
         let (thread, bad) = stored("thread_c", "openai-oauth", json!("not-a-uuid"));
         assert_eq!(request_of(&thread, &bad).session_id.as_deref(), Some("thread_c"));
+    }
+}
+
+#[cfg(test)]
+mod unserved_provider_tests {
+    use super::*;
+
+    #[test]
+    fn a_removed_custom_provider_is_not_available_and_another_failure_escapes() {
+        let gone = "[provider] Failed to init \"custom-x\": unknown enabled provider: custom-x".to_owned();
+        assert!(unserved_provider("custom-x", gone.clone()).unwrap().is_none());
+        // Another provider's failure, and another reason, keep their own text.
+        assert_eq!(unserved_provider("custom-y", gone).err().unwrap().message, "[provider] Failed to init \"custom-x\": unknown enabled provider: custom-x");
+        assert_eq!(unserved_provider("anthropic", "[provider] Failed to init \"anthropic\": not signed in".into()).err().unwrap().message, "[provider] Failed to init \"anthropic\": not signed in");
     }
 }

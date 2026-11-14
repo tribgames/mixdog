@@ -581,6 +581,23 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
     assert!(!row_of(&second).expect("row").contains_key("released"), "not released once 7 days passed");
 }
 
+/// An agent its owner closed is released for the list (Node's list drops a closed agent): the marker reads
+/// released until a turn starts on the session or the TTL passes, and a session never closed is not.
+#[tokio::test]
+async fn a_closed_agent_reads_released_until_a_turn_starts_or_the_marker_expires() {
+    let rig = Rig::new();
+    let registry = rig.registry();
+    assert!(!registry.is_released("sess_idle_closed"), "no marker, not released");
+    registry.mark_released(&["sess_idle_closed".into()]);
+    assert!(registry.is_released("sess_idle_closed"));
+    assert!(!registry.is_released("sess_other"));
+    crate::session::TurnStarts::turn_started(&registry, &mixdog_core_api::ids::ThreadId::from("sess_idle_closed"));
+    assert!(!registry.is_released("sess_idle_closed"), "a turn on it lifts the release");
+    registry.mark_released(&["sess_idle_closed".into()]);
+    rig.clock.0.store(NOW + 7 * DAY + 1, Ordering::SeqCst);
+    assert!(!registry.is_released("sess_idle_closed"), "the marker expires with the TTL");
+}
+
 /// `close-flow.stale-tag` shape: a tag without a session in scope does not resolve; a tag
 /// bound twice across terminals is ambiguous; a row of another owner is invisible.
 #[tokio::test]
