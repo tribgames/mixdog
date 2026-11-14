@@ -62,14 +62,16 @@ fn without_verbatim_prefix(path: &Path) -> PathBuf {
     }
 }
 
-/// Writes what the script printed, unbuffered, and returns its exit code.
+/// Writes what the script printed, unbuffered, and returns its exit code. Stderr goes first: every native
+/// script writes all of its stderr lines before its stdout line (validate-skill's warnings and errors before
+/// "Valid skill", inventory prints one stream per run), so this is the order of the calls.
 fn emit(outcome: &Outcome) -> i32 {
     let (mut stdout, mut stderr) = (std::io::stdout().lock(), std::io::stderr().lock());
     // A closed pipe ends the output, as it does a Node script's console.
-    let _ = stdout.write_all(outcome.stdout.as_bytes());
-    let _ = stdout.flush();
     let _ = stderr.write_all(outcome.stderr.as_bytes());
     let _ = stderr.flush();
+    let _ = stdout.write_all(outcome.stdout.as_bytes());
+    let _ = stdout.flush();
     outcome.code
 }
 

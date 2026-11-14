@@ -55,7 +55,7 @@ Replace
     };
     let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
 by
-    let mixdogd = std::env::current_exe().map_err(ComposeError::CurrentExe)?;   // or the existing current-exe error variant of compose.rs
+    let mixdogd = std::env::current_exe().map_err(ComposeError::Launcher)?;
     let skill_runtime = ExecSkillRuntime {
         platform: node_platform().to_owned(),
         interpreter: mixdogd.to_string_lossy().into_owned(),
