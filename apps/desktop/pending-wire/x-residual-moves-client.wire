@@ -1,0 +1,53 @@
+# x-residual-moves-client: callers of the four residual files -> core methods (NOT applied: see why)
+
+Why this is a fragment and not an edit: every caller is a file other tasks own (ipc-sessions.ts: s2a-ts-api-sessions;
+ipc-window-settings.ts: s2a-ts-api-settings; model-bootstrap.ts: x-residual-verdicts; ipc.ts is a desktop hot file), and the core
+does not serve the six methods yet (DesktopResidualService is not registered, the six names are in SERVICE_PENDING). The
+AttachmentHost implementation exists (mixdog-core-session session/attachments.rs DesktopAttachmentHost, g35-fu-x); its
+registration and the removal of the six SERVICE_PENDING names are written in native/core/crates/pending-wire/g35-fu-x.wire section 1.
+Switching a caller first would lose the attachment open, the font list and the link resolution. Deleting a file first would
+break its caller's import. So the four files stay byte for byte until the lines below are applied, in this order, by the same
+wiring that applies g35-fu-x.wire section 1 (apply that section first).
+
+## 1. system-fonts.ts + system-fonts.test.mjs: delete
+ipc-window-settings.ts: drop `import { listSystemFonts } from './system-fonts'`; replace
+  handle(DESKTOP_IPC.listSystemFonts, () => listSystemFonts());
+with
+  handle(DESKTOP_IPC.listSystemFonts, async () => ((await core.call('desktop/fonts/list', {})) as { families: string[] }).families);
+(`core` = the window's ProtocolConnection, passed from ipc.ts the way registerNotificationIpc gets `core: protocol`; with no
+connection the call fails as notifications do.) The core listing answers [] on failure, as the TS one did.
+
+## 2. session-attachments.ts + transcript-file-links.ts + both tests: delete
+ipc-sessions.ts: drop the import of './session-attachments'; replace the readSessionAttachment handler body with
+  const sid = requiredSessionId(sessionId);
+  const { viewName, attachment, dataUrl, bytes } = await core.call('desktop/attachment/resolve', { sessionId: sid, attachmentId });
+  return { name: viewName, mimeType: attachment.mimeType, size: bytes, dataUrl };
+A refusal arrives with code `file-download:not-linked|not-found|changed`; map it back with FileDownloadError (shared/file-downloads)
+where the paired-device download path reads fileDownloadErrorReason. `stageSessionAttachment` has no caller in the tree
+today; `desktop/attachment/stage` { sessionId, attachmentId } -> { path, attachment } serves a later caller. `requestedLinkPath` / `resolveLinkedPath` had no
+caller outside the two files: the core methods desktop/link/resolve and desktop/link/resolvePath serve later callers.
+session-history-boundary.test.mjs: remove 'main/session-attachments.ts' from the expected `readSessionHistory` list (the DesktopService
+`readSessionHistory` / `readSessionTranscript?` members then have no reader in main: drop them from desktop-service-contract.ts,
+desktop-service-client.ts and the SERVICE_OPERATION list with the sessionLane read if nothing else calls them).
+
+## 3. workflow-config.ts: delete
+Only `objectRecord` is used (model-bootstrap.ts, import line 9); `parseJsonc` / `readJsoncFile` have no caller (core:
+desktop/workflowConfig/read). Put `const record = (v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;`
+in model-bootstrap.ts in place of the import, then delete the file.
+
+## Parity checklist (TS case -> Rust twin in mixdog-core-domains desktop_residual_tests.rs)
+session-attachments.test: names attachments from user rows only, legacy images -> a_session_names_its_attachments_from_user_rows_only_legacy_images_included;
+  reads by id for its own session only -> an_attachment_reads_by_id_for_its_own_session_and_for_no_other;
+  compacted history names it -> an_attachment_only_the_compacted_history_names_opens_and_another_sessions_id_is_still_refused;
+  store lost or corrupted -> a_named_attachment_the_store_no_longer_holds_or_holds_corrupted_is_not_served;
+transcript-file-links.test: href decoding -> an_href_is_decoded_the_way_markdown_link_decodes_it_and_a_web_link_names_no_file (+ windows_hrefs_resolve_with_node_win32_rules);
+  resolve against the session folder / UNC never -> a_link_resolves_against_the_session_folder_and_network_paths_never_resolve;
+  task report / room speech attachments -> a_task_reports_and_a_room_speechs_returned_files_are_attachments_and_other_notices_carry_none;
+system-fonts.test: sorted unique families -> font_listings_become_sorted_unique_family_names; no listing -> a_platform_without_a_listing_answers_an_empty_list_and_free_text_stays;
+workflow-config (no TS test): jsonc_comments_and_trailing_commas_are_read_and_strings_are_left_alone, a_jsonc_file_that_is_missing_empty_or_nul_filled_holds_no_settings;
+stage -> an_attachment_stages_under_the_temp_directory_with_a_previewable_name; sessionId trim -> a_session_id_is_trimmed_and_holds_only_id_characters.
+Exported functions -> Rust (desktop_residual.rs): requiredAttachmentId -> attachment_id_shape (inside read_session_attachment);
+readSessionAttachment -> read_session_attachment; attachmentViewName -> attachment_view_name; stageSessionAttachment -> stage_session_attachment;
+NETWORK_PATH / resolveLinkedPath / requestedLinkPath -> resolve_linked_path / requested_link_path; sessionAttachments -> session_attachments;
+parseJsonc / readJsoncFile -> parse_jsonc / read_jsonc_file; objectRecord -> object_record (and the local `record` in model-bootstrap.ts);
+parseFontFamilies / listSystemFonts -> parse_font_families / list_system_fonts; the service dispatch -> the_service_answers_links_attachments_and_settings.
