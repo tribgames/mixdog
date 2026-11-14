@@ -77,6 +77,8 @@ fn shown(screen_id: &str, on_stop: Arc<dyn Fn() + Send + Sync>) -> IndicatorStat
 /// A session's places on the pill reach the desktop in the order the session made them, each with the label and what the pill needs.
 #[tokio::test]
 async fn the_pill_is_driven_in_the_order_the_session_made_its_calls() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
     let desktop = Desktop::answering(json!({}));
     let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
     indicator.show(shown("1", stop_counter().0));
@@ -97,6 +99,8 @@ async fn the_pill_is_driven_in_the_order_the_session_made_its_calls() {
 /// stop the session's later calls.
 #[tokio::test]
 async fn a_pill_that_was_never_shown_asks_nothing_and_a_refusing_desktop_is_not_a_failure() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
     let desktop = Desktop::refusing();
     let indicator = DesktopIndicator::new(desktop.clone(), Arc::default());
     indicator.update(true);
@@ -131,6 +135,8 @@ fn the_pills_stop_ends_the_session_of_its_display() {
 /// The desktop's Stop reaches the session through the same port the session showed its place by.
 #[tokio::test]
 async fn a_stop_reported_by_the_desktop_ends_the_shown_session() {
+    // The pill's requests go out on a task of their own (mixdog_rt::spawn).
+    let _ = mixdog_rt::testing::tokens();
     let stops = Arc::new(IndicatorStops::default());
     let indicator = DesktopIndicator::new(Desktop::answering(json!({})), stops.clone());
     let (on_stop, count) = stop_counter();
