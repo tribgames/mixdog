@@ -115,7 +115,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs', 'native/mixdog-computer/Cargo.toml', 'native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**', 'native/mixdog-browser-import/Cargo.toml', 'native/mixdog-browser-import/Cargo.lock', 'native/mixdog-browser-import/build.ps1', 'native/mixdog-browser-import/src/**', 'native/mixdog-secure-desktop/Cargo.toml', 'native/mixdog-secure-desktop/Cargo.lock', 'native/mixdog-secure-desktop/build.ps1', 'native/mixdog-secure-desktop/build.rs', 'native/mixdog-secure-desktop/src/**', 'native/mixdog-window/Cargo.toml', 'native/mixdog-window/Cargo.lock', 'native/mixdog-window/build.ps1', 'native/mixdog-window/.cargo/**', 'native/mixdog-window/src/**') }}${{ inputs.platform == 'win32' && format('-signer-{0}', steps.runtime-dependencies.outputs.signer_pin) || '' }}${{ inputs.platform == 'linux' && format('-glibc228-{0}', hashFiles('native/mixdog-graph/**', 'native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh')) || '' }}
+          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs', 'native/mixdog-computer/Cargo.toml', 'native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**', 'native/mixdog-browser-import/Cargo.toml', 'native/mixdog-browser-import/Cargo.lock', 'native/mixdog-browser-import/build.ps1', 'native/mixdog-browser-import/src/**', 'native/mixdog-secure-desktop/Cargo.toml', 'native/mixdog-secure-desktop/Cargo.lock', 'native/mixdog-secure-desktop/build.ps1', 'native/mixdog-secure-desktop/build.rs', 'native/mixdog-secure-desktop/src/**', 'native/mixdog-window/Cargo.toml', 'native/mixdog-window/Cargo.lock', 'native/mixdog-window/build.ps1', 'native/mixdog-window/build.rs', 'native/mixdog-window/.cargo/**', 'native/mixdog-window/src/**') }}${{ inputs.platform == 'win32' && format('-signer-{0}', steps.runtime-dependencies.outputs.signer_pin) || '' }}${{ inputs.platform == 'linux' && format('-glibc228-{0}', hashFiles('native/mixdog-graph/**', 'native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh')) || '' }}
       - name: Restore Electron downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -177,7 +177,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/window-library
-          key: desktop-window-library-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-window/**', '!native/mixdog-window/dist/**', '!native/mixdog-window/target/**') }}
+          key: desktop-window-library-v2-${{ inputs.arch }}-${{ hashFiles('native/mixdog-window/**', '!native/mixdog-window/dist/**', '!native/mixdog-window/target/**') }}
       # macOS and Windows bundle the native Computer Use helper, which
       # prepare-runtime builds from native/mixdog-computer for the target
       # (Windows with the runner's cargo, like the other in-repo helpers).
@@ -447,7 +447,7 @@ jobs:
           foreach ($file in 'dist/win-unpacked/Mixdog.exe', 'dist/mixdog-desktop-win-x64.exe',
                             'dist/win-unpacked/resources/native-tools/mixdog-secure-desktop.exe',
                             'dist/win-unpacked/resources/native-tools/mixdog-computer.exe',
-                            'dist/win-unpacked/resources/native-tools/mixdog_window.dll') {
+                            'dist/win-unpacked/resources/native-tools/mixdog_window.node') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') {
               throw "$file signature is $($signature.Status): $($signature.StatusMessage)"
