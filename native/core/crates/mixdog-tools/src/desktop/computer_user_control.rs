@@ -34,6 +34,8 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_backend::ProcessComputerBackend;
+use super::computer_backend::REPORTED_CODE;
+use super::computer_backend::error_text;
 use super::computer_command::text;
 use super::computer_lane;
 
@@ -608,7 +610,7 @@ impl UserControlState {
             }
             let now = Instant::now();
             if now >= deadline {
-                return Ok(Some(reply(paused_work_reply(command, USER_PAUSE))));
+                return Err(error_reply(paused_work_reply(command, USER_PAUSE)));
             }
             tokio::select! {
                 () = cancel.cancelled() => return Err(ComputerError::Cancelled),
@@ -652,10 +654,13 @@ impl UserControlState {
             }
         };
         let (payload, fresh) = pending_work_reply(command, observation);
-        let mut parts = reply(payload);
-        if fresh {
-            parts.extend(images);
+        // A recapture that did not succeed leaves the request with nothing to continue from: the reply is an error result
+        // (`recaptureRequiredReply`: `isError` when the payload is not ok).
+        if !fresh {
+            return Err(error_reply(payload));
         }
+        let mut parts = reply(payload);
+        parts.extend(images);
         Ok(parts)
     }
 
@@ -666,12 +671,37 @@ impl UserControlState {
         let observes = computer_lane::observes_only(text(command, "action"));
         match interrupt(command, observes, &result) {
             None => result,
-            Some(Interrupt::UserInput(payload)) => {
+            Some(interrupt) => self.interrupted(backend, command, observes, interrupt).await,
+        }
+    }
+
+    /// One step of a handed-off secret or a saved-login fill (`ComputerSecretHost::execute`) settled as a command is: the helper's
+    /// result stands, unless the person's input or a takeover code interrupted it. That is read from the error's code or the `code` of
+    /// the result itself, never from a comparison of reply texts. An interrupted step fails with the words the model reads (the
+    /// refusal, the yield, or the takeover's error).
+    pub(super) async fn settle_step(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, result: Result<Map<String, Value>, ComputerError>) -> Result<Map<String, Value>, String> {
+        let observes = computer_lane::observes_only(text(command, "action"));
+        let interrupted = match &result {
+            Err(error) => interrupt_of_error(command, observes, error),
+            Ok(reply) => interrupt_of_reply(observes, reply),
+        };
+        let Some(interrupt) = interrupted else { return result.map_err(|error| error_text(&error)) };
+        match self.interrupted(backend, command, observes, interrupt).await {
+            Ok(parts) => Err(parts.into_iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text) } else { None }).unwrap_or_else(|| "computer command was held".to_owned())),
+            Err(error) => Err(error_text(&error)),
+        }
+    }
+
+    /// What an interruption does to the person's hold: the person's input refuses the action (a foreground one's session also
+    /// yields), a takeover code hands the desktop back after the helper's cleanup.
+    async fn interrupted(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, observes: bool, interrupt: Interrupt) -> Result<Vec<ToolPart>, ComputerError> {
+        match interrupt {
+            Interrupt::UserInput(payload) => {
                 // A background action only ever refuses; a foreground one's session waits for the person to be idle.
                 let yielded = computer_lane::drives_foreground(command) && !observes && self.yield_session(&backend.config.session_id);
                 Ok(reply(if yielded { yielded_payload(payload, self.manual()) } else { payload }))
             }
-            Some(Interrupt::Takeover { code, error }) => {
+            Interrupt::Takeover { code, error } => {
                 let confirmed = backend.retire().await;
                 if !confirmed {
                     locked(&self.inner).latched.insert(backend.config.session_id.clone());
@@ -927,31 +957,54 @@ fn reply(payload: Map<String, Value>) -> Vec<ToolPart> {
     vec![ToolPart::Text(Value::Object(payload).to_string())]
 }
 
+/// A reply object as an error result (`{ text: JSON.stringify(payload), isError: true }`): the model reads the payload as it is, and
+/// the call is an error.
+fn error_reply(payload: Map<String, Value>) -> ComputerError {
+    ComputerError::Failed { code: REPORTED_CODE.into(), message: Value::Object(payload).to_string() }
+}
+
 /// What interrupted `result`, if anything: the person's input (an error of the helper, or a reply that carries the code, as a
 /// sequence's does) or a takeover code. A takeover code of a read is no takeover (`observesOnly`).
 fn interrupt(command: &Map<String, Value>, observes: bool, result: &Result<Vec<ToolPart>, ComputerError>) -> Option<Interrupt> {
-    let takes_over = |code: &str| TAKEOVER_CODES.contains(&code) && !observes;
     match result {
-        Err(ComputerError::Failed { code, message }) if code == USER_INPUT_ACTIVE => {
-            Some(Interrupt::UserInput(refusal_payload(text(command, "action"), text(command, "window_id"), !observes && !message.contains(SUPERSEDED))))
-        }
-        Err(error @ ComputerError::Failed { code, .. }) if takes_over(code) => Some(Interrupt::Takeover { code: code.clone(), error: error.clone() }),
+        Err(error) => interrupt_of_error(command, observes, error),
         Ok(parts) => {
             let Some(ToolPart::Text(body)) = parts.first() else { return None };
+            // Only a reply that names one of the two codes is worth reading.
             if !body.contains(USER_INPUT_ACTIVE) && !TAKEOVER_CODES.iter().any(|code| body.contains(code)) {
                 return None;
             }
             let Ok(Value::Object(payload)) = serde_json::from_str::<Value>(body) else { return None };
-            let code = payload.get("code").and_then(Value::as_str)?.to_owned();
-            if code == USER_INPUT_ACTIVE {
-                return Some(Interrupt::UserInput(payload));
-            }
-            let message = payload.get("message").and_then(Value::as_str).unwrap_or("reported by the native result");
-            let error = ComputerError::Failed { code: code.clone(), message: format!("{code}: {message}") };
-            takes_over(&code).then_some(Interrupt::Takeover { code, error })
+            interrupt_of_reply(observes, &payload)
         }
+    }
+}
+
+/// A takeover code of a mutation hands the desktop back; the code of a read is no takeover.
+fn takes_over(code: &str, observes: bool) -> bool {
+    TAKEOVER_CODES.contains(&code) && !observes
+}
+
+/// An error of the command that the person's input or a takeover code caused, by its code.
+fn interrupt_of_error(command: &Map<String, Value>, observes: bool, error: &ComputerError) -> Option<Interrupt> {
+    match error {
+        ComputerError::Failed { code, message } if code == USER_INPUT_ACTIVE => {
+            Some(Interrupt::UserInput(refusal_payload(text(command, "action"), text(command, "window_id"), !observes && !message.contains(SUPERSEDED))))
+        }
+        ComputerError::Failed { code, .. } if takes_over(code, observes) => Some(Interrupt::Takeover { code: code.clone(), error: error.clone() }),
         _ => None,
     }
+}
+
+/// A reply of the command (a sequence's, a helper's result) that carries the code of the person's input or of a takeover.
+fn interrupt_of_reply(observes: bool, reply: &Map<String, Value>) -> Option<Interrupt> {
+    let code = reply.get("code").and_then(Value::as_str)?;
+    if code == USER_INPUT_ACTIVE {
+        return Some(Interrupt::UserInput(reply.clone()));
+    }
+    let message = reply.get("message").and_then(Value::as_str).unwrap_or("reported by the native result");
+    let error = ComputerError::Failed { code: code.to_owned(), message: format!("{code}: {message}") };
+    takes_over(code, observes).then(|| Interrupt::Takeover { code: code.to_owned(), error })
 }
 
 /// `userInputRefusalPayload`: the reply for an action the person's own input interrupted. It refuses only that action, never
@@ -1019,6 +1072,13 @@ mod tests {
         serde_json::from_str(body).unwrap()
     }
 
+    /// The payload of a reply that is an error result (`isError: true`).
+    fn reported(result: Result<Option<Vec<ToolPart>>, ComputerError>) -> Value {
+        let Err(ComputerError::Failed { code, message }) = result else { panic!("an error result, got {result:?}") };
+        assert_eq!(code, REPORTED_CODE);
+        serde_json::from_str(&message).unwrap()
+    }
+
     fn idle_reading(idle_ms: u64) -> Result<Value, String> {
         Ok(json!({"ready": true, "observer_ready": true, "desktop_ready": true, "monitor": "m1", "sequence": 3, "idleMs": idle_ms, "held": false}))
     }
@@ -1053,6 +1113,30 @@ mod tests {
     /// A helper that answers every request with `ok`.
     fn quiet_helper() -> Arc<Scripted> {
         Scripted::new(|_| Ok(json!({"text": "ok"})))
+    }
+
+    /// A step of a handed-off secret or a saved-login fill is interrupted by the code of its error or of its result, never by a
+    /// comparison of texts: a result without the code stands as the helper's own; the person's input refuses the step (a
+    /// foreground one's session also yields); a takeover code hands the desktop back.
+    #[tokio::test(start_paused = true)]
+    async fn a_step_is_interrupted_by_its_code() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::from_secs(5)));
+        let a = session(&manager, &control, "a");
+        let stands = object(json!({"text": "typed", "note": "user_input_active is only a word here"}));
+        assert_eq!(control.settle_step(&a, &click_in_background(), Ok(stands.clone())).await, Ok(stands));
+        let refused = control.settle_step(&a, &click_in_background(), Ok(object(json!({"code": "user_input_active"})))).await.unwrap_err();
+        assert!(refused.contains("\"code\":\"user_input_active\"") && !refused.contains("yielded"), "{refused}");
+        assert_eq!(control.section(), None, "a background step only refuses");
+        let yielded = control.settle_step(&a, &focus(), Err(ComputerError::Failed { code: USER_INPUT_ACTIVE.into(), message: "user_input_active: interrupted".into() })).await.unwrap_err();
+        assert!(yielded.contains("\"status\":\"yielded\""), "{yielded}");
+        assert!(control.section().is_some_and(|section| !section.active), "the session yields");
+        control.resume(None);
+        let other = ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: unknown frame_id".into() };
+        assert_eq!(control.settle_step(&a, &focus(), Err(other)).await, Err("stale_frame: unknown frame_id".to_owned()));
+        let takeover = control.settle_step(&a, &click_in_background(), Ok(object(json!({"code": "input_cleanup_unconfirmed", "message": "a key is held"})))).await.unwrap_err();
+        assert_eq!(takeover, "input_cleanup_unconfirmed: a key is held");
+        assert!(control.section().is_some_and(|section| section.active), "the desktop is handed back");
     }
 
     /// The refusal and the yield read as the Node host's (`user-input-refusal.ts`).
@@ -1338,8 +1422,9 @@ mod tests {
         control.session_ended("a");
         assert!(control.section().is_some(), "the pause goes on while a session it was taken for is open");
         // A request meets the pause: it parks and, past the pause budget, answers `paused` (s3-07), never a takeover refusal.
-        let reply = control.admit(&b, &click_in_background(), &CancellationToken::new()).await.unwrap().expect("a paused reply");
-        assert_eq!(payload_of(&reply)["status"], "paused");
+        let paused = reported(control.admit(&b, &click_in_background(), &CancellationToken::new()).await);
+        assert_eq!(paused["status"], "paused");
+        assert_eq!(paused["ok"], true, "the reply says nothing failed, and is still an error result");
         assert!(control.section().is_some(), "a paused reply does not end the pause");
         control.session_ended("b");
         assert_eq!(control.section(), None, "the pause ends with the last session it was taken for (`releaseEndedPause`)");
@@ -1412,8 +1497,8 @@ mod tests {
         sleep(Duration::from_secs(5)).await;
         assert!(!parked.is_finished(), "the request waits while the pause lasts");
         assert!(control.resume(None));
-        let reply = parked.await.unwrap().unwrap().expect("the parked request is answered, not run");
-        let payload = payload_of(&reply);
+        // No window to capture again: the reply is an error result.
+        let payload = reported(parked.await.unwrap());
         assert_eq!(payload["code"], "computer_resume_recapture_required");
         assert_eq!(payload["status"], "resumed");
         assert_eq!(payload["ok"], false, "no window to capture again");
@@ -1476,9 +1561,8 @@ mod tests {
         assert!(control.pause());
         let started = Instant::now();
         let sequence = object(json!({"action": "sequence", "steps": [{"action": "key", "text": "a"}, {"action": "key", "text": "b"}]}));
-        let reply = control.admit(&a, &sequence, &CancellationToken::new()).await.unwrap().expect("a paused reply");
+        let payload = reported(control.admit(&a, &sequence, &CancellationToken::new()).await);
         assert_eq!(started.elapsed(), PAUSE_WAIT);
-        let payload = payload_of(&reply);
         assert_eq!(payload["status"], "paused");
         assert_eq!(payload["code"], "computer_user_intervention_pending");
         assert_eq!(payload["completed"], false);
