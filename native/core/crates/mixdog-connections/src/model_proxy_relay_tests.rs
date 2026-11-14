@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::{AllowedProviders, LocalModelProxy, ModelProxyRelay, ProxyEventSink};
+use super::{AllowedProviders, CallOutcome, LocalModelProxy, ModelProxyRelay, ProxyEventSink};
 
 const OPTIONS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -348,6 +348,42 @@ async fn a_server_on_its_own_logins_is_not_claimed() {
     execute(&rig.conn, json!(2));
     assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!([2])));
     rig.calls.recv().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn every_call_settles_once_with_its_provider_and_outcome() {
+    let mut rig = rig(all_providers()).await;
+    let mut settled = rig.relay.settled();
+    for id in 1..=3 {
+        rig.conn.server_send(&json!({
+            "id": id, "method": "model/proxy/execute",
+            "params": { "call": { "method": "listModels", "provider": "anthropic", "refresh": false } }
+        }));
+    }
+    for _ in 0..3 {
+        frame(&rig.conn).await; // claims
+    }
+    let answered = rig.calls.recv().await.unwrap();
+    let failed = rig.calls.recv().await.unwrap();
+    let abandoned = rig.calls.recv().await.unwrap();
+
+    answered.answer.send(route()).unwrap();
+    frame(&rig.conn).await;
+    let event = settled.recv().await.unwrap();
+    assert_eq!((event.provider.as_str(), event.outcome, event.failure), ("anthropic", CallOutcome::Answered, None));
+
+    let failure = failure("sign in again");
+    failed.answer.send(Ok(ProxyAnswer::Failed { failure: failure.clone() })).unwrap();
+    frame(&rig.conn).await;
+    let event = settled.recv().await.unwrap();
+    assert_eq!((event.provider.as_str(), event.outcome, event.failure), ("anthropic", CallOutcome::Failed, Some(failure)));
+
+    rig.relay.abandon_all();
+    let event = settled.recv().await.unwrap();
+    assert_eq!((event.provider.as_str(), event.outcome, event.failure), ("anthropic", CallOutcome::Abandoned, None));
+    abandoned.answer.send(route()).unwrap();
+    settle().await;
+    assert!(settled.try_recv().is_err(), "an abandoned call settles once");
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
