@@ -1,0 +1,21 @@
+# s4-bridge-forward: point the loopback browser bridge at the core (desktop wiring)
+
+bridge-forward.ts exports createBrowserBridgeForward({ request, lifecycle, dataDirectory?, keepAliveMs?, redactError? }) -> { start(), stop() }.
+It serves the same loopback contract and browser-bridge.json as createBrowserAgentBridge (bridge-server.ts is unchanged in contract) and runs each
+command through the core: browser/bridge/run, browser/bridge/turn (begin_turn / finish_turn), browser/bridge/abort (the caller's connection dropped).
+
+0. ORDER: apply item 1 only together with or after native/core/crates/pending-wire/s4-bridge-forward.wire (BrowserApprovalContext::session_gate
+   bound, deferred-g95 item 7). Before that a bridge command whose step asks (submit, post, upload, payment) fails with NO_APPROVAL_SURFACE where
+   it showed the approval card before.
+
+1. browser/host-agent.ts, where `const bridge = createBrowserAgentBridge({...})` is built (s4-delete-ts-engine owns the file, so this is its work, or the
+   lead's after the wave): the runner still serves the host lane (browser/host.ts commandRunner: agent.bridge.runner, host/browser/command), the
+   loopback server no longer is its:
+       const runner = createBrowserCommandRunner({...same options...});
+       const forward = createBrowserBridgeForward({ request: (method, params) => connection.request(method, params), lifecycle: runner });
+       const bridge = { runner, start: forward.start, stop: async () => { await forward.stop(); } };
+   `lifecycle: runner` is structural (begin, ready, inactive, end). `connection` is the HostConnection of host/connection.ts, as the other host modules get it.
+   When s4-delete-ts-engine deletes agent-bridge.ts the runner's lifecycle half (debugger attach, idle reclaim timer, destroyAllBackgroundPages) moves into
+   the lifecycle object it passes: nothing else of bridge-forward.ts changes.
+2. createBrowserAgentBridge (agent-bridge.ts) loses its BrowserBridgeServer use (bridge-server.ts no longer exports a timing-from-error path): delete it with the file.
+3. forms.test.mjs / secret-redaction.test.mjs import guardBrowserSecrets from agent-bridge.ts: they go with the file (the core redacts the session's secrets).
