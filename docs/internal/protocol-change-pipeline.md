@@ -49,6 +49,15 @@ Rules learned in G1:
   without `type`; keep `type = "..."` only for primitives.
 - A new field on a struct built by field elsewhere needs `<field>: None` at each literal (grep `<Struct> {`).
 
+Rules learned in G2:
+
+- `free_text_fields.json` walks client requests (`client_request.json`), client notifications and the answers of server
+  requests (`server_request_methods.json`). The params of a core -> host request (`request host/computer/...`) and the
+  result of a client method (`answer migrate/profile/...`) are not walked: classing them fails as "not a string field of
+  the schema", and a `FREE_TEXT` row for them is wrong too.
+- A new `ClientNotification` or client method whose service registers in a later wave goes into `SERVICE_PENDING`
+  (`mixdog-app-server-daemon/src/compose_flip.rs`) with the wave that registers it; the registering .wire removes it.
+
 ### Core: `native/core/crates/pending-wire/<task-id>.wire`
 
 Module lines, workspace members, `[dependencies]` lines and composition calls for the core hot files (`native/core/Cargo.toml`,
@@ -169,3 +178,29 @@ pcAccess/approve deny Local-only: main runs the Approve; a window reaches it onl
 
 `computer/userControl` (origins Local, Ssh) came with the wincu-int protocol hunks, which carry no `[window]` line.
 PROTO-WIRE-G3 decides its row from the desktop code that calls it (the Computer Use pill's Resume, Stop and Pause).
+
+### s3-02 (PROTO-WIRE-G2)
+
+```
+dev/computer/run deny dev harness entry: the desktop main process and CLI harnesses call it, never a renderer; the core also refuses it without MIXDOG_DEV_COMPUTER_RUN=1
+computer/pointerReleased deny desktop main only: it reports the real pointer over an overlay window, which no renderer owns (a client notification, listed for the window policy)
+computer/userControl deny main pill only: unchanged; its new actions pause, takeover and configureIdleResume come from the pill and the main process, never a renderer
+```
+
+The service s3-13 wrote serves `dev/computer/run` only in a `test-hooks` build started with `MIXDOGD_TEST_HOOKS=1` (not
+`MIXDOG_DEV_COMPUTER_RUN=1`, which s3-02 named); both fragments deny it to a window.
+
+### s3-13 (PROTO-WIRE-G2)
+
+```
+dev/computer/run deny a test hook for the live harness; a renderer never calls it
+```
+
+### x-migrate-adopt-core (PROTO-WIRE-G2)
+
+```
+migrate/profile/status deny host-role: the desktop main process asks which profile the core recorded; no renderer lane reaches it
+migrate/profile/adopt deny host-role: the core reads and moves files from the directory named; only the desktop main process names the profile
+```
+
+s3-10 and x-proto-gating-core carry no `[window]` line (a type edit and a `host/claim` field).
