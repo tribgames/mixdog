@@ -15,7 +15,6 @@ use crate::message::ToolKind;
 
 pub const OFFLOAD_PREFIX: &str = "[tool output offloaded:";
 const DEFAULT_THRESHOLD: usize = 50_000;
-const SETUP_THRESHOLD: usize = 20 * 1024;
 const GREP_THRESHOLD: usize = 20_000;
 const SHELL_SESSION_THRESHOLD: usize = 30_000;
 const MESSAGE_MAX: usize = 200_000;
@@ -73,9 +72,15 @@ fn threshold(tool: &str) -> usize {
         "grep" => GREP_THRESHOLD,
         "glob" | "list" | "tree" | "find_files" | "code_graph" => DEFAULT_THRESHOLD,
         "bash_session" | "terminal" => SHELL_SESSION_THRESHOLD,
-        "setup" => SETUP_THRESHOLD,
+        "setup" => setup_threshold(),
         _ => DEFAULT_THRESHOLD,
     }
+}
+
+/// `SETUP_OUTPUT_MAX_BYTES` (`MIXDOG_SETUP_OUTPUT_MAX_BYTES`, 20 KiB): the setup result's cap and its inline-offload threshold.
+fn setup_threshold() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_SETUP_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    *MAX
 }
 
 fn aggregate_excluded(tool: &str) -> bool {

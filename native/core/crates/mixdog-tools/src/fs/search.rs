@@ -859,7 +859,7 @@ fn locator_targets(args: &JsonValue) -> Vec<String> {
 /// Node's locator byte budget (`capLineOrientedToolOutput` with `_locatorBudgetFooter`): the most leading lines that
 /// fit in 20 KB together with a footer naming the complete rows they hold and the offset after them.
 fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
-    if text.len() <= LOCATOR_MAX_BYTES {
+    if text.len() <= locator_max_bytes() {
         return text;
     }
     let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
@@ -887,7 +887,7 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
             String::new()
         };
         cap_marker(
-            &format_cap_size(LOCATOR_MAX_BYTES),
+            &format_cap_size(locator_max_bytes()),
             &format!("{visible} complete row(s) shown for path={}{next}", serde_json::to_string(target).unwrap_or_default()),
             Some((offset + visible) as u64),
             "",
@@ -898,7 +898,7 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
         let mid = (lo + hi) / 2;
         let kept = &lines[..mid];
         let candidate = format!("{}{}{}", kept.join("\n"), if kept.is_empty() { "" } else { "\n" }, footer(kept));
-        if candidate.len() <= LOCATOR_MAX_BYTES {
+        if candidate.len() <= locator_max_bytes() {
             best = candidate;
             lo = mid + 1;
         } else if mid == 0 {
@@ -907,7 +907,7 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
             hi = mid - 1;
         }
     }
-    if best.is_empty() { byte_prefix(&footer(&[]), LOCATOR_MAX_BYTES).to_owned() } else { best }
+    if best.is_empty() { byte_prefix(&footer(&[]), locator_max_bytes()).to_owned() } else { best }
 }
 
 /// builtin.mjs `_grepShownEntries`: the complete context blocks kept (a header with every line of its range and one
@@ -937,7 +937,7 @@ fn grep_shown_entries(kept: &[&str]) -> usize {
 /// `GREP_OUTPUT_MAX_BYTES`, footer `_grepBudgetFooter`): the most leading lines that fit with a footer naming the match
 /// rows they hold and the offset after them; a pattern or path fan-out (`# grep ` sections) is told to narrow instead.
 fn grep_budget(text: String, offset: usize) -> String {
-    if text.len() <= GREP_MAX_BYTES {
+    if text.len() <= grep_max_bytes() {
         return text;
     }
     let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
@@ -952,14 +952,14 @@ fn grep_budget(text: String, offset: usize) -> String {
             ""
         };
         let next = (!fanout && shown > 0).then_some((offset + shown) as u64);
-        cap_marker(&format_cap_size(GREP_MAX_BYTES), &format!("{shown} match row(s) shown"), next, narrow)
+        cap_marker(&format_cap_size(grep_max_bytes()), &format!("{shown} match row(s) shown"), next, narrow)
     };
     let (mut lo, mut hi, mut best) = (0usize, lines.len(), String::new());
     while lo <= hi {
         let mid = (lo + hi) / 2;
         let kept = &lines[..mid];
         let candidate = format!("{}{}{}", kept.join("\n"), if kept.is_empty() { "" } else { "\n" }, footer(kept));
-        if candidate.len() <= GREP_MAX_BYTES {
+        if candidate.len() <= grep_max_bytes() {
             best = candidate;
             lo = mid + 1;
         } else if mid == 0 {
@@ -968,7 +968,7 @@ fn grep_budget(text: String, offset: usize) -> String {
             hi = mid - 1;
         }
     }
-    if best.is_empty() { byte_prefix(&footer(&[]), GREP_MAX_BYTES).to_owned() } else { best }
+    if best.is_empty() { byte_prefix(&footer(&[]), grep_max_bytes()).to_owned() } else { best }
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,11 +1066,11 @@ impl Tool for FindTool {
             lines.push("... [search timed out; partial results shown]".to_owned());
         }
         let text = lines.join("\n");
-        if text.len() > LOCATOR_MAX_BYTES {
-            let (kept, dropped) = cap_lines(&text, LOCATOR_MAX_BYTES);
+        if text.len() > locator_max_bytes() {
+            let (kept, dropped) = cap_lines(&text, locator_max_bytes());
             let rows = lines.len().saturating_sub(dropped);
             let marker = cap_marker(
-                &format_cap_size(LOCATOR_MAX_BYTES),
+                &format_cap_size(locator_max_bytes()),
                 &format!("{rows} match row(s) shown for query={query:?}"),
                 None,
                 "use a more specific query or add path",
@@ -1452,7 +1452,7 @@ impl Tool for GrepTool {
     /// `GREP_OUTPUT_MAX_BYTES` bytes with `_grepBudgetFooter`).
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        let text = self.answer(ctx, args, GREP_MAX_BYTES).await?;
+        let text = self.answer(ctx, args, grep_max_bytes()).await?;
         Ok(text_output(grep_budget(text, offset)))
     }
 }
