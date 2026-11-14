@@ -8,6 +8,7 @@
 //   unpacked package, runtime.asar or a server bundle
 //
 //   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
+//   native-tools/mixdog-computer.exe          a Windows package holds the Computer Use helper, built for its architecture
 //   runtime.asar.unpacked/node_modules         package root with everything `mixdogd` reads, the extension host /
 //                                              skill launcher dependency closure, the ONNX Runtime library + siblings
 //   server-cores/                              servers.json lists exactly the server platforms; each bundle.tgz matches
@@ -23,6 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { listPackage } from '@electron/asar';
 
+import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import { SERVER_PLATFORM_TARGETS } from '../src/main/ssh/server-manifest.mjs';
 import { CORE_READS, desktopMixdogRoot, PACKAGE_DIR, UNPACKED_NODE_MODULES, verifyCoreInstall, verifyRemotePayload } from './core-layout.mjs';
 
@@ -65,6 +67,11 @@ function packedPackageFiles({ resources, bundles }) {
 export function verifyStagedResources({ resources, platform, arch, hostOnly = false, deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')) }) {
   const exe = join(resources, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
   if (!existsSync(exe) || !statSync(exe).isFile()) throw new Error(`the Rust core ${exe} is not in the package`);
+  if (platform === 'win32') {
+    const helper = join(resources, 'native-tools', 'mixdog-computer.exe');
+    if (!existsSync(helper) || !statSync(helper).isFile()) throw new Error(`the Computer Use helper ${helper} is not in the package`);
+    if (!nativeBinaryRunsOn(readFileSync(helper), arch)) throw new Error(`the Computer Use helper ${helper} does not run on win32-${arch}`);
+  }
   const mixdogRoot = desktopMixdogRoot(resources);
   const archived = existsSync(join(resources, 'runtime.asar'))
     ? new Set(listPackage(join(resources, 'runtime.asar'), { isPack: false }).map((entry) => entry.replaceAll('\\', '/')))
