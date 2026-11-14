@@ -9,7 +9,7 @@
  * one screen, so Computer Use refuses new operations everywhere meanwhile. A
  * browser takeover never touches Computer Use.
  */
-import { withHumanOnlyApproval } from './human-only-approval';
+import { withHumanOnlyApproval } from './human-only-approval.ts';
 
 interface TakeoverSnapshotUpdate {
   sessionId?: string;
