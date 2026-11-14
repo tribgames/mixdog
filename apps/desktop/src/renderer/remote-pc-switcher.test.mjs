@@ -3,9 +3,12 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from './test-support/test-dom.mjs';
-import { RemotePcBrandDot, RemotePcCard, RemotePcSwitcher } from './RemotePcSwitcher.tsx';
+import { useConnectionsCore } from './test-support/connections-core-mock.mjs';
+
+const { RemotePcBrandDot, RemotePcCard, RemotePcSwitcher } = await import('./RemotePcSwitcher.tsx');
 
 function installBridge(window, hosts, calls) {
+  useConnectionsCore({});
   window.mixdogRemoteWindow = { hostId: 'a', hostName: 'Home PC' };
   window.mixdogRemoteWindowSwitcher = {
     listHosts: () => Promise.resolve(hosts),
@@ -214,11 +217,13 @@ function installMainWindow(
     listRemoteHosts: () => Promise.resolve(hosts),
     getRemoteAccessSettings: () => Promise.resolve(settings),
     subscribeRemoteAccessSettings: () => () => undefined,
+    sshListHosts: () => Promise.resolve([]),
     openRemoteHost: (id) => {
       calls.push(['open', id]);
       return Promise.resolve(hosts);
     },
   };
+  useConnectionsCore(window.mixdogDesktop);
 }
 
 const settleChip = () =>
@@ -257,7 +262,8 @@ test('main window, saved PCs: "● this PC name ▾" and a menu with online / wi
 
   await act(async () => button.click());
   const items = [...document.querySelectorAll('[role="menuitem"]')];
-  assert.equal(items.length, 6);
+  // The core always lists this PC's SSH servers, so the menu always offers 'Connect SSH server' (none saved here).
+  assert.equal(items.length, 7);
   assert.match(items[0].textContent, /Studio PC.*This PC · In use/);
   assert.match(items[1].textContent, /Home PC.*Online · Window open/);
   assert.match(items[2].textContent, /Office PC.*Offline · /);
@@ -265,7 +271,7 @@ test('main window, saved PCs: "● this PC name ▾" and a menu with online / wi
   assert.ok(items[0].disabled);
   assert.deepEqual(
     items.slice(3).map((item) => item.textContent),
-    ['Open another PC', 'Connect a device', 'Connection settings']
+    ['Open another PC', 'Connect SSH server', 'Connect a device', 'Connection settings']
   );
   assert.ok(
     items.slice(3).every((item) => item.querySelector('svg')),
@@ -299,6 +305,7 @@ test('main window menu actions open Settings → Connection, with the C dialog, 
 
 test('without the desktop bridge and outside a remote window the chip renders nothing', async (t) => {
   const { root, document } = installTestDom(t, { rootId: 'root', globals: ELECTRON });
+  useConnectionsCore({});
   await act(async () => root.render(React.createElement(RemotePcSwitcher)));
   assert.equal(document.querySelector('.remote-pc-switcher'), null);
 });

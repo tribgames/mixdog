@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 
+import { useConnectionsCore } from '../test-support/connections-core-mock.mjs';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { updateClaimQueue } from '../remote-claim-store.ts';
 import { installSectionStore } from '../section-store.ts';
 import { getCachedConnectionInfo, setCachedConnectionInfo } from './connection-info.ts';
 import { requestConnectionDialog } from './connection-intent.ts';
-import { ConnectionPanel } from './connection-panel.tsx';
+
+const { ConnectionPanel } = await import('./connection-panel.tsx');
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event'] };
 
@@ -110,6 +112,7 @@ function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pair
       : {}),
   };
   setCachedConnectionInfo(api, info);
+  useConnectionsCore(api);
   return { api, calls, state };
 }
 
@@ -189,7 +192,7 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
   assert.deepEqual(
     [...document.querySelectorAll('.conn-toolbar button')].map((b) => b.textContent),
-    ['Open another PC', 'Connect a device']
+    ['Open another PC', 'Connect SSH server', 'Connect a device']
   );
   const heads = [...document.querySelectorAll('.conn-group-head')];
   assert.deepEqual(
