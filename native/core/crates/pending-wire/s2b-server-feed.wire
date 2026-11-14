@@ -1,0 +1,34 @@
+# s2b-server-feed -> CORE-WIRE (G2)
+
+## native/core/crates/mixdog-connections/Cargo.toml, [dependencies] (dependency edges only)
+
+mixdog-app-server-client = { workspace = true }
+mixdog-rt = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+
+(mixdog-protocol is already listed: server_feed.rs uses mixdog_protocol::ThreadSummary.)
+
+## native/core/crates/mixdog-connections/Cargo.toml, [dev-dependencies] (new section)
+
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+mixdog-rt = { workspace = true }
+
+(server_feed_tests.rs implements ProtocolClient over a scripted stub; it starts no cargo, binary or window. It uses no timer:
+ no tokio::time call, so no test-support / virtual-clock feature is needed.)
+
+## Module line
+
+native/core/crates/mixdog-connections/src/lib.rs already declares `pub mod server_feed;`; nothing to add.
+The test module is declared inside server_feed.rs (`#[cfg(test)] #[path = "server_feed_tests.rs"] mod tests;`).
+
+## SERVICE_PENDING (compose_flip.rs)
+
+None: this task registers no protocol service and consumes only methods that already exist
+(thread/list, thread/finalAnswer/read, agent/pool/list, app/subscribe).
+
+## Notes for the lead
+
+- mixdog-workspace-hack: the new edges (tokio rt/sync/macros, serde_json, async-trait) are all features other crates already enable; run
+  `cargo hakari generate` after applying.
