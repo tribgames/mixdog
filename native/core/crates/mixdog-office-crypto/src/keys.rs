@@ -69,7 +69,6 @@ pub struct DerivationCounts {
     pub waiting: usize,
 }
 
-#[derive(Default)]
 struct Scheduler {
     running: usize,
     next_ticket: u64,
