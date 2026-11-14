@@ -1604,6 +1604,19 @@ impl super::NewThreadTools for KeepHeader {
     }
 }
 
+/// A created thread's header as production seeds it: the surface host writes the session's orchestration mode into it
+/// (`sessionOptions`: the configured mode, `balanced` with no config), so a thread never shows a legacy-derived mode.
+pub struct ConfiguredMode;
+
+#[async_trait::async_trait]
+impl super::NewThreadTools for ConfiguredMode {
+    async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+        let mut header = header.clone();
+        header.entry("orchestrationMode".to_owned()).or_insert_with(|| serde_json::json!("balanced"));
+        Ok(header)
+    }
+}
+
 /// An emptied thread's surface is always rebuilt (no surface host behind it).
 pub struct NoEmptySurface;
 
@@ -2296,6 +2309,13 @@ impl Rig {
 
     pub fn deps(&self) -> Arc<SessionDeps> {
         self.deps_on(self.store.clone())
+    }
+
+    /// [`deps`](Self::deps) whose created threads carry the configured orchestration mode, as the surface host seeds them.
+    pub fn deps_configured(&self) -> Arc<SessionDeps> {
+        let mut parts = self.deps_parts(self.store.clone());
+        parts.new_tools = Arc::new(ConfiguredMode);
+        Arc::new(parts)
     }
 
     /// The stack over another thread store (the real one over a temp data dir).
