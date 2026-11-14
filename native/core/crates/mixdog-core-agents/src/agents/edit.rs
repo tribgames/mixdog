@@ -33,6 +33,7 @@ use super::avatar::state_path;
 use super::connectors::ApprovedToolChange;
 use super::connectors::assert_not_widened;
 use super::connectors::policy_input;
+use super::files::BOTS_DIR;
 use super::files::DELETED_MARKER;
 use super::files::FIXED_SLOTS;
 use super::files::Folders;
@@ -646,6 +647,26 @@ pub(super) fn purge_begin(lane: &InLane<DurabilityIo>, plan: &LifecyclePlan) -> 
     }
     write_text(lane, &dir.join(PURGING_MARKER), "purging\n", &state::Opts::default())?;
     Ok(true)
+}
+
+/// `finishUnfinishedPurges`' scan: the ids whose folder, under `agents/` or `bots/`, carries the
+/// purge marker with its definition archived or gone, which is a purge a crash cut short. A
+/// marker beside a live definition is not one.
+pub(super) fn unfinished_purges(folders: &Folders, lane: &Lane) -> Vec<String> {
+    let mut ids = std::collections::BTreeSet::new();
+    for root in [folders.data.join("agents"), folders.data.join(BOTS_DIR)] {
+        let Ok(entries) = std::fs::read_dir(root) else { continue };
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if !id.is_empty() && purge_pending(&folders.user_dir(lane, &id)) {
+                ids.insert(id);
+            }
+        }
+    }
+    ids.into_iter().collect()
 }
 
 /// `purgeFiles`: everything the agent left goes.

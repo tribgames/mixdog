@@ -28,6 +28,7 @@ use super::AgentDefinitions;
 use super::AgentGreetings;
 use super::AgentHomeSessions;
 use super::AgentsError;
+use super::edit;
 use super::SaveOptions;
 use super::permissions::AgentPermissions;
 
@@ -99,6 +100,23 @@ impl AgentLifecycle {
     }
 }
 
+/// Every agent whose purge a crash cut off (its `.purging` marker with the definition archived or gone) is purged again,
+/// one at a time as a purge of the id: its routines go, then its folder and route. One failing does not stop the rest.
+pub(super) async fn finish_unfinished_purges(agents: &AgentDefinitions) {
+    let ids = match agents.job(|folders, lane| edit::unfinished_purges(folders, lane)).await {
+        Ok(ids) => ids,
+        Err(error) => {
+            tracing::warn!("[mixdog-agents] Could not look for unfinished agent purges: {error:?}");
+            return;
+        }
+    };
+    for id in ids {
+        if let Err(error) = agents.purge(&id).await {
+            tracing::warn!("[mixdog-agents] Could not finish the purge of agent \"{id}\": {error}");
+        }
+    }
+}
+
 pub struct AgentService {
     agents: Arc<AgentDefinitions>,
     connectors: AgentConnectors,
@@ -140,7 +158,11 @@ fn no_widen(params: &Value) -> bool {
 }
 
 impl AgentService {
+    /// Starting the domain finishes the purges a crash cut short (`finishUnfinishedPurges` at the session runtime's
+    /// boot), once and off the caller's path.
     pub fn new(agents: Arc<AgentDefinitions>, connectors: AgentConnectors, permissions: AgentPermissions, lifecycle: AgentLifecycle) -> Self {
+        let boot = agents.clone();
+        drop(mixdog_rt::spawn("agent-finish-purges", mixdog_rt::TaskClass::Work, async move { finish_unfinished_purges(&boot).await }));
         Self { agents, connectors, permissions, lifecycle }
     }
 
@@ -248,5 +270,71 @@ impl DomainService for AgentService {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mixdog_tools::policy::FileGrantStore;
+    use serde_json::json;
+
+    use super::*;
+    use crate::agents::tests::writable;
+
+    #[tokio::test]
+    async fn starting_the_domain_finishes_a_purge_a_crash_cut_off() {
+        let (dir, agents) = writable(json!({})).await;
+        let agents = Arc::new(agents);
+        let data = dir.path().join("data");
+        let cut = data.join("agents/cut");
+        std::fs::create_dir_all(&cut).unwrap();
+        std::fs::write(cut.join(".purging"), "purging
+").unwrap();
+        std::fs::write(cut.join("AGENT.md.archived"), "---
+name: Cut
+---
+
+Body
+").unwrap();
+        std::fs::write(cut.join(".deleted"), "deleted
+").unwrap();
+        // A marker beside a live definition is not a purge to finish.
+        let live = data.join("agents/live");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(live.join(".purging"), "purging
+").unwrap();
+        std::fs::write(live.join("AGENT.md"), "---
+name: Live
+---
+
+Body
+").unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let connectors = AgentConnectors::new(agents.clone(), Arc::new(NoCatalog));
+        let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(|| 1));
+        let _service = AgentService::new(agents, connectors, AgentPermissions::new(grants), crate::agents::lifecycle_twin_tests::quiet_lifecycle());
+        let started = std::time::Instant::now();
+        while cut.exists() && started.elapsed() < std::time::Duration::from_secs(10) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(!cut.exists(), "the marked folder is gone");
+        assert!(live.join("AGENT.md").exists(), "a live agent is left alone");
+    }
+
+    struct NoCatalog;
+
+    #[async_trait]
+    impl crate::agents::ConnectorCatalog for NoCatalog {
+        async fn installed(&self) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        async fn tool_names(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn connector_of(&self, _: &str) -> Option<String> {
+            None
+        }
     }
 }
