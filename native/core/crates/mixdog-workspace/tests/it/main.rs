@@ -1,4 +1,5 @@
 mod browse;
+mod desktop_files;
 mod idle_gate;
 mod kill_points;
 mod lsp_real;
