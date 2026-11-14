@@ -1,0 +1,20 @@
+# s3-04 -> CORE-WIRE-G2
+
+## native/core/crates/mixdog-tools/src/desktop/mod.rs, `mod computer_image_output;` after `mod computer_gnome;`, and `mod computer_marks_draw;` after `pub mod computer_linux;`
+(`pub mod` instead of `mod` for either when the compose call below sits outside mixdog-tools; the items are `ImageOutput` and `paint_marks`, `paint_marks_or_input`, `Mark`, `MarkSource`, `PaintedImage`, `Overlay`, `PaintError`.)
+
+## native/core/Cargo.toml `[workspace.dependencies]`, next to jpeg-decoder
+    jpeg-encoder = "0.6"      # owner direction 12 (set-of-marks JPEG re-encode); not yet in Cargo.lock
+    png = { version = "0.18", default-features = false }   # PNG decode/encode of the burn-in; png 0.18.x and its fdeflate/bitflags deps are in the local registry cache but not in Cargo.lock
+Then `cargo update --workspace --offline` and `cargo hakari generate` (mixdog-workspace-hack Cargo.toml and Cargo.lock change with them).
+
+## native/core/crates/mixdog-tools/Cargo.toml `[dependencies]`
+    jpeg-decoder = { workspace = true }
+    jpeg-encoder = { workspace = true }
+    png = { workspace = true }
+
+## compose call
+None here: the two modules are used by the capture reply, which is s3-03's/s3-17's wiring of the SOM mode and `image_output: "file"`:
+- `ImageOutput::new(config.data_dir)` once per backend, `write(session_id, frame_id, bytes, mime)` -> on Err keep the image inline (as persistCaptureImage).
+- `paint_marks_or_input(...)` for `mode == "som"` with the elements' `mark`/`bounds`/`source`; `rendered` / `error` feed `overlay_rendered` / `overlay_error`.
+No SERVICE_PENDING name is touched by this task.
