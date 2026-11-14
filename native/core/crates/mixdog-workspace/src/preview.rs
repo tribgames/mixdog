@@ -46,7 +46,7 @@ fn extension(path: &Path) -> String {
 }
 
 /// `FILE_PREVIEW_TYPES` (`shared/file-preview.ts`): the kind and mime of a browser-native preview.
-fn file_preview_type(path: &Path) -> Option<(&'static str, &'static str)> {
+pub fn file_preview_type(path: &Path) -> Option<(&'static str, &'static str)> {
     Some(match extension(path).as_str() {
         "png" => ("image", "image/png"),
         "jpg" | "jpeg" | "jfif" => ("image", "image/jpeg"),
