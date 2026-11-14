@@ -4,14 +4,14 @@
 //!
 //! The source is read and the cache written on the durability lane. The host answering `None` is
 //! Node's `null` (no sharp, or a source that does not decode): there is no rendition. A host that
-//! cannot answer is an error, never `None`. Video posters (ffmpeg) are a different step and are
-//! not here.
+//! cannot answer is an error, never `None`. A video's poster is ffmpeg's (`grabVideoFrame`): the first
+//! frame past the black lead-in, as the tile-sized JPEG, cached like a still.
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use mixdog_core_api::domain::ext::ExtError;
@@ -19,6 +19,8 @@ use mixdog_exthost::{ExtImageCodec, RenditionVariant};
 use mixdog_protocol::ThreadId;
 use mixdog_rt::DurabilityIo;
 use tokio::sync::oneshot;
+
+use crate::tidy::process::{Processes, RunOptions};
 
 use super::store::write_atomic;
 use crate::lane::on_lane;
@@ -36,6 +38,9 @@ pub struct Rendition {
     pub path: PathBuf,
     pub mime: &'static str,
     pub bytes: u64,
+    /// The clip's length, probed while its poster was built (`durationSeconds`); none for a still
+    /// or a cached rendition.
+    pub duration_seconds: Option<i64>,
 }
 
 /// Cloneable because one generation answers every caller waiting on it.
@@ -259,7 +264,7 @@ pub fn cached_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str) -
             let _ = fs::remove_file(&path);
             continue;
         }
-        return Some(Rendition { path, mime, bytes: info.len() });
+        return Some(Rendition { path, mime, bytes: info.len(), duration_seconds: None });
     }
     None
 }
@@ -318,7 +323,7 @@ pub fn write_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str, ex
     }
     let size = fs::metadata(&path).map_or(bytes.len() as u64, |m| m.len());
     prune_cache(cache_dir, cache_max_bytes(), &path);
-    Ok(Some(Rendition { path, mime, bytes: size }))
+    Ok(Some(Rendition { path, mime, bytes: size, duration_seconds: None }))
 }
 
 /// `removeRenditions`: every cached rendition of one asset, in every variant and format.
@@ -335,7 +340,7 @@ pub fn remove_renditions(cache_dir: &Path, id: &str) {
 pub struct Request {
     pub thread: ThreadId,
     pub id: String,
-    /// A video's poster is ffmpeg's, not this step's: only a cached one is served.
+    /// A video's poster is ffmpeg's frame, not the image host's webp.
     pub video: bool,
     pub source: PathBuf,
     pub variant: RenditionVariant,
@@ -371,8 +376,16 @@ impl State {
     }
 }
 
+/// What a video poster is made with: the process manager and where ffmpeg is now.
+struct Posters {
+    processes: Processes,
+    ffmpeg: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
+}
+
 struct Inner {
     codec: Arc<ExtImageCodec>,
+    /// Set once by the composition; without it a video has no poster (no ffmpeg runtime).
+    posters: OnceLock<Posters>,
     lane: DurabilityIo,
     cache_dir: PathBuf,
     cooldown: Duration,
@@ -391,7 +404,13 @@ impl StillRenditions {
     }
 
     pub fn with_cooldown(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf, cooldown: Duration) -> Self {
-        Self(Arc::new(Inner { codec, lane, cache_dir, cooldown, scheduler: Scheduler::new(SCHEDULER_LIMIT), state: Mutex::default() }))
+        Self(Arc::new(Inner { codec, posters: OnceLock::new(), lane, cache_dir, cooldown, scheduler: Scheduler::new(SCHEDULER_LIMIT), state: Mutex::default() }))
+    }
+
+    /// Lets videos have a poster: `ffmpeg` answers where the ffmpeg binary is at the time (none while
+    /// it is not installed), `processes` runs it. Set once; a second call changes nothing.
+    pub fn enable_video_posters(&self, processes: Processes, ffmpeg: impl Fn() -> Option<PathBuf> + Send + Sync + 'static) {
+        let _ = self.0.posters.set(Posters { processes, ffmpeg: Arc::new(ffmpeg) });
     }
 
     /// [`ensure_request`](Self::ensure_request) for a foreground still.
@@ -476,7 +495,7 @@ async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
 
 async fn generate(inner: &Inner, request: &Request) -> Outcome {
     if request.video {
-        return Ok(None);
+        return poster(inner, request).await;
     }
     let variant = request.variant;
     let source = request.source.clone();
@@ -485,6 +504,110 @@ async fn generate(inner: &Inner, request: &Request) -> Outcome {
     let Some(still) = inner.codec.still_rendition(&request.thread, &bytes, variant).await.map_err(RenditionError::Host)? else { return Ok(None) };
     let (cache_dir, id) = (inner.cache_dir.clone(), request.id.clone());
     Ok(on_lane(inner.lane, move || write_rendition(&cache_dir, variant, &id, &still.extension, &still.bytes)).await??)
+}
+
+/// `resolveFfmpeg`: the binary `MIXDOG_FFMPEG_PATH` (`explicit`) names when it exists, else the
+/// ffmpeg of the managed voice runtime under `data_dir`; none when neither is there. Blocking: run
+/// it on a lane.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+pub fn managed_ffmpeg(explicit: Option<&str>, data_dir: &Path, manifest: &crate::voice::RuntimeManifest) -> Option<PathBuf> {
+    if let Some(path) = explicit.map(mixdog_js::js_trim).filter(|path| !path.is_empty()).map(PathBuf::from).filter(|path| path.exists()) {
+        return Some(path);
+    }
+    crate::voice::resolve_voice_runtime(data_dir, manifest).ffmpeg_path.filter(|path| path.exists())
+}
+
+/// `POSTER_TIMEOUT_MS`.
+const POSTER_TIMEOUT: Duration = Duration::from_secs(20);
+/// `MAX_POSTER_BYTES`: a corrupt clip could stream frames forever; the poster is one image.
+const MAX_POSTER_BYTES: u64 = 32 * 1024 * 1024;
+/// The long edge of the tile-sized poster (`SPECS.thumb.maxEdge`).
+const THUMB_EDGE: u32 = 512;
+
+/// `videoPosterArguments`, writing the JPEG to `out` instead of a pipe.
+fn poster_arguments(source: &Path, out: &Path) -> Vec<String> {
+    [
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        &source.to_string_lossy(),
+        // The encoded first frame is frequently a black transition. An accurate post-input seek
+        // gives generated clips a representative early poster.
+        "-ss",
+        "0.12",
+        "-frames:v",
+        "1",
+        "-vf",
+        &format!("scale='min({THUMB_EDGE},iw)':-2"),
+        "-q:v",
+        "4",
+        "-f",
+        "image2",
+        "-vcodec",
+        "mjpeg",
+        "-y",
+        &out.to_string_lossy(),
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+/// `parseDurationSeconds`: the first `Duration: h:m:s` of ffmpeg's banner, rounded; 0 when there is none.
+fn parse_duration_seconds(text: &str) -> i64 {
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    for (at, found) in text.match_indices("Duration:") {
+        let mut parts = text[at + found.len()..].trim_start().splitn(3, ':');
+        let (Some(h), Some(m), Some(rest)) = (parts.next(), parts.next(), parts.next()) else { continue };
+        let whole = rest.bytes().take_while(u8::is_ascii_digit).count();
+        // `.` is part of the number only when digits follow it.
+        let fraction = match rest[whole..].strip_prefix('.') {
+            Some(after) => match after.bytes().take_while(u8::is_ascii_digit).count() {
+                0 => 0,
+                n => 1 + n,
+            },
+            None => 0,
+        };
+        if !digits(h) || !digits(m) || whole == 0 {
+            continue;
+        }
+        let seconds = h.parse::<f64>().unwrap_or(0.0) * 3600.0 + m.parse::<f64>().unwrap_or(0.0) * 60.0 + rest[..whole + fraction].parse::<f64>().unwrap_or(0.0);
+        return if seconds.is_finite() { seconds.round() as i64 } else { 0 };
+    }
+    0
+}
+
+/// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
+/// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
+/// a frame over the cap is no rendition.
+#[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
+async fn poster(inner: &Inner, request: &Request) -> Outcome {
+    let variant = request.variant;
+    if variant != RenditionVariant::Thumb {
+        return Ok(None);
+    }
+    let Some(posters) = inner.posters.get() else { return Ok(None) };
+    let resolve = posters.ffmpeg.clone();
+    let Some(ffmpeg) = on_lane(inner.lane, move || resolve().filter(|path| path.is_file())).await? else { return Ok(None) };
+    let out = rendition_path(&inner.cache_dir, variant, &request.id, ".poster-tmp.jpg");
+    let dir = out.parent().map(Path::to_owned).unwrap_or_default();
+    let made = dir.clone();
+    if on_lane(inner.lane, move || fs::create_dir_all(&made)).await?.is_err() {
+        return Ok(None);
+    }
+    let mut options = RunOptions::new(&dir);
+    options.timeout = POSTER_TIMEOUT;
+    let ran = posters.processes.run(&ffmpeg.to_string_lossy(), &poster_arguments(&request.source, &out), options).await;
+    let read = on_lane(inner.lane, move || {
+        let bytes = fs::metadata(&out).ok().filter(|m| m.len() <= MAX_POSTER_BYTES).and_then(|_| fs::read(&out).ok());
+        let _ = fs::remove_file(&out);
+        bytes
+    })
+    .await?;
+    let Some(bytes) = read.filter(|bytes| !bytes.is_empty() && !ran.timed_out) else { return Ok(None) };
+    let seconds = parse_duration_seconds(&ran.stderr);
+    let (cache_dir, id) = (inner.cache_dir.clone(), request.id.clone());
+    let written = on_lane(inner.lane, move || write_rendition(&cache_dir, variant, &id, ".jpg", &bytes)).await??;
+    Ok(written.map(|rendition| Rendition { duration_seconds: (seconds != 0).then_some(seconds), ..rendition }))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -538,7 +661,7 @@ pub(super) mod tests {
         }
     }
 
-    fn rig(answer: Result<Value, ExtError>) -> (tempfile::TempDir, Arc<Host>, StillRenditions, PathBuf) {
+    pub(super) fn rig(answer: Result<Value, ExtError>) -> (tempfile::TempDir, Arc<Host>, StillRenditions, PathBuf) {
         rig_with(answer, Duration::ZERO, FAILED_RENDITION_COOLDOWN)
     }
 
@@ -813,5 +936,42 @@ pub(super) mod tests {
         // A host that is gone is an error, never "no rendition".
         let gone = within(renditions.ensure(&thread, "late", source, RenditionVariant::Thumb, true)).await;
         assert!(matches!(gone, Err(RenditionError::Host(_))), "{gone:?}");
+    }
+}
+
+#[cfg(test)]
+mod poster_tests {
+    use super::*;
+
+    #[test]
+    fn the_duration_is_the_first_banner_value_rounded() {
+        assert_eq!(parse_duration_seconds("  Duration: 00:01:02.60, start: 0.0"), 63);
+        assert_eq!(parse_duration_seconds("Duration: N/A\n  Duration: 01:00:00.00"), 3600);
+        assert_eq!(parse_duration_seconds("Duration: 00:00:05"), 5);
+        assert_eq!(parse_duration_seconds("no banner"), 0);
+        assert_eq!(parse_duration_seconds("Duration: 00:00:"), 0);
+    }
+
+    #[test]
+    fn the_poster_arguments_take_a_representative_early_tile_sized_frame() {
+        let args = poster_arguments(Path::new("in.mp4"), Path::new("out.jpg"));
+        let at = |flag: &str| args.iter().position(|a| a == flag).map(|i| args[i + 1].as_str());
+        assert_eq!(at("-i"), Some("in.mp4"));
+        assert_eq!(at("-ss"), Some("0.12"));
+        assert_eq!(at("-frames:v"), Some("1"));
+        assert_eq!(at("-vf"), Some("scale='min(512,iw)':-2"));
+        assert_eq!(args.last().map(String::as_str), Some("out.jpg"));
+    }
+
+    #[tokio::test]
+    async fn a_video_has_no_poster_without_ffmpeg_and_a_display_size_never_has_one() {
+        let (_dir, _host, renditions, source) = tests::rig(Ok(serde_json::json!({"ok": null})));
+        for (variant, enabled) in [(RenditionVariant::Thumb, false), (RenditionVariant::Display, true)] {
+            if enabled {
+                renditions.enable_video_posters(Processes::for_tests(), || Some(PathBuf::from("no-such-ffmpeg")));
+            }
+            let request = Request { thread: ThreadId("t".into()), id: "v".into(), video: true, source: source.clone(), variant, priority: Priority::Foreground, generate: true };
+            assert_eq!(renditions.ensure_request(request).await.unwrap(), None);
+        }
     }
 }

@@ -4,9 +4,11 @@
 //! A failure becomes one fixed sentence per cause (`GMAIL_APP_PASSWORD_<CODE>: …`) and the
 //! password never appears in it.
 //!
-//! Known gaps against Node: the server certificate is checked against the system roots (Node
-//! uses its bundled list), certificate failures carry Node's codes but only the leading words of
-//! its messages, and SMTP CRAM-MD5 is not spoken (Gmail does not offer it).
+//! The server certificate is checked against Mozilla's bundled roots (Node's own list) and the
+//! system's, so a machine whose store lacks a root still verifies and a company root still does.
+//! Certificate failures carry Node's codes and the leading words of its messages (rustls does not
+//! report OpenSSL's altnames detail or the "in certificate chain" wording). SMTP CRAM-MD5 is not
+//! spoken: the servers are Gmail's, which does not offer it.
 
 mod imap;
 mod smtp;
@@ -150,9 +152,10 @@ fn client_config(roots: RootCertStore) -> Arc<ClientConfig> {
 }
 
 impl GmailAppPassword {
-    /// Talks to Gmail, trusting the system's roots.
+    /// Talks to Gmail, trusting the bundled roots and the system's.
     pub fn new() -> Self {
         let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         for certificate in rustls_native_certs::load_native_certs().certs {
             // A system certificate this library cannot parse is skipped, as Node skips none
             // of its own: the rest still verify.

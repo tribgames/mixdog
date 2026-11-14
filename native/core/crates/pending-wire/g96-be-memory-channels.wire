@@ -1,0 +1,24 @@
+# g96-be-memory-channels: what the lead applies (hot files only)
+
+## 1. native/core/Cargo.toml  [workspace.dependencies]
+Add, in alphabetical place (next to `url`/`uuid`):
+    webpki-roots = "1.0.11"
+Cargo.lock: in the `[[package]] name = "mixdog-mcp"` entry add `"webpki-roots",` to its dependencies (the crate is already in the
+lock at 1.0.11 as a transitive dependency of reqwest, so nothing new is fetched). mixdog-mcp/Cargo.toml already carries
+`webpki-roots = { workspace = true }` (my file). If the hakari workspace-hack needs a refresh for it, regenerate it.
+Used by: mixdog-mcp/src/gmail_verify/mod.rs GmailAppPassword::new (Mozilla's bundled roots next to the system roots, as Node's list).
+
+## 2. native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+Anchor: the line `let scheduler = mixdog_services::scheduler::Scheduler::new(schedule_store.clone(), ...` (about line 1313).
+Add directly after it:
+    scheduler.set_prompts_dir(b.data_dir.join("prompts"), b.tokens.durability_io); // schedule.prompt (or `<name>.md` when empty) names a file under <DATA_DIR>/prompts, or an absolute path; read on the durability lane
+Without it no prompt file is read (inline text still works).
+
+## 3. SERVICE_PENDING (compose_flip.rs)
+Nothing to remove: this task registers no service and adds no protocol method.
+
+## Applied by me in files that are not hot (for the lead's information)
+- mixdog-app-server-daemon/src/compose_domains.rs: route_downloads(inputs.seams.routed_clients) before local::build.
+- mixdog-app-server-daemon/src/compose_domains/local.rs: renditions.enable_video_posters(...) after voice_manifest.
+- mixdog-app-server-daemon/src/compose.rs build_models: .with_idle_timeout(EmbedEnv::idle_timeout()).
+- mixdog-ai/src/netproxy/clients.rs (another area's crate, smallest edit): RoutedClients::download_client_for.
