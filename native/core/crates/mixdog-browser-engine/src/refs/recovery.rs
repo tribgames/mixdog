@@ -34,15 +34,13 @@ impl Recovery {
     }
 }
 
-/// The page part of a snapshot id: `p1-s4` is page `p1`.
+/// The page part of a snapshot id: `p1-s4` (or `p1-S4`) is page `p1`.
 pub fn page_id(snapshot_id: &str) -> &str {
-    if let Some(at) = snapshot_id.rfind("-s").or_else(|| snapshot_id.rfind("-S")) {
-        let digits = &snapshot_id[at + 2..];
-        if !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()) {
-            return &snapshot_id[..at];
-        }
+    let Some(at) = snapshot_id.rfind('-') else { return snapshot_id };
+    match snapshot_id[at + 1..].strip_prefix(['s', 'S']) {
+        Some(digits) if !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()) => &snapshot_id[..at],
+        _ => snapshot_id,
     }
-    snapshot_id
 }
 
 /// Whether an error message says the node a ref named is gone (stale, detached, no such node or execution context), as
@@ -123,5 +121,6 @@ mod tests {
         assert_eq!(page_id("p1-s12"), "p1");
         assert_eq!(page_id("p1-s"), "p1-s");
         assert_eq!(page_id("p1"), "p1");
+        assert_eq!(page_id("p-s1-S2"), "p-s1");
     }
 }
