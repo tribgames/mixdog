@@ -34,7 +34,6 @@
 use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
 
-mod browser_policy;
 mod foreground_lease;
 
 type Hwnd = isize;

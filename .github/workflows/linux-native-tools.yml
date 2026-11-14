@@ -71,6 +71,12 @@ jobs:
         with:
           path: native-out/mixdog-patch
           key: native-glibc228-${{ matrix.arch }}-patch-${{ matrix.image }}-${{ hashFiles('native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Cache built mixdog_main_native.node
+        id: cache-main-native
+        uses: actions/cache@v4
+        with:
+          path: native-out/mixdog_main_native.node
+          key: native-glibc228-${{ matrix.arch }}-main-native-${{ matrix.image }}-${{ hashFiles('native/mixdog-main-native/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Select the tools that missed their cache
         id: missing
         env:

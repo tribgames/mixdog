@@ -2,16 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
-import { micaLibraryPath } from '../window-mica.ts';
+import { nativeModulePath } from '../native-module.ts';
+import { browserPolicyModule } from './redaction.ts';
 
-// The rules are Rust, served by mixdog_window.node: these tests run against the built module and are skipped, not
-// failed, while it is absent (cargo build --release in native/mixdog-window; they never build it).
-const built = existsSync(
-  micaLibraryPath({ isPackaged: false, resourcesPath: '', appPath: fileURLToPath(new URL('../../..', import.meta.url)) })
-);
-const skip = built ? false : 'mixdog_window.node is not built (cargo build --release in native/mixdog-window)';
+// The rules are Rust, served by mixdog_main_native.node: these tests run against the built module and are skipped, not
+// failed, while it is absent (cargo build --release in native/mixdog-main-native; they never build it).
+const built = existsSync(nativeModulePath(browserPolicyModule));
+const skip = built ? false : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
 
 const { browserUrlContainsSecret, redactBrowserText, redactBrowserKnownSecrets, redactBrowserUrl } = built
   ? await import('./redaction.ts')

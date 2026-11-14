@@ -2,20 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
-import { micaLibraryPath } from '../window-mica.ts';
+import { nativeModulePath } from '../native-module.ts';
+import { browserPolicyModule } from './redaction.ts';
 
-// The rules are Rust, served by mixdog_window.node: these tests run against the built module and are skipped, not
-// failed, while it is absent (cargo build --release in native/mixdog-window; they never build it).
-const built = existsSync(
-  micaLibraryPath({ isPackaged: false, resourcesPath: '', appPath: fileURLToPath(new URL('../../..', import.meta.url)) })
-);
-const skip = built ? false : 'mixdog_window.node is not built (cargo build --release in native/mixdog-window)';
+// The rules are Rust, served by mixdog_main_native.node: these tests run against the built module and are skipped, not
+// failed, while it is absent (cargo build --release in native/mixdog-main-native; they never build it).
+const built = existsSync(nativeModulePath(browserPolicyModule));
+const skip = built ? false : 'mixdog_main_native.node is not built (cargo build --release in native/mixdog-main-native)';
 
 const { browserUrlPolicyFromEnvironment } = built ? await import('./host-policy.ts') : {};
 const { restorablePages } = built ? await import('./restore-pages.ts') : {};
-const { assertResolvedAddressAllowed, MAIL_LINK_WINDOW_MS, normalizeAgentUrl, normalizePageUrl } = built
+const { assertResolvedAddressAllowed, mailLinkWindowMs, normalizeAgentUrl, normalizePageUrl } = built
   ? await import('./url-policy.ts')
   : {};
 
@@ -81,7 +79,7 @@ test('a token link opens only as the runtime read it in a mail: exact, https, re
   const refused = [
     ['another sender domain', LINK, read({ from_domain: 'evil.example' })],
     ['http', LINK.replace('https:', 'http:'), read({ url: LINK.replace('https:', 'http:') })],
-    ['past the window', LINK, read({ read_at: Date.now() - MAIL_LINK_WINDOW_MS - 1_000 })],
+    ['past the window', LINK, read({ read_at: Date.now() - mailLinkWindowMs() - 1_000 })],
     ['a URL other than the mail’s', `${LINK}&next=%2Fadmin`, read()],
     ['a suffix lookalike host', lookalike, read({ url: lookalike })],
     ['a suffix lookalike sender', LINK, read({ from_domain: 'alternativeto.net.evil.com' })],
