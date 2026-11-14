@@ -1,9 +1,10 @@
-# The library links no import libraries or C runtime (src/lib.rs), so rustup's
-# own linker builds both architectures without the MSVC or Windows SDK tools.
+# comctl32 and user32 are raw-dylib and the C runtime is linked statically, so
+# rustup's own linker builds both architectures without the MSVC or Windows SDK
+# import libraries and the module needs no VC++ Redistributable.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld"
-rustflags = ["-C", "link-arg=/NODEFAULTLIB"]
+rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.aarch64-pc-windows-msvc]
 linker = "rust-lld"
-rustflags = ["-C", "link-arg=/NODEFAULTLIB"]
+rustflags = ["-C", "target-feature=+crt-static"]
