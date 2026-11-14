@@ -84,6 +84,8 @@ fn provider(case: &Case) -> (String, serde_json::Value) {
         "responses" => {
             let args = case.args_of("OpenAICompatProvider", 0);
             let mut cfg = crate::provider_cases::plain(&args[1]);
+            // Node's constructor took the name beside the config; a custom provider's config carries it.
+            cfg["name"] = args[0].as_str().to_owned().into();
             cfg["type"] = "custom".into();
             cfg["protocol"] = "openai-responses".into();
             (args[0].as_str().to_owned(), cfg)

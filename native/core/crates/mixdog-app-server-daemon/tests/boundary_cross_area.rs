@@ -451,7 +451,7 @@ async fn a_connection_that_names_no_window_is_not_given_the_window_refusal() {
     }
 }
 
-/// The grant, page, config-write and file-read methods a window calls are answered as a connection that names no window answers
+/// The grant, page, config-write and file-read methods a window calls (bar a phone's download, which is the relay's) are answered as a connection that names no window answers
 /// them: the window table refuses none of them (the refusals of grants, pages and config paths for windows are gone, as main's
 /// renderer had none).
 #[tokio::test(flavor = "multi_thread")]
@@ -476,7 +476,10 @@ async fn a_local_window_gets_mains_answers_for_grants_pages_config_writes_and_fi
         assert!(!listed.iter().any(|listed| listed == method), "{method} is not a host-role method");
         let by_plain = plain.call(method, params.clone()).await;
         let by_window = window.call(method, params).await;
-        assert!(!denied(&by_window, method), "{method}: the window is not refused: {by_window}");
+        // A paired phone's download (`origins: [Relay]`) is the relay's: the desktop's window never made it, and a
+        // connection that names no window is refused it the same way.
+        let relay_only = matches!(method, "transfer/redeemGrant" | "transfer/grant/mint");
+        assert_eq!(denied(&by_window, method), relay_only, "{method}: {by_window}");
         assert_eq!(answer(&by_window), answer(&by_plain), "{method}: the window's answer is main's");
     }
 }
@@ -504,7 +507,9 @@ async fn a_server_window_is_limited_to_its_own_connection_id() {
 async fn connections_endpoint_answers_the_host_claimant_only() {
     let harness = Harness::start().await;
     let mut host = harness.host().await;
-    let answered = host.call("connections/endpoint", json!({})).await;
+    // The server whose tunnel is asked about: `connections/endpoint` takes its `connectionId` (`ConnectionIdParams`).
+    let params = json!({ "connectionId": "c-9" });
+    let answered = host.call("connections/endpoint", params.clone()).await;
     assert_eq!(answered["result"]["token"], json!("endpoint-token"), "{answered}");
 
     let mut main = harness.main_window("w-1").await;
@@ -513,7 +518,7 @@ async fn connections_endpoint_answers_the_host_claimant_only() {
     assert!(initialized.get("result").is_some(), "{initialized}");
     let mut plain = harness.plain().await;
     for (who, client) in [("main window", &mut main), ("server window", &mut server), ("unclaimed host", &mut declared), ("plain", &mut plain)] {
-        let refused = client.call("connections/endpoint", json!({})).await;
+        let refused = client.call("connections/endpoint", params.clone()).await;
         assert!(denied(&refused, "connections/endpoint"), "{who}: {refused}");
         assert!(refused.get("result").is_none(), "{who} was handed the endpoint: {refused}");
     }
