@@ -487,12 +487,29 @@ pub fn create_matrix(row_size: &Value, column_size: &Value) -> Result<Value, Fai
     if rows <= 0.0 || columns <= 0.0 {
         return Ok(Value::Error(ErrorValue::Value));
     }
-    let length = |size: f64| if size.is_nan() { 0.0 } else { size.trunc() };
-    let (rows, columns) = (length(rows), length(columns));
-    if rows * columns > 1e8 {
-        return Err(Failure::thrown("Invalid array length"));
+    // Array.from({length}) applies ToLength, then creates an ordinary Array.
+    // ToLength(NaN) is zero; infinity clamps to 2^53-1, which exceeds the
+    // ordinary Array length limit. The inner Array is never created for zero rows.
+    let length = |size: f64| -> Result<usize, Failure> {
+        let length = if size.is_nan() { 0.0 } else { size.trunc().min(9_007_199_254_740_991.0) };
+        if length > f64::from(u32::MAX) {
+            return Err(Failure::thrown("Invalid array length"));
+        }
+        Ok(length as usize)
+    };
+    let rows = length(rows)?;
+    if rows == 0 { return Ok(Value::Array(Vec::new())); }
+    let columns = length(columns)?;
+    let allocation_error = |_| Failure::thrown("Invalid array length");
+    let mut matrix = Vec::new();
+    matrix.try_reserve_exact(rows).map_err(allocation_error)?;
+    for _ in 0..rows {
+        let mut row = Vec::new();
+        row.try_reserve_exact(columns).map_err(allocation_error)?;
+        row.resize(columns, Value::Undefined);
+        matrix.push(Value::Array(row));
     }
-    Ok(Value::Array((0..rows as usize).map(|_| Value::Array(vec![Value::Undefined; columns as usize])).collect()))
+    Ok(Value::Array(matrix))
 }
 
 /// `fillMatrix(matrix)`: a matrix with every empty or falsy cell 0 and every row as long as the longest.
@@ -873,4 +890,19 @@ mod tests {
         assert_eq!(number_of(&mixed[2]), 2.0);
         assert!(matches!(mixed[3], Value::Null));
     }
+
+    #[test]
+    fn matrix_dimensions_follow_array_from_tolength_before_allocating() {
+        let number = Value::Number;
+        for (rows, columns) in [(f64::INFINITY, f64::NAN), (f64::INFINITY, 0.5), (4_294_967_296.0, 1.0), (1.0, f64::INFINITY)] {
+            assert_eq!(create_matrix(&number(rows), &number(columns)), Err(Failure::thrown("Invalid array length")));
+        }
+        assert_eq!(create_matrix(&number(f64::NAN), &number(2.0)), Ok(Value::Array(vec![])));
+        assert_eq!(create_matrix(&number(0.5), &number(f64::INFINITY)), Ok(Value::Array(vec![])));
+        assert_eq!(create_matrix(&number(2.0), &number(f64::NAN)), Ok(Value::Array(vec![Value::Array(vec![]), Value::Array(vec![])])));
+        assert_eq!(create_matrix(&number(2.9), &number(1.9)), Ok(Value::Array(vec![Value::Array(vec![Value::Undefined]), Value::Array(vec![Value::Undefined])])));
+        assert_eq!(create_matrix(&number(0.0), &number(2.0)), Ok(Value::Error(ErrorValue::Value)));
+        assert_eq!(create_matrix(&Value::Undefined, &number(2.0)), Ok(Value::Error(ErrorValue::Na)));
+    }
+
 }

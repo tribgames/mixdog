@@ -69,21 +69,13 @@ throws, `A0:B1`); a caller that catches only refusals (xlsx-recalculate.mjs line
 None for a missing or empty definition). The dependency-chain depth and the circular-reference check stay in the caller, as in
 xlsx-recalculate.mjs (`MAX_CHAIN_DEPTH`, `active`).
 
-## 6. Test cases of xlsx-formula-engine.test.mjs that need library functions (add to tests/twin_engine.rs when the modules are registered)
+## 6. Production-library integration test (formula-core owns the assertions)
 
-These assertions use functions of the library tasks, so they could not run with the handful. Add them to a test next to
-`the_engine_reads_ranges_calls_functions_and_keeps_if_from_inheriting_an_error`, evaluating with `mixdog_xlsx_formula::evaluate_formula`
-(the library registry) over the same four cells (A1 2, A2 3, B1 "north", C1 TRUE), time zone Asia/Seoul:
-
-    =ROUND(AVERAGE(A1:A2),1) -> 2.5
-    =_xlfn.TEXTJOIN("-",TRUE,"a","b") -> "a-b"
-    =YEAR(DATE(2024,5,6)) -> 2024
-    =DAY(DATE(2024,5,6)) -> 6
-    =ROUND(STDEV(A1:A2),4) -> 0.7071
-    =RANK(A1,A1:A2) -> 2
-    =_xlfn.RANK.EQ(A1,A1:A2) -> 2
-    =COUNTIF(A1:A2,">2") -> 1
-    =TEXT(1234.5,"0.00") -> "1234.50"
+The nine remaining original engine assertions now exist in `tests/twin_engine.rs` as
+`original_engine_cases_with_the_production_library`. It is explicitly ignored until the four library tasks are
+registered in TABLES; it uses the production registry, not the test handful. Once those dependencies land, remove
+that test's ignore attribute and run it in addition to `every_output_equals_the_recording`.
+Core parser/evaluator completion does not mean the production formula library is complete.
 
 The workbook-level tests of that file (recalculateWithFormulaEngine: used range of a whole column, XML characters in a text answer,
 another sheet, a column that waits on the row below, defined names from workbook.xml, array blocks, shared formulas, the report of
