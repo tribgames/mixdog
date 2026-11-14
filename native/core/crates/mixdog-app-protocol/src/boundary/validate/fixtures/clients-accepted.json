@@ -8849,5 +8849,335 @@
     "params": {},
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:projectFs/localPage/origin",
     "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/pointerReleased",
+    "params": {
+      "sessionThreadId": "sessionThreadId-1"
+    },
+    "source": "apps/desktop/src/main/computer/presence/mirror.ts:computer/pointerReleased",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "host/browser/page/facts",
+    "params": {
+      "facts": {
+        "alive": true,
+        "background": true,
+        "childSessions": [
+          {
+            "frameId": "frameId-1",
+            "sessionId": "sessionId-1",
+            "url": "url-1"
+          }
+        ],
+        "crashed": true,
+        "documentId": "documentId-1",
+        "loading": true,
+        "mainFrameLoading": true,
+        "openedPopups": [
+          "openedPopups-1"
+        ],
+        "pageId": "pageId-1",
+        "seq": 1,
+        "title": "title-1",
+        "url": "url-1",
+        "visible": true,
+        "zoom": 1
+      },
+      "pageId": "pageId-1",
+      "seq": 1
+    },
+    "source": "apps/desktop/src/main/host/browser-engine/facts.ts:host/browser/page/facts",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "host/browser/userInput",
+    "params": {
+      "held": true,
+      "pageId": "pageId-1",
+      "reason": "pointer",
+      "seq": 1
+    },
+    "source": "apps/desktop/src/main/host/browser-engine/lease.ts:host/browser/userInput",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/stageAttachmentOriginal",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000263"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/stageAttachmentOriginal",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/resizeImage",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000264"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/resizeImage",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "media/startMediaJob",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000265"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/startMediaJob",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "media/cacheMediaThumbnail",
+    "params": {
+      "id": "id-1",
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000266"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/cacheMediaThumbnail",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "voice/transcribeAudio",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000267"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:voice/transcribeAudio",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "git/applyPatch",
+    "params": {
+      "cwd": "cwd-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000268",
+      "patch": "patch-1",
+      "path": "path-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:git/applyPatch",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "projectFs/localPage/virtual",
+    "params": {
+      "files": [
+        {
+          "path": "path-1",
+          "type": "type-1"
+        }
+      ]
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:projectFs/localPage/virtual",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "pcAccess/readiness",
+    "params": {},
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:pcAccess/readiness",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "pcAccess/approve",
+    "params": {},
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:pcAccess/approve",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/pointerReleased",
+    "params": {
+      "sessionThreadId": "sessionThreadId-1"
+    },
+    "source": "apps/desktop/src/main/computer/presence/mirror.ts:computer/pointerReleased",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "host/browser/page/facts",
+    "params": {
+      "facts": {
+        "actor": "agent",
+        "alive": true,
+        "background": true,
+        "childSessions": [
+          {
+            "frameId": "frameId-1",
+            "sessionId": "sessionId-1",
+            "url": "url-1"
+          }
+        ],
+        "crashed": true,
+        "dismissedDialog": {
+          "at": 1,
+          "message": "message-1",
+          "type": "type-1"
+        },
+        "documentId": "documentId-1",
+        "fault": "fault-1",
+        "loadId": "loadId-1",
+        "loading": true,
+        "mainFrameLoading": true,
+        "openedPopups": [
+          "openedPopups-1"
+        ],
+        "pageId": "pageId-1",
+        "pendingDialog": {
+          "bridge": true,
+          "defaultPrompt": "defaultPrompt-1",
+          "message": "message-1",
+          "openedAt": 1,
+          "sessionId": "sessionId-1",
+          "type": "type-1"
+        },
+        "pendingFileChooser": {
+          "mode": "mode-1",
+          "openedAt": 1,
+          "receiverKey": "receiverKey-1"
+        },
+        "refusedRequests": [
+          {
+            "reason": "reason-1",
+            "url": "url-1"
+          }
+        ],
+        "seq": 1,
+        "title": "title-1",
+        "url": "url-1",
+        "userInputAt": 1,
+        "visible": true,
+        "zoom": 1
+      },
+      "pageId": "pageId-1",
+      "seq": 1
+    },
+    "source": "apps/desktop/src/main/host/browser-engine/facts.ts:host/browser/page/facts",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "host/browser/userInput",
+    "params": {
+      "held": true,
+      "pageId": "pageId-1",
+      "reason": "pointer",
+      "seq": 1,
+      "until": 1
+    },
+    "source": "apps/desktop/src/main/host/browser-engine/lease.ts:host/browser/userInput",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/stageAttachmentOriginal",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000367",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/stageAttachmentOriginal",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/resizeImage",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000368",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/resizeImage",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "media/startMediaJob",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000369",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/startMediaJob",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "media/cacheMediaThumbnail",
+    "params": {
+      "id": "id-1",
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000370",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/cacheMediaThumbnail",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "voice/transcribeAudio",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000371",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:voice/transcribeAudio",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "git/applyPatch",
+    "params": {
+      "cwd": "cwd-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000372",
+      "patch": "patch-1",
+      "path": "path-1",
+      "reverse": true
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:git/applyPatch",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "projectFs/localPage/virtual",
+    "params": {
+      "files": [
+        {
+          "dataBase64": "dataBase64-1",
+          "path": "path-1",
+          "text": "text-1",
+          "type": "type-1"
+        }
+      ],
+      "ownerId": "ownerId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:projectFs/localPage/virtual",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "pcAccess/readiness",
+    "params": {},
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:pcAccess/readiness",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "pcAccess/approve",
+    "params": {},
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:pcAccess/approve",
+    "case": "every optional field"
   }
 ]

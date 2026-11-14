@@ -324,12 +324,23 @@
       "type": "object"
     },
     "BrowserListOp": {
-      "enum": [
-        "add",
-        "remove",
-        "list"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "add",
+            "remove",
+            "list"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Removes every init script of the page (the old init_script `clear`).",
+          "enum": [
+            "clear"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserMailLink": {
       "properties": {
@@ -507,6 +518,25 @@
         "metrics"
       ],
       "type": "string"
+    },
+    "BrowserPlacement": {
+      "description": "Where an `open`/`reveal` put the page (the old reply's \"shown\" / \"pending\" line).",
+      "oneOf": [
+        {
+          "description": "A panel on screen shows the page.",
+          "enum": [
+            "shown"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The conversation is not on screen or the person keeps the panel closed; the shell holds the reveal until it can show it.",
+          "enum": [
+            "pending"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserPointerButton": {
       "enum": [
@@ -1179,6 +1209,15 @@
         },
         "facts": {
           "$ref": "#/definitions/PageFacts"
+        },
+        "total": {
+          "description": "How many cookies matched; `cookies` lists at most 200 of them.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1948,6 +1987,17 @@
         },
         "page": {
           "$ref": "#/definitions/PageDescriptor"
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPlacement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set when the call revealed the page (`open.reveal`)."
         }
       },
       "required": [
@@ -1988,6 +2038,17 @@
               "type": "null"
             }
           ]
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPlacement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set by `reveal` of a page the session owns."
         }
       },
       "type": "object"
@@ -2015,6 +2076,13 @@
         },
         "pageId": {
           "type": "string"
+        },
+        "saveTrace": {
+          "description": "Save the redacted trace in the host's own trace folder (the old `saveTrace`); `export_path` names another absolute folder instead.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2188,6 +2256,13 @@
         },
         "mimeType": {
           "type": "string"
+        },
+        "partial": {
+          "description": "True when an element crop was cut by the viewport or the page (the old \"partial\" note); absent for a whole picture.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "width": {
           "format": "uint32",
@@ -2424,13 +2499,24 @@
     },
     "HostComputerAppInputEffect": {
       "description": "What became of an `appInput`.",
-      "enum": [
-        "delivered",
-        "not_editable",
-        "window_gone",
-        "refused"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "delivered",
+            "not_editable",
+            "window_gone",
+            "refused"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The click that focuses the typing point before the text was not confirmed: nothing was typed.",
+          "enum": [
+            "click_unconfirmed"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "HostComputerAppInputEvidence": {
       "description": "What the desktop saw of the typing target.",
@@ -2505,6 +2591,13 @@
             "null"
           ]
         },
+        "modifiers": {
+          "description": "`wheel`: the modifiers held while it turns, e.g. `ctrl+shift`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "op": {
           "$ref": "#/definitions/HostComputerAppInputOp"
         },
@@ -2547,6 +2640,13 @@
     "HostComputerAppInputResult": {
       "description": "Result of `host/computer/appInput`.",
       "properties": {
+        "code": {
+          "description": "`click_unconfirmed` and `refused`: the code the refusal carries (`typing_target_unconfirmed`, `background_unsupported`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "cursor": {
           "anyOf": [
             {
@@ -2561,6 +2661,13 @@
         "delivered": {
           "type": "boolean"
         },
+        "deliveryAccepted": {
+          "description": "`click_unconfirmed`: whether input was accepted for delivery; absent when unknown.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "effect": {
           "$ref": "#/definitions/HostComputerAppInputEffect"
         },
@@ -2572,6 +2679,38 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "inputMayHaveExecuted": {
+          "description": "`click_unconfirmed`: whether input may have gone out.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pid": {
+          "description": "Delivered: the renderer's process.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "presses": {
+          "description": "`key`, delivered: the key presses sent.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "`click_unconfirmed` and `refused`: the desktop's words for it.",
+          "type": [
+            "string",
+            "null"
           ]
         }
       },
@@ -3983,6 +4122,13 @@
           "type": "string"
         },
         "fault": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loadId": {
+          "description": "Changes when a document is loaded and stays when only the URL changed inside it (a pushState or hash navigation gives a new `document_id` and keeps this one); the console log and the failure list belong to it. Absent: the `document_id` stands for it.",
           "type": [
             "string",
             "null"

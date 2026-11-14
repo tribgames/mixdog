@@ -565,6 +565,17 @@ pub struct BrowserLeaseSpec {
     pub ttl_ms: u32,
 }
 
+/// Where an `open`/`reveal` put the page (the old reply's "shown" / "pending" line).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserPlacement {
+    /// A panel on screen shows the page.
+    Shown,
+    /// The conversation is not on screen or the person keeps the panel closed; the shell holds the reveal until it can show it.
+    Pending,
+}
+
 /// `host/browser/pages/resolve` (core to host): the page a session's command works on, opened or adopted when needed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -592,6 +603,9 @@ pub struct HostBrowserPagesResolveResult {
     pub page: PageDescriptor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_id: Option<String>,
+    /// Set when the call revealed the page (`open.reveal`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<BrowserPlacement>,
 }
 
 /// `host/browser/pages/list`.
@@ -670,6 +684,9 @@ pub struct HostBrowserPagesSurfaceParams {
 pub struct HostBrowserPagesSurfaceResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub facts: Option<PageFacts>,
+    /// Set by `reveal` of a page the session owns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<BrowserPlacement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1182,6 +1199,9 @@ pub struct HostBrowserScreenshotResult {
     pub data: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blob: Option<BrowserBlobRef>,
+    /// True when an element crop was cut by the viewport or the page (the old "partial" note); absent for a whole picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<bool>,
     pub facts: PageFacts,
 }
 
@@ -1245,6 +1265,9 @@ pub struct HostBrowserCookiesParams {
 pub struct HostBrowserCookiesResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookies: Option<Vec<JsonValue>>,
+    /// How many cookies matched; `cookies` lists at most 200 of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u32>,
     pub facts: PageFacts,
 }
 
@@ -1298,6 +1321,8 @@ pub enum BrowserListOp {
     Add,
     Remove,
     List,
+    /// Removes every init script of the page (the old init_script `clear`).
+    Clear,
 }
 
 /// `host/browser/initScripts`.
@@ -1390,6 +1415,9 @@ pub struct HostBrowserPerformanceParams {
     pub categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_path: Option<String>,
+    /// Save the redacted trace in the host's own trace folder (the old `saveTrace`); `export_path` names another absolute folder instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_trace: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
