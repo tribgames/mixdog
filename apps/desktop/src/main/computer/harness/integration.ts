@@ -3,8 +3,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, screen } from 'electron';
-import { createComputerHost, type ComputerHost } from '../index';
-import { harnessForegroundLease } from './harness-foreground-lock';
+import { type ComputerCore, openComputerCore } from './core-transport';
 import { createPolling } from '../../host-harness-poll';
 import { actionPayload, capturePayload, ocrMark, ocrText } from './scenario-ocr';
 import type { CommandResult } from './scenario-types';
@@ -24,7 +23,7 @@ mkdirSync(dataDirectory, { recursive: true });
 process.env.MIXDOG_DATA_DIR = dataDirectory;
 app.setPath('userData', join(profile, 'user-data'));
 
-const { eventually, readDiscovery } = createPolling({ timeoutMs: 30_000, intervalMs: 100 });
+const { eventually } = createPolling({ timeoutMs: 30_000, intervalMs: 100 });
 
 const fixtureHtml = `<!doctype html>
 <meta charset="utf-8">
@@ -108,7 +107,7 @@ const blankFixtureHtml = `<!doctype html>
 
 type IntegrationCommand = (input: Record<string, unknown>, sessionId?: string) => Promise<CommandResult>;
 
-/** The fixture windows and the bridge command every verification phase shares. */
+/** The fixture windows and the core command every verification phase shares. */
 interface IntegrationContext {
   fixture: BrowserWindow;
   blankFixture: BrowserWindow;
@@ -117,27 +116,9 @@ interface IntegrationContext {
   blankWindowId: string;
 }
 
-function createCommand(discovery: { port: number; token: string }): IntegrationCommand {
-  return async (input: Record<string, unknown>, sessionId = 'computer-custom-renderer'): Promise<CommandResult> => {
-    const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${discovery.token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ session_id: sessionId, ...input }),
-    });
-    const payload = (await response.json()) as {
-      ok?: boolean;
-      value?: CommandResult;
-      error?: string;
-    };
-    if (!payload.ok) throw new Error(payload.error || 'computer command failed');
-    return {
-      text: String(payload.value?.text || ''),
-      ...(payload.value?.image ? { image: payload.value.image } : {}),
-    };
-  };
+function createCommand(core: ComputerCore): IntegrationCommand {
+  return (input: Record<string, unknown>, sessionId = 'computer-custom-renderer'): Promise<CommandResult> =>
+    core.runCommand({ ...input }, sessionId);
 }
 
 async function verifyInputBoundaries(ctx: IntegrationContext): Promise<void> {
@@ -529,7 +510,7 @@ async function verifyRealAppSmoke(command: IntegrationCommand): Promise<void> {
 async function run(): Promise<void> {
   let fixture: BrowserWindow | null = null;
   let blankFixture: BrowserWindow | null = null;
-  let host: ComputerHost | null = null;
+  let core: ComputerCore | null = null;
   try {
     fixture = new BrowserWindow({
       width: 820,
@@ -587,11 +568,10 @@ async function run(): Promise<void> {
     blankFixture.showInactive();
     progress('custom renderer fixture ready');
 
-    host = createComputerHost({ foregroundLease: harnessForegroundLease() });
-    const discovery = await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000);
-    progress('resident computer bridge ready');
+    core = await openComputerCore();
+    progress('core connected, host role claimed');
 
-    const command = createCommand(discovery);
+    const command = createCommand(core);
 
     const windows = await command({ action: 'list_windows' });
     const fixtureLine = windows.text.split(/\r?\n/).find((line) => line.includes('"Mixdog Computer Custom Fixture"'));
@@ -613,7 +593,7 @@ async function run(): Promise<void> {
       'Computer host integration passed: compact state, pixel fail-closed, bounded OCR SOM, exact-target input, fresh-state verification, and session cleanup.'
     );
   } finally {
-    await host?.dispose();
+    await core?.dispose();
     closingFixtures = true;
     if (blankFixture && !blankFixture.isDestroyed()) blankFixture.destroy();
     if (fixture && !fixture.isDestroyed()) fixture.destroy();
