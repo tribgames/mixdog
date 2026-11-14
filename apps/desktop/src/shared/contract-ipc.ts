@@ -234,6 +234,11 @@ export const DESKTOP_IPC = {
   listSystemFonts: 'mixdog:list-system-fonts',
   invokeCapability: 'mixdog:invoke-capability',
   readCapabilities: 'mixdog:read-capabilities',
+  // Main-process extras of the window host (main/ipc-host-extras.ts).
+  enableAllowAllActions: 'desktop:enableAllowAllActions',
+  observeSignIn: 'desktop:observeSignIn',
+  pcQuotaInvoke: 'desktop:pcQuotaInvoke',
+  pcQuotaRead: 'desktop:pcQuotaRead',
   quit: 'mixdog:quit',
   state: 'mixdog:state',
   sessionState: 'mixdog:session-state',

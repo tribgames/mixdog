@@ -34,6 +34,7 @@ import {
 import { notificationPreferencesPath, readPcNotificationView } from './notification-preferences';
 import { captureTakeoverOrDecline } from './takeover-capture';
 import { createTakeoverFeed } from './takeover-feed';
+import { observeCoreForMain } from './core-observers';
 import { createTakeoverStateHandler } from './takeover-state';
 import type { NotificationTestResult } from './notification-center';
 import { secretInputs } from './secret-input';
@@ -865,6 +866,7 @@ let unsubscribeAwake: (() => void) | null = null;
 let unsubscribeServiceSettings: (() => void) | null = null;
 let unsubscribeTakeovers: (() => void) | null = null;
 let unsubscribeUpdaterRelay: (() => void) | null = null;
+let unsubscribeCoreObservers: (() => void) | null = null;
 // OS notification on final answers and failed turns: whether one shows is this
 // PC's notification preferences (notification-decision.ts), read fresh from
 // the file the desktop service writes. App-lifetime like keep-awake: a window
@@ -1258,6 +1260,12 @@ localProtocol.onEvent(
 localProtocol.watchSection('remote', () => notifyHostListsChanged());
 // Paired browsers show this machine's updater, so its state travels to the core.
 unsubscribeUpdaterRelay = desktopUpdater.subscribe((state) => hostRole.host.reports.updateState(state));
+// The core's settings changes main applies itself, and a deleted thread's browser session released.
+unsubscribeCoreObservers = observeCoreForMain({
+  connection: localProtocol,
+  applyDesktopSettings,
+  releaseBrowserSession: (sessionId) => browserHost?.releaseSession(sessionId),
+});
 let quitAfterDispose = false;
 // Last-known runInBackground setting; the window's close listener reads it live.
 let runInBackground = true;
@@ -1560,6 +1568,8 @@ function disposeDesktopResources(): Promise<void> {
   takeoverGate.dispose();
   unsubscribeUpdaterRelay?.();
   unsubscribeUpdaterRelay = null;
+  unsubscribeCoreObservers?.();
+  unsubscribeCoreObservers = null;
   awakeService.dispose();
   computerUseOverlay?.dispose();
   computerUseOverlay = null;

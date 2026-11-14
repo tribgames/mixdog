@@ -1,17 +1,18 @@
 // Main-process extras of the window host the core does not carry: the human-only confirmation that turns on "Allow all
 // actions", the sign-in raise of a window, and the PC-side provider quota of a server window (its model calls run on
 // this PC's sign-ins, so the quota is this PC's, narrowed to the providers the server may use).
+import { DESKTOP_IPC } from '../shared/contract';
 import type { IpcHandle } from './ipc';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation';
 import type { PcQuotaHost } from './ipc-window-settings';
 import type { SignInFocus } from './sign-in-focus';
 
-/** The channels this file registers (the contract's names are added by the desktop wiring). */
+/** The channels this file registers. */
 export const HOST_EXTRAS_IPC = {
-  enableAllowAllActions: 'desktop:enableAllowAllActions',
-  observeSignIn: 'desktop:observeSignIn',
-  pcQuotaInvoke: 'desktop:pcQuotaInvoke',
-  pcQuotaRead: 'desktop:pcQuotaRead',
+  enableAllowAllActions: DESKTOP_IPC.enableAllowAllActions,
+  observeSignIn: DESKTOP_IPC.observeSignIn,
+  pcQuotaInvoke: DESKTOP_IPC.pcQuotaInvoke,
+  pcQuotaRead: DESKTOP_IPC.pcQuotaRead,
 } as const;
 
 export interface HostExtrasOptions {
