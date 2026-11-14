@@ -7,9 +7,11 @@ use std::time::Duration;
 
 use mixdog_core_api::domain::provider::FirstResponseBudget;
 use mixdog_core_api::domain::retry::Backoff;
+use mixdog_core_api::domain::retry::Jitter;
 use mixdog_core_api::domain::retry::RetrySchedule;
 
 use crate::providers::google::cache::policy::resolve_timeout_ms;
+use crate::providers::google::cache::policy::retry_jitter_ratio;
 use crate::providers::google::cache::policy::stall_windows_ms;
 use mixdog_js::js_trim;
 use mixdog_js::string_to_number;
@@ -26,7 +28,7 @@ const DEFAULT_ANTIGRAVITY_ATTEMPTS: u32 = 4;
 /// What Node reads from the environment for the first-response budgets (`stall-policy.mjs` `STALL_TIMEOUT_S`,
 /// `MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS`; `gemini-stream.mjs` `MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS`;
 /// `antigravity-retry-policy.mjs` `MIXDOG_ANTIGRAVITY_*`), read once, with Node's defaults and bounds.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct FirstByteSettings {
     /// `PROVIDER_MAX_BEFORE_WARN_MS`: warn threshold less one 15 s tick (285 s at the defaults); no first-byte window is
     /// longer, so the provider times out before the watchdog warns.
@@ -43,6 +45,9 @@ pub struct FirstByteSettings {
     pub antigravity_backoff_ms: Vec<i64>,
     /// `MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES`.
     pub antigravity_first_byte_retries: u32,
+    /// `PROVIDER_RETRY_JITTER_RATIO` (`MIXDOG_PROVIDER_RETRY_JITTER_RATIO`, default 0.2, at most 1): the backoff jitter of
+    /// every retry schedule that names no ratio of its own ([`Self::default_jitter`]).
+    pub retry_jitter_ratio: f64,
 }
 
 /// [`FirstByteSettings::process`]'s value once it has read the environment.
@@ -105,7 +110,19 @@ impl FirstByteSettings {
             antigravity_attempts: int("MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS", DEFAULT_ANTIGRAVITY_ATTEMPTS, 1, 6),
             antigravity_backoff_ms: backoff,
             antigravity_first_byte_retries: int("MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES", 1, 0, 5),
+            retry_jitter_ratio: retry_jitter_ratio(&get),
         }
+    }
+
+    /// The symmetric jitter of a schedule that states no ratio (`withRetry`'s `retryJitterRatio ?? PROVIDER_RETRY_JITTER_RATIO`),
+    /// over the process environment as it was when it was first read.
+    pub(crate) fn default_jitter() -> Jitter {
+        Self::process().jitter()
+    }
+
+    /// The symmetric jitter of these settings' [`Self::retry_jitter_ratio`].
+    pub(crate) fn jitter(&self) -> Jitter {
+        Jitter::symmetric(self.retry_jitter_ratio)
     }
 
     /// A compat profile's first-byte policy as Node states it: the window never longer than `PROVIDER_MAX_BEFORE_WARN_MS`,
@@ -188,4 +205,32 @@ pub fn first_byte_budget(policy: &FirstBytePolicy, schedule: &RetrySchedule) -> 
         semantic_ms += backoff + 2 * window;
     }
     FirstResponseBudget { transport_ms, semantic_ms }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jitter_of(raw: Option<&str>) -> f64 {
+        retry_jitter_ratio(&|name| (name == "MIXDOG_PROVIDER_RETRY_JITTER_RATIO").then(|| raw.map(str::to_owned)).flatten())
+    }
+
+    #[test]
+    fn the_retry_jitter_ratio_is_the_one_node_resolves() {
+        // Unset or not a number is the 0.2 default; an empty string is `Number("")`, 0; the ratio is capped at 1.
+        assert_eq!(jitter_of(None), 0.2);
+        assert_eq!(jitter_of(Some("abc")), 0.2);
+        assert_eq!(jitter_of(Some("-0.1")), 0.2);
+        assert_eq!(jitter_of(Some("")), 0.0);
+        assert_eq!(jitter_of(Some("0")), 0.0);
+        assert_eq!(jitter_of(Some("0.45")), 0.45);
+        assert_eq!(jitter_of(Some("7")), 1.0);
+    }
+
+    #[test]
+    fn the_settings_carry_the_retry_jitter_ratio() {
+        let settings = FirstByteSettings::from_env(|name| (name == "MIXDOG_PROVIDER_RETRY_JITTER_RATIO").then(|| "0.6".to_owned()));
+        assert_eq!(settings.jitter(), Jitter::symmetric(0.6));
+        assert_eq!(FirstByteSettings::from_env(|_| None).jitter(), Jitter::symmetric(0.2));
+    }
 }

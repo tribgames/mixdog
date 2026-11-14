@@ -22,6 +22,8 @@ use mixdog_core_api::domain::retry::{
     StatusRules,
 };
 
+use crate::providers::first_byte::FirstByteSettings;
+
 const fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
@@ -63,6 +65,11 @@ fn in_full_to(ceiling: Duration) -> AdviceRule {
 /// surfaces with its wait so the account pool can rotate and the notice can
 /// name when to try again (`COMPAT_DEFAULT_MAX_RETRY_AFTER_MS`).
 pub fn unprofiled() -> RetryPolicy {
+    unprofiled_with(FirstByteSettings::default_jitter())
+}
+
+/// [`unprofiled`] with `jitter` as the shared default ratio (`MIXDOG_PROVIDER_RETRY_JITTER_RATIO`).
+pub(crate) fn unprofiled_with(jitter: Jitter) -> RetryPolicy {
     // Today's shared default: 5 attempts on `[250, 1000, 2000, 4000, 8000]`
     // ms with ±20 % jitter. The first value is never read (retry n reads
     // index n), so the retries wait 1, 2, 4 and 8 s. One loop covers the
@@ -70,7 +77,7 @@ pub fn unprofiled() -> RetryPolicy {
     let schedule = RetrySchedule {
         max_retries: 4,
         backoff: ladder(&[1000, 2000, 4000, 8000]),
-        jitter: Jitter::symmetric(0.2),
+        jitter,
         advice: in_full_to(secs(60)),
     };
     let mut policy = RetryPolicy::codex_default();
@@ -165,12 +172,17 @@ pub fn mimo() -> RetryPolicy {
 /// 4xx, 429 included, and every other 5xx is terminal. Advice is a floor
 /// under the step and a wait beyond 60 s is not served.
 pub fn command_code() -> RetryPolicy {
+    command_code_with(FirstByteSettings::default_jitter())
+}
+
+/// [`command_code`] with `jitter` as the shared default ratio the profile names none of.
+pub(crate) fn command_code_with(jitter: Jitter) -> RetryPolicy {
     profiled(
         RetrySchedule {
             max_retries: 2,
             backoff: ladder(&[400, 800]),
             // The profile names no ratio, so the shared default applies.
-            jitter: Jitter::symmetric(0.2),
+            jitter,
             advice: AdviceRule {
                 combine: AdviceCombine::Floor,
                 ceiling: Some(secs(60)),
@@ -183,4 +195,30 @@ pub fn command_code() -> RetryPolicy {
         },
         None,
     )
+}
+
+#[cfg(test)]
+mod default_jitter_tests {
+    use super::*;
+
+    fn tuned(ratio: &str) -> Jitter {
+        let ratio = ratio.to_owned();
+        FirstByteSettings::from_env(move |name| (name == "MIXDOG_PROVIDER_RETRY_JITTER_RATIO").then(|| ratio.clone())).jitter()
+    }
+
+    #[test]
+    fn a_provider_without_a_ratio_of_its_own_takes_the_tuned_one() {
+        let jitter = tuned("0.5");
+        let unprofiled = unprofiled_with(jitter);
+        assert_eq!(unprofiled.request.schedule.jitter, jitter);
+        assert_eq!(unprofiled.midstream.schedule.jitter, jitter);
+        assert_eq!(command_code_with(jitter).request.schedule.jitter, jitter);
+    }
+
+    #[test]
+    fn a_profile_with_a_ratio_of_its_own_keeps_it() {
+        // xAI states ±20 % and DeepSeek ±10 %: the tuning variable does not move them.
+        assert_eq!(xai().request.schedule.jitter, Jitter::symmetric(0.2));
+        assert_eq!(deepseek().request.schedule.jitter, Jitter::symmetric(0.1));
+    }
 }

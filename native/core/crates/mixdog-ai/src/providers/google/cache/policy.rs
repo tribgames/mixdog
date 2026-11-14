@@ -129,6 +129,14 @@ pub fn antigravity_first_byte_ms(get: impl Fn(&str) -> Option<String>) -> f64 {
     resolve_timeout_ms(&get, &["MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS"], 300_000.0, 30_000.0, max_before_warn)
 }
 
+/// `PROVIDER_RETRY_JITTER_RATIO` (`stall-policy.mjs`): the backoff jitter of every retry schedule that names no ratio of its
+/// own. `MIXDOG_PROVIDER_RETRY_JITTER_RATIO` is `Number(raw)`: unset is NaN (the 0.2 default), an empty string is 0; a
+/// finite non-negative number is capped at 1.
+pub fn retry_jitter_ratio(get: &impl Fn(&str) -> Option<String>) -> f64 {
+    let jitter = get("MIXDOG_PROVIDER_RETRY_JITTER_RATIO").map_or(f64::NAN, |v| string_to_number(&v));
+    if jitter.is_finite() && jitter >= 0.0 { jitter.min(1.0) } else { 0.2 }
+}
+
 impl Tuning {
     /// From the process environment, read once by the caller.
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Self {
@@ -149,9 +157,7 @@ impl Tuning {
             30_000.0,
             max_before_warn,
         );
-        // `Number(raw)`: unset is NaN (default), an empty string is 0.
-        let jitter = get("MIXDOG_PROVIDER_RETRY_JITTER_RATIO").map_or(f64::NAN, |v| string_to_number(&v));
-        let retry_jitter_ratio = if jitter.is_finite() && jitter >= 0.0 { jitter.min(1.0) } else { 0.2 };
+        let retry_jitter_ratio = retry_jitter_ratio(&get);
         let create_total_ms = resolve_timeout_ms(
             &get,
             &["MIXDOG_PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS"],
