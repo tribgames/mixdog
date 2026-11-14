@@ -8,6 +8,7 @@ use mixdog_app_protocol::v2::thread::ApprovalMode;
 use mixdog_app_protocol::v2::thread::SessionToolMode;
 use mixdog_app_protocol::v2::thread::ThreadSessionOptions;
 use mixdog_app_protocol::v2::thread::ToolProfile;
+use mixdog_core_prompt::prompt::real_sources::CODING_LEAD_PROFILE_REVISION;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use serde_json::json;
@@ -38,9 +39,6 @@ const HEARTBEAT_MODEL_TOOL_NAMES: [&str; 3] = ["session", "setup", "load_tool"];
 
 /// `LEAD_DISALLOWED_TOOLS` (`tool-defs.mjs:228`).
 pub const LEAD_DISALLOWED_TOOLS: [&str; 4] = ["get_goal", "create_goal", "set_goal_tasks", "update_goal"];
-
-/// `CODING_LEAD_PROFILE_REVISION` (`role-instructions.mjs:384`).
-const CODING_LEAD_PROFILE_REVISION: &str = "coding-lead";
 
 /// The header key of `autoWakeCompletions: false` (Node's `onCompletionQueued: null`).
 pub const AUTO_WAKE_COMPLETIONS: &str = "autoWakeCompletions";

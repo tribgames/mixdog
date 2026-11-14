@@ -235,3 +235,49 @@ async fn a_second_session_reuses_the_first_ones_observations() {
     assert_eq!(lines.0, lines.1);
     assert_eq!(lines.2, 1, "the change state of the repository is asked for once, not per session");
 }
+
+/// `agentProfileRevision`: an edit of an agent's `PERSONA.md`, `AGENT.md` or `agent.json` is another stamp, an
+/// untouched profile keeps its own, a coding Lead's is a constant and an invalid id has none.
+#[tokio::test]
+async fn an_agents_profile_stamp_follows_its_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let plugin = dir.path().join("plugin");
+    let data = dir.path().join("data");
+    let home = dir.path().join("home");
+    fs::create_dir_all(data.join("agents/helper")).unwrap();
+    fs::write(data.join("agents/helper/AGENT.md"), "role").unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let stamps = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+        let observed = StartupObservations::new(Arc::new(Frozen));
+        let host = HostFacts {
+            plugin_root: &plugin,
+            data_dir: &data,
+            home_dir: &home,
+            path_env: "",
+            locale: "en-US",
+            instruction_files_forced_off: false,
+            stored_instruction_files: None,
+        };
+        let stamp = |agent: &str, mixy: bool| RealSources::new(lane, host, &observed).agent_profile_revision(agent, mixy);
+        let before = stamp("helper", false);
+        assert_eq!(before, stamp("helper", false));
+        fs::write(data.join("agents/helper/PERSONA.md"), "gentle").unwrap();
+        let persona = stamp("helper", false);
+        fs::write(data.join("agents/helper/agent.json"), "{\"name\":\"Helper\"}").unwrap();
+        let manifest = stamp("helper", false);
+        // A file holding only blanks reads as absent, as `readSafe` of a trimmed empty file does.
+        fs::write(data.join("agents/helper/PERSONA.md"), "  \n").unwrap();
+        let blank = stamp("helper", false);
+        fs::remove_file(data.join("agents/helper/PERSONA.md")).unwrap();
+        let absent = stamp("helper", false);
+        (before, persona, manifest, (blank, absent), stamp("lead", false), stamp("..", false), stamp("lead", true))
+    })
+    .await
+    .unwrap();
+    assert_eq!(stamps.0.len(), 24);
+    assert!(stamps.0 != stamps.1 && stamps.1 != stamps.2 && stamps.0 != stamps.2);
+    assert_eq!(stamps.3.0, stamps.3.1);
+    assert_eq!(stamps.4, "coding-lead");
+    assert_eq!(stamps.5, "");
+    assert_eq!(stamps.6.len(), 24);
+}

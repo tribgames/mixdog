@@ -1228,6 +1228,11 @@ impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
     fn provider_send(&self, send: mixdog_agent::env::ProviderSend) {
         self.inner.provider_send(send);
     }
+
+    /// The `usage_raw` row holds token counts and the provider's usage object, no call's text: passed on as it is.
+    fn request_usage(&self, usage: mixdog_agent::env::RequestUsage) {
+        self.inner.request_usage(usage);
+    }
 }
 
 // ---- the turn ----------------------------------------------------------------------------------------

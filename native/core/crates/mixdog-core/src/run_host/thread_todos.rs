@@ -123,10 +123,9 @@ mod tests {
     }
 
     /// The tool's operations through the production `run` and `ThreadTodos::update` over `SessionThreads`: a commit
-    /// leaves the list and the session's `updatedAt` at the call's time, a refusal leaves the header as it was. (Node's
-    /// recorded operations were `init`/`append`/`rm` by item wording; the tool is now `set`/`advance` and step numbers,
-    /// so the cases are this tool's own. What a stored list reads as, and a cleared one, are still Node's, above and
-    /// below.)
+    /// leaves the list and the session's `updatedAt` at the call's time, a refusal leaves the header as it was. (The
+    /// tool takes Node's `init`/`append`/`rm` by item wording beside `set`/`advance` and step numbers. What a stored
+    /// list reads as, and a cleared one, are still Node's, above and below.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_operation_commits_the_record_or_leaves_it() {
         let golden = golden();
@@ -141,7 +140,10 @@ mod tests {
             ("drop by number", two.clone(), json!({ "op": "drop", "index": 2 }), Ok("0/1 · drop: B · next: A")),
             ("advance with no list", Value::Null, json!({ "op": "advance" }), Err("todo: the list is empty; set it first")),
             ("a number past the list", two.clone(), json!({ "op": "done", "index": 3 }), Err("todo: index is a step number from 1 to 2")),
-            ("an operation of the earlier tool", two.clone(), json!({ "op": "init", "items": ["Z"] }), Err("todo: op must be one of set, advance, done, start, drop, view")),
+            ("init by its wording", two.clone(), json!({ "op": "init", "items": ["Z"] }), Ok("0/1\nTasks\n  [>] Z")),
+            ("append", two.clone(), json!({ "op": "append", "items": ["C"] }), Ok("0/3 · append: C · next: A")),
+            ("rm by wording", two.clone(), json!({ "op": "rm", "item": "B" }), Ok("0/1 · rm: B · next: A")),
+            ("an unknown operation", two.clone(), json!({ "op": "swap" }), Err("todo: op must be one of set, init, advance, done, start, drop, append, rm, view")),
         ];
         for (name, before_todo, args, want) in cases {
             let (todos, threads, thread, _rig) = store(json!({ "todo": before_todo, "updatedAt": 1 })).await;

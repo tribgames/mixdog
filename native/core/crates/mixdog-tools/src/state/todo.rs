@@ -21,9 +21,9 @@ use crate::orch::util::one_line;
 use crate::orch::util::spec_from_def;
 use crate::orch::util::text;
 
-pub const TODO_OPS: [&str; 6] = ["set", "advance", "done", "start", "drop", "view"];
+pub const TODO_OPS: [&str; 9] = ["set", "init", "advance", "done", "start", "drop", "append", "rm", "view"];
 /// A plan of more steps than this is a backlog, not the steps of one request.
-pub const MAX_TODO_ITEMS: usize = 15;
+pub const MAX_TODO_ITEMS: usize = 50;
 pub const MAX_TODO_TEXT_LENGTH: usize = 200;
 const DEFAULT_TODO_PHASE: &str = "Tasks";
 
@@ -234,14 +234,34 @@ fn arg_line(args: &Value, key: &str) -> String {
     }
 }
 
-/// `set`: the whole plan in order, replacing the list there was. `done` says how many of its leading steps are
+/// `set` (and its `init` spelling): the whole plan in order, replacing the list there was. The steps come as `items`
+/// (under `phase`, default `Tasks`) or as named `phases` of `items`. `done` says how many of its leading steps are
 /// already finished, for a plan set again part-way through.
 fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
-    let items = match args.get("items") {
-        Some(Value::Array(items)) if !items.is_empty() => items,
-        _ => return Err("todo: set requires items".to_owned()),
+    let source: Vec<(String, &Vec<Value>)> = match (args.get("phases"), args.get("items")) {
+        (Some(Value::Array(phases)), _) if !phases.is_empty() => {
+            let mut out = Vec::with_capacity(phases.len());
+            let mut names = HashSet::new();
+            for entry in phases {
+                let name = item_text(entry.get("name").unwrap_or(&Value::Null), "phase")?;
+                if !names.insert(name.clone()) {
+                    return Err(format!("todo: duplicate phase \"{name}\""));
+                }
+                match entry.get("items") {
+                    Some(Value::Array(items)) if !items.is_empty() => out.push((name, items)),
+                    _ => return Err(format!("todo: phase \"{name}\" has no items")),
+                }
+            }
+            out
+        }
+        (_, Some(Value::Array(items))) if !items.is_empty() => {
+            let phase = arg_line(args, "phase");
+            vec![(if phase.is_empty() { DEFAULT_TODO_PHASE.to_owned() } else { phase }, items)]
+        }
+        _ => return Err("todo: set requires items or phases".to_owned()),
     };
-    if items.len() > MAX_TODO_ITEMS {
+    let total: usize = source.iter().map(|(_, items)| items.len()).sum();
+    if total > MAX_TODO_ITEMS {
         return Err(format!("todo: at most {MAX_TODO_ITEMS} steps"));
     }
     let finished = match args.get("done") {
@@ -249,32 +269,76 @@ fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
         Some(count) => count
             .as_u64()
             .and_then(|n| usize::try_from(n).ok())
-            .filter(|n| *n <= items.len())
+            .filter(|n| *n <= total)
             .ok_or_else(|| "todo: done is how many of the leading steps are already finished".to_owned())?,
     };
     let mut seen = HashSet::new();
-    let mut tasks = Vec::with_capacity(items.len());
-    for (at, raw) in items.iter().enumerate() {
-        let content = item_text(raw, "step")?;
-        if !seen.insert(content.clone()) {
-            return Err(format!("todo: duplicate step \"{content}\""));
+    let mut phases = Vec::with_capacity(source.len());
+    let mut at = 0;
+    for (name, items) in source {
+        let mut tasks = Vec::with_capacity(items.len());
+        for raw in items {
+            let content = item_text(raw, "step")?;
+            if !seen.insert(content.clone()) {
+                return Err(format!("todo: duplicate step \"{content}\""));
+            }
+            let mut task = TodoTask::pending(content);
+            if at < finished {
+                task.status = TodoStatus::Completed;
+            }
+            at += 1;
+            tasks.push(task);
         }
-        let mut task = TodoTask::pending(content);
-        if at < finished {
-            task.status = TodoStatus::Completed;
-        }
-        tasks.push(task);
+        phases.push(TodoPhase { name, tasks });
     }
-    let mut list = TodoList {
-        phases: vec![TodoPhase { name: DEFAULT_TODO_PHASE.to_owned(), tasks }],
-        updated_at_ms: now_ms,
-    };
+    let mut list = TodoList { phases, updated_at_ms: now_ms };
     list.normalize();
     Ok(list)
 }
 
-/// The position of the step a 1-based `index` names, counted over the whole list in order.
+/// `append`: new steps at the end of the phase `phase` names (default the last one; a new name adds a phase).
+fn append_steps(list: &mut TodoList, args: &Value) -> Result<String, String> {
+    let items = match args.get("items") {
+        Some(Value::Array(items)) if !items.is_empty() => items,
+        _ => return Err("todo: append requires items".to_owned()),
+    };
+    let mut existing: HashSet<String> = list.tasks().map(|task| task.content.clone()).collect();
+    let mut added = Vec::with_capacity(items.len());
+    for raw in items {
+        let content = item_text(raw, "step")?;
+        if !existing.insert(content.clone()) {
+            return Err(format!("todo: step \"{content}\" already exists"));
+        }
+        added.push(content);
+    }
+    if existing.len() > MAX_TODO_ITEMS {
+        return Err(format!("todo: at most {MAX_TODO_ITEMS} steps"));
+    }
+    let named = arg_line(args, "phase");
+    let name = if !named.is_empty() {
+        named
+    } else {
+        list.phases.last().map_or_else(|| DEFAULT_TODO_PHASE.to_owned(), |phase| phase.name.clone())
+    };
+    let text = added.join(", ");
+    let tasks = added.into_iter().map(TodoTask::pending);
+    match list.phases.iter_mut().find(|phase| phase.name == name) {
+        Some(phase) => phase.tasks.extend(tasks),
+        None => list.phases.push(TodoPhase { name, tasks: tasks.collect() }),
+    }
+    Ok(text)
+}
+
+/// The position of the step `item` (its exact wording) or a 1-based `index` names, counted over the whole list in
+/// order.
 fn step_index(list: &TodoList, args: &Value) -> Result<usize, String> {
+    let wording = arg_line(args, "item");
+    if !wording.is_empty() {
+        return list
+            .tasks()
+            .position(|task| task.content == wording)
+            .ok_or_else(|| format!("todo: no step \"{wording}\"; view the list for exact wordings"));
+    }
     let total = list.tasks().count();
     args.get("index")
         .and_then(Value::as_u64)
@@ -302,7 +366,7 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
     if op == "view" {
         return Ok(TodoRun::View(current.render()));
     }
-    if op == "set" {
+    if op == "set" || op == "init" {
         let list = set_list(args, now_ms)?;
         let reply = list.render();
         return Ok(TodoRun::Commit { list, reply });
@@ -330,6 +394,20 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
                 Some(task) => close(task),
                 None => return Err("todo: no such step".to_owned()),
             }
+        }
+        "append" => append_steps(&mut list, args)?,
+        "rm" => {
+            let at = step_index(&list, args)?;
+            let task = list.tasks().nth(at).map(|task| task.content.clone()).ok_or("todo: no such step")?;
+            let mut left = at;
+            for phase in &mut list.phases {
+                if left < phase.tasks.len() {
+                    phase.tasks.remove(left);
+                    break;
+                }
+                left -= phase.tasks.len();
+            }
+            task
         }
         "drop" => {
             let at = step_index(&list, args)?;
@@ -590,19 +668,19 @@ Tasks
             run(&TodoList::default(), &json!({"op":"advance"}), 1).unwrap_err(),
             "todo: the list is empty; set it first"
         );
-        assert_eq!(run(&TodoList::default(), &json!({"op":"set"}), 1).unwrap_err(), "todo: set requires items");
+        assert_eq!(run(&TodoList::default(), &json!({"op":"set"}), 1).unwrap_err(), "todo: set requires items or phases");
         assert_eq!(
             run(&TodoList::default(), &json!({"op":"set","items":["A","A"]}), 1).unwrap_err(),
             "todo: duplicate step \"A\""
         );
         let many: Vec<String> = (0..=MAX_TODO_ITEMS).map(|n| format!("step {n}")).collect();
-        assert_eq!(run(&TodoList::default(), &json!({"op":"set","items":many}), 1).unwrap_err(), "todo: at most 15 steps");
+        assert_eq!(run(&TodoList::default(), &json!({"op":"set","items":many}), 1).unwrap_err(), "todo: at most 50 steps");
         let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A"]}));
         assert_eq!(run(&list, &json!({"op":"done","index":2}), 1).unwrap_err(), "todo: index is a step number from 1 to 1");
         assert_eq!(run(&list, &json!({"op":"done"}), 1).unwrap_err(), "todo: index is a step number from 1 to 1");
         assert_eq!(
-            run(&list, &json!({"op":"init","items":["B"]}), 1).unwrap_err(),
-            "todo: op must be one of set, advance, done, start, drop, view"
+            run(&list, &json!({"op":"swap","items":["B"]}), 1).unwrap_err(),
+            "todo: op must be one of set, init, advance, done, start, drop, append, rm, view"
         );
         assert_eq!(run(&TodoList::default(), &json!({"op":"view"}), 1), Ok(TodoRun::View("todo: empty".to_owned())));
     }
@@ -625,5 +703,44 @@ Tasks
         };
         let (_, reply) = commit(&stored, json!({"op":"done","index":3}));
         assert_eq!(reply, "2/3 · done: c · next: b");
+    }
+
+    /// Node's `init`, `append`, `rm` and item wordings, and its 50-item limit.
+    #[test]
+    fn init_append_and_rm_work_as_node_does() {
+        let (list, reply) = commit(
+            &TodoList::default(),
+            json!({"op":"init","phases":[{"name":"Build","items":["A","B"]},{"name":"Ship","items":["C"]}]}),
+        );
+        assert_eq!(reply, "0/3
+Build
+  [>] A
+  [ ] B
+Ship
+  [ ] C");
+        let (list, reply) = commit(&list, json!({"op":"append","items":["D","E"],"phase":"Ship"}));
+        assert_eq!(reply, "0/5 · append: D, E · next: A");
+        let (list, _) = commit(&list, json!({"op":"done","item":"A","note":"ok"}));
+        let (list, reply) = commit(&list, json!({"op":"rm","item":"D"}));
+        assert_eq!(reply, "1/4 · rm: D · next: B");
+        assert_eq!(list.render(), "1/4
+Build
+  [x] A — ok
+  [>] B
+Ship
+  [ ] C
+  [ ] E");
+        assert_eq!(
+            run(&list, &json!({"op":"append","items":["C"]}), 1).unwrap_err(),
+            "todo: step \"C\" already exists"
+        );
+        assert_eq!(
+            run(&list, &json!({"op":"start","item":"Z"}), 1).unwrap_err(),
+            "todo: no step \"Z\"; view the list for exact wordings"
+        );
+        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["X"],"phase":"One"}));
+        assert_eq!(list.phases[0].name, "One");
+        let fifty: Vec<String> = (0..MAX_TODO_ITEMS).map(|n| format!("s{n}")).collect();
+        assert!(run(&TodoList::default(), &json!({"op":"set","items":fifty}), 1).is_ok());
     }
 }
