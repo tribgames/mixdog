@@ -126,6 +126,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   localPageUrlIn: positional('projectFs/localPageUrl', ['root', 'rel', 'accessToken', 'ownerId']),
   localPageRevokeOwner: positional('projectFs/localPage/revokeOwner', ['ownerId']),
   localPageOrigin: positional('projectFs/localPage/origin', []),
+  // files: [{ path, dataBase64 | text, type }] (CoreLocalPages.virtualUrl maps a Record of VirtualPageFile to it).
+  localPageVirtualIn: positional('projectFs/localPage/virtual', ['files', 'ownerId']),
 
   // desktop settings are keys of the Config actor (desktop-services.md §3)
   writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
@@ -171,6 +173,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   remoteAccessSetName: positional('remoteAccess/setName', ['name']),
   remoteAccessSetClientAlias: positional('remoteAccess/setClientAlias', ['clientId', 'alias']),
   remoteAccessRotate: positional('remoteAccess/rotate', []),
+  pcAccessReadiness: positional('pcAccess/readiness', []),
+  pcAccessApprove: positional('pcAccess/approve', []),
   // Node: resolve(String(args[0] || ''), args[1] === true).
   remoteAccessResolveClaim: ([claimId, approve]) => ({
     method: 'remoteAccess/resolveClaim',
@@ -338,7 +342,8 @@ const SAME_REPLY: readonly string[] = [
   'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
   'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
   'grantDescribe', 'grantRedeem', 'listProjectDirIn', 'createProjectEntryIn', 'renameProjectEntryIn',
-  'moveProjectEntryIn', 'copyProjectEntryIn', 'localPageUrlIn', 'localPageOrigin',
+  'moveProjectEntryIn', 'copyProjectEntryIn', 'localPageUrlIn', 'localPageOrigin', 'pcAccessReadiness',
+  'pcAccessApprove',
 ];
 /** Node returned nothing. */
 const VOID_REPLY: readonly string[] = [
@@ -356,6 +361,8 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   standaloneRoot: (reply) => (record(reply).standalone === true ? record(reply).path : null),
   // The path of an entry, as the rooted service route answers `projectEntryPath`.
   projectEntryPathIn: (reply) => record(reply).path,
+  // The core answers {url}; Node's localVirtualPageUrl returned the URL string.
+  localPageVirtualIn: (reply) => record(reply).url,
   // The core stats a list; Node answered the one entry, or threw the stat's error: a slot { error } is that error.
   statLocalEntryAbs: (reply) => {
     if (!Array.isArray(reply)) throw new TypeError('projectFs/statLocal did not answer a list.');

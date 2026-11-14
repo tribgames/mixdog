@@ -22,13 +22,6 @@ import {
 import type { ProtocolConnection } from './protocol/connection';
 import { coreErrorForWindow } from './protocol/core-error';
 
-/** Not read any more: the core asks the host whether this PC shows notifications and sends the test. The type goes with the
- *  `notifications` option of registerDesktopIpc. */
-export interface NotificationIpcHost {
-  isSupported(): boolean;
-  sendTest(): { ok: boolean; message?: string };
-}
-
 export interface NotificationTestResult {
   ok: boolean;
   message?: string;
@@ -46,8 +39,6 @@ export function registerNotificationIpc({
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   /** The window's core connection; without one these calls fail. */
   core?: Pick<ProtocolConnection, 'call'> | null;
-  /** Not read any more. */
-  notifications?: NotificationIpcHost;
 }): void {
   const call = async (method: string, params: unknown): Promise<unknown> => {
     if (!core) throw new Error('The core connection is not available.');

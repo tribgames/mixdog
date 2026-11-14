@@ -95,3 +95,19 @@ test('coreLocalPages throws when unset', () => {
   assert.equal(coreLocalPages(), pages);
   setCoreLocalPages(null);
 });
+
+test('virtualUrl sends each file as base64 with its type and revokes with the owner', async () => {
+  const core = fakeCore();
+  const pages = createCoreLocalPages(core.invoke);
+  const owner = fakeOwner(9);
+  await pages.virtualUrl({ 'index.html': { type: 'text/html', body: Buffer.from('<p>') } }, { owner, ownerId: 'uuid-9' });
+  assert.deepEqual(core.calls[0], [
+    'localPageVirtualIn',
+    [[{ path: 'index.html', dataBase64: Buffer.from('<p>').toString('base64'), type: 'text/html' }], 'uuid-9'],
+  ]);
+  owner.destroy();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(core.calls.at(-1), ['localPageRevokeOwner', ['uuid-9']]);
+  owner.destroyed = true;
+  await assert.rejects(pages.virtualUrl({}, { owner }), /preview owner is closed/);
+});

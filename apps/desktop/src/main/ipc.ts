@@ -13,7 +13,6 @@ import type {
   Shell,
 } from 'electron';
 
-import { resolve as resolvePath } from 'node:path';
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo, type DesktopSettings } from '../shared/contract';
 import { ipcErrorEnvelope } from '../shared/coded-error';
 import { translateNativeUi } from '../shared/native-ui';
@@ -32,7 +31,7 @@ import { registerProjectIpc } from './ipc-projects';
 import { requestLinuxInputAccess } from './linux-input-access';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
-import { type NotificationIpcHost, registerNotificationIpc } from './ipc-notifications';
+import { registerNotificationIpc } from './ipc-notifications';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
@@ -42,7 +41,7 @@ import { createAllowAllActionsConfirm } from './developer-risk-confirm';
 import { registerHostExtrasIpc } from './ipc-host-extras';
 import { raiseDesktopWindow } from './notification-window';
 import { createSignInFocus } from './sign-in-focus';
-import { SelectedFileAccess } from './selected-file-access';
+import { createCoreFileGrants } from './core-file-grants';
 import { registerScreenSessions } from './screen-sessions';
 import type { ConnectionKind } from './connections/contract';
 import { connectionFeatureGate } from './connections/feature-gates';
@@ -156,8 +155,6 @@ interface DesktopIpcDependencies {
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
-  /** Settings → Notifications: this PC's OS notifications (this PC's window only). */
-  notifications?: NotificationIpcHost;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
   browserHost?: Pick<
     BrowserHost,
@@ -232,7 +229,6 @@ export function registerDesktopIpc(
     settingsStore,
     onDesktopSettingsChanged,
     previewNotificationSound,
-    notifications,
     browserHost,
     browserLogin,
     updater,
@@ -293,11 +289,8 @@ export function registerDesktopIpc(
   const serviceOperations = Object.fromEntries(
     SERVICE_OPERATION_NAMES.map((name) => [name, serviceOperation(name)])
   ) as Record<(typeof SERVICE_OPERATION_NAMES)[number], ServiceOperation>;
-  const selectedFiles = new SelectedFileAccess({
-    storePath:
-      typeof app.getPath === 'function' ? resolvePath(app.getPath('userData'), 'selected-file-grants.json') : '',
-    listProjects: () => host.listProjects(),
-  });
+  // This PC's one-file grants (picked, dropped, linked files) are kept and redeemed by the core.
+  const selectedFiles = createCoreFileGrants(invokeDesktopOperation);
   // A server window's files live on the server: its one-file grants name
   // server paths (agent output links, uploads) and its bytes travel over the
   // window's own connection. This PC's selected-file grants never apply there.
@@ -365,11 +358,10 @@ export function registerDesktopIpc(
     rotateRemoteAccess,
     revokeRemoteAccessClient,
     remoteHosts,
-    pcAccess: computer?.pcAccess,
   });
-  if (notifications) registerNotificationIpc({ handle, invokeDesktopOperation, notifications });
+  registerNotificationIpc({ handle, invokeDesktopOperation, core: protocol });
   registerBrowserIpc({ handle, browserHost, browserLogin });
-  registerComputerIpc({ handle, shell, computer });
+  registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
   handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
   handle(DESKTOP_IPC.visualizeCommand, async (_event, command) =>
     visualize?.command(requiredVisualizeTabCommand(command))

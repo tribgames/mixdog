@@ -10,6 +10,11 @@ export interface PageOwner {
 
 export interface CoreLocalPages {
   url(root: string, rel: string, access?: { accessToken?: string; ownerId?: string; owner?: PageOwner }): Promise<string>;
+  /** An in-memory page (visualize): `index.html` is required; the lease is revoked with its owner as url()'s is. */
+  virtualUrl(
+    files: Record<string, { type: string; body: Buffer }>,
+    access?: { ownerId?: string; owner?: PageOwner }
+  ): Promise<string>;
   origin(): Promise<string>;
   refresh(): Promise<string>;
   revokeOwner(ownerId: string): Promise<void>;
@@ -37,17 +42,32 @@ export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
     }
   };
 
+  // The owner's id, watched so its pages are revoked in the core when it closes.
+  const ownerFor = (access: { ownerId?: string; owner?: PageOwner }): string | undefined => {
+    const { owner } = access;
+    if (owner?.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
+    const ownerId = access.ownerId || (owner ? ownerIdOf(owner) : undefined);
+    if (owner && ownerId && !watched.has(owner)) {
+      watched.add(owner);
+      owner.once('destroyed', () => void sendRevoke(ownerId));
+    }
+    return ownerId;
+  };
+
   return {
     async url(root, rel, access = {}) {
-      const { owner, accessToken } = access;
-      if (owner?.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
-      const ownerId = access.ownerId || (owner ? ownerIdOf(owner) : undefined);
-      if (owner && ownerId && !watched.has(owner)) {
-        watched.add(owner);
-        owner.once('destroyed', () => void sendRevoke(ownerId));
-      }
+      const ownerId = ownerFor(access);
       // An empty token is no grant (the core reads any accessToken as a one-file grant), as main treated it.
-      return invoke<string>('localPageUrlIn', [root, rel, accessToken || undefined, ownerId]);
+      return invoke<string>('localPageUrlIn', [root, rel, access.accessToken || undefined, ownerId]);
+    },
+    async virtualUrl(files, access = {}) {
+      const ownerId = ownerFor(access);
+      const list = Object.entries(files).map(([path, file]) => ({
+        path,
+        dataBase64: file.body.toString('base64'),
+        type: file.type,
+      }));
+      return invoke<string>('localPageVirtualIn', [list, ownerId]);
     },
     origin() {
       if (!cachedOrigin) {
