@@ -22,11 +22,13 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
 use std::sync::PoisonError;
+use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::computer::ComputerAction;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::ComputerRequest;
@@ -52,16 +54,28 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_rt::InteractiveIo;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_core_base::state::change_of;
+use mixdog_protocol::ComputerBackendSection;
+use mixdog_protocol::ComputerCleanupState;
 use mixdog_protocol::ComputerSection;
+use mixdog_protocol::ComputerSessionMode;
 use mixdog_protocol::ComputerSessionSection;
 use mixdog_protocol::SectionName;
 use mixdog_core_config::config::Config;
+use mixdog_core_config::config::ComputerBackendChoice;
+use mixdog_core_config::config::computer_backend;
+use serde_json::Map;
+use serde_json::Value;
 use mixdog_tools::desktop::computer_budget::MAX_LIVE_HELPERS;
 use mixdog_tools::desktop::computer_backend::ComputerConfig;
 use mixdog_tools::desktop::computer_backend::ComputerShared;
 use mixdog_tools::desktop::computer_backend::ExecutionObserver;
 use mixdog_tools::desktop::computer_backend::ObserveOnly;
 use mixdog_tools::desktop::computer_backend::ProcessComputerBackend;
+use mixdog_tools::desktop::computer_desktop_host::ComputerBlobs as HostBlobs;
+use mixdog_tools::desktop::computer_desktop_host::DesktopHostBackend;
+use mixdog_tools::desktop::computer_lane::Lane;
+use mixdog_tools::desktop::computer_pointer::PointerHold;
+use mixdog_tools::desktop::computer_pointer::PointerHost;
 use mixdog_tools::desktop::computer_user_control::UserControlState;
 
 use crate::run_host::run_seams::EnvReader;
@@ -175,8 +189,8 @@ impl NativeToolPaths {
     }
 
     /// The `computer` tool's per-session backends: the resolved `mixdog-computer` helper run under
-    /// `manager`, one helper state per session, or `None` where no place has it (the tool is then
-    /// not registered). `wrap` decorates each session's backend as it is made (the secret
+    /// `manager`, one helper state per session (or the desktop's computer host where `settings` choose it), or `None` where no
+    /// place has the helper and the host is not chosen (the tool is then not registered). `wrap` decorates each session's backend as it is made (the secret
     /// redaction of that session and the human-only lock); `settings` is what the helpers read from the daemon.
     pub async fn computer_sessions(
         &self,
@@ -185,7 +199,12 @@ impl NativeToolPaths {
         publisher: Arc<dyn StatePublisher>,
         settings: ComputerSettings,
     ) -> Option<Arc<ComputerSessionPool>> {
-        let binary = self.resolve(NativeTool::Computer).await?;
+        let binary = self.resolve(NativeTool::Computer).await;
+        // Without the helper only the desktop's computer host can serve, and only where `desktop.computerBackend` asks for it.
+        let host_serves = settings.host_blobs.is_some() && (settings.backend)() == ComputerBackendChoice::DesktopHost;
+        if binary.is_none() && !host_serves {
+            return None;
+        }
         Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher, settings)))
     }
 
@@ -204,6 +223,13 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2 * 60);
 /// `SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS` (`client.mjs:43`).
 const SHUTDOWN_RELEASE: Duration = Duration::from_secs(5);
 
+/// How long a session-level command (`execution_end`, `session_abort`, `session_release`) waits for the desktop's own computer host
+/// (`SESSION_ABORT_TIMEOUT_MS` of the client).
+const HOST_CONTROL: Duration = Duration::from_secs(15);
+
+/// How long the helper may take to give the cursor back; a helper that does not answer restores it itself (its watchdog).
+const CURSOR_RELEASE: Duration = Duration::from_secs(5);
+
 /// The cap on live helper processes (`MAX_COMPUTER_WORKERS`, `worker-capacity.ts:6`).
 const MAX_RESIDENT_HELPERS: usize = MAX_LIVE_HELPERS;
 
@@ -216,23 +242,138 @@ const IDLE_STALE: Duration = Duration::from_secs(300);
 /// Decorates a session's backend as it is made.
 pub type WrapBackend = Arc<dyn Fn(&str, Arc<dyn ComputerBackend>) -> Arc<dyn ComputerBackend> + Send + Sync>;
 
-/// What the sessions' helpers read from the daemon: its data directory (each helper's ledger lives under it) and the live
-/// observation-only setting.
+/// What the sessions' helpers read from the daemon: its data directory (each helper's ledger lives under it), the live
+/// observation-only setting and the backend that serves a new session.
 pub struct ComputerSettings {
     pub data_dir: PathBuf,
     pub observe_only: ObserveOnly,
+    /// `desktop.computerBackend`, read when a session's first request makes its state: a change reaches the sessions made after it.
+    pub backend: Arc<dyn Fn() -> ComputerBackendChoice + Send + Sync>,
+    /// The stored images the desktop's computer host names in its replies. Without them the desktop host backend is not offered and
+    /// the helper serves every session.
+    pub host_blobs: Option<Arc<dyn HostBlobs>>,
 }
 
 impl ComputerSettings {
-    /// `desktop.computerObserveOnly` of `config` (`desktop_settings`), read again on every call, so a change in Settings
-    /// reaches the next call of every session.
-    pub fn from_config(data_dir: PathBuf, config: Config) -> Self {
-        Self { data_dir, observe_only: Arc::new(move || config.desktop_settings().computer_observe_only) }
+    /// The resident helper serves every session.
+    pub fn new(data_dir: PathBuf, observe_only: ObserveOnly) -> Self {
+        Self { data_dir, observe_only, backend: Arc::new(|| ComputerBackendChoice::Helper), host_blobs: None }
+    }
+
+    /// `desktop.computerObserveOnly` and `desktop.computerBackend` of `config`, read again on every call, so a change in Settings
+    /// reaches the next call of every session (the backend, the next session made).
+    pub fn from_config(data_dir: PathBuf, config: Config, host_blobs: Option<Arc<dyn HostBlobs>>) -> Self {
+        let observing = config.clone();
+        Self {
+            data_dir,
+            observe_only: Arc::new(move || observing.desktop_settings().computer_observe_only),
+            backend: Arc::new(move || chosen_backend(&config)),
+            host_blobs,
+        }
+    }
+}
+
+/// `desktop.computerBackend` as it applies on this platform.
+fn chosen_backend(config: &Config) -> ComputerBackendChoice {
+    let mut desktop = Map::new();
+    if let Some(stored) = config.get("desktop.computerBackend") {
+        desktop.insert("computerBackend".to_owned(), stored);
+    }
+    let mut document = Map::new();
+    document.insert("desktop".to_owned(), Value::Object(desktop));
+    computer_backend(&document)
+}
+
+/// What serves one session: its own helper process, or the desktop's computer host (`host/computer/command`).
+#[derive(Clone)]
+enum Process {
+    Helper(Arc<ProcessComputerBackend>),
+    Host(HostSession),
+}
+
+#[derive(Clone)]
+struct HostSession {
+    backend: Arc<DesktopHostBackend>,
+    /// The host runs the commands, so the session's open execution is the pool's own record.
+    presence: Arc<SessionPresence>,
+}
+
+impl Process {
+    fn is_bound(&self) -> bool {
+        match self {
+            Self::Helper(process) => process.is_bound(),
+            Self::Host(host) => host.backend.status().active,
+        }
+    }
+
+    fn has_live_host(&self) -> bool {
+        matches!(self, Self::Helper(process) if process.has_live_host())
+    }
+
+    fn is_executing(&self) -> bool {
+        match self {
+            Self::Helper(process) => process.is_executing(),
+            Self::Host(host) => host.presence.is_open(),
+        }
+    }
+
+    fn is_cleaning(&self) -> bool {
+        matches!(self, Self::Helper(process) if process.is_cleaning())
+    }
+
+    fn helper_pid(&self) -> Option<u32> {
+        match self {
+            Self::Helper(process) => process.helper_pid(),
+            Self::Host(_) => None,
+        }
+    }
+
+    fn secret_host(&self) -> Arc<dyn ComputerSecretHost> {
+        match self {
+            Self::Helper(process) => process.clone(),
+            Self::Host(host) => host.backend.clone(),
+        }
+    }
+
+    async fn abort(&self) -> bool {
+        match self {
+            Self::Helper(process) => process.abort_session().await,
+            Self::Host(host) => {
+                let confirmed = host.backend.session_control("session_abort", Map::new(), HOST_CONTROL).await;
+                host.presence.ended();
+                confirmed
+            }
+        }
+    }
+
+    async fn end_execution(&self) -> bool {
+        match self {
+            Self::Helper(process) => process.end_execution().await,
+            Self::Host(host) => {
+                if !host.presence.is_open() {
+                    return false;
+                }
+                let confirmed = host.backend.session_control("execution_end", Map::new(), HOST_CONTROL).await;
+                host.presence.ended();
+                confirmed
+            }
+        }
+    }
+
+    async fn release(&self) -> bool {
+        match self {
+            Self::Helper(process) => process.release_session().await,
+            Self::Host(host) => {
+                let confirmed = host.backend.session_control("session_release", Map::new(), HOST_CONTROL).await;
+                host.presence.ended();
+                confirmed
+            }
+        }
     }
 }
 
 struct Entry {
-    process: Arc<ProcessComputerBackend>,
+    process: Process,
     backend: Arc<dyn ComputerBackend>,
     /// The armed idle release (`deferComputerSessionRelease`).
     idle: Option<TimerHandle>,
@@ -251,8 +392,12 @@ struct Entry {
 ///   later use disarms it, `client.mjs:698`);
 /// - the process ends: dropping the pool drops every backend, whose drop runs the helper's
 ///   `--abort-cleanup` (`releaseAllComputerSessions`, `client.mjs:751-768`).
+///
+/// A session made while `desktop.computerBackend` is `desktopHost` (Windows) has no helper of its own: its commands go to the
+/// desktop's computer host, and the lifecycle above is sent to that host as session-level commands.
 pub struct ComputerSessionPool {
-    binary: PathBuf,
+    /// `None` where no place has the helper and only the desktop host serves.
+    binary: Option<PathBuf>,
     manager: Arc<dyn ProcessManager>,
     wrap: WrapBackend,
     data_dir: PathBuf,
@@ -261,52 +406,146 @@ pub struct ComputerSessionPool {
     shared: ComputerShared,
     entries: Mutex<HashMap<String, Entry>>,
     presence: Arc<ComputerPresence>,
+    choose: Arc<dyn Fn() -> ComputerBackendChoice + Send + Sync>,
+    host_blobs: Option<Arc<dyn HostBlobs>>,
     /// The desktop whose computer host takes the screen captures (`host/computer/*`); bound once the host channel exists.
     desktop: OnceLock<Arc<dyn HostChannel>>,
+}
+
+/// One command running now.
+struct Running {
+    id: u64,
+    session: String,
+    mode: ComputerSessionMode,
+    windows: Vec<String>,
+}
+
+#[derive(Default)]
+struct PresenceState {
+    /// The sessions with an open execution, oldest first, and whether each opened observing only.
+    open: Vec<(String, bool)>,
+    running: Vec<Running>,
+    next: u64,
+    /// What was published last: an unchanged section is not published again.
+    last: Option<ComputerSection>,
 }
 
 /// The sessions with an open execution, oldest first, and the `computer` section that says so (SPEC R40): the pill
 /// the desktop shows while an agent drives the desktop. Node's coordinator keeps a session present from its first
 /// command (`beginCommand`) until the turn settles (`endExecution`) and its snapshot lists every one of them
-/// (`coordinator.ts` `snapshot().activities`); the section lists them all, and names the latest in its own fields.
+/// (`coordinator.ts` `snapshot().activities`); the section lists them all, and names the latest in its own fields. A session's row
+/// also carries the windows, the mode and the phase of the commands running now.
 struct ComputerPresence {
     publisher: Arc<dyn StatePublisher>,
-    open: Mutex<Vec<(String, bool)>>,
+    state: Mutex<PresenceState>,
     /// The person's hold on the desktop, which the section carries beside the open executions.
     control: Arc<UserControlState>,
+    /// The foreground lane, whose queue and phase the section carries.
+    lane: Arc<Lane>,
+    /// The helpers whose cleanup the section reports.
+    helpers: Mutex<HashMap<String, Weak<ProcessComputerBackend>>>,
+    backend: ComputerBackendSection,
+    /// The holds of the sessions' pointers; dropped when the person takes the desktop.
+    pointer: OnceLock<Arc<PointerHold>>,
 }
 
 impl ComputerPresence {
-    /// Publishes the section again after a change of the person's hold.
-    fn republish(&self) {
-        let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
-        self.publish(&open);
+    fn new(publisher: Arc<dyn StatePublisher>, shared: &ComputerShared, backend: ComputerBackendSection) -> Self {
+        let presence = Self {
+            publisher,
+            state: Mutex::default(),
+            control: shared.user_control.clone(),
+            lane: shared.lane.clone(),
+            helpers: Mutex::default(),
+            backend,
+            pointer: OnceLock::new(),
+        };
+        // What the section says before anything happened, so that a change that shows nothing publishes nothing.
+        let idle = presence.section(&PresenceState::default());
+        presence.state().last = Some(idle);
+        presence
     }
 
-    fn publish(&self, open: &[(String, bool)]) {
-        let latest = open.last();
-        let section = ComputerSection {
+    fn state(&self) -> MutexGuard<'_, PresenceState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether the end-of-run cleanup is done: latched as unconfirmed, still running in a helper, or neither.
+    fn cleanup_state(&self) -> ComputerCleanupState {
+        if self.control.is_latched() {
+            return ComputerCleanupState::Failed;
+        }
+        let helpers = self.helpers.lock().unwrap_or_else(PoisonError::into_inner);
+        if helpers.values().filter_map(Weak::upgrade).any(|helper| helper.is_cleaning()) { ComputerCleanupState::Pending } else { ComputerCleanupState::Ready }
+    }
+
+    fn section(&self, state: &PresenceState) -> ComputerSection {
+        let latest = state.open.last();
+        ComputerSection {
             active: latest.is_some(),
             observe_only: latest.is_some_and(|(_, observe_only)| *observe_only),
             controller: None,
-            sessions: open
+            sessions: state
+                .open
                 .iter()
-                .map(|(session, observe_only)| ComputerSessionSection {
-                    session_thread_id: ThreadId::from(session.as_str()),
-                    observe_only: *observe_only,
-                    window_ids: Vec::new(),
-                    mode: None,
-                    phase: None,
+                .map(|(session, observe_only)| {
+                    let running: Vec<&Running> = state.running.iter().filter(|command| command.session == *session).collect();
+                    let mut window_ids: Vec<String> = Vec::new();
+                    for window in running.iter().flat_map(|command| command.windows.iter()) {
+                        if !window_ids.contains(window) {
+                            window_ids.push(window.clone());
+                        }
+                    }
+                    let mode = running.last().map(|command| command.mode);
+                    let phase = mode.map(|mode| {
+                        let word = if mode == ComputerSessionMode::Foreground { "active_foreground" } else { "active_background" };
+                        word.to_owned()
+                    });
+                    ComputerSessionSection { session_thread_id: ThreadId::from(session.as_str()), observe_only: *observe_only, window_ids, mode, phase }
                 })
                 .collect(),
             session_thread_id: latest.map(|(session, _)| ThreadId::from(session.as_str())),
             user_control: self.control.section(),
-            lane: None,
-            backend: mixdog_protocol::ComputerBackendSection::Helper,
-            cleanup_state: mixdog_protocol::ComputerCleanupState::Ready,
+            lane: self.lane.section(),
+            backend: self.backend,
+            cleanup_state: self.cleanup_state(),
             idle_resume_seconds: self.control.idle_resume_seconds(),
-        };
+        }
+    }
+
+    /// Publishes the section when it differs from the one published last.
+    fn publish(&self, state: &mut PresenceState) {
+        let section = self.section(state);
+        if state.last.as_ref() == Some(&section) {
+            return;
+        }
         self.publisher.publish(SectionName::Computer, None, change_of(&section));
+        state.last = Some(section);
+    }
+
+    /// Publishes the section again after a change of the person's hold.
+    fn republish(&self) {
+        let mut state = self.state();
+        self.publish(&mut state);
+    }
+
+    fn is_running(&self, session: &str) -> bool {
+        self.state().running.iter().any(|command| command.session == session)
+    }
+
+    fn command_began(&self, session: &str, mode: ComputerSessionMode, windows: Vec<String>) -> u64 {
+        let mut state = self.state();
+        state.next += 1;
+        let id = state.next;
+        state.running.push(Running { id, session: session.to_owned(), mode, windows });
+        self.publish(&mut state);
+        id
+    }
+
+    fn command_ended(&self, id: u64) {
+        let mut state = self.state();
+        state.running.retain(|command| command.id != id);
+        self.publish(&mut state);
     }
 }
 
@@ -316,24 +555,80 @@ struct SessionPresence {
     session: String,
 }
 
+impl SessionPresence {
+    fn is_open(&self) -> bool {
+        self.presence.state().open.iter().any(|(session, _)| *session == self.session)
+    }
+}
+
 impl ExecutionObserver for SessionPresence {
     fn began(&self, observe_only: bool) {
         self.presence.control.session_began(&self.session);
-        let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
-        open.retain(|(session, _)| *session != self.session);
-        open.push((self.session.clone(), observe_only));
-        self.presence.publish(&open);
+        let mut state = self.presence.state();
+        state.open.retain(|(session, _)| *session != self.session);
+        state.open.push((self.session.clone(), observe_only));
+        self.presence.publish(&mut state);
     }
 
     fn ended(&self) {
         self.presence.control.session_ended(&self.session);
-        let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
-        let before = open.len();
-        open.retain(|(session, _)| *session != self.session);
-        if open.len() != before {
-            self.presence.publish(&open);
+        let mut state = self.presence.state();
+        let before = state.open.len();
+        state.open.retain(|(session, _)| *session != self.session);
+        if state.open.len() != before {
+            self.presence.publish(&mut state);
         }
     }
+}
+
+/// A command of a session running: the session's row names its windows, its mode and its phase until the command ends, however it
+/// ends (a dropped call included).
+struct RunningCommand {
+    presence: Arc<ComputerPresence>,
+    id: u64,
+}
+
+impl RunningCommand {
+    fn begin(presence: &Arc<ComputerPresence>, session: &str, request: &ComputerRequest) -> Self {
+        let (mode, windows) = classify(request);
+        Self { presence: presence.clone(), id: presence.command_began(session, mode, windows) }
+    }
+}
+
+impl Drop for RunningCommand {
+    fn drop(&mut self) {
+        self.presence.command_ended(self.id);
+    }
+}
+
+/// How a command reaches the screen, and the windows it names. A command is foreground when it sends input through the desktop's one
+/// keyboard and pointer (`delivery: "foreground"`) or works the person's windows and clipboard (`FOREGROUND_ACTIONS` of the lane);
+/// the windows are `window_id` / `window_ids` of the call or of a step of its `actions`.
+fn classify(request: &ComputerRequest) -> (ComputerSessionMode, Vec<String>) {
+    let empty = Map::new();
+    let input = request.input.as_object().unwrap_or(&empty);
+    let delivered = input.get("delivery").and_then(Value::as_str) == Some("foreground");
+    let foreground = match request.action {
+        ComputerAction::Act | ComputerAction::Capture => delivered,
+        ComputerAction::Window => input.get("operation").and_then(Value::as_str) != Some("terminate"),
+        ComputerAction::Clipboard | ComputerAction::Launch | ComputerAction::SavedLogin => true,
+        ComputerAction::List | ComputerAction::Diagnose | ComputerAction::Verify | ComputerAction::WaitForUser | ComputerAction::Menu => false,
+    };
+    let mut windows: Vec<String> = Vec::new();
+    let mut note = |source: &Map<String, Value>| {
+        let single = source.get("window_id").and_then(Value::as_str);
+        let several = source.get("window_ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
+        for window in single.into_iter().chain(several).map(str::trim).filter(|window| !window.is_empty()) {
+            if !windows.iter().any(|known| known == window) {
+                windows.push(window.to_owned());
+            }
+        }
+    };
+    note(input);
+    for step in input.get("actions").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object) {
+        note(step);
+    }
+    (if foreground { ComputerSessionMode::Foreground } else { ComputerSessionMode::Background }, windows)
 }
 
 fn session_key(session: &str) -> String {
@@ -341,30 +636,130 @@ fn session_key(session: &str) -> String {
     if id.is_empty() { DEFAULT_SESSION.to_owned() } else { id.to_owned() }
 }
 
+/// A session's backend as the tool sees it: the commands it runs are the presence's running commands, and, where the desktop host
+/// runs them, the first of them opens the session's execution (a helper's own backend reports that edge itself).
+struct ReportingBackend {
+    inner: Arc<dyn ComputerBackend>,
+    presence: Arc<ComputerPresence>,
+    session: String,
+    host: Option<(Arc<SessionPresence>, ObserveOnly)>,
+}
+
+#[async_trait]
+impl ComputerBackend for ReportingBackend {
+    async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let _running = RunningCommand::begin(&self.presence, &self.session, &request);
+        if let Some((session, observe_only)) = &self.host
+            && !session.is_open()
+        {
+            session.began(observe_only());
+        }
+        self.inner.run(request, cancel).await
+    }
+
+    fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
+        self.inner.inject(input)
+    }
+
+    fn release_input(&self) -> Result<u32, ComputerError> {
+        self.inner.release_input()
+    }
+
+    fn input_desktop(&self) -> Option<DesktopIdentity> {
+        self.inner.input_desktop()
+    }
+
+    fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+        self.inner.displays()
+    }
+
+    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+        self.inner.screen_source(display)
+    }
+
+    fn status(&self) -> ComputerStatus {
+        self.inner.status()
+    }
+}
+
+/// What the pointer holds act on: the sessions' presence and helpers.
+struct PoolPointerHost {
+    pool: Weak<ComputerSessionPool>,
+}
+
+#[async_trait]
+impl PointerHost for PoolPointerHost {
+    /// The `computer` section has no per-session pointer field: the arrow follows the hold, and `release_cursor_theme` gives the
+    /// cursor back, so there is no presence to change here.
+    fn release_pointer(&self, _session: &str) {}
+
+    fn is_running(&self, session: &str) -> bool {
+        self.pool.upgrade().is_some_and(|pool| pool.presence.is_running(&session_key(session)))
+    }
+
+    async fn release_cursor_theme(&self, session: &str) {
+        let Some(pool) = self.pool.upgrade() else { return };
+        let process = pool.entries().get(&session_key(session)).map(|entry| entry.process.clone());
+        // Only a helper that is running is told (nothing is started), and its failure is swallowed: its watchdog gives the cursor back.
+        let Some(Process::Helper(helper)) = process.filter(Process::has_live_host) else { return };
+        let mut command = Map::new();
+        command.insert("action".to_owned(), Value::String("release_cursor_theme".to_owned()));
+        let _ = mixdog_rt::time::timeout(CURSOR_RELEASE, helper.execute(command)).await;
+    }
+}
+
 impl ComputerSessionPool {
-    pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>, settings: ComputerSettings) -> Self {
+    pub fn new(binary: Option<PathBuf>, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>, settings: ComputerSettings) -> Self {
         let shared = ComputerShared { observe_only: settings.observe_only, ..ComputerShared::default() };
-        let presence = Arc::new(ComputerPresence { publisher, open: Mutex::default(), control: shared.user_control.clone() });
+        let section_backend = if settings.host_blobs.is_some() && (settings.backend)() == ComputerBackendChoice::DesktopHost {
+            ComputerBackendSection::DesktopHost
+        } else {
+            ComputerBackendSection::Helper
+        };
+        let presence = Arc::new(ComputerPresence::new(publisher, &shared, section_backend));
         let published = Arc::downgrade(&presence);
         shared.user_control.on_change(Arc::new(move || {
             if let Some(presence) = published.upgrade() {
                 presence.republish();
+                // The person's hold ends the sessions' pointer holds without a release: the helpers restore the cursor themselves.
+                if presence.control.section().is_some()
+                    && let Some(hold) = presence.pointer.get()
+                {
+                    hold.paused();
+                }
             }
         }));
         // The ledgers a crashed core left are replayed now rather than at the first session's first helper: the windows it left
         // without activation are restored before anyone uses `computer`. A session's first helper waits for this sweep.
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        if let (Some(binary), Ok(runtime)) = (&binary, tokio::runtime::Handle::try_current()) {
             let mut config = ComputerConfig::new(binary.clone(), "ledger-sweep");
             config.data_dir = Some(settings.data_dir.clone());
             let sweeper = ProcessComputerBackend::new(config, manager.clone());
             let _sweep = runtime.spawn(async move { sweeper.sweep_ledgers().await });
         }
-        Self { binary, manager, wrap, data_dir: settings.data_dir, shared, entries: Mutex::new(HashMap::new()), presence, desktop: OnceLock::new() }
+        Self {
+            binary,
+            manager,
+            wrap,
+            data_dir: settings.data_dir,
+            shared,
+            entries: Mutex::new(HashMap::new()),
+            presence,
+            choose: settings.backend,
+            host_blobs: settings.host_blobs,
+            desktop: OnceLock::new(),
+        }
     }
 
     /// The person's hold on the desktop, which the pill's Resume and Stop (`computer/userControl`) act on.
     pub fn user_control(&self) -> Arc<UserControlState> {
         self.shared.user_control.clone()
+    }
+
+    /// The holds of the sessions' pointers between their commands, which `computer/pointerReleased` ends and the person's hold of
+    /// the desktop drops. One per pool.
+    pub fn pointer_hold(self: &Arc<Self>) -> Arc<PointerHold> {
+        self.presence.pointer.get_or_init(|| Arc::new(PointerHold::new(Arc::new(PoolPointerHost { pool: Arc::downgrade(self) })))).clone()
     }
 
     /// Binds the desktop channel the sessions' backends ask for screen captures; the first binding stands, and only sessions made after it use it.
@@ -403,40 +798,66 @@ impl ComputerSessionPool {
             }
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 let process = entry.process;
-                runtime.spawn(async move { process.release_session().await });
+                runtime.spawn(async move { process.release().await });
             }
         }
     }
 
-    /// The session's helper and its (decorated) backend; a use disarms a pending idle release. `None` for a new
+    /// The state of a session that has none yet: the desktop host's when `desktop.computerBackend` says so (Windows) or no helper
+    /// exists, and the desktop is attached; else the resident helper's.
+    fn make_entry(&self, key: &str) -> Result<Entry, ComputerError> {
+        let wants_host = self.host_blobs.is_some() && (self.choose)() == ComputerBackendChoice::DesktopHost;
+        let observer = Arc::new(SessionPresence { presence: self.presence.clone(), session: key.to_owned() });
+        let (process, backend, host) = match (&self.binary, wants_host) {
+            (_, true) | (None, _) => {
+                let (Some(desktop), Some(blobs)) = (self.desktop.get(), &self.host_blobs) else { return Err(no_host()) };
+                let host = Arc::new(DesktopHostBackend::new(desktop.clone(), blobs.clone(), key, self.shared.observe_only.clone()));
+                let session = HostSession { backend: host.clone(), presence: observer };
+                (Process::Host(session.clone()), (self.wrap)(key, host), Some(session.presence))
+            }
+            (Some(binary), false) => {
+                if self.shared.live.count() >= MAX_RESIDENT_HELPERS {
+                    return Err(AtCapacity::refusal());
+                }
+                let mut config = ComputerConfig::new(binary.clone(), key);
+                config.data_dir = Some(self.data_dir.clone());
+                let mut helper = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(self.shared.clone()).with_observer(observer);
+                if let Some(desktop) = self.desktop.get() {
+                    helper = helper.with_desktop(desktop.clone());
+                }
+                let helper = Arc::new(helper);
+                self.shared.user_control.register(key, Arc::downgrade(&helper));
+                self.presence.helpers.lock().unwrap_or_else(PoisonError::into_inner).insert(key.to_owned(), Arc::downgrade(&helper));
+                helper.watch_for_death();
+                (Process::Helper(helper.clone()), (self.wrap)(key, helper), None)
+            }
+        };
+        let backend = Arc::new(ReportingBackend {
+            inner: backend,
+            presence: self.presence.clone(),
+            session: key.to_owned(),
+            host: host.map(|session| (session, self.shared.observe_only.clone())),
+        });
+        Ok(Entry { process, backend, idle: None, used: Instant::now() })
+    }
+
+    /// The session's state and its (decorated) backend; a use disarms a pending idle release. A refusal for a new
     /// session when `MAX_RESIDENT_HELPERS` helper processes are live (not sessions: one that has not started a helper, or whose
     /// helper ended, takes no slot) and none could be reclaimed.
-    fn entry_for(&self, session: &str) -> Option<(Arc<ProcessComputerBackend>, Arc<dyn ComputerBackend>)> {
+    fn entry_for(&self, session: &str) -> Result<(Process, Arc<dyn ComputerBackend>), ComputerError> {
         let key = session_key(session);
         let mut entries = self.entries();
         self.reclaim_idle(&mut entries, &key);
-        if !entries.contains_key(&key) && self.shared.live.count() >= MAX_RESIDENT_HELPERS {
-            return None;
+        if !entries.contains_key(&key) {
+            let made = self.make_entry(&key)?;
+            entries.insert(key.clone(), made);
         }
-        let entry = entries.entry(key.clone()).or_insert_with(|| {
-            let observer = Arc::new(SessionPresence { presence: self.presence.clone(), session: key.clone() });
-            let mut config = ComputerConfig::new(self.binary.clone(), key.as_str());
-            config.data_dir = Some(self.data_dir.clone());
-            let mut process = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(self.shared.clone()).with_observer(observer);
-            if let Some(desktop) = self.desktop.get() {
-                process = process.with_desktop(desktop.clone());
-            }
-            let process = Arc::new(process);
-            self.shared.user_control.register(&key, Arc::downgrade(&process));
-            process.watch_for_death();
-            let backend = (self.wrap)(&key, process.clone());
-            Entry { process, backend, idle: None, used: Instant::now() }
-        });
+        let Some(entry) = entries.get_mut(&key) else { return Err(no_host()) };
         entry.used = Instant::now();
         if let Some(timer) = entry.idle.take() {
             let _disarmed = timer.cancel();
         }
-        Some((entry.process.clone(), entry.backend.clone()))
+        Ok((entry.process.clone(), entry.backend.clone()))
     }
 
     /// The process id of `session`'s resident helper; `None` when the session has none running (nothing is started to tell).
@@ -449,7 +870,7 @@ impl ComputerSessionPool {
     pub async fn abort(&self, session: &str) -> bool {
         let process = self.entries().get(&session_key(session)).map(|entry| entry.process.clone());
         match process {
-            Some(process) => process.abort_session().await,
+            Some(process) => process.abort().await,
             None => false,
         }
     }
@@ -457,8 +878,10 @@ impl ComputerSessionPool {
     /// The windows of the desktop with their owning processes, as the authorization names them (`listAuthorizationWindows`), read through
     /// `session`'s helper.
     pub async fn authorization_windows(&self, session: &str) -> Result<Vec<serde_json::Value>, ComputerError> {
-        let (process, _) = self.entry_for(session).ok_or_else(AtCapacity::refusal)?;
-        process.authorization_windows().await
+        match self.entry_for(session)?.0 {
+            Process::Helper(process) => process.authorization_windows().await,
+            Process::Host(_) => Err(ComputerError::Unavailable { reason: "no helper serves this session: the desktop's computer host answers for its windows".to_owned() }),
+        }
     }
 
     /// `releaseComputerSession(id)`: the helper is told to release the session (`release_session`),
@@ -471,7 +894,7 @@ impl ComputerSessionPool {
         if let Some(timer) = entry.idle.take() {
             let _disarmed = timer.cancel();
         }
-        entry.process.release_session().await
+        entry.process.release().await
     }
 
     /// `releaseAllComputerSessions` (`bridge-clients.mjs`), which the daemon's shutdown awaits after its sessions closed: every pending idle release is
@@ -492,14 +915,17 @@ impl ComputerSessionPool {
         outcomes.into_iter().filter(|released| *released).count()
     }
 
-    /// `endComputerExecution(id)`: the turn's execution ends, the helper stays warm. False for a
-    /// session with no open execution.
+    /// `endComputerExecution(id)`: the turn's execution ends, the helper stays warm, and the session's held pointer is the person's
+    /// again. False for a session with no open execution.
     pub async fn end_execution(&self, session: &str) -> bool {
-        let process = self.entries().get(&session_key(session)).map(|entry| entry.process.clone());
-        match process {
-            Some(process) => process.end_execution().await,
-            None => false,
+        let key = session_key(session);
+        let process = self.entries().get(&key).map(|entry| entry.process.clone());
+        let Some(process) = process else { return false };
+        let ended = process.end_execution().await;
+        if let Some(hold) = self.presence.pointer.get() {
+            hold.turn_ended(&key).await;
         }
+        ended
     }
 
     /// `deferComputerSessionRelease(id)`: releases the session after two idle minutes. False for a
@@ -520,6 +946,11 @@ impl ComputerSessionPool {
         }));
         true
     }
+}
+
+/// What a session finds where no helper exists and the desktop's computer host is not attached.
+fn no_host() -> ComputerError {
+    ComputerError::Unavailable { reason: "computer use is unavailable: no helper is installed and no desktop serves the computer host".to_owned() }
 }
 
 /// The shells of a closing session and its computer helper go together: Node's teardown stops
@@ -628,14 +1059,17 @@ impl TurnSnapshots for SettlingSnapshots {
 impl ComputerSessions for ComputerSessionPool {
     fn backend(&self, session: &str) -> Arc<dyn ComputerBackend> {
         match self.entry_for(session) {
-            Some((_, backend)) => backend,
-            None => Arc::new(AtCapacity),
+            Ok((_, backend)) => backend,
+            Err(refusal) => Arc::new(Refusing(refusal)),
         }
     }
 }
 
-/// The backend of a session that found `MAX_RESIDENT_HELPERS` helpers resident (`assertComputerWorkerCapacity`): its
-/// commands are refused in Node's words, with nothing started or sent.
+/// The backend of a session that found `MAX_RESIDENT_HELPERS` helpers resident (`assertComputerWorkerCapacity`), or no helper and no
+/// desktop host: its commands are refused in Node's words, with nothing started or sent.
+struct Refusing(ComputerError);
+
+/// The refusal of a session that found `MAX_RESIDENT_HELPERS` helpers resident.
 struct AtCapacity;
 
 impl AtCapacity {
@@ -648,13 +1082,13 @@ impl AtCapacity {
 }
 
 #[async_trait]
-impl ComputerBackend for AtCapacity {
+impl ComputerBackend for Refusing {
     async fn run(&self, _: ComputerRequest, _: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        Err(Self::refusal())
+        Err(self.0.clone())
     }
 
     fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
-        Err(Self::refusal())
+        Err(self.0.clone())
     }
 
     fn release_input(&self) -> Result<u32, ComputerError> {
@@ -666,11 +1100,11 @@ impl ComputerBackend for AtCapacity {
     }
 
     fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
-        Err(Self::refusal())
+        Err(self.0.clone())
     }
 
     fn screen_source(&self, _: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
-        Err(Self::refusal())
+        Err(self.0.clone())
     }
 
     fn status(&self) -> ComputerStatus {
@@ -679,10 +1113,10 @@ impl ComputerBackend for AtCapacity {
 }
 
 /// The secret fill drives the helper of the thread's own session, the one state its `computer`
-/// calls use.
+/// calls use (the desktop host's, where that serves the session).
 impl ComputerSecretHosts for ComputerSessionPool {
     fn secret_host(&self, thread: &ThreadId) -> Option<Arc<dyn ComputerSecretHost>> {
-        Some(self.entry_for(thread.as_str())?.0)
+        Some(self.entry_for(thread.as_str()).ok()?.0.secret_host())
     }
 }
 
@@ -813,7 +1247,7 @@ mod tests {
 
     /// Observation only off.
     fn settings() -> ComputerSettings {
-        ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(|| false) }
+        ComputerSettings::new(data_dir(), Arc::new(|| false))
     }
 
     fn computer_values(published: &Published) -> Vec<mixdog_protocol::ComputerSection> {
@@ -830,6 +1264,18 @@ mod tests {
             .collect()
     }
 
+    /// The sessions the published sections list, one list per change that showed.
+    fn listed(published: &Published) -> Vec<Vec<String>> {
+        let mut seen: Vec<Vec<String>> = Vec::new();
+        for section in computer_values(published) {
+            let sessions: Vec<String> = section.sessions.iter().map(|session| session.session_thread_id.as_str().to_owned()).collect();
+            if seen.last() != Some(&sessions) {
+                seen.push(sessions);
+            }
+        }
+        seen
+    }
+
     /// The `computer` section (SPEC R40) follows the sessions' open executions: the pill shows while an agent
     /// drives the desktop. An action opens a session's execution (the helper cannot start here, but the action
     /// reached it); a second session opens beside the first, not instead of it; each settled turn closes its own.
@@ -838,22 +1284,6 @@ mod tests {
         let published = Arc::new(Published::default());
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings()).await.expect("helper");
         let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        // `open` is every session with an open execution, oldest first; the section's own fields name the last.
-        let section = |open: &[&str]| mixdog_protocol::ComputerSection {
-            active: !open.is_empty(),
-            observe_only: false,
-            controller: None,
-            sessions: open
-                .iter()
-                .map(|session| ComputerSessionSection { session_thread_id: ThreadId::from(*session), observe_only: false, window_ids: Vec::new(), mode: None, phase: None })
-                .collect(),
-            session_thread_id: open.last().map(|session| ThreadId::from(*session)),
-            user_control: None,
-            lane: None,
-            backend: mixdog_protocol::ComputerBackendSection::Helper,
-            cleanup_state: mixdog_protocol::ComputerCleanupState::Ready,
-            idle_resume_seconds: 5,
-        };
 
         assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
         assert!(pool.backend("b").run(read(), CancellationToken::new()).await.is_err());
@@ -862,10 +1292,35 @@ mod tests {
         assert!(pool.end_execution("b").await);
         assert!(!pool.end_execution("b").await, "an ended execution publishes nothing again");
         assert_eq!(
-            computer_values(&published),
-            [section(&["a"]), section(&["a", "b"]), section(&["b"]), section(&[])],
+            listed(&published),
+            [vec!["a".to_owned()], vec!["a".to_owned(), "b".to_owned()], vec!["b".to_owned()], Vec::<String>::new()],
             "b opening beside a lists both, a's second action opens nothing, a closing leaves b, b closing leaves none"
         );
+        let last = computer_values(&published).pop().expect("a section");
+        assert_eq!(
+            (last.active, last.backend, last.cleanup_state, last.idle_resume_seconds, last.lane),
+            (false, mixdog_protocol::ComputerBackendSection::Helper, mixdog_protocol::ComputerCleanupState::Ready, 5, None)
+        );
+    }
+
+    /// A session's row names the windows, the mode and the phase of the command running now, and drops them when it ends.
+    #[test]
+    fn a_running_command_shows_its_windows_mode_and_phase() {
+        let presence = Arc::new(ComputerPresence::new(quiet(), &ComputerShared::default(), ComputerBackendSection::Helper));
+        let observer = SessionPresence { presence: presence.clone(), session: "a".to_owned() };
+        observer.began(false);
+        let click = ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "w1", "delivery": "foreground", "actions": [{"type": "click", "x": 1, "y": 2}]}) };
+        let running = RunningCommand::begin(&presence, "a", &click);
+        let row = |presence: &ComputerPresence| presence.section(&presence.state()).sessions.remove(0);
+        let shown = row(&presence);
+        assert_eq!((shown.window_ids, shown.mode, shown.phase), (vec!["w1".to_owned()], Some(ComputerSessionMode::Foreground), Some("active_foreground".to_owned())));
+        assert!(presence.is_running("a") && !presence.is_running("b"));
+        drop(running);
+        let idle = row(&presence);
+        assert_eq!((idle.window_ids, idle.mode, idle.phase), (Vec::new(), None, None));
+        let background = ComputerRequest { action: ComputerAction::Capture, input: json!({"window_id": "w2"}) };
+        let (mode, windows) = classify(&background);
+        assert_eq!((mode, windows), (ComputerSessionMode::Background, vec!["w2".to_owned()]));
     }
 
     /// At most `MAX_RESIDENT_HELPERS` helper processes are live: a new session is refused in Node's words, however
@@ -934,7 +1389,7 @@ mod tests {
         let published = Arc::new(Published::default());
         let on = Arc::new(AtomicBool::new(false));
         let setting = on.clone();
-        let settings = ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(move || setting.load(Ordering::SeqCst)) };
+        let settings = ComputerSettings::new(data_dir(), Arc::new(move || setting.load(Ordering::SeqCst)));
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings).await.expect("helper");
         let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
 
@@ -948,14 +1403,16 @@ mod tests {
             .into_iter()
             .map(|section| (section.observe_only, section.sessions.iter().map(|session| session.observe_only).collect()))
             .collect();
-        assert_eq!(observing, [(false, vec![false]), (false, vec![]), (true, vec![true])], "opened, ended, opened observing only");
+        let mut changes = observing.clone();
+        changes.dedup();
+        assert_eq!(changes, [(false, vec![false]), (false, vec![]), (true, vec![true])], "opened, ended, opened observing only");
     }
 
     /// The desktop's "Observation only" reaches every session's backend: while it is on, an input is refused in Node's words and a
     /// read still goes to the helper (which cannot start here).
     #[tokio::test]
     async fn the_sessions_refuse_input_while_observation_only_is_on() {
-        let settings = ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(|| true) };
+        let settings = ComputerSettings::new(data_dir(), Arc::new(|| true));
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings).await.expect("helper");
         let write = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
         let refused = pool.backend("a").run(write, CancellationToken::new()).await;

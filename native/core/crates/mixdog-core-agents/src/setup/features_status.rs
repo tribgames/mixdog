@@ -21,8 +21,9 @@ const KEYS: [&str; 2] = ["enabled", "installed"];
 const AUTO_EFFORT_KEYS: [&str; 3] = ["supported", "ready", "installing"];
 
 /// `builtinFeatureActive(config, id)` for the bridge-gated tools (`browser`, `computer`,
-/// `terminal`): the desktop's bridge is up, or the `MIXDOG_FEATURE_*` override says so, and the
-/// host registered the tool. The environment, the bridge files and the tools are the host's.
+/// `terminal`): the desktop's bridge is up (for `computer`, the user switch `desktop.computerControl` is on and a desktop claimed
+/// `host.computer` or a helper resolves: no bridge file), or the `MIXDOG_FEATURE_*` override says so, and the
+/// host registered the tool. The environment, the bridge files, the host claims and the tools are the host's.
 pub trait FeatureActivity: Send + Sync {
     fn active(&self, id: &str) -> bool;
 }
