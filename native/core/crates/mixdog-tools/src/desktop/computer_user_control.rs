@@ -248,7 +248,10 @@ impl UserControlState {
 
     /// `session`'s cleanup confirmed: its latch goes (the hold, if any, stays until Resume or a recovery).
     pub(super) fn cleanup_confirmed(&self, session: &str) {
-        locked(&self.inner).latched.remove(session);
+        let removed = locked(&self.inner).latched.remove(session);
+        if removed {
+            self.changed();
+        }
     }
 
     /// Ends the hold a cleanup that did not confirm placed, once nothing is latched: true when there was one.

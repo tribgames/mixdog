@@ -160,8 +160,8 @@ impl ProcessComputerBackend {
             let marked = frame.clone().filter(|_| mode == "som");
             let from = parts.len();
             parts.extend(self.pixel_parts(&pixels.result, frame, quality, &capture)?);
-            if let (Some(frame), Some(snapshot)) = (marked, capture.accessibility)
-                && let Some(note) = mark_frame(&mut parts[from..], snapshot, &frame, quality)
+            if let Some(frame) = marked
+                && let Some(note) = mark_frame(&mut parts[from..], capture.accessibility, &self.frames.ocr_boxes(&frame), &frame, quality)
             {
                 parts.push(ToolPart::Text(note));
             }
@@ -367,15 +367,37 @@ fn with_delta(shown: &str, rows: &[Value], delta: &Value) -> Option<String> {
     Some(out.join("\n"))
 }
 
-/// `renderSomOverlay` over the frame's image part: the elements of the snapshot, each outlined and numbered in the pixels the model
-/// will point at. A frame that cannot be drawn on keeps its pixels and the reply says why.
-fn mark_frame(parts: &mut [ToolPart], snapshot: &Map<String, Value>, frame: &Frame, quality: i64) -> Option<String> {
-    let marks = som_marks(snapshot, frame);
+/// `renderSomOverlay` over the frame's image part: the elements of the snapshot and the OCR words listed after them, each outlined and
+/// numbered in the pixels the model will point at. A frame that cannot be drawn on keeps its pixels and the reply says why; a capture
+/// with neither an accessibility read nor a word has nothing to draw.
+fn mark_frame(parts: &mut [ToolPart], snapshot: Option<&Map<String, Value>>, words: &[(i64, [i64; 4])], frame: &Frame, quality: i64) -> Option<String> {
+    if snapshot.is_none() && words.is_empty() {
+        return None;
+    }
+    let mut marks = snapshot.map(|snapshot| som_marks(snapshot, frame)).unwrap_or_default();
+    marks.extend(word_marks(words, frame));
     let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = parts.iter_mut().find(|part| matches!(part, ToolPart::Image { .. }))? else { return None };
     let overlay = paint_marks_or_input(bytes, mime, u32::try_from(frame.capture_width).unwrap_or(0), u32::try_from(frame.capture_height).unwrap_or(0), &marks, quality.clamp(0, 100) as u8);
     *bytes = overlay.image.bytes;
     *mime = overlay.image.mime;
     overlay.error.map(|error| format!("Marks overlay not drawn: {error}"))
+}
+
+/// The OCR words as marks: their boxes are already in the frame's pixels, clipped to them; one entirely outside is not drawn.
+fn word_marks(words: &[(i64, [i64; 4])], frame: &Frame) -> Vec<Mark> {
+    words
+        .iter()
+        .filter_map(|(number, [x, y, width, height])| {
+            let (x, y, width, height) = (*x as f64, *y as f64, (*width).max(1) as f64, (*height).max(1) as f64);
+            let (frame_width, frame_height) = (frame.capture_width as f64, frame.capture_height as f64);
+            if x + width <= 0.0 || y + height <= 0.0 || x >= frame_width || y >= frame_height {
+                return None;
+            }
+            let (left, top) = (x.max(0.0), y.max(0.0));
+            let bounds = [left, top, (frame_width - left).min(width - (left - x)).max(1.0), (frame_height - top).min(height - (top - y)).max(1.0)];
+            Some(Mark { mark: u32::try_from(*number).ok()?, bounds, source: MarkSource::Ocr })
+        })
+        .collect()
 }
 
 /// The snapshot's elements as marks in the frame's pixels (`frameElements`, `clipElementToFrame`): one entirely outside is not drawn.
@@ -1139,10 +1161,21 @@ mod tests {
         let frame = frame_of(&object(json!({"x": 0, "y": 0, "width": 200, "height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
         let snapshot = object(json!({"elements": [{"mark": 1, "x": 10, "y": 10, "width": 50, "height": 20}]}));
         let mut parts = vec![ToolPart::Text("frame".into()), ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"not a jpeg".to_vec()), width: Some(200), height: Some(100) }];
-        let note = mark_frame(&mut parts, &snapshot, &frame, 55).expect("the reason");
+        let note = mark_frame(&mut parts, Some(&snapshot), &[], &frame, 55).expect("the reason");
         assert!(note.starts_with("Marks overlay not drawn: "), "{note}");
         assert!(matches!(&parts[1], ToolPart::Image { data: ImageData::Bytes(bytes), .. } if bytes == b"not a jpeg"));
-        assert_eq!(mark_frame(&mut parts, &object(json!({"elements": []})), &frame, 55), None, "no element, no overlay, nothing to say");
+        assert_eq!(mark_frame(&mut parts, Some(&object(json!({"elements": []}))), &[], &frame, 55), None, "no element, no overlay, nothing to say");
+        assert_eq!(mark_frame(&mut parts, None, &[], &frame, 55), None, "no read and no word: nothing to draw");
+    }
+
+    /// The OCR words listed after the elements are outlined too, in the frame's pixels, clipped to it.
+    #[test]
+    fn ocr_words_are_marked_inside_the_frame() {
+        let frame = frame_of(&object(json!({"x": 0, "y": 0, "width": 200, "height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
+        let marks = word_marks(&[(3, [10, 20, 40, 12]), (4, [190, 90, 40, 30]), (5, [300, 10, 5, 5]), (6, [-5, -5, 3, 3])], &frame);
+        assert_eq!(marks.iter().map(|mark| (mark.mark, mark.source)).collect::<Vec<_>>(), [(3, MarkSource::Ocr), (4, MarkSource::Ocr)]);
+        assert_eq!(marks[0].bounds, [10.0, 20.0, 40.0, 12.0]);
+        assert_eq!(marks[1].bounds, [190.0, 90.0, 10.0, 10.0], "a word past the edge is clipped");
     }
 
     fn two_displays() -> Value {

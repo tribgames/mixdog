@@ -244,3 +244,18 @@ test('the legacy coordinator is not listened to once the last subscriber has lef
   assert.equal(calls, 0);
   legacy.reset();
 });
+
+test('a session thinking longer than the grace is no longer present, and the listeners hear it', () => {
+  let clock = 1000;
+  const { presence } = rig({ now: () => clock, thinkingGraceMs: 50 });
+  presence.applySection(section([session('a'), session('b', { mode: null, phase: null })]));
+  assert.deepEqual(presence.snapshot().presentSessionIds, ['a', 'b'], 'within the grace of its last command');
+  clock += 49;
+  presence.applySection(section([session('a'), session('b', { mode: null, phase: null })]));
+  assert.deepEqual(presence.snapshot().presentSessionIds, ['a', 'b'], 'a later value does not restart the grace');
+  clock += 2;
+  presence.applySection(section([session('a'), session('b', { mode: null, phase: null })]));
+  assert.deepEqual(presence.snapshot().presentSessionIds, ['a']);
+  presence.applySection(section([session('a'), session('b')]));
+  assert.deepEqual(presence.snapshot().presentSessionIds, ['a', 'b'], 'a new command makes the session present again');
+});

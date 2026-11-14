@@ -77,7 +77,13 @@ export interface ComputerPresenceDeps {
   /** Tells the core the user took the pointer back (`computer/pointerReleased`). */
   notifyPointerReleased(sessionThreadId: string): void;
   now?: () => number;
+  /** How long a session thinking about its next step still counts as using the computer. */
+  thinkingGraceMs?: number;
 }
+
+/** A session thinking about its next step is still on the same task for this long; one that thinks longer has moved on to other
+ *  work, and the banner and the arrows no longer follow it (the coordinator's `presentSessions`). */
+const THINKING_GRACE_MS = 10_000;
 
 /** The cursor effect each pointer-progress phase paints; a bare move depends on whether a button is held. */
 const PHASE_CURSOR_EFFECTS: Record<string, ComputerUseCursorEffect> = {
@@ -138,6 +144,7 @@ export function legacyPointerProgress(
 export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPresence {
   const { legacy, notifyPointerReleased } = deps;
   const now = deps.now ?? Date.now;
+  const thinkingGraceMs = deps.thinkingGraceMs ?? THINKING_GRACE_MS;
   const listeners = new Set<(snapshot: ComputerUseSnapshot) => void>();
   let revision = 0;
   let section: ComputerSectionValue | null = null;
@@ -147,6 +154,9 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
   /** The last mode each open session ran in: the arrow follows it between commands. */
   const lastMode = new Map<string, 'foreground' | 'background'>();
   const startedAt = new Map<string, number>();
+  /** When each open session last ran out of commands: the start of its thinking grace. */
+  const idleSince = new Map<string, number>();
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
   let cursorSequence = 0;
 
   const backend = (): 'helper' | 'desktopHost' => (section?.backend === 'desktopHost' ? 'desktopHost' : 'helper');
@@ -207,7 +217,9 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       activities,
       cursors: [...cursors.values()].map((cursor) => ({ ...cursor })).sort((left, right) => left.eventId - right.eventId),
       releasedPointerSessionIds: [...released],
-      presentSessionIds: sessionIds,
+      presentSessionIds: activities
+        .filter((activity) => activity.phase !== 'thinking' || at < (idleSince.get(activity.sessionId) ?? at) + thinkingGraceMs)
+        .map((activity) => activity.sessionId),
       targetLeases: sessions.flatMap((session) =>
         (session.windowIds ?? []).map((windowId) => ({ sessionId: session.sessionThreadId, windowId, expiresAt: null }))
       ),
@@ -226,6 +238,21 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     current = null;
     const value = snapshot();
     for (const listener of [...listeners]) listener(value);
+  };
+
+  /** A thinking session's grace ending changes who is present, so it wakes the listeners too. */
+  const scheduleGrace = (): void => {
+    if (graceTimer) clearTimeout(graceTimer);
+    graceTimer = null;
+    const at = now();
+    const ends = [...idleSince.values()].map((since) => since + thinkingGraceMs).filter((deadline) => deadline > at);
+    if (ends.length === 0) return;
+    graceTimer = setTimeout(() => {
+      graceTimer = null;
+      if (!delegating()) changed();
+      scheduleGrace();
+    }, Math.min(...ends) - at);
+    graceTimer.unref?.();
   };
 
   let detachLegacy: (() => void) | null = null;
@@ -258,13 +285,14 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       const previousModes = new Map(sessionsOf().map((session) => [session.sessionThreadId, session.mode]));
       section = next;
       const open = new Set(next.active ? next.sessions.map((session) => session.sessionThreadId) : []);
-      const known = new Set([...startedAt.keys(), ...cursors.keys(), ...released, ...lastMode.keys()]);
+      const known = new Set([...startedAt.keys(), ...cursors.keys(), ...released, ...lastMode.keys(), ...idleSince.keys()]);
       for (const sessionId of known) {
         if (open.has(sessionId)) continue;
         cursors.delete(sessionId);
         released.delete(sessionId);
         lastMode.delete(sessionId);
         startedAt.delete(sessionId);
+        idleSince.delete(sessionId);
       }
       // A takeover removes every arrow; none comes back with the resume.
       if (next.userControl?.active) cursors.clear();
@@ -272,6 +300,9 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       for (const session of next.active ? next.sessions : []) {
         const id = session.sessionThreadId;
         if (!startedAt.has(id)) startedAt.set(id, at);
+        if (session.mode === null) {
+          if (!idleSince.has(id)) idleSince.set(id, at);
+        } else if (session.mode) idleSince.delete(id);
         // A finished command leaves only the overlay's short tail, not a live pointer through the session's thinking
         // time (on the command's end, not on every later value); a command in another mode starts with no arrow of the
         // previous one.
@@ -284,6 +315,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
           lastMode.set(id, session.mode);
         }
       }
+      scheduleGrace();
       if (wasDelegating && delegating()) {
         revision += 1;
         current = null;
