@@ -93,10 +93,7 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
         return 0;
     };
     let shown = frame_elements(capture.accessibility, frame);
-    // The words keep a share of the budget the accessibility elements cannot take: at most half of it (one at least), and no more
-    // than the words asked for (`reservedOcrBudget` of `mergeCaptureOcr`).
-    let reserved = ask.limit.min((capture.budget / 2).max(1));
-    let kept = (shown.count as i64).min((capture.budget - reserved).max(0));
+    let kept = (shown.count as i64).min(accessibility_share(capture.budget, ask));
     let remaining = (capture.budget - kept).max(0);
     if remaining == 0 {
         parts.push(skipped("element_budget_exhausted"));
@@ -133,6 +130,20 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
     };
     parts.push(ToolPart::Text(render(&report, frame, first_mark)));
     if first_mark.is_some() { words.len() } else { 0 }
+}
+
+/// How many accessibility elements a capture may list: the words keep a share of the budget the elements cannot take, at most half
+/// of it (one at least) and no more than the words asked for (`reservedOcrBudget` of `mergeCaptureOcr`).
+fn accessibility_share(budget: i64, ask: &Ask) -> i64 {
+    (budget - ask.limit.min((budget / 2).max(1))).max(0)
+}
+
+/// The refs of the accessibility rows the frame shows beyond the share the words leave them: the rows `mergeCaptureOcr` spliced off
+/// the elements before the words were asked for. Nothing when the capture asks no words.
+pub(super) fn rows_beyond_reservation(capture: &Capture, frame: &Frame) -> Vec<String> {
+    let Some(ask) = capture.ask else { return Vec::new() };
+    let shown = frame_elements(capture.accessibility, frame);
+    shown.refs.into_iter().skip(accessibility_share(capture.budget, ask) as usize).filter(|reference| !reference.is_empty()).collect()
 }
 
 /// The query and role of a read, applied to recognized text as the accessibility snapshot applies them: a role other than static
@@ -191,12 +202,14 @@ struct FrameElements {
     count: usize,
     /// The highest mark of the snapshot: OCR marks continue after it.
     max_mark: i64,
+    /// The refs of the shown elements, in the snapshot's order (an element without one is not listed).
+    refs: Vec<String>,
 }
 
 /// `frameElements` over the snapshot's elements (`clipElementToFrame`): each rectangle mapped into the frame's pixels and clipped;
 /// one entirely outside is not shown.
 fn frame_elements(snapshot: Option<&Map<String, Value>>, frame: &Frame) -> FrameElements {
-    let mut found = FrameElements { labelled: Vec::new(), count: 0, max_mark: 0 };
+    let mut found = FrameElements { labelled: Vec::new(), count: 0, max_mark: 0, refs: Vec::new() };
     let Some(rows) = snapshot.and_then(|snapshot| snapshot.get("elements")).and_then(Value::as_array) else { return found };
     for row in rows.iter().filter_map(Value::as_object) {
         let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|number| number.is_finite()).unwrap_or(0.0);
@@ -211,6 +224,7 @@ fn frame_elements(snapshot: Option<&Map<String, Value>>, frame: &Frame) -> Frame
             continue;
         }
         found.count += 1;
+        found.refs.push(string("ref").to_string());
         let (left, top) = (x.max(0), y.max(0));
         let bounds = (left, top, (frame.capture_width - left).min(width - (left - x)).max(1), (frame.capture_height - top).min(height - (top - y)).max(1));
         let text = normalize(&format!("{} {}", string("name"), string("value")));
@@ -407,6 +421,27 @@ mod tests {
             let command = object(json!({"include_ocr": true, "max_ocr_words": bad}));
             assert!(matches!(ask(&command, "som", false), Err(ComputerError::InvalidInput { .. })));
         }
+    }
+
+    #[test]
+    fn the_rows_beyond_what_the_words_leave_are_cut() {
+        let row = |mark: i64, x: i64| json!({"mark": mark, "ref": format!("e{mark}"), "name": "", "x": 2560 + x, "y": -489, "width": 20, "height": 20});
+        // e4 lies outside the frame (x of 5000 physical pixels from the origin) and is not shown, so it does not count.
+        let snapshot = object(json!({"elements": [row(1, 0), row(2, 40), row(3, 80), row(4, 5000), row(5, 120)]}));
+        let command = object(json!({"include_ocr": true}));
+        let frame = frame();
+        let cut = |budget: i64, limit: Value| {
+            let command = object(json!({"include_ocr": true, "max_ocr_words": limit}));
+            let ask = ask(&command, "som", false).unwrap();
+            rows_beyond_reservation(&Capture { command: &command, mode: "som", ask: ask.as_ref(), accessibility: Some(&snapshot), budget }, &frame)
+        };
+        // Budget 4 keeps half for the words (2): two rows stay.
+        assert_eq!(cut(4, json!(300)), vec!["e3".to_string(), "e5".to_string()]);
+        // Fewer words asked than half the budget: that many are reserved.
+        assert_eq!(cut(4, json!(1)), vec!["e5".to_string()]);
+        assert!(cut(80, json!(300)).is_empty());
+        let none = Capture { command: &command, mode: "som", ask: None, accessibility: Some(&snapshot), budget: 1 };
+        assert!(rows_beyond_reservation(&none, &frame).is_empty());
     }
 
     #[test]
