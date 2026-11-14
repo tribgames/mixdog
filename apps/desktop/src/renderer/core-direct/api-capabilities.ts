@@ -14,6 +14,7 @@ import type { DesktopHostExtras, DirectKey } from '../../shared/desktop-api-spli
 
 import { createCapabilityLane } from '../../shared/core-lanes/capability-route.ts';
 import { withSectionCapabilities } from '../../main/protocol/section-capability-lane.ts';
+import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
@@ -74,8 +75,12 @@ export function createCapabilitiesApi(
     snapshot: () => (options.snapshot ? options.snapshot() : (lastSnapshot as SessionSnapshot)),
   });
   // A server window's model calls run on this PC's sign-ins, so its provider quota is this PC's: the host answers it (narrowed
-  // to the providers the server may use) and answers null for any call that is not.
-  const onServer = (): boolean => ctx.window()?.role?.startsWith('server:') === true;
+  // to the providers the server may use) and answers null for any call that is not. The window is a server window when
+  // this PC's core names its socket `server:<connectionId>` (its primary socket goes to the server's core as `main`).
+  const onServer = (): boolean => {
+    const pc = ctx.pcClient();
+    return pc ? windowOfReply(pc.server)?.role?.startsWith('server:') === true : false;
+  };
   const notifySettingsChanged = (): void => {
     void ctx.call('ui/settings/announce', { scope: 'desktop' }).catch(() => {});
   };
