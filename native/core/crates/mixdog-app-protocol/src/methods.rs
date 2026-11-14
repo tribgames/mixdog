@@ -6,6 +6,8 @@ use mixdog_protocol::JsonValue;
 use crate::v1;
 use crate::v2;
 use crate::v2::params::*;
+use crate::v2::browser_engine::*;
+use crate::v2::connections::*;
 
 crate::client_request_definitions! {
     /// Handshake and version gate (P §4.4).
@@ -3164,6 +3166,42 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).
+    ProjectFsGrantDescribe => "projectFs/grant/describe" {
+        params: v2::desktop_files::ProjectFsGrantDescribeParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Check a one-file grant against the path asked for and answer the file's folder and name (Node's `requireGrant`, selected-file-access.ts).
+    ProjectFsGrantRedeem => "projectFs/grant/redeem" {
+        params: v2::desktop_files::ProjectFsGrantRedeemParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// End every page lease a desktop window holds (Node's `revokeLocalPagesForOwner`, local-page-server.ts).
+    ProjectFsLocalPageRevokeOwner => "projectFs/localPage/revokeOwner" {
+        params: v2::desktop_files::ProjectFsLocalPageRevokeOwnerParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Origin of the core's local page server (Node's `localPageOrigin`, local-page-server.ts).
+    ProjectFsLocalPageOrigin => "projectFs/localPage/origin" {
+        params: v2::desktop_files::ProjectFsLocalPageOriginParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
     /// What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).
     ProjectFsPreviewFile => "projectFs/previewFile" {
         params: ProjectFsPreviewFileParams,
@@ -4083,6 +4121,384 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh],
     },
+    /// Subscribe the `connections` scoped feed; with `connectionId` only that server's `link/<id>` and `ports/<id>` are delivered. Caller: M or S.
+    ConnectionsSubscribe => "connections/subscribe" {
+        params: ConnectionsSubscribeParams,
+        result: v2::feed::Subscription,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// End a `connections/subscribe` subscription. Caller: M or S.
+    ConnectionsUnsubscribe => "connections/unsubscribe" {
+        params: ConnectionsUnsubscribeParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The saved SSH servers (the desktop's `sshListHosts`). Caller: M.
+    ConnectionsSshList => "connections/ssh/list" {
+        params: ConnectionsNoParams,
+        result: Vec<SshHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Local name of a saved SSH server (`sshRenameHost`). Caller: M.
+    ConnectionsSshRename => "connections/ssh/rename" {
+        params: ConnectionsRenameParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove only the saved entry (`sshForgetHost`). Caller: M.
+    ConnectionsSshForget => "connections/ssh/forget" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Open (or focus) a saved server's window; a failure comes back as a result (`sshOpenHost`). Caller: M.
+    ConnectionsSshOpen => "connections/ssh/open" {
+        params: ConnectionsIdParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Host aliases of this PC's `~/.ssh/config`, wildcard patterns skipped (`sshConfigHosts`). Caller: M.
+    ConnectionsSshConfigHosts => "connections/ssh/configHosts" {
+        params: ConnectionsNoParams,
+        result: Vec<SshConfigHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Read the server's host key, compare it with this PC's known_hosts and open an attempt bound to the caller (`sshInspectHostKey`). Caller: M.
+    ConnectionsSshInspect => "connections/ssh/inspect" {
+        params: SshInspectParams,
+        result: SshInspection,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Connect the inspected address, save the server and open its window; progress arrives as `connections/ssh/progress` (`sshConnect`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshConnect => "connections/ssh/connect" {
+        params: SshConnectParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancel a connect attempt (`sshCancel`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshCancel => "connections/ssh/cancel" {
+        params: SshCancelParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Answer a question ssh asked; `secret: null` cancels it (`sshAskpassReply`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshAskpassReply => "connections/ssh/askpassReply" {
+        params: SshAskpassReplyParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove Mixdog from a saved server over ssh, then optionally forget the entry (`sshCleanupHost`). Caller: M.
+    ConnectionsSshCleanup => "connections/ssh/cleanup" {
+        params: SshCleanupParams,
+        result: SshCleanupResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Per-server settings: folder, login key file, auto-reconnect, model login, providers, grace (`sshUpdateHostSettings`). Caller: M.
+    ConnectionsSshUpdateSettings => "connections/ssh/updateSettings" {
+        params: SshUpdateSettingsParams,
+        result: SshHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The connection log of a server (`sshDiagnosticsLog`). Caller: M or S.
+    ConnectionsSshDiagnosticsLog => "connections/ssh/diagnosticsLog" {
+        params: SshDiagnosticsRefParams,
+        result: SshLogView,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The text to copy for a bug report (`sshDiagnosticsCopy`). Caller: M or S.
+    ConnectionsSshDiagnosticsCopy => "connections/ssh/diagnosticsCopy" {
+        params: SshDiagnosticsRefParams,
+        result: SshDiagnosticsText,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The last 200 lines of the server's daemon.log (`sshServerLog`). Caller: M or S.
+    ConnectionsSshServerLog => "connections/ssh/serverLog" {
+        params: SshDiagnosticsRefParams,
+        result: SshServerLog,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The provider logins stored on a saved server (`sshServerLogins`). Caller: M.
+    ConnectionsSshServerLogins => "connections/ssh/serverLogins" {
+        params: ConnectionsIdParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Start a subscription login on the server; the flow carries `openUrl` for the renderer's `openExternal` (`sshServerLoginBegin`). Caller: M.
+    ConnectionsSshServerLoginBegin => "connections/ssh/serverLoginBegin" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// State of a server login flow (`sshServerLoginStatus`). Caller: M.
+    ConnectionsSshServerLoginStatus => "connections/ssh/serverLoginStatus" {
+        params: SshServerLoginFlowParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Complete a pending login with the address the browser was redirected to (`sshServerLoginComplete`). Caller: M.
+    ConnectionsSshServerLoginComplete => "connections/ssh/serverLoginComplete" {
+        params: SshServerLoginCompleteParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancel a server login flow (`sshServerLoginCancel`). Caller: M.
+    ConnectionsSshServerLoginCancel => "connections/ssh/serverLoginCancel" {
+        params: SshServerLoginFlowParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Store an API key on the server (`sshServerLoginSaveKey`). Caller: M.
+    ConnectionsSshServerLoginSaveKey => "connections/ssh/serverLoginSaveKey" {
+        params: SshServerLoginSaveKeyParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove a provider login from the server (`sshServerLoginLogout`). Caller: M.
+    ConnectionsSshServerLoginLogout => "connections/ssh/serverLoginLogout" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Delete a custom provider and its models from the server (`sshServerLoginRemoveCustom`). Caller: M.
+    ConnectionsSshServerLoginRemoveCustom => "connections/ssh/serverLoginRemoveCustom" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Open a server window for `MIXDOG_SSH_TARGET` that is not remembered; the desktop host's own call. Caller: H.
+    ConnectionsSshOpenEphemeral => "connections/ssh/openEphemeral" {
+        params: SshOpenEphemeralParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window's link to its daemon as last pushed (`getConnectionLink`). Caller: M or S.
+    ConnectionsLinkGet => "connections/link/get" {
+        params: ConnectionIdParams,
+        result: Option<ConnectionLinkView>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Reconnect now; a stopped connection is opened again (`retryConnection`). Caller: M or S.
+    ConnectionsLinkRetry => "connections/link/retry" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Run the waiting reconnect attempt now instead of after its countdown (`retryConnectionNow`). Caller: M or S.
+    ConnectionsLinkRetryNow => "connections/link/retryNow" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window needs the user's connect attempt: the core focuses the main window and sends `connections/signIn`. Caller: S.
+    ConnectionsLinkRequestSignIn => "connections/link/requestSignIn" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window's Ports panel as last pushed (`listServerPorts`). Caller: M or S.
+    ConnectionsPortsList => "connections/ports/list" {
+        params: ConnectionIdParams,
+        result: ServerPortsView,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Forward a server port to 127.0.0.1 on this PC (`forwardServerPort`). An error message leads with port-invalid, port-privileged, port-busy, port-not-active or window-closed. Caller: S.
+    ConnectionsPortsForward => "connections/ports/forward" {
+        params: PortsForwardParams,
+        result: PortForward,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Stop a port forward (`stopServerPortForward`). Caller: S.
+    ConnectionsPortsStop => "connections/ports/stop" {
+        params: PortsStopParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Dismiss a suggested port (`dismissServerPort`). Caller: S.
+    ConnectionsPortsDismiss => "connections/ports/dismiss" {
+        params: PortsDismissParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// "Reopen server windows when the app starts" (`getReopenServerWindows`). Caller: M.
+    ConnectionsRestoreGet => "connections/restore/get" {
+        params: ConnectionsNoParams,
+        result: ConnectionsRestoreState,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Set "Reopen server windows when the app starts" (`setReopenServerWindows`). Caller: M.
+    ConnectionsRestoreSet => "connections/restore/set" {
+        params: ConnectionsRestoreState,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The reopenings still running or failed (`getServerRestoreProgress`). Caller: M.
+    ConnectionsRestoreProgress => "connections/restore/progress" {
+        params: ConnectionsNoParams,
+        result: Vec<ServerRestoreProgress>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Where a server window's relay dials the tunnel: its url, token and server instance id. The server token reaches the host. Caller: H.
+    ConnectionsEndpoint => "connections/endpoint" {
+        params: ConnectionIdParams,
+        result: ConnectionEndpoint,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The saved "Connect to another PC" hosts, `open: false` (the desktop fills it) (`listRemoteHosts`). Caller: H or M.
+    RemoteHostsList => "remoteHosts/list" {
+        params: ConnectionsNoParams,
+        result: Vec<RemoteHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Redeem the main PC's 6-digit code and save that host (`connectRemoteHostByCode`). Caller: H.
+    RemoteHostsRedeemCode => "remoteHosts/redeemCode" {
+        params: RemoteHostRedeemParams,
+        result: RemoteHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Local name of a saved remote PC (`renameRemoteHost`). Caller: H.
+    RemoteHostsRename => "remoteHosts/rename" {
+        params: ConnectionsRenameParams,
+        result: RemoteHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Forget a saved remote PC and clear its stored pairing (`forgetRemoteHost`). Caller: H.
+    RemoteHostsForget => "remoteHosts/forget" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Which of the saved hosts' desktops are connected to their relay right now. Caller: H.
+    RemoteHostsPresence => "remoteHosts/presence" {
+        params: RemoteHostPresenceParams,
+        result: RemoteHostPresenceResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// Enable remote access.
     RemoteAccessSetEnabled => "remoteAccess/setEnabled" {
         params: RemoteAccessSetEnabledParams,
@@ -4227,6 +4643,24 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// PC access readiness: the secure-desktop service install state, the paired phones' keys it holds or lacks, and the revocations owed (Node's `PcAccess.readiness`, pc-access.ts). Local only.
+    PcAccessReadiness => "pcAccess/readiness" {
+        params: v2::pc_access::PcAccessReadinessParams,
+        result: v2::pc_access::PcAccessReadiness,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// PC access Approve: one UAC install-or-enroll of every paired phone's key, applying the owed revocations in the same call (Node's `PcAccess.approve`, pc-access.ts). Local only.
+    PcAccessApprove => "pcAccess/approve" {
+        params: v2::pc_access::PcAccessApproveParams,
+        result: v2::pc_access::PcAccessApproval,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.
     BrowserCommand => "browser/command" {
         params: BrowserCommandParams,
@@ -4244,6 +4678,15 @@ crate::client_request_definitions! {
         class: C2,
         mutation: none,
         origins: [Local, Ssh, Relay],
+    },
+    /// The Computer Use pill's Resume or Stop (Node's coordinator `resumeAfterUserTakeover`, the pill's Stop).
+    ComputerUserControl => "computer/userControl" {
+        params: v2::host::ComputerUserControlParams,
+        result: v2::host::ComputerUserControlResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
     },
     /// Today's `sendTestNotification`.
     NotifyTest => "notify/test" {
@@ -4332,6 +4775,15 @@ crate::client_request_definitions! {
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
+    },
+    /// Run one `browser` or `browser_devtools` tool call through the Rust engine (test hook, MIXDOGD_TEST_HOOKS=1 only).
+    TestBrowserEngineRun => "test/browserEngine/run" {
+        params: BrowserEngineTestRunParams,
+        result: BrowserEngineTestRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
     },
     /// A paired phone's WebRTC live-view signal (Node's `browserRemoteWebrtcSignal` relay call).
     /// The reply settles once every signal it caused was pushed (`browser/webrtcSignal`).

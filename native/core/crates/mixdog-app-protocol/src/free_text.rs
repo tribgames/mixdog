@@ -55,6 +55,10 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*"]),
     (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*"]),
     (Kind::Request, "thread/askSide", &["/question"]),
+    (Kind::Request, "connections/ssh/rename", &["/name"]),
+    (Kind::Request, "connections/ssh/openEphemeral", &["/name"]),
+    (Kind::Request, "connections/ssh/askpassReply", &["/secret"]),
+    (Kind::Request, "remoteHosts/rename", &["/name"]),
     (Kind::Request, "thread/queue/delete", &["/currentText"]),
     (Kind::Request, "thread/requestWorktree", &["/input/prompt"]),
     (Kind::Request, "thread/agentControl", &["/args/prompt", "/args/message", "/args/context"]),
@@ -278,6 +282,136 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
             "/result/models/*/picker/modelParameterOptions/*/options/*/label",
             "/result/models/*/picker/serviceTiers/*/description",
         ],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/pages/resolve",
+        &["/page/facts/title", "/page/facts/fault", "/page/facts/pendingDialog/message", "/page/facts/pendingDialog/defaultPrompt", "/page/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/pages/list",
+        &["/pages/*/facts/title", "/pages/*/facts/fault", "/pages/*/facts/pendingDialog/message", "/pages/*/facts/pendingDialog/defaultPrompt", "/pages/*/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/pages/surface",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/navigate",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/stop",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/eval",
+        &["/exception/text", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/value/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/read",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/payload/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/renderCheckpoint",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/domQuiet",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/dialog/answer",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/page/sync",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/snapshot",
+        &["/payload/title", "/payload/elements/*/name", "/payload/elements/*/value", "/payload/headings/*", "/payload/text", "/payload/query", "/payload/warnings/*", "/warnings/*", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/ref/call",
+        &["/exception/text", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/value/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/input/batch",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/screenshot",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/cdp/send",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/result/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/cookies",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/cookies/*/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/storage",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/entries/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/initScripts",
+        &["/scripts/*/source"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/intercept",
+        &["/rules/*/body"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/performance",
+        &["/metrics/**", "/summary/**"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/emulation",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/upload",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Notification,
+        "host/browser/events",
+        &["/events/*/params/**"],
+    ),
+    (
+        Kind::Notification,
+        "host/browser/page/facts",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Request,
+        "test/browserEngine/run",
+        &["/args/**"],
     ),
 ];
 

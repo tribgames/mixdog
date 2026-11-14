@@ -33,8 +33,14 @@ pub enum HostCapability {
     Updater,
     /// File snapshots and the local page server.
     Files,
-    /// `host/computer/capture` and `host/computer/displays`: the screen reads of Computer Use.
+    /// `host/computer/*`: the screen reads of Computer Use (`capture`, `displays`), the foreground-lock
+    /// lease relay (`foregroundLease`), the desktop's own windows (`internalWindows`) and the overlay's
+    /// pointer feedback (`pointerFeedback`).
     Computer,
+    /// `host/window/open`, `host/window/close` and `host/window/focus`: the windows of server connections.
+    Windows,
+    /// `host/browser/*`: the browser engine lane (declared by `capabilities.host.browserEngine`).
+    BrowserEngine,
     /// `model/proxy/execute`: runs a model call with the connection's own accounts. Declared
     /// by `capabilities.modelProxy` (not under `capabilities.host`), so a connection serves it
     /// from `initialize` on, without `host/claim`.
@@ -57,7 +63,7 @@ impl HostCapability {
         match self {
             Self::SystemProxy | Self::Notifications => Some(Duration::from_secs(3)),
             Self::Computer => Some(Duration::from_secs(150)),
-            Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy => None,
+            Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy | Self::Windows | Self::BrowserEngine => None,
         }
     }
 

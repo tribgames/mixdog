@@ -143,6 +143,8 @@ fn serves(declared: &HostCapabilities) -> Vec<HostCapability> {
         (declared.updater, HostCapability::Updater),
         (declared.files, HostCapability::Files),
         (declared.computer, HostCapability::Computer),
+        (declared.windows, HostCapability::Windows),
+        (declared.browser_engine.is_some(), HostCapability::BrowserEngine),
     ]
     .into_iter()
     .filter_map(|(on, capability)| on.then_some(capability))

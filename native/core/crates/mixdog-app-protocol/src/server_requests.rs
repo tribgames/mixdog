@@ -8,6 +8,8 @@ use mixdog_protocol::ToolApprovalDecision;
 
 use crate::v2::approval::*;
 use crate::v2::host::*;
+use crate::v2::browser_engine::*;
+use crate::v2::connections::*;
 
 crate::server_request_definitions! {
     /// Every tool approval, including human gates (`kind: humanGate`).
@@ -51,6 +53,156 @@ crate::server_request_definitions! {
         result: JsonValue,
         requires: Some("host.browser"),
     },
+    /// The page a session's command works on, opened or adopted when needed.
+    HostBrowserPagesResolve => "host/browser/pages/resolve" {
+        params: HostBrowserPagesResolveParams,
+        result: HostBrowserPagesResolveResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// The pages of a session.
+    HostBrowserPagesList => "host/browser/pages/list" {
+        params: HostBrowserPagesListParams,
+        result: HostBrowserPagesListResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Close a page.
+    HostBrowserPagesClose => "host/browser/pages/close" {
+        params: HostBrowserPagesCloseParams,
+        result: HostBrowserPagesCloseResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Show, hide or hand off the pane of a session.
+    HostBrowserPagesSurface => "host/browser/pages/surface" {
+        params: HostBrowserPagesSurfaceParams,
+        result: HostBrowserPagesSurfaceResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Navigate a page (url, reload, back, forward).
+    HostBrowserPageNavigate => "host/browser/page/navigate" {
+        params: HostBrowserPageNavigateParams,
+        result: HostBrowserPageNavigateResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Stop a page's loading.
+    HostBrowserPageStop => "host/browser/page/stop" {
+        params: HostBrowserPageStopParams,
+        result: HostBrowserPageFactsResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Evaluate an expression in a page or frame.
+    HostBrowserPageEval => "host/browser/page/eval" {
+        params: HostBrowserPageEvalParams,
+        result: HostBrowserPageEvalResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Read a page's text, documents or frames.
+    HostBrowserPageRead => "host/browser/page/read" {
+        params: HostBrowserPageReadParams,
+        result: HostBrowserPageReadResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Wait for a page's next render.
+    HostBrowserPageRenderCheckpoint => "host/browser/page/renderCheckpoint" {
+        params: HostBrowserPageRenderCheckpointParams,
+        result: HostBrowserPageRenderCheckpointResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Wait until a page's DOM stopped changing.
+    HostBrowserPageDomQuiet => "host/browser/page/domQuiet" {
+        params: HostBrowserPageDomQuietParams,
+        result: HostBrowserPageDomQuietResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Answer the dialog a page is blocked on.
+    HostBrowserPageDialogAnswer => "host/browser/page/dialog/answer" {
+        params: HostBrowserPageDialogAnswerParams,
+        result: HostBrowserPageDialogAnswerResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Resync a page's facts and console floor after a seq gap.
+    HostBrowserPageSync => "host/browser/page/sync" {
+        params: HostBrowserPageSyncParams,
+        result: HostBrowserPageSyncResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// The accessibility snapshot of a page.
+    HostBrowserSnapshot => "host/browser/snapshot" {
+        params: HostBrowserSnapshotParams,
+        result: HostBrowserSnapshotResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Call a function on the element a snapshot ref names.
+    HostBrowserRefCall => "host/browser/ref/call" {
+        params: HostBrowserRefCallParams,
+        result: HostBrowserRefCallResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Dispatch a batch of keyboard and pointer steps.
+    HostBrowserInputBatch => "host/browser/input/batch" {
+        params: HostBrowserInputBatchParams,
+        result: HostBrowserInputBatchResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Capture a page.
+    HostBrowserScreenshot => "host/browser/screenshot" {
+        params: HostBrowserScreenshotParams,
+        result: HostBrowserScreenshotResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Send an allowlisted CDP command through the host's fenced executor.
+    HostBrowserCdpSend => "host/browser/cdp/send" {
+        params: HostBrowserCdpSendParams,
+        result: HostBrowserCdpSendResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Read or change a page's cookies.
+    HostBrowserCookies => "host/browser/cookies" {
+        params: HostBrowserCookiesParams,
+        result: HostBrowserCookiesResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Read or change a page's local or session storage.
+    HostBrowserStorage => "host/browser/storage" {
+        params: HostBrowserStorageParams,
+        result: HostBrowserStorageResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Add, remove or list scripts run on every new document.
+    HostBrowserInitScripts => "host/browser/initScripts" {
+        params: HostBrowserInitScriptsParams,
+        result: HostBrowserInitScriptsResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Add, remove or list request intercept rules.
+    HostBrowserIntercept => "host/browser/intercept" {
+        params: HostBrowserInterceptParams,
+        result: HostBrowserInterceptResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Start or stop a performance trace, or read metrics.
+    HostBrowserPerformance => "host/browser/performance" {
+        params: HostBrowserPerformanceParams,
+        result: HostBrowserPerformanceResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Set or clear a page's emulation overrides (the host owns the Emulation domain).
+    HostBrowserEmulation => "host/browser/emulation" {
+        params: HostBrowserEmulationParams,
+        result: HostBrowserEmulationResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// List or take a session's downloads.
+    HostBrowserDownloads => "host/browser/downloads" {
+        params: HostBrowserDownloadsParams,
+        result: HostBrowserDownloadsResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// Put files into a file input, chooser, drop target or picker.
+    HostBrowserUpload => "host/browser/upload" {
+        params: HostBrowserUploadParams,
+        result: HostBrowserUploadResult,
+        requires: Some("host.browserEngine"),
+    },
     /// The displays of this PC's screen, for the phone's remote-screen picker.
     HostScreenDisplays => "host/screen/displays" {
         params: ScreenDisplaysParams,
@@ -67,6 +219,24 @@ crate::server_request_definitions! {
     HostComputerDisplays => "host/computer/displays" {
         params: HostComputerDisplaysParams,
         result: Vec<HostComputerDisplay>,
+        requires: Some("host.computer"),
+    },
+    /// A Computer Use helper's foreground-lock request, relayed to the desktop that owns the lease.
+    HostComputerForegroundLease => "host/computer/foregroundLease" {
+        params: HostComputerForegroundLeaseParams,
+        result: HostComputerForegroundLeaseResult,
+        requires: Some("host.computer"),
+    },
+    /// The desktop's own Computer Use windows, which the core leaves out of every window list.
+    HostComputerInternalWindows => "host/computer/internalWindows" {
+        params: HostComputerInternalWindowsParams,
+        result: HostComputerInternalWindowsResult,
+        requires: Some("host.computer"),
+    },
+    /// A Computer Use helper's pointer progress, for the overlay's arrow.
+    HostComputerPointerFeedback => "host/computer/pointerFeedback" {
+        params: HostComputerPointerFeedbackParams,
+        result: (),
         requires: Some("host.computer"),
     },
     HostVisualizeCommand => "host/visualize/command" {
@@ -106,6 +276,24 @@ crate::server_request_definitions! {
         params: HostFilesTrashItemParams,
         result: JsonValue,
         requires: Some("host.files"),
+    },
+    /// Opens (or focuses) the window of a server (`showConnectionWindow`); `opened` is false when the window could not be made.
+    HostWindowOpen => "host/window/open" {
+        params: HostWindowOpenParams,
+        result: HostWindowOpenResult,
+        requires: Some("host.windows"),
+    },
+    /// Closes the window of a server.
+    HostWindowClose => "host/window/close" {
+        params: HostWindowCloseParams,
+        result: crate::v2::feed::EmptyResult,
+        requires: Some("host.windows"),
+    },
+    /// Shows and focuses a window, and with `sessionId` the session in it; `local` is the main window.
+    HostWindowFocus => "host/window/focus" {
+        params: HostWindowFocusParams,
+        result: crate::v2::feed::EmptyResult,
+        requires: Some("host.windows"),
     },
     /// A server core's model call executed with this machine's accounts.
     ModelProxyExecute => "model/proxy/execute" {
