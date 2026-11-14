@@ -104,7 +104,7 @@ test('file calls resolve the project folder first', async () => {
   const calls = sent().filter(([m]) => m !== 'project/directory');
   assert.deepEqual(calls, [
     ['projectFs/listDir', { root: 'F:/proj', rel: 'src' }],
-    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt' }],
+    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 60000 }],
     ['projectFs/writeText', { root: 'F:/proj', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf8' }],
     ['projectFs/stat', { root: 'F:/proj', rel: 'a.txt' }],
     ['projectFs/create', { root: 'F:/proj', relDir: '', name: 'n', directory: true }],
@@ -115,6 +115,21 @@ test('file calls resolve the project folder first', async () => {
   ]);
 });
 
+test('a file larger than one answer is read a window at a time from one read and joined', async () => {
+  const windows = [
+    { content: 'ab', encoding: 'utf8', readId: 'r1', nextChar: 2 },
+    { content: 'cd', encoding: 'utf8', readId: 'r1', nextChar: 4 },
+    { content: 'e', encoding: 'utf8' },
+  ];
+  const { api, sent } = await world((method, params) => (method === 'projectFs/readText' ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2] : defaults(method, params)));
+  assert.deepEqual(await api.readProjectFile('C:/outside', 'big.txt', 'tok'), { content: 'abcde', encoding: 'utf8' });
+  assert.deepEqual(sent(), [
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 60000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 60000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 60000 }],
+  ]);
+});
+
 test('a one-file token goes to the core with the project path', async () => {
   const { api, sent } = await world();
   await api.readProjectFile('C:/outside', 'a.txt', 'tok');
@@ -122,7 +137,7 @@ test('a one-file token goes to the core with the project path', async () => {
   await api.statProjectFile('C:/outside', 'a.txt', 'tok');
   await api.captureFileSnapshot('C:/outside', 'a.txt', 'tok');
   assert.deepEqual(sent(), [
-    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 60000 }],
     ['projectFs/writeText', { root: 'C:/outside', rel: 'a.txt', content: 'n', expectedContent: 'o', accessToken: 'tok' }],
     ['projectFs/stat', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
     ['projectFs/captureSnapshot', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
