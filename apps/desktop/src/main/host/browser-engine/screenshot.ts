@@ -79,6 +79,8 @@ export function registerScreenshot(connection: HostConnection, ctx: EngineContex
     const inBackground = background === true;
 
     let shot: { data: string; width: number; height: number; mimeType: string };
+    // An element crop the page clipped (scrolled out, cut by the viewport) says so; a whole-page capture never is.
+    let partial = false;
     if (!clip) {
       shot = await host.screenshots.capture(
         page.guest,
@@ -98,15 +100,17 @@ export function registerScreenshot(connection: HostConnection, ctx: EngineContex
         viewport: { width: number; height: number };
         scroll: { x: number; y: number };
       }>(page.guest, PAGE_GEOMETRY, signal);
-      shot = await host.screenshots.captureElement(page.guest, inBackground, encoding, rect, geometry, signal);
+      const cropped = await host.screenshots.captureElement(page.guest, inBackground, encoding, rect, geometry, signal);
+      partial = cropped.partial;
+      shot = cropped;
     }
 
     const { mimeType, width, height } = shot;
     const bytes = Buffer.from(shot.data, 'base64');
-    const result: Omit<HostBrowserScreenshotResult, 'facts'> =
+    const picture: Omit<HostBrowserScreenshotResult, 'facts'> =
       bytes.byteLength <= MAX_INLINE_SCREENSHOT_BYTES
         ? { mimeType, width, height, data: shot.data }
         : { mimeType, width, height, blob: await uploadBlob(connection, bytes, mimeType) };
-    return result;
+    return partial ? { ...picture, partial } : picture;
   });
 }

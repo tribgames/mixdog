@@ -45,6 +45,7 @@ export interface PagesHost {
     | 'ensureGuest'
     | 'requestBrowserSurface'
     | 'revealPage'
+    | 'reportOpenFailure'
     | 'discardCreatedPage'
     | 'discardUntouchedBlank'
     | 'recoverCrashedGuest'
@@ -52,7 +53,7 @@ export interface PagesHost {
     | 'destroyBackgroundPage'
   >;
   taskLifecycle: Pick<ReturnType<typeof createBrowserTaskLifecycle<Guest>>, 'retain'>;
-  store: Pick<BrowserGuestStateStore, 'pageId'> & PageHost['store'];
+  store: Pick<BrowserGuestStateStore, 'pageId' | 'redactText'> & PageHost['store'];
   leases: PageLeases;
   /** The navigation half shared with `page/navigate` (an `open` with a url loads it the same way). */
   page: Pick<PageHost, 'urls' | 'downloadsForSession' | 'sessionIdOf'>;
@@ -123,6 +124,15 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
   const guest = target?.guest ?? (await lifecycle.ensureGuest(sessionId, { reveal: false, adopt: params.adopt === true }));
   const created = !known.has(guest);
   const hidden = target?.background === true;
+  // `open` shows a page the person can already see; a page this call had to make is not one.
+  const opensForeground = open?.reveal === true && !hidden;
+  if (opensForeground && created) {
+    lifecycle.discardCreatedPage(sessionId, guest);
+    const message = 'Could not show a page: no page is open in this conversation; navigate to one first.';
+    lifecycle.reportOpenFailure(sessionId, message);
+    throw new HostRpcError(ENGINE_ERROR.failed, message);
+  }
+  let placement: 'shown' | 'pending' | undefined;
   const backgroundPage = sessions.backgroundPageForGuest(sessionId, guest);
   try {
     await lifecycle.recoverCrashedGuest(guest, signal);
@@ -145,9 +155,14 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
     }
     if (open?.reveal === true) {
       host.taskLifecycle.retain(guest);
-      await lifecycle.revealPage(sessionId, guest, signal);
+      placement = await lifecycle.revealPage(sessionId, guest, signal);
     }
   } catch (error) {
+    // A failed open (not a cancelled one) tells the shell why, on the page's own line.
+    if (opensForeground && !signal.aborted) {
+      const message = host.store.redactText(guest, (error as Error).message || String(error));
+      lifecycle.reportOpenFailure(sessionId, message, guest.isDestroyed() ? undefined : host.store.pageId(guest));
+    }
     // A page this call made holds no document when it failed: it is not left behind as a blank tab.
     if (created) lifecycle.discardCreatedPage(sessionId, guest);
     throw error;
@@ -161,7 +176,7 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
   const leaseId = lease
     ? host.leases.acquire(descriptor.pageId, lease.commandId as string, lease.ttlMs as number)
     : undefined;
-  return leaseId === undefined ? { page: descriptor } : { page: descriptor, leaseId };
+  return { page: descriptor, ...(leaseId === undefined ? {} : { leaseId }), ...(placement ? { placement } : {}) };
 }
 
 async function list(host: PagesHost, ctx: EngineContext, params: Record<string, unknown>) {
@@ -208,9 +223,10 @@ async function surface(host: PagesHost, ctx: EngineContext, params: Record<strin
   }
   const live = typeof pageId === 'string' ? ctx.page(pageId) : undefined;
   const owned = live && !live.guest.isDestroyed() && host.sessions.sessionIdForGuest(live.guest) === sessionId;
+  let placement: 'shown' | 'pending' | undefined;
   try {
     if (op === 'reveal') {
-      if (owned) await host.lifecycle.revealPage(sessionId, live.guest, signal);
+      if (owned) placement = await host.lifecycle.revealPage(sessionId, live.guest, signal);
       else host.lifecycle.requestBrowserSurface(sessionId, true);
     } else {
       host.lifecycle.requestBrowserSurface(sessionId, op);
@@ -218,7 +234,10 @@ async function surface(host: PagesHost, ctx: EngineContext, params: Record<strin
   } catch (error) {
     throw new HostRpcError(ENGINE_ERROR.failed, (error as Error).message);
   }
-  return owned ? { facts: ctx.events.facts(pageId as string) as PageFacts } : {};
+  return {
+    ...(owned ? { facts: ctx.events.facts(pageId as string) as PageFacts } : {}),
+    ...(placement ? { placement } : {}),
+  };
 }
 
 /** Registers `host/browser/pages/*`. */

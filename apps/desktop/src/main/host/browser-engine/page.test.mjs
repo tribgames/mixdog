@@ -162,15 +162,13 @@ test('a dialog that opens during the load ends the wait', async () => {
   assert.equal(result.facts.pageId, 'p1');
 });
 
-test('reload, back and forward act on the guest; a missing history entry fails plainly', async () => {
+test('reload, back and forward act on the guest; a missing history entry is answered as a refusal line', async () => {
   const h = harness();
   await h.call('navigate', { pageId: 'p1', kind: 'reload', expect: { documentId: DOC } });
   await h.call('navigate', { pageId: 'p1', kind: 'back', expect: { documentId: DOC } });
   assert.ok(h.log.includes('reload') && h.log.includes('back'));
-  await assert.rejects(
-    h.call('navigate', { pageId: 'p1', kind: 'forward', expect: { documentId: DOC } }),
-    (e) => e.code === -32000 && /Cannot go forward/.test(e.message)
-  );
+  const none = await h.call('navigate', { pageId: 'p1', kind: 'forward', expect: { documentId: DOC } });
+  assert.equal(none.refused.reason, 'Cannot go forward: no later history entry.');
 });
 
 test('stop stops a loading page', async () => {

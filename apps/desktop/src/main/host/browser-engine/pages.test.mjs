@@ -7,7 +7,7 @@ function makeGuest(pageId) {
   return { pageId, isDestroyed: () => false, getURL: () => 'https://a.example/', isLoading: () => false };
 }
 
-function harness({ policy } = {}) {
+function harness({ policy, freshPage } = {}) {
   const handlers = new Map();
   const log = [];
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
@@ -53,10 +53,11 @@ function harness({ policy } = {}) {
       restoreSession: async () => log.push('restore'),
       ensureGuest: async (_id, options) => {
         log.push(`ensure ${JSON.stringify(options)}`);
-        return visible[0];
+        return freshPage ? makeGuest('p9') : visible[0];
       },
       requestBrowserSurface: (id, reveal) => log.push(`surface ${id} ${reveal}`),
       revealPage: async (id, guest) => (log.push(`reveal ${guest.pageId}`), 'shown'),
+      reportOpenFailure: (_id, message, tabId) => log.push(`openFailure ${message} ${tabId ?? ''}`),
       discardCreatedPage: (_id, guest) => (log.push(`discard ${guest.pageId}`), true),
       discardUntouchedBlank: () => {},
       recoverCrashedGuest: async () => {},
@@ -69,7 +70,7 @@ function harness({ policy } = {}) {
       },
     },
     taskLifecycle: { retain: (guest) => log.push(`retain ${guest.pageId}`) },
-    store: { pageId: (guest) => guest.pageId, invalidateInteraction: () => {}, for: () => ({ networkFailures: [] }) },
+    store: { pageId: (guest) => guest.pageId, redactText: (_guest, text) => text, invalidateInteraction: () => {}, for: () => ({ networkFailures: [] }) },
     leases: { acquire: (pageId, commandId, ttlMs) => (log.push(`lease ${pageId} ${commandId} ${ttlMs}`), 'lease-1') },
     page: {
       urls: {
@@ -139,6 +140,27 @@ test('resolve with open.url loads the admitted url; a refused one is -32015 and 
   const result = await revealed.call('resolve', { sessionId: 'sess', open: { reveal: true } });
   assert.equal(result.page.pageId, 'p1');
   assert.ok(revealed.log.includes('retain p1') && revealed.log.includes('reveal p1'));
+  assert.equal(result.placement, 'shown');
+});
+
+test('an open that would have to make its page refuses, tells the shell, and leaves no blank tab', async () => {
+  const h = harness({ freshPage: true });
+  await assert.rejects(
+    h.call('resolve', { sessionId: 'sess', open: { reveal: true } }),
+    (e) => e.code === -32000 && /Could not show a page: no page is open/.test(e.message)
+  );
+  assert.ok(h.log.includes('discard p9'));
+  assert.ok(h.log.some((l) => l.startsWith('openFailure Could not show a page')));
+  assert.equal(h.log.some((l) => l.startsWith('reveal')), false);
+});
+
+test('a failed open reports why to the shell with the page it was on; a hidden page open reports nothing', async () => {
+  const h = harness({ policy: 'blocked by policy' });
+  await assert.rejects(h.call('resolve', { sessionId: 'sess', tab: { pageId: 'p1' }, open: { url: 'http://10.0.0.1/', reveal: true } }));
+  assert.ok(h.log.includes('openFailure blocked by policy p1'));
+  const quiet = harness({ policy: 'blocked by policy' });
+  await assert.rejects(quiet.call('resolve', { sessionId: 'sess', background: true, open: { url: 'http://10.0.0.1/', reveal: true } }));
+  assert.equal(quiet.log.some((l) => l.startsWith('openFailure')), false);
 });
 
 test('list gives every page of the session and the active one', async () => {

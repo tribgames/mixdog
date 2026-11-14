@@ -254,7 +254,8 @@ async function navigate(host: PageHost, ctx: EngineContext, params: EngineParams
   if (kind === 'back' || kind === 'forward') {
     const history = guest.navigationHistory;
     if (kind === 'back' ? !history.canGoBack() : !history.canGoForward()) {
-      throw failed(`Cannot go ${kind}: no ${kind === 'back' ? 'earlier' : 'later'} history entry.`);
+      // An answer, not a failure: the old `back` replied with this line and the agent reads it as text.
+      return { refused: { reason: `Cannot go ${kind}: no ${kind === 'back' ? 'earlier' : 'later'} history entry.` } };
     }
     await page.guarded(expect as Precondition | undefined, async () => {
       host.store.invalidateInteraction(guest);
