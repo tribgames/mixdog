@@ -198,34 +198,33 @@ test('eval sends Runtime.evaluate guarded by expect and returns the value', asyn
   assert.throws(() => sent.options.beforeDispatch(), (e) => e.code === -32010);
 });
 
-test('an exception of the script is answered as exception details and invalidates the refs', async () => {
+test('an exception of the script is answered as exception details; the engine drops the refs', async () => {
   const h = harness();
   h.ctx.replies['Runtime.evaluate'] = () => ({
     exceptionDetails: { text: 'Uncaught', lineNumber: 2, columnNumber: 5, exception: { description: 'Error: x' } },
   });
   const result = await h.call('eval', { pageId: 'p1', expression: 'throw 1', timeoutMs: 1000 });
   assert.deepEqual(result.exception, { text: 'Error: x', line: 2, column: 5 });
-  assert.ok(h.log.includes('invalidate'));
+  assert.ok(!h.log.includes('invalidate'));
 });
 
-test('a successful eval keeps the refs only when the page provably did not change', async () => {
+test('a successful eval answers `unchanged` only when asked, true only when the page provably did not change', async () => {
   const h = harness();
   h.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
-  await h.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000 });
-  assert.ok(h.log.includes('invalidate'), 'no refs held: nothing proves the page unchanged');
+  const plain = await h.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000 });
+  assert.equal(plain.unchanged, undefined, 'not asked: no answer');
 
   const changed = harness();
-  changed.state.refSet = { snapshotId: 's1' };
   changed.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
-  await changed.call('eval', { pageId: 'p1', expression: 'document.body.append("x")', timeoutMs: 1000 });
-  assert.ok(changed.log.includes('invalidate'), 'the revision moved');
+  const moved = await changed.call('eval', { pageId: 'p1', expression: 'document.body.append("x")', timeoutMs: 1000, checkUnchanged: true });
+  assert.equal(moved.unchanged, false, 'the revision moved');
 
   const same = harness();
-  same.state.refSet = { snapshotId: 's1' };
   same.host.documents.revision = async () => '0:1:1:1:0:0:4:0';
   same.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
-  await same.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000 });
-  assert.ok(!same.log.includes('invalidate'), 'same document, url and revision keep the refs');
+  const kept = await same.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000, checkUnchanged: true });
+  assert.equal(kept.unchanged, true, 'same document, url and revision keep the refs');
+  assert.ok(!same.log.includes('invalidate'));
 });
 
 test('eval in the utility world runs in an isolated world of the frame', async () => {

@@ -13,11 +13,21 @@
  * readers (`cookies`, `storage`, the network ledger). Nothing the page holds
  * as a secret leaves through a result unmasked: the registry redacts every
  * string of it.
+ *
+ * Three more are served for the engine's `snapshot format=pdf` and `network
+ * <requestId>`: Page.printToPDF runs through the page's own printer (the
+ * embedded debugger does not carry it) inside the visual-output privacy check
+ * a screenshot runs, and the request body readers answer as network-report.ts
+ * read them.
  */
+import type { WebContents } from 'electron';
+
 import type { Precondition } from '../../../../../../packages/protocol/src/index.ts';
-import { CDP_REQUEST_TIMEOUT_MS } from '../../browser/command';
+import { CDP_REQUEST_TIMEOUT_MS, MAX_PRINTED_PDF_BYTES } from '../../browser/command';
+import type { BrowserVisualPrivacy } from '../../browser/visual-privacy';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';
+import { MAX_INLINE_RESULT_BYTES, uploadBlob } from './blob-upload';
 import { ENGINE_ERROR } from './errors';
 import { assertNotBlocked, guardBeforeDispatch } from './page';
 import { type EnginePageCall, type EngineParams, registerEngineMethod } from './registry';
@@ -36,7 +46,15 @@ export const CDP_SEND_ALLOWED: ReadonlySet<string> = new Set([
   'Runtime.releaseObject',
   'Runtime.releaseObjectGroup',
   'Performance.getMetrics',
+  'Page.printToPDF',
+  'Network.getRequestPostData',
+  'Network.getResponseBody',
 ]);
+
+/** What `Page.printToPDF` needs of the browser host: the privacy check a screenshot runs (screenshots.prepareVisualOutput). */
+export interface CdpSendHost {
+  prepareVisualOutput: BrowserVisualPrivacy | ((guest: WebContents, signal?: AbortSignal) => Promise<(() => Promise<void>) | undefined>);
+}
 
 const SEND_MAX_TIMEOUT_MS = 60_000;
 
@@ -45,7 +63,31 @@ export function cdpSendRefusal(method: string): string | undefined {
   return CDP_SEND_ALLOWED.has(method) ? undefined : `CDP method ${method} is not available through host/browser/cdp/send`;
 }
 
-async function send(ctx: EngineContext, params: EngineParams, signal: AbortSignal, page: EnginePageCall) {
+/**
+ * The page printed as the old `snapshot format=pdf` printed it (printBackground), inside the visual-output privacy check: a page
+ * holding a filled secret is refused for a PDF as for a screenshot. Inline base64 up to the inline limit, else a blob ref.
+ */
+async function printToPdf(connection: HostConnection, host: CdpSendHost, signal: AbortSignal, page: EnginePageCall) {
+  const finishPrivacyCheck = await host.prepareVisualOutput(page.guest, signal);
+  const printed = await page.guest.printToPDF({ printBackground: true });
+  await finishPrivacyCheck?.();
+  if (printed.length > MAX_PRINTED_PDF_BYTES) {
+    throw new HostRpcError(ENGINE_ERROR.failed, `printed PDF is ${printed.length} bytes; limit is ${MAX_PRINTED_PDF_BYTES} bytes`);
+  }
+  if (!printed.length) throw new HostRpcError(ENGINE_ERROR.failed, 'the page could not be printed to PDF');
+  const data = printed.toString('base64');
+  if (data.length <= MAX_INLINE_RESULT_BYTES / 2) return { result: { data } };
+  return { result: { blob: await uploadBlob(connection, printed, 'application/pdf') } };
+}
+
+async function send(
+  connection: HostConnection,
+  ctx: EngineContext,
+  host: CdpSendHost,
+  params: EngineParams,
+  signal: AbortSignal,
+  page: EnginePageCall
+) {
   const { method, sessionId, timeoutMs, expect } = params;
   if (typeof method !== 'string' || !method) throw new HostRpcError(HOST_INVALID_PARAMS, 'cdp/send needs a method.');
   const reason = cdpSendRefusal(method);
@@ -59,6 +101,10 @@ async function send(ctx: EngineContext, params: EngineParams, signal: AbortSigna
     }
   }
   assertNotBlocked(page);
+  if (method === 'Page.printToPDF') {
+    guardBeforeDispatch(page, expect as Precondition | undefined)?.();
+    return printToPdf(connection, host, signal, page);
+  }
   const wait =
     typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
       ? Math.min(SEND_MAX_TIMEOUT_MS, Math.max(1, Math.trunc(timeoutMs)))
@@ -78,8 +124,8 @@ async function send(ctx: EngineContext, params: EngineParams, signal: AbortSigna
 }
 
 /** Registers `host/browser/cdp/send`. */
-export function registerCdpSend(connection: HostConnection, ctx: EngineContext): void {
+export function registerCdpSend(connection: HostConnection, ctx: EngineContext, host: CdpSendHost): void {
   registerEngineMethod(connection, ctx, 'host/browser/cdp/send', (params, signal, page) =>
-    send(ctx, params, signal, page)
+    send(connection, ctx, host, params, signal, page)
   );
 }
