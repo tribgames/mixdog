@@ -76,6 +76,13 @@ impl AgentEvidence for LateAgentEvidence {
         }
     }
 
+    async fn home_thread_route(&self, agent_id: &str) -> Option<serde_json::Value> {
+        match self.0.get() {
+            Some(evidence) => evidence.home_thread_route(agent_id).await,
+            None => None,
+        }
+    }
+
     /// Unbound, the routines cannot be read, which is this method's error.
     async fn mixy_owns_routines(&self) -> Result<bool, String> {
         match self.0.get() {

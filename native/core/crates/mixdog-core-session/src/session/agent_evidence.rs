@@ -92,6 +92,14 @@ impl AgentEvidence for SessionAgentEvidence {
         self.home(agent_id).await.1
     }
 
+    async fn home_thread_route(&self, agent_id: &str) -> Option<Value> {
+        let session = mixdog_store::agent_mode::agent_home_session_id(agent_id);
+        let header = self.directory.stored_header(&ThreadId::from(session.as_str())).await?;
+        let text = |key: &str| header.get(key).and_then(Value::as_str).map(js_trim).unwrap_or_default().to_owned();
+        let (provider, model) = (text("provider"), text("model"));
+        (!provider.is_empty() && !model.is_empty()).then(|| serde_json::json!({ "provider": provider, "model": model }))
+    }
+
     async fn mixy_owns_routines(&self) -> Result<bool, String> {
         // Both lists are read before deciding: either failing fails the answer (`Promise.all`).
         let schedules = self.routines.list(RoutineKind::Schedule).await?;

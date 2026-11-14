@@ -26,6 +26,7 @@ pub mod pool_section;
 pub mod quiet_progress;
 pub mod section;
 mod service;
+pub mod store_migration;
 #[cfg(test)]
 mod api_tests;
 #[cfg(test)]
@@ -167,6 +168,10 @@ pub trait AgentEvidence: Send + Sync {
     async fn home_greeted(&self, agent_id: &str) -> bool;
     /// The user wrote in the agent's home thread (`homeThreadEvidence(..).chatted`).
     async fn home_chatted(&self, agent_id: &str) -> bool;
+    /// The provider and model the agent's home thread runs on (`threadRoute`), when it names both.
+    async fn home_thread_route(&self, _agent_id: &str) -> Option<Value> {
+        None
+    }
     /// A schedule or webhook belongs to Mixy (`mixyOwnsRoutines`); an error when they cannot be
     /// read.
     async fn mixy_owns_routines(&self) -> Result<bool, String>;
@@ -543,6 +548,64 @@ impl AgentDefinitions {
     pub async fn delegatable_agent_ids(&self) -> Result<Vec<String>, AgentsError> {
         let ids = self.custom_agent_ids().await?;
         Ok(ids.into_iter().filter(|id| !FIXED_SLOTS.iter().any(|slot| slot.0 == id) && !self.routes.is_disabled(id)).collect())
+    }
+
+    /// The facts the two migrations read before their lane job: which homes hold the creation greeting, Mixy's thread
+    /// route and what she was told, the routes the config holds.
+    async fn store_facts(&self) -> Result<store_migration::Facts, AgentsError> {
+        let ids = self.job(move |folders, _| store_migration::evidence_candidates(&folders.data, &folders.shipped)).await?;
+        let mut facts = store_migration::Facts { shipped: self.folders.shipped.clone(), hidden: (*self.folders.hidden).clone(), ..Default::default() };
+        for id in &ids {
+            if self.evidence.home_greeted(id).await {
+                facts.greeted.insert(id.clone());
+            }
+            if let Some(route) = self.routes.config_route(id) {
+                facts.routes.insert(id.clone(), route);
+            }
+        }
+        facts.mixy_chatted = self.evidence.home_chatted(MIXY_AGENT_ID).await;
+        facts.mixy_thread_route = self.evidence.home_thread_route(MIXY_AGENT_ID).await;
+        facts.lead_route = self.main();
+        Ok(facts)
+    }
+
+    /// The one-time `kind: agent` stamp, then the bot split and its re-sync (`migrateAgentKindMarkers`, `migrateBotStore`):
+    /// the stamp runs first so a workflow agent is never copied to `bots/`. `backup(lane, reason)` is the user-data backup of
+    /// `agents/` and `bots/` that precedes the first write. Each step reports its own failure and is retried at the next start.
+    pub async fn migrate_agent_store(&self, backup: Arc<dyn Fn(&mixdog_rt::InLane<DurabilityIo>, &str) + Send + Sync>) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
+        let writes = self.writes()?;
+        let facts = Arc::new(self.store_facts().await?);
+        let data = self.folders.data.clone();
+        let stage = {
+            let (data, facts, backup) = (data.clone(), facts.clone(), backup.clone());
+            let (stage, _) = self.write_job(&writes, None, move |_, lane| store_migration::stamp_agent_kinds(lane, &data, &facts, &|lane| backup(lane, "agent-kind"))).await?;
+            stage
+        };
+        // A restored bot's own route goes where a workflow agent's lives (the config), before `bots/<id>` goes.
+        let mut stage = stage;
+        for (id, route) in &stage.restore {
+            if let Some(route) = route {
+                if let Err(error) = self.routes.set_config_route(id, route.clone()).await {
+                    tracing::warn!("[agent-kind] the route of {id} could not be restored; it is retried next start: {error}");
+                    stage.failed = true;
+                }
+            }
+        }
+        let kinds = if stage.skipped || stage.failed {
+            store_migration::KindReport { skipped: stage.skipped, failed: stage.failed, ..Default::default() }
+        } else {
+            let (data, stage) = (data.clone(), stage.clone());
+            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::finish_kind_stamp(lane, &data, &stage)).await?;
+            report
+        };
+        // The routes the stamp restored are read again for the split.
+        let facts = if kinds.restored.is_empty() { facts } else { Arc::new(self.store_facts().await?) };
+        let split = {
+            let (data, backup) = (data.clone(), backup.clone());
+            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::migrate_bots_to_own_store(lane, &data, &facts, &|lane| backup(lane, "bot-split"))).await?;
+            report
+        };
+        Ok((kinds, split))
     }
 
     /// `loadAgentDefinition`.
