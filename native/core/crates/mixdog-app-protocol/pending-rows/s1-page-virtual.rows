@@ -1,5 +1,5 @@
 # s1-page-virtual: one client method, `projectFs/localPage/virtual`, that leases an in-memory page (visualize) from the core page server.
-# Params: files (index.html required) and the window that asked; result {"url": "http://127.0.0.1:<port>/<token>/index.html"} (JsonValue, as projectFs/localPageUrl).
+# Params: files (index.html required) and the window that asked; result {"url": "http://127.0.0.1:<port>/<token>/index.html"} (JsonValue; unlike projectFs/localPageUrl, which answers a bare string).
 # No server request, notification or inventory row (the inventory is the frozen 1.4.5 list; this method has no 1.4.5 name).
 # The wiring task regenerates schema/*.json and packages/protocol/src/index.ts, and the method-args files of packages/protocol-client.
 
