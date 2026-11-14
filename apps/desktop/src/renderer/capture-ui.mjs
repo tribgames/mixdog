@@ -236,6 +236,19 @@ await rm(metadataOutput, { force: true });
 await rm(errorOutput, { force: true });
 if (jitterProbeMode) await rm(jitterProbeOutput, { force: true });
 await stat(captureEntry);
+// The capture window is a client of an isolated mixdogd (main/capture-core.ts): the binary is named once here, as an
+// absolute path, so the Electron child finds it whatever its working directory is. A name without a directory is
+// looked up on PATH by the core launcher itself, so it is passed as given.
+const captureCoreBinary = (() => {
+  const named = String(process.env.MIXDOGD_BIN || '').trim();
+  if (!named) {
+    throw new Error('The capture needs MIXDOGD_BIN to name the built mixdogd (the capture window is a client of it).');
+  }
+  if (!/[\\/]/.test(named)) return named;
+  const absolute = resolve(named);
+  if (!existsSync(absolute)) throw new Error(`MIXDOGD_BIN names a file that does not exist: ${absolute}`);
+  return absolute;
+})();
 const startedAt = Date.now();
 
 // child.kill() only signals the top-level Electron launcher. Its renderer/GPU
@@ -265,6 +278,7 @@ try {
     const child = spawn(electronPath, [captureEntry, windowOutput, captureId], {
       env: {
         ...process.env,
+        MIXDOGD_BIN: captureCoreBinary,
         MIXDOG_CAPTURE_USER_DATA: userData,
         MIXDOG_HOME: isolatedHome,
         MIXDOG_DATA_DIR: join(isolatedHome, 'data'),
@@ -600,7 +614,7 @@ try {
     assert.deepEqual(metadata.captureEnvironment, {
       rendererAssets: 'built',
       packaged: false,
-      host: 'CaptureService',
+      host: 'mixdogd',
       sessionMode: 'empty-session',
     });
     assert.deepEqual(metadata.sourceDimensions, { width: 1113, height: 687 });
