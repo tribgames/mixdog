@@ -549,7 +549,11 @@ pub(super) struct Arrivals {
     seen: Mutex<Vec<Window>>,
     /// Counts the commands and watches that began: a watch looks only while its own count is the current one.
     generation: AtomicU64,
-    /// Wakes the backend's watch task after an action.
+    /// A read-only command's arrivals read ran past its budget: the list it was still waiting for seeds a session that has no baseline.
+    late_seed: AtomicBool,
+    /// An action's reply has gone out: the watch task looks for the windows that open after it.
+    watching: AtomicBool,
+    /// Wakes the backend's watch task after an action, or for a late seed.
     pub(super) wake: Arc<tokio::sync::Notify>,
 }
 
@@ -577,6 +581,7 @@ impl Arrivals {
         self.generation.fetch_add(1, Ordering::SeqCst);
         *locked(&self.baseline) = None;
         locked(&self.seen).clear();
+        self.late_seed.store(false, Ordering::SeqCst);
     }
 
     /// Seen windows not yet named, then the list's own newcomers.
@@ -591,6 +596,7 @@ impl Arrivals {
     /// session's next reply, so a popup that opens and closes between commands is still named.
     pub fn start_watch(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.watching.store(true, Ordering::SeqCst);
         self.wake.notify_one();
     }
 
@@ -665,6 +671,12 @@ impl Arrivals {
             if acts && baseline.is_none() {
                 *baseline = Some(Baseline::Unknown);
             }
+            // A read-only command's late list seeds a session that has none: nothing here changed the desktop, so what the list shows
+            // is what the session already knows (`pending.then` of `window-arrivals.ts`).
+            if !acts && baseline.is_none() && !self.reading.load(Ordering::SeqCst) {
+                self.late_seed.store(true, Ordering::SeqCst);
+                self.wake.notify_one();
+            }
             return Ok(match baseline.as_ref() {
                 Some(Baseline::Known(known)) => self.unnamed(known, Vec::new()),
                 _ => Vec::new(),
@@ -688,6 +700,20 @@ impl Arrivals {
                 *baseline = Some(Baseline::Known(known));
                 Ok(arrived)
             }
+        }
+    }
+
+    /// The late list of a read-only command (`read`): read again without a budget, in the background, and taken as the baseline when
+    /// the session still has none (a command or an action's own list may have taken one meanwhile). A busy read is not queued behind.
+    pub async fn seed_late<R: WindowReader>(&self, reader: &R) {
+        if !self.late_seed.swap(false, Ordering::SeqCst) || self.reading.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let _reading = Reading(&self.reading);
+        let Ok(Some(windows)) = reader.windows(false, true, &CancellationToken::new()).await else { return };
+        let mut baseline = locked(&self.baseline);
+        if baseline.is_none() {
+            *baseline = Some(Baseline::Known(ids(&windows)));
         }
     }
 
@@ -850,7 +876,10 @@ pub(super) fn watch_after(backend: &ProcessComputerBackend, action: &str) {
 
 /// The watch task's body: one watch per wake, for the backend's session.
 pub(super) async fn watch_once(backend: &ProcessComputerBackend) {
-    backend.arrivals.watch(backend, &backend.config.session_id).await;
+    backend.arrivals.seed_late(backend).await;
+    if backend.arrivals.watching.swap(false, Ordering::SeqCst) {
+        backend.arrivals.watch(backend, &backend.config.session_id).await;
+    }
 }
 
 #[cfg(test)]
@@ -1285,6 +1314,56 @@ mod tests {
 
         assert_eq!(began.elapsed(), ARRIVALS_READ_BUDGET);
         assert!(!arrivals.reading.load(Ordering::SeqCst), "the next command may read again");
+    }
+
+    /// A reader whose first read is slower than the budget and whose later ones answer at once.
+    struct SlowFirst {
+        lists: Vec<Vec<Window>>,
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl WindowReader for SlowFirst {
+        async fn windows(&self, _with_app: bool, _arrivals: bool, _cancel: &CancellationToken) -> Result<Option<Vec<Window>>, ComputerError> {
+            let number = {
+                let mut calls = locked(&self.calls);
+                *calls += 1;
+                *calls
+            };
+            if number == 1 {
+                sleep(Duration::from_secs(5)).await;
+            }
+            Ok(self.lists.get(number - 1).cloned())
+        }
+    }
+
+    /// `pending.then` of `window-arrivals.ts`: a read-only command's list that came in late seeds the baseline, so the popup that
+    /// opened after it is named by the next command instead of being taken as already there.
+    #[tokio::test(start_paused = true)]
+    async fn a_late_first_list_of_a_read_only_command_seeds_the_baseline() {
+        let (first, popup) = (window("hwnd:0x1", 1), window("hwnd:0x9", 2));
+        let reader = SlowFirst { lists: vec![vec![first.clone()], vec![first.clone()], vec![first, popup.clone()]], calls: Mutex::default() };
+        let arrivals = Arrivals::default();
+        let cancel = CancellationToken::new();
+
+        assert!(arrivals.read(&reader, false, &cancel).await.unwrap().is_empty());
+        assert!(arrivals.late_seed.load(Ordering::SeqCst));
+        arrivals.seed_late(&reader).await;
+
+        assert_eq!(arrivals.read(&reader, false, &cancel).await.unwrap(), vec![popup]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_late_first_list_of_an_action_seeds_nothing() {
+        let first = window("hwnd:0x1", 1);
+        let reader = SlowFirst { lists: vec![vec![first.clone()], vec![first.clone()]], calls: Mutex::default() };
+        let arrivals = Arrivals::default();
+
+        arrivals.read(&reader, true, &CancellationToken::new()).await.unwrap();
+
+        assert!(!arrivals.late_seed.load(Ordering::SeqCst));
+        arrivals.seed_late(&reader).await;
+        assert!(matches!(locked(&arrivals.baseline).as_ref(), Some(Baseline::Unknown)));
     }
 
     #[tokio::test(start_paused = true)]

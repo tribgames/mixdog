@@ -72,7 +72,9 @@ pub(super) fn mark_ready(session: &str) {
     ready().insert(session.to_owned());
 }
 
-fn forget_ready(session: &str) {
+/// `session`'s arrow is no longer live: the overlay surface that drew it is gone (a relay of its pointer events the desktop could not
+/// carry), a turn or a hold ended, or the user paused. The next pointer action asks the desktop for the arrow again.
+pub(super) fn forget_ready(session: &str) {
     ready().remove(session);
 }
 
