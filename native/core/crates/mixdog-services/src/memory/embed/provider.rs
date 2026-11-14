@@ -340,7 +340,7 @@ mod idle_tests {
             if provider.current().get().is_none() {
                 return true;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         false
     }
@@ -362,11 +362,11 @@ mod idle_tests {
         let held = failing(dir.path(), Duration::from_millis(30));
         assert!(held.warmup().await.is_err());
         held.hold_warm();
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
         assert!(held.current().get().is_some(), "a held model is released");
         let never = failing(dir.path(), Duration::ZERO);
         assert!(never.warmup().await.is_err());
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         assert!(never.current().get().is_some());
     }
 }

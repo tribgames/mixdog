@@ -6,7 +6,8 @@
 //!
 //! The server certificate is checked against Mozilla's bundled roots (Node's own list) and the
 //! system's, so a machine whose store lacks a root still verifies and a company root still does.
-//! Certificate failures carry Node's codes and the words of its messages. SMTP CRAM-MD5 is not
+//! Certificate failures carry Node's codes and the leading words of its messages (rustls does not
+//! report OpenSSL's altnames detail or the "in certificate chain" wording). SMTP CRAM-MD5 is not
 //! spoken: the servers are Gmail's, which does not offer it.
 
 mod imap;

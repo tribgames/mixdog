@@ -579,6 +579,7 @@ fn parse_duration_seconds(text: &str) -> i64 {
 /// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
 /// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
 /// a frame over the cap is no rendition.
+#[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
 async fn poster(inner: &Inner, request: &Request) -> Outcome {
     let variant = request.variant;
     if variant != RenditionVariant::Thumb {

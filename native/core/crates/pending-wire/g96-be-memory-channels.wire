@@ -11,8 +11,8 @@ Used by: mixdog-mcp/src/gmail_verify/mod.rs GmailAppPassword::new (Mozilla's bun
 ## 2. native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
 Anchor: the line `let scheduler = mixdog_services::scheduler::Scheduler::new(schedule_store.clone(), ...` (about line 1313).
 Add directly after it:
-    scheduler.set_prompts_dir(b.data_dir.join("prompts")); // schedule.prompt (or `<name>.md` when empty) names a file under <DATA_DIR>/prompts, or an absolute path
-Without it a relative prompt reference is not read (an absolute path and inline text work).
+    scheduler.set_prompts_dir(b.data_dir.join("prompts"), b.tokens.durability_io); // schedule.prompt (or `<name>.md` when empty) names a file under <DATA_DIR>/prompts, or an absolute path; read on the durability lane
+Without it no prompt file is read (inline text still works).
 
 ## 3. SERVICE_PENDING (compose_flip.rs)
 Nothing to remove: this task registers no service and adds no protocol method.

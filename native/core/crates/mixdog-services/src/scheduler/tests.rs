@@ -301,14 +301,14 @@ async fn prompt_run(row: Schedule, dir: &std::path::Path) -> Vec<String> {
     let runner = Arc::new(PromptLog::default());
     let clock = Arc::new(FixedClock(Mutex::new(at("2025-01-01T09:00:00Z"))));
     let sched = Scheduler::new(store, runner.clone(), clock, RunningWork::new(), Tz::UTC, vec![row]);
-    sched.set_prompts_dir(dir.to_path_buf());
+    sched.set_prompts_dir(dir.to_path_buf(), mixdog_rt::testing::tokens().durability_io);
     sched.fire_cron_slot(&name, at("2025-01-01T09:00:00Z")).await;
     // The cron fire is fire-and-forget: wait for the spawned run.
     for _ in 0..200 {
         if !runner.0.lock().unwrap().is_empty() {
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(5)).await;
     }
     runner.0.lock().unwrap().clone()
 }
