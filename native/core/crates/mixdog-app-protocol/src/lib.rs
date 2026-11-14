@@ -13,6 +13,7 @@
 //! `BlobDescriptor` is server-produced and also denies them, because store
 //! records embed it and parse it strictly.
 
+pub mod boundary;
 pub mod common;
 pub mod error;
 #[cfg(feature = "codegen")]
