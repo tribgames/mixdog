@@ -338,6 +338,7 @@ observed_facts!(
     HostBrowserStorageResult,
     HostBrowserEmulationResult,
     HostBrowserUploadResult,
+    HostBrowserRefMintResult,
 );
 observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult);
 
@@ -424,6 +425,7 @@ recording_host! {
     emulation, HostBrowserEmulationParams, HostBrowserEmulationResult;
     downloads, HostBrowserDownloadsParams, HostBrowserDownloadsResult;
     upload, HostBrowserUploadParams, HostBrowserUploadResult;
+    ref_mint, HostBrowserRefMintParams, HostBrowserRefMintResult;
 }
 
 /// What the host pushes, on its way to the lane's sink: the pushed facts are kept here too, and the end of the host's claim forgets
@@ -1287,7 +1289,7 @@ impl PageCtx {
             move || async move {
                 let target = TargetContext { host, page_id, expect: Some(expect_ref), cancel: cancel.token() };
                 resolve_targets(&target, raw).await.map_err(|error| match error {
-                    TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing.as_str())),
+                    TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
                     other => ProbeFailure::Other(other),
                 })
             },
@@ -1327,15 +1329,13 @@ impl PageCtx {
         }
         let params = self.snapshot_params(command);
         let result = self.timer.phase(Phase::Snapshot, self.host().snapshot(params, self.token())).await?;
-        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision);
-        let baseline_scroll = {
+        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision).with_observation(result.observation.as_deref());
+        {
             let mut state = self.state_lock();
-            let before = state.scroll_y;
             state.refs = Some(refs.clone());
             state.grounding = None;
             state.scroll_y = Some(result.payload.scroll_y);
-            before
-        };
+        }
         let facts = self.page_facts();
         let downloads = self.session_downloads().await;
         let brief = command.get("brief") == Some(&Value::Bool(true));
@@ -1351,12 +1351,12 @@ impl PageCtx {
                 postcondition_elapsed_ms: u64::try_from(wait.postcondition_elapsed.as_millis()).unwrap_or(u64::MAX),
                 preexisting_postcondition: options.preexisting,
                 settle_action: options.settle_action,
-                baseline: options.baseline.as_ref().map(|set| EffectBaseline::of(set, baseline_scroll)),
+                baseline: options.baseline.as_ref().map(|set| EffectBaseline::of(set)),
             },
         };
         let redact = |text: &str| self.redact(text);
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-        let capture = SnapshotCapture { payload: &result.payload, revision: Some(result.revision) };
+        let capture = SnapshotCapture { payload: &result.payload, observation: result.observation.as_deref() };
         let mut reply = {
             let mut state = self.state_lock();
             let SlotState { reply, reports, .. } = &mut *state;
@@ -2106,8 +2106,8 @@ mod tests {
             FileFacts::default()
         }
 
-        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes) -> PathBuf {
-            run_dir.to_path_buf()
+        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(run_dir.to_path_buf())
         }
     }
 
