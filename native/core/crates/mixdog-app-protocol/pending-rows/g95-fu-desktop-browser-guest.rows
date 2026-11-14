@@ -20,5 +20,9 @@
 # host/browser/surface stays.
 # tests/fixtures/parity-inventory.json line ~144: remove "browserRemoteOpen" from the list; add "pcAccessReadiness" and
 # "pcAccessApprove" in the position the fixture's order for operations requires (same relative order as inventory.rs).
+# The operations count becomes 172 (171 - browserRemoteOpen + pcAccessReadiness + pcAccessApprove), or the test fails:
+#   tests/it/contract.rs fn ds_all_1_every_inventory_name_is_mapped_once: (InventoryList::Operations, "operations", 171)
+#     -> (InventoryList::Operations, "operations", 172); its doc line "each of the 171 operations" -> "each of the 172 operations".
+#   src/inventory.rs InventoryList::Operations doc "/// The 171 desktop operations." -> "/// The 172 desktop operations."
 # Doc wording only (optional): v2/host.rs ~1072 and schema/client_notification.json description ("(`browserRemoteOpen`)") name the
 # removed operation; drop the parenthesis and regenerate the schema.
