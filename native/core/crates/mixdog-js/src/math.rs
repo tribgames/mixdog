@@ -490,7 +490,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
     if ly == 0 {
         if iy == 0x7ff0_0000 {
             if (ix - 0x3ff0_0000) as u32 | lx == 0 {
-                return f64::NAN;
+                return f64::from_bits(0xfff8_0000_0000_0000);
             } else if ix >= 0x3ff0_0000 {
                 return if hy >= 0 { y } else { 0.0 };
             }
@@ -515,7 +515,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
         }
         if hx < 0 {
             if (ix - 0x3ff0_0000) | yisint == 0 {
-                z = f64::NAN;
+                z = domain_nan();
             } else if yisint == 1 {
                 z = -z;
             }
@@ -525,7 +525,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
 
     let mut n = (hx >> 31) + 1;
     if n | yisint == 0 {
-        return f64::NAN;
+        return domain_nan();
     }
     let mut s = 1.0;
     if n | (yisint - 1) == 0 {
@@ -820,6 +820,21 @@ pub fn to_fixed(x: f64, digits: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pow_domain_values_match_the_pinned_node_nan_bits() {
+        // Recorded directly with Node22.20.0/V8 12.4 on Windows x64.
+        for (x, y, expected) in [
+            (-1000.0, 0.1, 0x7ff0_0000_0000_0001),
+            (-1.0, 0.1, 0x7ff0_0000_0000_0001),
+            (-4.0, 0.5, 0x7ff0_0000_0000_0001),
+            (-1.0, f64::INFINITY, 0xfff8_0000_0000_0000),
+            (1.0, f64::INFINITY, 0xfff8_0000_0000_0000),
+            (f64::NAN, 2.0, 0x7ff8_0000_0000_0000),
+        ] {
+            assert_eq!(super::pow(x, y).to_bits(), expected, "{x}^{y}");
+        }
+    }
+
     use super::*;
 
     #[test]
