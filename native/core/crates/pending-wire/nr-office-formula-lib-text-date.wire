@@ -1,0 +1,50 @@
+# nr-office-formula-lib-text-date
+
+## native/core/crates/mixdog-xlsx-formula/src/functions/mod.rs
+
+After `use crate::registry::Table;`, add:
+
+mod text;
+mod datetime;
+mod lookup;
+mod database;
+
+Append these four table entries to TABLES (preserve other workers' entries):
+
+    text::FUNCTIONS,
+    datetime::FUNCTIONS,
+    lookup::FUNCTIONS,
+    database::FUNCTIONS,
+
+No Cargo dependencies are added. ROW is owned by lookup here even though its
+definition occurs among statistical functions in the bundled formulajs source.
+T is owned by text. NETWORKDAYS.INTL/NETWORKDAYSINTL and
+WORKDAY.INTL/WORKDAYINTL are aliases. The installed 4.6.1 does not export XLOOKUP;
+do not introduce it as a fabricated compatibility implementation.
+
+## native/core/fixtures/MANIFEST.json
+
+Index the directory `office-text-date/` and its `MANIFEST.json` using the root
+manifest's existing schema. The per-set manifest includes source SHA-256,
+golden SHA-256, byte size, recorder path, exact library version and covered names.
+
+## Verification after integration
+
+Run the crate's twin_text_date and clock_exports_use_the_current_local_calendar,
+then twin_live_text_date with MIXDOG_NODE_TREE=C:/Project/mixdog.
+The recorder accepts --write to recreate only this task's owned fixture files;
+without --write it emits JSON on stdout without mutating any file.
+
+Known shared-core follow-up: Value::Text(String) cannot retain isolated UTF-16
+surrogates produced by LEFT/RIGHT/MID/CHAR/UNICHAR. The golden retains raw UTF-16
+units and replay intentionally reports those differences rather than accepting
+replacement characters as equivalent. Shared Value/coerce changes are root-owned.
+Original xmlEncode only escapes the five XML punctuation characters; it does not
+normalise surrogates. Recombining LEFT("😀",1)&RIGHT("😀",1) happens before output
+encoding and is observably different if each intermediate is made well-formed.
+At the final ZIP boundary, portable-opc.mjs calls generateAsync(type:nodebuffer).
+JSZip lib/utf8.js:169 uses nodejsUtils.newBufferFrom -> Buffer.from(str,"utf-8"),
+which replaces unpaired surrogates. A lone CHAR surrogate directly emitted is
+therefore the same final U+FFFD bytes; concatenation and CODE/UNICODE before that
+boundary remain different. The original-engine fixture records xmlUtf8 as well
+as the unsanitized UTF-16 units to keep these cases distinct.
