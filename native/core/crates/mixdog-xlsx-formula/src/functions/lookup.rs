@@ -23,10 +23,11 @@ fn cell(v: &V, i: f64) -> V {
     };
     match v {
         V::Array(v) => v.get(i).cloned().unwrap_or(V::Undefined),
-        V::Text(s) => s
-            .encode_utf16()
-            .nth(i)
-            .map_or(V::Undefined, |u| V::Text(String::from_utf16_lossy(&[u]))),
+        v if v.is_text() => v
+            .text_units()
+            .unwrap()
+            .get(i)
+            .map_or(V::Undefined, |u| V::from_utf16(vec![*u])),
         _ => V::Undefined,
     }
 }
@@ -34,6 +35,7 @@ fn len(v: &V) -> f64 {
     match v {
         V::Array(v) => v.len() as f64,
         V::Text(s) => s.encode_utf16().count() as f64,
+        V::Utf16(units) => units.len() as f64,
         _ => f64::NAN,
     }
 }
@@ -42,30 +44,63 @@ fn null_zero(v: V) -> V {
 }
 fn relational_primitive(value: &V) -> V {
     match value {
-        V::Array(_) | V::Error(_) => V::Text(to_js_string(value)),
+        V::Array(_) | V::Error(_) => V::from_utf16(to_js_utf16(value)),
         V::Date(time) => V::Number(*time),
         other => other.clone(),
     }
 }
 fn less(a: &V, b: &V) -> bool {
     match (relational_primitive(a), relational_primitive(b)) {
-        (V::Text(a), V::Text(b)) => compare_utf16(&a, &b).is_lt(),
+        (a, b) if a.is_text() && b.is_text() => a.text_units().unwrap() < b.text_units().unwrap(),
         (a, b) => to_js_number(&a) < to_js_number(&b),
     }
 }
 fn less_equal(a: &V, b: &V) -> bool {
     match (relational_primitive(a), relational_primitive(b)) {
-        (V::Text(a), V::Text(b)) => !compare_utf16(&a, &b).is_gt(),
+        (a, b) if a.is_text() && b.is_text() => a.text_units().unwrap() <= b.text_units().unwrap(),
         (a, b) => to_js_number(&a) <= to_js_number(&b),
     }
 }
 fn lower(v: V) -> V {
-    if let V::Text(s) = v {
-        V::Text(s.to_lowercase())
+    if let Some(units) = v.text_units() {
+        V::from_utf16(case_utf16(&units, false))
     } else {
         v
     }
 }
+fn locale_less(a: &V, b: &V) -> bool {
+    let a = to_js_utf16(a);
+    let b = to_js_utf16(b);
+    mixdog_js::locale_compare_utf16(&a, &b).is_lt()
+}
+fn raw_match(pattern: &[u16], input: &[u16]) -> Result<bool, Failure> {
+    let mut pattern = case_utf16(pattern, false);
+    for (unit, replacement) in [
+        (63, "."),
+        (42, ".*"),
+        (126, "\\"),
+        (43, "\\+"),
+        (40, "\\("),
+        (41, "\\)"),
+        (91, "\\["),
+        (93, "\\]"),
+    ] {
+        let mut next = Vec::new();
+        for u in pattern {
+            if u == unit {
+                next.extend(replacement.encode_utf16());
+            } else {
+                next.push(u);
+            }
+        }
+        pattern = next;
+    }
+    pattern.insert(0, 94);
+    pattern.push(36);
+    mixdog_js::regex_is_match_utf16(&pattern, &case_utf16(input, false), "")
+        .map_err(Failure::thrown)
+}
+
 fn array(v: &V) -> Result<&[V], Failure> {
     if let V::Array(a) = v {
         Ok(a)
@@ -208,9 +243,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             for (i, v) in values.iter().enumerate() {
                 if js_strict_equals(v, &x) {
                     return Ok(targets.get(i).cloned().unwrap_or(V::Undefined));
-                } else if (numeric && less_equal(v, &x))
-                    || matches!(v,V::Text(s)if mixdog_js::locale_compare(s,&to_js_string(&x)).is_lt())
-                {
+                } else if (numeric && less_equal(v, &x)) || (v.is_text() && locale_less(v, &x)) {
                     result = targets.get(i).cloned().unwrap_or(V::Undefined)
                 } else if numeric && less(&x, v) {
                     return Ok(result);
@@ -253,7 +286,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 } else if !exact
                     && approx
                     && ((numeric && less_equal(&row_key, &x))
-                        || matches!(&row_key,V::Text(s)if mixdog_js::locale_compare(s,&to_js_string(&x)).is_lt()))
+                        || (row_key.is_text() && locale_less(&row_key, &x)))
                 {
                     result = value()
                 }
@@ -280,7 +313,13 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let mut found = None;
             for (i, v) in values.iter().enumerate() {
                 if k == 0.0 {
-                    if let (V::Text(pattern), V::Text(s)) = (&x, v) {
+                    if (x.is_text() && v.is_text())
+                        && (matches!(x, V::Utf16(_)) || matches!(v, V::Utf16(_)))
+                    {
+                        if raw_match(&x.text_units().unwrap(), &v.text_units().unwrap())? {
+                            return Ok(V::Number((i + 1) as f64));
+                        }
+                    } else if let (V::Text(pattern), V::Text(s)) = (&x, v) {
                         let pattern = pattern
                             .to_lowercase()
                             .replace('?', ".")
@@ -353,8 +392,13 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 for i in indices {
                     match cell(&x, i) {
                         V::Array(v) => out.push(V::Array(v.into_iter().map(null_zero).collect())),
-                        V::Text(s) => out.push(V::Array(
-                            s.chars().map(|c| V::text(c.to_string())).collect(),
+                        v if v.is_text() => out.push(V::Array(
+                            char::decode_utf16(v.text_units().unwrap())
+                                .map(|c| match c {
+                                    Ok(c) => V::text(c.to_string()),
+                                    Err(e) => V::from_utf16(vec![e.unpaired_surrogate()]),
+                                })
+                                .collect(),
                         )),
                         _ => {
                             return Err(Failure::thrown(

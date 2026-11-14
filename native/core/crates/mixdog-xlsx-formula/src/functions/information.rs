@@ -58,7 +58,7 @@ pub fn isna(a: &[Value]) -> Result<Value, Failure> {
     Ok(Value::Bool(matches!(arg(a), Value::Error(E::Na))))
 }
 pub fn isnontext(a: &[Value]) -> Result<Value, Failure> {
-    Ok(Value::Bool(!matches!(arg(a), Value::Text(_))))
+    Ok(Value::Bool(!arg(a).is_text()))
 }
 pub fn isnumber(a: &[Value]) -> Result<Value, Failure> {
     Ok(Value::Bool(
@@ -66,7 +66,7 @@ pub fn isnumber(a: &[Value]) -> Result<Value, Failure> {
     ))
 }
 pub fn istext(a: &[Value]) -> Result<Value, Failure> {
-    Ok(Value::Bool(matches!(arg(a), Value::Text(_))))
+    Ok(Value::Bool(arg(a).is_text()))
 }
 pub fn na(_: &[Value]) -> Result<Value, Failure> {
     Ok(Value::Error(E::Na))
@@ -84,7 +84,7 @@ pub fn type_of(a: &[Value]) -> Result<Value, Failure> {
     let v = arg(a);
     Ok(match v {
         Value::Number(n) if n.is_finite() => Value::Number(1.0),
-        Value::Text(_) => Value::Number(2.0),
+        Value::Text(_) | Value::Utf16(_) => Value::Number(2.0),
         Value::Bool(_) => Value::Number(4.0),
         v if is_error(v) => Value::Number(16.0),
         Value::Array(_) => Value::Number(64.0),

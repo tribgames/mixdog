@@ -29,7 +29,7 @@ fn fold(a: &[Value], kind: u8) -> Value {
     for v in flatten(a) {
         match v {
             Value::Error(_) => return v,
-            Value::Null | Value::Undefined | Value::Text(_) => continue,
+            Value::Null | Value::Undefined | Value::Text(_) | Value::Utf16(_) => continue,
             _ => {}
         }
         count += 1;
@@ -109,7 +109,7 @@ pub fn ifna(a: &[Value]) -> Result<Value, Failure> {
 pub fn not(a: &[Value]) -> Result<Value, Failure> {
     let v = arg(a, 0);
     Ok(match v {
-        Value::Text(_) => Value::Error(E::Value),
+        Value::Text(_) | Value::Utf16(_) => Value::Error(E::Value),
         Value::Error(_) => v,
         _ => Value::Bool(!is_truthy(&v)),
     })

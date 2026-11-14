@@ -20,22 +20,22 @@ pub(super) fn number(v: &V) -> Result<f64, E> {
         _ => unreachable!(),
     }
 }
-fn string(v: &V) -> Result<String, E> {
-    match parse_string(v) {
-        V::Text(s) => Ok(s),
-        V::Error(e) => Err(e),
-        _ => unreachable!(),
+fn string(v: &V) -> Result<Vec<u16>, E> {
+    match v {
+        V::Error(e) => Err(*e),
+        V::Undefined | V::Null => Ok(Vec::new()),
+        other => Ok(to_js_utf16(other)),
     }
 }
-fn join_value(v: &V) -> String {
+
+fn join_value(v: &V) -> Vec<u16> {
     if matches!(v, V::Null | V::Undefined) {
-        String::new()
+        Vec::new()
     } else {
-        to_js_string(v)
+        to_js_utf16(v)
     }
 }
-fn substring(s: &str, begin: f64, end: f64) -> String {
-    let units: Vec<_> = s.encode_utf16().collect();
+fn substring(units: &[u16], begin: f64, end: f64) -> Vec<u16> {
     let clamp = |n: f64| {
         if n.is_nan() {
             0
@@ -44,20 +44,20 @@ fn substring(s: &str, begin: f64, end: f64) -> String {
         }
     };
     let (b, e) = (clamp(begin), clamp(end));
-    String::from_utf16_lossy(&units[b.min(e)..b.max(e)])
+    units[b.min(e)..b.max(e)].to_vec()
 }
-fn substr(s: &str, begin: f64, len: f64) -> String {
-    let n = s.encode_utf16().count() as f64;
+fn substr(units: &[u16], begin: f64, len: f64) -> Vec<u16> {
+    let n = units.len() as f64;
+    let begin = if begin.is_nan() { 0.0 } else { begin };
+    let len = if len.is_nan() { 0.0 } else { len };
     let b = if begin < 0.0 {
         (n + begin.trunc()).max(0.0)
     } else {
         begin.trunc().min(n)
     };
-    substring(s, b, b + len.max(0.0))
+    substring(units, b, b + len.max(0.0))
 }
-fn index_of(hay: &str, needle: &str, start: f64) -> Option<usize> {
-    let h: Vec<_> = hay.encode_utf16().collect();
-    let n: Vec<_> = needle.encode_utf16().collect();
+fn index_of(h: &[u16], n: &[u16], start: f64) -> Option<usize> {
     let start = if start.is_nan() {
         0
     } else {
@@ -71,6 +71,387 @@ fn index_of(hay: &str, needle: &str, start: f64) -> Option<usize> {
         .position(|w| w == n)
         .map(|i| i + start)
 }
+fn join_parts(parts: &[Vec<u16>], separator: &[u16]) -> Vec<u16> {
+    let mut out = Vec::new();
+    for (i, p) in parts.iter().enumerate() {
+        if i > 0 {
+            out.extend_from_slice(separator)
+        }
+        out.extend_from_slice(p)
+    }
+    out
+}
+fn replace_once(s: &[u16], old: &[u16], new: &[u16]) -> Vec<u16> {
+    if let Some(at) = index_of(s, old, 0.0) {
+        [&s[..at], new, &s[at + old.len()..]].concat()
+    } else {
+        s.to_vec()
+    }
+}
+fn space(u: u16) -> bool {
+    char::from_u32(u32::from(u)).is_some_and(mixdog_js::is_js_space)
+}
+fn word(u: u16) -> bool {
+    (u16::from(b'a')..=u16::from(b'z')).contains(&u)
+        || (u16::from(b'A')..=u16::from(b'Z')).contains(&u)
+        || (u16::from(b'0')..=u16::from(b'9')).contains(&u)
+        || u == 95
+}
+
+fn run_units(name: &str, a: &[V]) -> Result<V, Failure> {
+    let (x, y, z) = (arg(a, 0), arg(a, 1), arg(a, 2));
+    let text = |s: Vec<u16>| Ok(V::from_utf16(s));
+    let err = |e| Ok(V::Error(e));
+    match name {
+        "CHAR" | "UNICHAR" => match number(&x) {
+            Err(e) => err(e),
+            Ok(0.0) => err(E::Value),
+            Ok(n) => text(vec![if n.is_finite() {
+                n.trunc().rem_euclid(65536.0) as u16
+            } else {
+                0
+            }]),
+        },
+        "CLEAN" | "CODE" | "UNICODE" => {
+            if let V::Error(e) = x {
+                return err(e);
+            }
+            let units = if !is_truthy(&x) {
+                Vec::new()
+            } else if let Some(u) = x.text_units() {
+                u
+            } else {
+                return Err(Failure::thrown(if name == "CLEAN" {
+                    "text.replace is not a function"
+                } else {
+                    "text.charCodeAt is not a function"
+                }));
+            };
+            if name == "CLEAN" {
+                text(units.into_iter().filter(|u| *u > 31).collect())
+            } else {
+                Ok(units
+                    .first()
+                    .map_or(V::Error(E::Value), |u| V::Number(f64::from(*u))))
+            }
+        }
+        "CONCAT" | "CONCATENATE" => {
+            let values = flatten(a);
+            if let Some(e) = any_error(&values) {
+                return err(e);
+            }
+            let mut out = Vec::new();
+            for v in values {
+                out.extend(match v {
+                    V::Bool(b) => (if b { "TRUE" } else { "FALSE" }).encode_utf16().collect(),
+                    _ => join_value(&v),
+                })
+            }
+            text(out)
+        }
+        "EXACT" => {
+            if a.len() != 2 {
+                return err(E::Na);
+            }
+            if let Some(e) = any_error(a) {
+                return err(e);
+            }
+            Ok(V::Bool(string(&x).unwrap() == string(&y).unwrap()))
+        }
+        "LEN" => {
+            if a.is_empty() {
+                return err(E::Error);
+            }
+            match x {
+                V::Error(e) => err(e),
+                V::Array(_) => err(E::Value),
+                _ => Ok(V::Number(string(&x).unwrap().len() as f64)),
+            }
+        }
+        "LEFT" | "RIGHT" | "MID" => {
+            if let Some(e) = any_error(&[x.clone(), y, z.clone()]) {
+                return err(e);
+            }
+            let units = string(&x).unwrap();
+            let n = match number(&default(a, 1, V::Number(1.0))) {
+                Ok(n) => n,
+                Err(e) => return err(if name == "LEFT" { E::Value } else { e }),
+            };
+            let len = units.len() as f64;
+            if name == "MID" {
+                let count = match number(&z) {
+                    Ok(n) if n > 0.0 => n,
+                    _ => return err(E::Value),
+                };
+                if n <= 0.0 || n.is_nan() {
+                    return err(E::Value);
+                }
+                text(substring(&units, n - 1.0, n - 1.0 + count))
+            } else if name == "LEFT" {
+                text(substring(&units, 0.0, n))
+            } else {
+                text(substring(&units, len - n, len))
+            }
+        }
+        "LOWER" | "UPPER" | "TRIM" | "PROPER" => {
+            if name == "LOWER" && a.len() != 1 {
+                return err(E::Value);
+            }
+            if name == "PROPER" && matches!(x,V::Number(n)if n.is_nan()) {
+                return err(E::Value);
+            }
+            let units = match string(&x) {
+                Ok(s) => s,
+                Err(e) => return err(e),
+            };
+            if name == "LOWER" || name == "UPPER" {
+                return text(case_utf16(&units, name == "UPPER"));
+            }
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < units.len() {
+                if name == "TRIM" && space(units[i]) {
+                    while i < units.len() && space(units[i]) {
+                        i += 1
+                    }
+                    if !out.is_empty() && i < units.len() {
+                        out.push(32)
+                    }
+                } else if name == "PROPER" && word(units[i]) {
+                    out.extend(case_utf16(&units[i..i + 1], true));
+                    i += 1;
+                    let start = i;
+                    while i < units.len() && !space(units[i]) {
+                        i += 1
+                    }
+                    out.extend(case_utf16(&units[start..i], false))
+                } else {
+                    out.push(units[i]);
+                    i += 1
+                }
+            }
+            text(out)
+        }
+        "FIND" | "SEARCH" => {
+            if name == "FIND" && a.len() < 2 {
+                return err(E::Na);
+            }
+            let (needle, hay) = if name == "SEARCH" {
+                let (Some(x), Some(y)) = (x.text_units(), y.text_units()) else {
+                    return err(E::Value);
+                };
+                (case_utf16(&x, false), case_utf16(&y, false))
+            } else {
+                let yy = parse_string(&y);
+                if matches!(yy, V::Error(_)) {
+                    return Err(Failure::thrown("within_text.indexOf is not a function"));
+                }
+                (to_js_utf16(&parse_string(&x)), to_js_utf16(&yy))
+            };
+            Ok(index_of(
+                &hay,
+                &needle,
+                to_js_number(&default(a, 2, V::Number(0.0))) - 1.0,
+            )
+            .map_or(V::Error(E::Value), |i| V::Number((i + 1) as f64)))
+        }
+        "REPLACE" => {
+            let (Some(s), Some(replacement)) = (x.text_units(), arg(a, 3).text_units()) else {
+                return err(E::Value);
+            };
+            let (Ok(start), Ok(count)) = (number(&y), number(&z)) else {
+                return err(E::Value);
+            };
+            text(
+                [
+                    substr(&s, 0.0, start - 1.0),
+                    replacement,
+                    substr(&s, start - 1.0 + count, f64::INFINITY),
+                ]
+                .concat(),
+            )
+        }
+        "REPT" => {
+            if let Some(e) = any_error(&[x.clone(), y.clone()]) {
+                return err(e);
+            }
+            let n = match number(&y) {
+                Ok(n) => n,
+                Err(e) => return err(e),
+            };
+            let length = n + 1.0;
+            if !length.is_finite()
+                || length < 0.0
+                || length.fract() != 0.0
+                || length > u32::MAX as f64
+            {
+                return Err(Failure::thrown("Invalid array length"));
+            }
+            let source = string(&x).unwrap();
+            let repeats = n.max(0.0) as usize;
+            let units = source
+                .len()
+                .checked_mul(repeats)
+                .ok_or_else(|| Failure::thrown("Invalid string length"))?;
+            if units > (1usize << 29) - 24 {
+                return Err(Failure::thrown("Invalid string length"));
+            }
+            if source.is_empty() || repeats == 0 {
+                return text(Vec::new());
+            }
+            let mut out = Vec::new();
+            out.try_reserve_exact(units)
+                .map_err(|_| Failure::thrown("Invalid string length"))?;
+            for _ in 0..repeats {
+                out.extend_from_slice(&source)
+            }
+            text(out)
+        }
+        "NUMBERVALUE" => {
+            let x = if is_defined(&x) { x } else { V::text("") };
+            if matches!(x, V::Number(_)) {
+                return Ok(x);
+            }
+            let Some(s) = x.text_units() else {
+                return err(E::Na);
+            };
+            let decimal = to_js_utf16(&default(a, 1, V::text(".")));
+            let group = to_js_utf16(&default(a, 2, V::text(",")));
+            Ok(V::Number(utf16_number(&replace_once(
+                &replace_once(&s, &decimal, &[46]),
+                &group,
+                &[],
+            ))))
+        }
+        "SUBSTITUTE" => {
+            if a.len() < 3 {
+                return err(E::Na);
+            }
+            if !is_truthy(&x) || !is_truthy(&y) {
+                return Ok(x);
+            }
+            let Some(s) = x.text_units() else {
+                return Err(Failure::thrown(if matches!(arg(a, 3), V::Undefined) {
+                    "text.split is not a function"
+                } else {
+                    "text.indexOf is not a function"
+                }));
+            };
+            let old = to_js_utf16(&y);
+            let new = join_value(&z);
+            if matches!(arg(a, 3), V::Undefined) {
+                let separator = if matches!(z, V::Undefined) {
+                    vec![44]
+                } else {
+                    new
+                };
+                let mut parts = Vec::new();
+                if old.is_empty() {
+                    parts.extend(s.iter().map(|u| vec![*u]));
+                } else {
+                    let mut start = 0;
+                    while let Some(at) = index_of(&s, &old, start as f64) {
+                        parts.push(s[start..at].to_vec());
+                        start = at + old.len();
+                    }
+                    parts.push(s[start..].to_vec());
+                }
+                return text(join_parts(&parts, &separator));
+            }
+            let instance = to_js_number(&arg(a, 3)).floor();
+            if instance.is_nan() || instance <= 0.0 {
+                return err(E::Value);
+            }
+            let mut at = 0;
+            let mut count = 0.0;
+            while index_of(&s, &old, at as f64).is_some() {
+                let Some(next) = index_of(&s, &old, (at + 1) as f64) else {
+                    break;
+                };
+                at = next;
+                count += 1.0;
+                if count == instance {
+                    return text(
+                        [
+                            substring(&s, 0.0, at as f64),
+                            new,
+                            substring(&s, (at + old.len()) as f64, f64::INFINITY),
+                        ]
+                        .concat(),
+                    );
+                }
+            }
+            text(s)
+        }
+        "T" => Ok(if x.is_text() || matches!(x, V::Error(_)) {
+            x
+        } else {
+            V::text("")
+        }),
+        "TEXTJOIN" => {
+            if a.len() < 3 {
+                return err(E::Na);
+            }
+            let ignore = parse_bool(&y);
+            let values: Vec<_> = flatten(&a[2..])
+                .into_iter()
+                .filter(|v| !is_truthy(&ignore) || is_truthy(v))
+                .collect();
+            let delimiters = match x {
+                V::Array(v) => flatten(&v),
+                V::Null | V::Undefined => vec![V::text("")],
+                v => vec![v],
+            };
+            let mut out = Vec::new();
+            for (i, v) in values.iter().enumerate() {
+                if i > 0 && !delimiters.is_empty() {
+                    out.extend(join_value(&delimiters[(i - 1) % delimiters.len()]))
+                }
+                out.extend(join_value(v))
+            }
+            text(out)
+        }
+        "VALUE" => {
+            if let V::Error(e) = x {
+                return err(e);
+            }
+            if matches!(x, V::Number(_)) {
+                return Ok(x);
+            }
+            let s = if !is_defined(&x) {
+                Vec::new()
+            } else if let Some(s) = x.text_units() {
+                s
+            } else {
+                return err(E::Value);
+            };
+            let percent = s.first() == Some(&37) || s.last() == Some(&37);
+            let digit = |u: &u16| (48..=57).contains(u);
+            let front = s
+                .iter()
+                .take(3)
+                .take_while(|u| !digit(u) && **u != 45)
+                .count();
+            let s = &s[front..];
+            let back = s.iter().rev().take(3).take_while(|u| !digit(u)).count();
+            let s: Vec<_> = s[..s.len() - back]
+                .iter()
+                .copied()
+                .filter(|u| *u != 32 && *u != 44)
+                .collect();
+            let n = utf16_number(&s);
+            if n.is_nan() {
+                err(E::Value)
+            } else {
+                // Original: output = output || 0; then output *= 0.01.
+                let n = if n == 0.0 { 0.0 } else { n };
+                Ok(V::Number(if percent { n * 0.01 } else { n }))
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn commas(s: &str) -> String {
     let (whole, tail) = s.split_once('.').map_or((s, None), |(w, t)| (w, Some(t)));
     let mut out = String::new();
@@ -206,291 +587,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let z = arg(a, 2);
     let text = |s: String| Ok(V::Text(s));
     let err = |e| Ok(V::Error(e));
+    if !matches!(name, "FIXED" | "DOLLAR" | "TEXT") {
+        return run_units(name, a);
+    }
     match name {
-        "CHAR" | "UNICHAR" => match number(&x) {
-            Err(e) => err(e),
-            Ok(0.0) => err(E::Value),
-            Ok(n) => {
-                let u = if n.is_finite() {
-                    n.trunc().rem_euclid(65536.0) as u16
-                } else {
-                    0
-                };
-                text(String::from_utf16_lossy(&[u]))
-            }
-        },
-        "CLEAN" | "CODE" | "UNICODE" => {
-            if let V::Error(e) = x {
-                return err(e);
-            }
-            let s = if !is_truthy(&x) {
-                String::new()
-            } else if let V::Text(s) = x {
-                s
-            } else {
-                return Err(Failure::thrown(if name == "CLEAN" {
-                    "text.replace is not a function"
-                } else {
-                    "text.charCodeAt is not a function"
-                }));
-            };
-            if name == "CLEAN" {
-                text(s.chars().filter(|c| *c > '\u{1f}').collect())
-            } else {
-                Ok(s.encode_utf16()
-                    .next()
-                    .map_or(V::Error(E::Value), |u| V::Number(f64::from(u))))
-            }
-        }
-        "CONCAT" | "CONCATENATE" => {
-            let values = flatten(a);
-            if let Some(e) = any_error(&values) {
-                return err(e);
-            }
-            text(
-                values
-                    .iter()
-                    .map(|v| match v {
-                        V::Bool(true) => "TRUE".into(),
-                        V::Bool(false) => "FALSE".into(),
-                        _ => join_value(v),
-                    })
-                    .collect(),
-            )
-        }
-        "EXACT" => {
-            if a.len() != 2 {
-                return err(E::Na);
-            }
-            if let Some(e) = any_error(a) {
-                return err(e);
-            }
-            Ok(V::Bool(parse_string(&x) == parse_string(&y)))
-        }
-        "LEN" => {
-            if a.is_empty() {
-                return err(E::Error);
-            }
-            match x {
-                V::Error(e) => err(e),
-                V::Array(_) => err(E::Value),
-                _ => Ok(V::Number(
-                    to_js_string(&parse_string(&x)).encode_utf16().count() as f64,
-                )),
-            }
-        }
-        "LEFT" | "RIGHT" | "MID" => {
-            if let Some(e) = any_error(&[x.clone(), y.clone(), z.clone()]) {
-                return err(e);
-            }
-            let s = string(&x).unwrap();
-            let n = match number(&default(a, 1, V::Number(1.0))) {
-                Ok(n) => n,
-                Err(e) => return err(if name == "LEFT" { E::Value } else { e }),
-            };
-            let length = s.encode_utf16().count() as f64;
-            if name == "MID" {
-                let count = match number(&z) {
-                    Ok(n) if n > 0.0 => n,
-                    _ => return err(E::Value),
-                };
-                if n <= 0.0 || n.is_nan() {
-                    return err(E::Value);
-                }
-                text(substring(&s, n - 1.0, n - 1.0 + count))
-            } else if name == "LEFT" {
-                text(substring(&s, 0.0, n))
-            } else {
-                text(substring(&s, length - n, length))
-            }
-        }
-        "LOWER" | "UPPER" | "TRIM" | "PROPER" => {
-            if name == "LOWER" && a.len() != 1 {
-                return err(E::Value);
-            }
-            if name == "PROPER" && matches!(x,V::Number(n) if n.is_nan()) {
-                return err(E::Value);
-            }
-            let s = match string(&x) {
-                Ok(s) => s,
-                Err(e) => return err(e),
-            };
-            match name {
-                "LOWER" => text(s.to_lowercase()),
-                "UPPER" => text(s.to_uppercase()),
-                "TRIM" => text(
-                    mixdog_js::js_trim(
-                        &mixdog_js::JsRegex::new_static(r"\s+", "g")
-                            .replace_all_with(&s, |_| " ".into()),
-                    )
-                    .into(),
-                ),
-                _ => text(
-                    mixdog_js::JsRegex::new_static(r"\w\S*", "g").replace_all_with(&s, |c| {
-                        let t = c.get(0).unwrap_or("");
-                        let mut chars = t.chars();
-                        chars.next().map_or(String::new(), |f| {
-                            f.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
-                        })
-                    }),
-                ),
-            }
-        }
-        "FIND" | "SEARCH" => {
-            if name == "FIND" && a.len() < 2 {
-                return err(E::Na);
-            }
-            let (needle, hay) = if name == "SEARCH" {
-                match (&x, &y) {
-                    (V::Text(x), V::Text(y)) => (x.to_lowercase(), y.to_lowercase()),
-                    _ => return err(E::Value),
-                }
-            } else {
-                let yy = parse_string(&y);
-                if matches!(yy, V::Error(_)) {
-                    return Err(Failure::thrown("within_text.indexOf is not a function"));
-                }
-                (to_js_string(&parse_string(&x)), to_js_string(&yy))
-            };
-            Ok(index_of(
-                &hay,
-                &needle,
-                to_js_number(&default(a, 2, V::Number(0.0))) - 1.0,
-            )
-            .map_or(V::Error(E::Value), |i| V::Number((i + 1) as f64)))
-        }
-        "REPLACE" => {
-            let (V::Text(s), V::Text(replacement)) = (&x, arg(a, 3)) else {
-                return err(E::Value);
-            };
-            let (Ok(start), Ok(count)) = (number(&y), number(&z)) else {
-                return err(E::Value);
-            };
-            text(
-                substr(s, 0.0, start - 1.0)
-                    + &replacement
-                    + &substr(s, start - 1.0 + count, f64::INFINITY),
-            )
-        }
-        "REPT" => {
-            if let Some(e) = any_error(&[x.clone(), y.clone()]) {
-                return err(e);
-            }
-            let n = match number(&y) {
-                Ok(n) => n,
-                Err(e) => return err(e),
-            };
-            let length = n + 1.0;
-            if !length.is_finite()
-                || length < 0.0
-                || length.fract() != 0.0
-                || length > u32::MAX as f64
-            {
-                return Err(Failure::thrown("Invalid array length"));
-            }
-            let source = string(&x).map_err(|e| Failure::thrown(e.message()))?;
-            let repeats = n.max(0.0) as usize;
-            // new Array(n + 1).join(text) bounds the resulting UTF-16 length,
-            // not UTF-8 bytes, before creating the string. This is the original
-            // 64-bit Node/Electron V8 maximum, also recorded by the fixture.
-            const MAX_STRING_UNITS: usize = (1usize << 29) - 24;
-            let units = source
-                .encode_utf16()
-                .count()
-                .checked_mul(repeats)
-                .ok_or_else(|| Failure::thrown("Invalid string length"))?;
-            if units > MAX_STRING_UNITS {
-                return Err(Failure::thrown("Invalid string length"));
-            }
-            if source.is_empty() || repeats == 0 {
-                return text(String::new());
-            }
-            let bytes = source
-                .len()
-                .checked_mul(repeats)
-                .ok_or_else(|| Failure::thrown("Invalid string length"))?;
-            let mut output = String::new();
-            output
-                .try_reserve_exact(bytes)
-                .map_err(|_| Failure::thrown("Invalid string length"))?;
-            for _ in 0..repeats {
-                output.push_str(&source);
-            }
-            text(output)
-        }
-        "NUMBERVALUE" => {
-            let x = if is_defined(&x) {
-                x
-            } else {
-                V::Text(String::new())
-            };
-            match x {
-                V::Number(_) => Ok(x),
-                V::Text(s) => {
-                    let decimal = to_js_string(&default(a, 1, V::text(".")));
-                    let group = to_js_string(&default(a, 2, V::text(",")));
-                    Ok(V::Number(mixdog_js::string_to_number(
-                        &s.replacen(&decimal, ".", 1).replacen(&group, "", 1),
-                    )))
-                }
-                _ => err(E::Na),
-            }
-        }
-        "SUBSTITUTE" => {
-            if a.len() < 3 {
-                return err(E::Na);
-            }
-            if !is_truthy(&x) || !is_truthy(&y) {
-                return Ok(x);
-            }
-            let V::Text(s) = x else {
-                return Err(Failure::thrown(if matches!(arg(a, 3), V::Undefined) {
-                    "text.split is not a function"
-                } else {
-                    "text.indexOf is not a function"
-                }));
-            };
-            let old = to_js_string(&y);
-            let new = join_value(&z);
-            if matches!(arg(a, 3), V::Undefined) {
-                return text(s.split(&old).collect::<Vec<_>>().join(
-                    &if matches!(z, V::Undefined) {
-                        ",".into()
-                    } else {
-                        new
-                    },
-                ));
-            }
-            let instance = to_js_number(&arg(a, 3)).floor();
-            if instance.is_nan() || instance <= 0.0 {
-                return err(E::Value);
-            }
-            let mut at = 0;
-            let mut count = 0.0;
-            while index_of(&s, &old, at as f64).is_some() {
-                let Some(next) = index_of(&s, &old, (at + 1) as f64) else {
-                    break;
-                };
-                at = next;
-                count += 1.0;
-                if count == instance {
-                    return text(
-                        substring(&s, 0.0, at as f64)
-                            + &new
-                            + &substring(
-                                &s,
-                                (at + old.encode_utf16().count()) as f64,
-                                f64::INFINITY,
-                            ),
-                    );
-                }
-            }
-            text(s)
-        }
-        "T" => Ok(match x {
-            V::Text(_) | V::Error(_) => x,
-            _ => V::text(""),
-        }),
         "FIXED" => fixed(&x, &default(a, 1, V::Number(2.0)), is_truthy(&z)),
         "DOLLAR" => {
             let n = parse_number(&x);
@@ -553,15 +653,22 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let pattern = match y {
                 V::Null | V::Undefined => return text(String::new()),
                 V::Number(n) => return text(mixdog_js::number_to_string(n)),
-                V::Text(s) => s,
+                v if v.is_text() => v.text_units().unwrap(),
                 _ => return err(E::Value),
             };
-            let currency = if pattern.starts_with('$') { "$" } else { "" };
-            let percent = pattern.ends_with('%');
-            let p = pattern.replace(['%', '$'], "");
-            let d = if let Some((_, tail)) = p.split_once('.') {
-                let part = tail.split('.').next().unwrap();
-                let n = part.chars().filter(|c| *c == '0').count();
+            let currency = if pattern.first() == Some(&36) {
+                "$"
+            } else {
+                ""
+            };
+            let percent = pattern.last() == Some(&37);
+            let p: Vec<_> = pattern
+                .into_iter()
+                .filter(|u| *u != 37 && *u != 36)
+                .collect();
+            let d = if let Some(dot) = p.iter().position(|u| *u == 46) {
+                let part = p[dot + 1..].split(|u| *u == 46).next().unwrap();
+                let n = part.iter().filter(|u| **u == 48).count();
                 if n == 0 {
                     return Err(Failure::thrown(
                         "Cannot read properties of null (reading 'length')",
@@ -576,7 +683,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             } else {
                 x
             };
-            let output = fixed(&value, &V::Number(d as f64), !p.contains(','))?;
+            let output = fixed(&value, &V::Number(d as f64), !p.contains(&44))?;
             let V::Text(s) = output else {
                 return Err(Failure::thrown("value$1.startsWith is not a function"));
             };
@@ -586,55 +693,6 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 format!("{currency}{s}")
             };
             text(formatted + if percent { "%" } else { "" })
-        }
-        "TEXTJOIN" => {
-            if a.len() < 3 {
-                return err(E::Na);
-            }
-            let ignore = parse_bool(&y);
-            let values: Vec<_> = flatten(&a[2..])
-                .into_iter()
-                .filter(|v| !is_truthy(&ignore) || is_truthy(v))
-                .collect();
-            let delimiters = match x {
-                V::Array(v) => flatten(&v),
-                V::Null | V::Undefined => vec![V::text("")],
-                v => vec![v],
-            };
-            let mut out = String::new();
-            for (i, v) in values.iter().enumerate() {
-                if i > 0 && !delimiters.is_empty() {
-                    out.push_str(&join_value(&delimiters[(i - 1) % delimiters.len()]))
-                }
-                out.push_str(&join_value(v))
-            }
-            text(out)
-        }
-        "VALUE" => {
-            if let V::Error(e) = x {
-                return err(e);
-            }
-            if matches!(x, V::Number(_)) {
-                return Ok(x);
-            }
-            let s = if !is_defined(&x) {
-                String::new()
-            } else if let V::Text(s) = x {
-                s
-            } else {
-                return err(E::Value);
-            };
-            let percent = s.starts_with('%') || s.ends_with('%');
-            let first = mixdog_js::JsRegex::new_static(r"^[^0-9-]{0,3}", "")
-                .replace_all_with(&s, |_| String::new());
-            let last = mixdog_js::JsRegex::new_static(r"[^0-9]{0,3}$", "")
-                .replace_all_with(&first, |_| String::new());
-            let n = mixdog_js::string_to_number(&last.replace([' ', ','], ""));
-            if n.is_nan() {
-                err(E::Value)
-            } else {
-                Ok(V::Number(if percent { n * 0.01 } else { n + 0.0 }))
-            }
         }
         _ => unreachable!(),
     }

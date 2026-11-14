@@ -248,6 +248,7 @@ fn encode(value: &Value) -> Json {
         Value::Undefined => json!({ "t": "undefined" }),
         Value::Number(number) => json!({ "t": "number", "bits": format!("{:016x}", number.to_bits()) }),
         Value::Text(text) => json!({ "t": "text", "v": text }),
+        Value::Utf16(units) => json!({"t":"utf16","units":units}),
         Value::Error(error) => json!({ "t": "error", "v": error.message() }),
         Value::Bool(flag) => json!({ "t": "bool", "v": flag }),
         other => panic!("not an engine result: {other:?}"),

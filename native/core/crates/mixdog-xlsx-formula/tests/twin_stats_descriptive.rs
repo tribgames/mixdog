@@ -42,6 +42,7 @@ fn encode(value: &Value) -> Json {
         Value::Number(n) => json!({"t":"number","bits":format!("{:016x}",n.to_bits())}),
         Value::Bool(v) => json!({"t":"bool","v":v}),
         Value::Text(v) => json!({"t":"text","v":v}),
+        Value::Utf16(units) => json!({"t":"utf16","units":units}),
         Value::Error(e) => json!({"t":"error","v":e.message()}),
         Value::Date(v) => if v.is_finite() {
             // JS Date.getTime() is an integral, TimeClipped millisecond count.

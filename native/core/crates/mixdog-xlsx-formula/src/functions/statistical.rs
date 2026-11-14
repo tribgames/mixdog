@@ -231,11 +231,23 @@ fn direct_array(value: &Value) -> Result<Value, Failure> {
             Ok(v) => Value::Array(v),
             Err(e) => Value::Error(e),
         }),
+        Value::Utf16(units) if !units.is_empty() => {
+            let index = units.len() - 1;
+            let last = Value::from_utf16(vec![units[index]]);
+            if let Value::Error(e) = parse_number(&last) {
+                return Ok(Value::Error(e));
+            }
+            // Explicit final exception text boundary; the input Value remains intact.
+            let text = String::from_utf16_lossy(units);
+            Err(Failure::thrown(format!(
+                "Cannot assign to read only property '{index}' of string '{text}'"
+            )))
+        }
         Value::Text(text) if !text.is_empty() => {
             let chars: Vec<_> = text.encode_utf16().collect();
             let index = chars.len() - 1;
-            let last = String::from_utf16_lossy(&chars[index..index + 1]);
-            if let Value::Error(e) = parse_number(&Value::Text(last)) {
+            let last = Value::from_utf16(chars[index..index + 1].to_vec());
+            if let Value::Error(e) = parse_number(&last) {
                 return Ok(Value::Error(e));
             }
             Err(Failure::thrown(format!(
@@ -250,6 +262,7 @@ fn array_length(value: &Value) -> Option<usize> {
     match value {
         Value::Array(a) => Some(a.len()),
         Value::Text(s) => Some(s.encode_utf16().count()),
+        Value::Utf16(units) => Some(units.len()),
         _ => None,
     }
 }
