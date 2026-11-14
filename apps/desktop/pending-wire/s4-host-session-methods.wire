@@ -1,0 +1,53 @@
+# s4-host-session-methods: desktop wiring lines (applied by the wave's desktop wiring task, then this file is deleted)
+
+No protocol row and no core change: every method already exists in v2/browser_engine.rs and in packages/protocol.
+SERVICE_PENDING is not touched (these are host methods the core calls, not core services).
+
+## main/host/index.ts (or the module that builds the EngineContext and registers the engine methods)
+
+  import { registerSession, createInterceptTable } from './browser-engine/session';
+  import { registerUpload } from './browser-engine/upload';
+
+  const intercept = createInterceptTable();            // ONE table, shared with the CDP fetch router (below)
+  registerSession(connection, engineContext, {
+    partitionSession,                                  // host-foundation.ts storage.partition.session
+    urlPolicy,                                         // the same getter command-toolkit hands createBrowserPageState
+    evaluate,                                          // cdp.evaluate bound as command-toolkit's pageState host does
+    invalidateInteractionState,                        // state.invalidateInteraction
+    intercept,
+    applyFetchPatterns: (guest, signal) => cdp.applyFetchPatterns(guest, signal),
+    tracesByGuest,                                     // the GuestSlot the Tracing.* listener in cdp-event-router.ts feeds
+    processMemoryMb,                                   // what createBrowserPerformanceCommands got today
+    pause,                                             // browser/settle.ts
+    emulation: emulationOwner,                         // createBrowserEmulationOwner({ configure: tools.emulation.configureEmulation })
+    downloads: ledger.downloadsForSession,             // createBrowserDownloadLedger(...)
+  });
+  registerUpload(connection, engineContext, {
+    host: refActionsHost,                              // the BrowserRefActionsHost createBrowserRefActions is built from
+    invalidateInteractionState,
+  });
+
+## browser/host-presentation.ts (remoteDrive.emulate, the pane preset path)
+
+  emulate: async (guest, config) => { await emulationOwner.applyPane(guest, config); },
+  // replaces: tools.emulation.configureEmulation(guest, browserViewportEmulation(config))
+  // emulationOwner remembers the pane viewport per guest, so an agent `emulation` with overrides: null returns to it.
+
+## CDP fetch router / cdp host (interceptFetchPatterns, matchInterceptRule)
+
+  Take these three from the table above (`intercept.interceptFetchPatterns`, `intercept.matchInterceptRule`,
+  `intercept.hasInterceptRules`) instead of createBrowserIntercept(): the `intercept` method edits that table, so the
+  router must read the same one.
+
+## For s4-delete-ts-engine (not done here: those files belong to it)
+
+  - intercept.ts: createBrowserIntercept and its rule table go (session.ts createInterceptTable replaces them);
+    keep `BrowserInterceptRule`, `BrowserFetchPattern` and `interceptFulfillParams` (cdp-events-fetch.ts, cdp-session-init.ts).
+  - init-scripts.ts: goes whole (session.ts keeps the per-page script registry beside the `initScripts` method).
+  - performance.ts: createBrowserPerformanceCommands and formatPerformanceMetrics go; keep BrowserPerformanceTrace and
+    ActiveBrowserPerformanceTrace (session.ts, the Tracing listener).
+  - page-state.ts: createBrowserPageState goes; keep browserStorageKeyIsSensitive (session.ts).
+  - downloads.ts: createBrowserDownloads (the list/attach text) goes; keep the ledger, MAX_BROWSER_DOWNLOAD_BYTES, TrackedBrowserDownload.
+  - ref-upload.ts / ref-actions.ts: stay (registerUpload runs createRefUpload over a guarded host); uploadReceiver is
+    used by action-approval.ts only until the engine owns the approval.
+  - emulation.ts: stays (configureEmulation, fitMetrics, unfitMetrics); only its callers change.
