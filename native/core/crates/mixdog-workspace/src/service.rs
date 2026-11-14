@@ -56,10 +56,10 @@ use crate::pathguard::project_entry_path;
 use crate::recovery::Action;
 use crate::recovery::RecoveryStore;
 use crate::search::SearchSessions;
+use crate::search::SessionConfig;
 use crate::serverdownload::RemoteFileReader;
 use crate::serverdownload::SERVER_DOWNLOAD_MAX_BYTES;
 use crate::serverdownload::ServerDownloads;
-use crate::search::SessionConfig;
 use crate::textsearch::TextQuery;
 use crate::transfer::Owner;
 use crate::transfer::Transfers;
@@ -1916,8 +1916,9 @@ impl DomainService for WorkspaceService {
         Admit::Accepted
     }
 }
+
 #[cfg(test)]
-mod server_download_tests {
+mod serverdownload_calls {
     use std::collections::HashMap;
 
     use base64::Engine;
