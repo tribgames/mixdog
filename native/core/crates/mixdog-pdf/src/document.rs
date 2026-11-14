@@ -20,7 +20,8 @@ use crate::xref::{Xref, XrefOptions};
 /// pdf.js's default). The cMaps and the standard font data are always available (the font tasks embed them).
 #[derive(Clone)]
 pub struct OpenOptions {
-    /// The password of an encrypted file; the empty user password is tried first whatever this is.
+    /// The password of an encrypted file. Without one (or with an empty one) the empty user password is tried; a
+    /// password that is given is the only one tried, as in pdf.js (a wrong one is `Incorrect Password`).
     pub password: Option<String>,
     pub cancel: Option<CancelCheck>,
     pub budget: Budget,
@@ -217,7 +218,7 @@ impl Document {
         }
         tracing::warn!(
             "checkLastPage - invalid /Pages tree /Count: {}.",
-            last.map_or_else(|| "?".to_owned(), |n| (n + 1).to_string())
+            last.map_or_else(|| "undefined".to_owned(), |n| (n + 1).to_string())
         );
         let pages = match self.all_page_dicts(recovery_mode) {
             Ok(pages) => pages,

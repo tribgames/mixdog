@@ -110,7 +110,7 @@ impl Page {
                         Err(e) if !e.is_fatal() && document.options().ignore_errors => {
                             tracing::warn!(
                                 "getContentStream - ignoring sub-stream ({}): \"{e}\".",
-                                stream.dict.obj_id.as_deref().unwrap_or("?")
+                                stream.dict.obj_id.as_deref().unwrap_or("undefined")
                             );
                         }
                         Err(e) => return Err(e),
