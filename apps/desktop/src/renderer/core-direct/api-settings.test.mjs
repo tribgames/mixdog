@@ -138,6 +138,27 @@ test('notification_preferences_write_announces_notifications_and_answers_the_sta
   assert.equal(state.devices[0].canNotify, true);
 });
 
+test('notification_preferences_read_the_state_and_a_test_notice_goes_to_the_core', async () => {
+  const { api, sent } = world({
+    replies: {
+      'remoteAccess/state': { settings: { name: '', defaultName: 'BENCH' }, clients: [] },
+      'notify/state': { supported: true },
+      'notify/test': { ok: true },
+    },
+  });
+  const state = await api.getNotificationPreferences();
+  assert.equal(state.devices[0].name, 'BENCH');
+  assert.deepEqual(sent.map((call) => call.method), ['remoteAccess/state', 'notify/state']);
+  assert.deepEqual(await api.sendTestNotification(NOTIFICATION_PC_DEVICE_ID), { ok: true });
+  assert.deepEqual(sent[2], { method: 'notify/test', params: { target: NOTIFICATION_PC_DEVICE_ID } });
+});
+
+test('system_fonts_are_the_families_the_core_lists', async () => {
+  const { api, sent } = world({ replies: { 'desktop/fonts/list': { families: ['Inter', 'Mono'] } } });
+  assert.deepEqual(await api.listSystemFonts(), ['Inter', 'Mono']);
+  assert.deepEqual(sent, [{ method: 'desktop/fonts/list', params: {} }]);
+});
+
 test('notification_preferences_of_an_unpaired_device_write_nothing', async () => {
   const { api, sent } = world({ replies: { 'remoteAccess/state': { clients: [] }, 'notify/state': { supported: true } } });
   await assert.rejects(api.setNotificationPreferences('nobody', {}), /not paired/);

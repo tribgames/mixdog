@@ -67,3 +67,10 @@ test('server_gates', async () => {
   const local = (await install({ connection: { id: 'local', kind: 'local', name: 'pc' } })).mixdogDesktop;
   assert.equal(await local.openFilePath(), 'host:openFilePath');
 });
+
+test('connection_methods_are_the_core_requests_not_the_host_bridge', async () => {
+  const { mixdogDesktop: api } = await install({ connection: { id: 'local', kind: 'local', name: 'pc' } });
+  // With no core client open the core API refuses as itself; the host bridge would answer 'host:sshListHosts'.
+  await assert.rejects(() => api.sshListHosts(), /This window has no connection to the core\./);
+  assert.equal(await api.previewProjectFile(), 'host:previewProjectFile', 'a streamed preview is the host\'s');
+});

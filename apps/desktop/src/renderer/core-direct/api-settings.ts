@@ -191,6 +191,13 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
           return preferencesState();
         })()
       ),
+    getNotificationPreferences: () => withDirectErrors(preferencesState()),
+    // This PC's window through the host, a paired device through the relay: the core decides.
+    sendTestNotification: (deviceId) =>
+      withDirectErrors(ctx.call('notify/test', { target: deviceId }) as Promise<{ ok: boolean; message?: string }>),
+    // Settings > Appearance: the font families installed on this computer.
+    listSystemFonts: () =>
+      withDirectErrors(ctx.call('desktop/fonts/list', {}).then((reply) => (reply as { families: string[] }).families)),
     listConversationNotifications: () => op('listConversationNotifications'),
     setConversationNotification: (target, setting) => op('setConversationNotification', [target, setting]),
     subscribeTurnReviewChanged: subscribeTurnReview,
