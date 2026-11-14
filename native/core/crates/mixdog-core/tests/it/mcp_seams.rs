@@ -234,6 +234,19 @@ async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
     assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned()));
     let native = result.message.native_tool_search.as_ref().expect("the payload rides the result");
     assert_eq!(native["toolReferences"], json!(["mcp__x__y"]));
+    assert_ne!(transcript[0].message.tool_calls[0].id, "skill-selection-0");
+
+    // Once the history defines those tools, a later selection is the summary as a reminder (`nativeDefinitionsPresent`).
+    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    assert_eq!(applied, ["alpha"]);
+    assert_eq!(transcript.len(), 3);
+    assert_eq!(
+        transcript[2].message.content,
+        Content::Text("<system-reminder>
+Explicit skill selection result:
+Loaded skill: alpha
+</system-reminder>".to_owned())
+    );
 }
 
 /// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
