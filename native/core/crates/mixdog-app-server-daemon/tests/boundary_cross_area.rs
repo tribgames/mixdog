@@ -13,6 +13,8 @@
 //! real lock, the connection policy of `mixdog_connections`, and the real browser engine over its scripted host. The suite starts no
 //! process and needs no bundled runtime.
 
+#![allow(clippy::disallowed_methods, reason = "the waits bound frames of a real socket in real time (tokio's timers)")]
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
