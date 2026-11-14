@@ -1,62 +1,38 @@
 /**
- * Records the browser golden twin (WP-DESKTOP-HOST, DS-HOST-1): drives today's
- * Node product — the real Electron browser host behind the loopback bridge —
- * through one script that uses every action the `browser` tools expose, and
- * writes each request with the answer the model sees (result text, image mime,
- * or error text). The same script then runs through the protocol host channel
- * (`host/browser/command`) in a second session, and the run FAILS unless the
- * model-visible text of every step is identical on both channels.
+ * The browser golden twin (WP-DESKTOP-HOST, DS-HOST-1) on the core harness: one script that uses every action the `browser`
+ * tools expose runs against a real mixdogd with this Electron process as the host role, and the model-visible text of every
+ * step (result text, image mime, or error text) must equal the corpus the product's Node engine recorded
+ * (native/core/fixtures/desktop-host/browser-golden.json), once ports, paths, durations and ids numbered by the run are
+ * normalised.
  *
- * The Rust core replays the corpus over `host/browser/command`; text must match
- * byte for byte once ports, paths and durations are normalized.
- *
- * Run: node scripts/run-browser-host-integration.mjs --golden-twin  (apps/desktop)
- * Output: MIXDOG_BROWSER_GOLDEN_OUT (default native/core/fixtures/desktop-host/browser-golden.json).
- * The profile is a temp directory and is removed on exit.
+ * The runner starts it once per mode (apps/desktop/scripts/run-browser-core-integration.mjs):
+ *   --engine host  the host role's own runner answers (`browser/command`, forwarded as `host/browser/command`)
+ *   --engine core  the core's browser engine answers (`test/browserEngine/run`)
+ * Run (apps/desktop):
+ *   node scripts/run-browser-core-integration.mjs --suite src/main/browser/golden-twin.integration.ts --engine core|host
+ * The corpus is read from MIXDOG_BROWSER_GOLDEN (default native/core/fixtures/desktop-host/browser-golden.json, two folders
+ * above the runner's working directory). It is never written here: the loopback bridge that recorded it is gone, and the
+ * engine's own host calls are recorded with MIXDOG_BROWSER_TRANSCRIPT.
  */
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
-import { app, BrowserWindow, webContents } from 'electron';
+import { app, webContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { createPolling } from '../host-harness-poll';
-import { createBrowserCommandHost } from '../host/browser-command';
-import { readyBrowserFrame } from './harness-frame';
-import { createBrowserHost, type BrowserHost } from './host';
-import { traceTextsEqual } from './trace-compare';
+import { normalizeTraceDurations } from './trace-compare';
 import { createBrowserFrameFixture, createBrowserPageFixture, createBrowserSocketFixture } from './host-integration-fixtures';
+import { type CoreHarness, type CoreHarnessSuite, HARNESS_SESSION, progress } from './test-support/core-harness';
 
-const progressPath = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
-const progress = (message: string): void => {
-  if (progressPath) appendFileSync(progressPath, `${message}\n`);
-};
-
-const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-golden-profile-'));
-const dataDirectory = join(profile, 'data');
-const uploadFixturePath = join(profile, 'browser-upload-fixture.txt');
-mkdirSync(join(profile, 'downloads'), { recursive: true });
-writeFileSync(uploadFixturePath, 'Browser upload fixture');
-process.env.MIXDOG_DATA_DIR = dataDirectory;
-app.setPath('userData', join(profile, 'user-data'));
-app.setPath('downloads', join(profile, 'downloads'));
-app.disableHardwareAcceleration();
-
-const { readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 50 });
-
-/** What the model sees for one command on one channel. */
+/** What the model sees for one command. */
 interface Outcome {
   ok: boolean;
   text: string;
   imageMime?: string;
-  fileName?: string;
-  hasTiming: boolean;
-}
-
-interface Channel {
-  run(request: Record<string, unknown>): Promise<Outcome>;
+  /** Only the host runner's reply carries the timing; the engine hook's reply has none to compare. */
+  hasTiming?: boolean;
 }
 
 /** `ref`: from the newest result text that carries element refs; `id`: from the previous result. */
@@ -68,8 +44,56 @@ interface Context {
 interface Step {
   name: string;
   input: (context: Context) => Record<string, unknown>;
-  /** Runs before the step on each channel (test-only setup). */
+  /** Runs before the step (test-only setup). */
   before?: () => void;
+}
+
+/** One step of the corpus. */
+interface GoldenStep {
+  name: string;
+  request: Record<string, unknown>;
+  ok: boolean;
+  text?: string;
+  error?: string;
+  imageMime?: string;
+  hasTiming?: boolean;
+}
+
+/** One command of the script in the harness's mode; it carries `turn_id`, as every command of a turn does. */
+async function runCommand(harness: CoreHarness, request: Record<string, unknown>): Promise<Outcome> {
+  const { action, ...input } = request;
+  if (harness.engine === 'core') {
+    const result = (await harness.runTool(HARNESS_SESSION, 'browser', { action, input: { turn_id: 1, ...input } })) as {
+      text?: string;
+      image?: { mimeType?: string };
+      isError?: boolean;
+    };
+    return {
+      ok: !result.isError,
+      text: String(result.text ?? ''),
+      ...(!result.isError && result.image ? { imageMime: result.image.mimeType } : {}),
+    };
+  }
+  try {
+    const value = (await harness.uiCommand(String(action), { turn_id: 1, ...input })) as {
+      text?: string;
+      image?: { mimeType?: string };
+      timing?: unknown;
+    };
+    return {
+      ok: true,
+      text: String(value?.text ?? ''),
+      ...(value?.image ? { imageMime: value.image.mimeType } : {}),
+      hasTiming: Boolean(value?.timing),
+    };
+  } catch (error) {
+    const failure = error as { message?: string; detail?: { message?: string; data?: { timing?: unknown } } };
+    return {
+      ok: false,
+      text: String(failure.detail?.message ?? failure.message ?? ''),
+      hasTiming: Boolean(failure.detail?.data?.timing),
+    };
+  }
 }
 
 /**
@@ -132,13 +156,21 @@ function listen(server: { listen: (...args: any[]) => unknown; once: (...args: a
   });
 }
 
-async function run(): Promise<void> {
+const suite: CoreHarnessSuite = async (harness) => {
+  const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-golden-profile-'));
+  const uploadFixturePath = join(profile, 'browser-upload-fixture.txt');
+  mkdirSync(join(profile, 'downloads'), { recursive: true });
+  writeFileSync(uploadFixturePath, 'Browser upload fixture');
+  app.setPath('downloads', join(profile, 'downloads'));
+  const corpusPath =
+    process.env.MIXDOG_BROWSER_GOLDEN ||
+    join(process.cwd(), '..', '..', 'native', 'core', 'fixtures', 'desktop-host', 'browser-golden.json');
+  const corpus = JSON.parse(readFileSync(corpusPath, 'utf8')) as { steps: GoldenStep[] };
+
   const socketFixture = createBrowserSocketFixture();
   const frameFixture = createBrowserFrameFixture();
   let frameOrigin = '';
   const { server: fixture, stalledResponses } = createBrowserPageFixture(() => frameOrigin);
-  let parent: BrowserWindow | null = null;
-  let host: BrowserHost | null = null;
   try {
     await listen(socketFixture, '127.0.0.1');
     await listen(frameFixture, '0.0.0.0');
@@ -158,119 +190,26 @@ async function run(): Promise<void> {
         .replaceAll(profile.replaceAll('\\', '/'), '<PROFILE>')
         .replace(/\b\d+(\.\d+)? ?ms\b/g, '<N>ms');
 
-    parent = new BrowserWindow({
-      show: false,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
-    });
-    host = createBrowserHost(parent, { hostId: 'test-host', remoteSession: true, requestApproval: async () => true });
-    await parent.loadURL('data:text/html;charset=utf-8,<!doctype html><title>shell</title>');
-    const bridgeSession = 'golden-bridge';
-    // The same session id on both passes (releasing it between them), so each
-    // pass starts from an identical page set and snapshot numbering.
-    const hostSession = bridgeSession;
-    // The pane shows one session at a time: each channel's pass gets it in turn.
-    const showSession = async (session: string): Promise<void> => {
-      progress(`showing session ${session}`);
-      const frame = await readyBrowserFrame(host!, session);
-      const guest = webContents.fromId(frame.webContentsId)!;
-      await guest.loadURL(`${origin}/root`);
-      host!.setGuestActive(session, guest.id, true);
-    };
-    await showSession(bridgeSession);
-    host.setBridgeEnabled(true);
-    const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
+    // The page the harness session shows, loaded as the pane would show it.
+    await harness.guest.loadURL(`${origin}/root`);
+    progress(`golden twin: mode ${harness.engine}`);
 
-    const outcomeOf = (
-      ok: boolean,
-      value: { text?: string; image?: { mimeType?: string }; file?: { name?: string }; timing?: unknown } | undefined,
-      error: string | undefined,
-      timing: unknown
-    ): Outcome => ({
-      ok,
-      text: ok ? String(value?.text ?? '') : String(error ?? ''),
-      ...(ok && value?.image ? { imageMime: value.image.mimeType } : {}),
-      ...(ok && value?.file ? { fileName: value.file.name } : {}),
-      hasTiming: Boolean(ok ? value?.timing : timing),
-    });
-
-    // Today's path: the loopback bridge's HTTP command endpoint.
-    const bridgeChannel: Channel = {
-      async run(request) {
-        const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${discovery.token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ session_id: bridgeSession, turn_id: 1, ...request }),
-        });
-        const payload = (await response.json()) as {
-          ok: boolean;
-          value?: Parameters<typeof outcomeOf>[1];
-          error?: string;
-          timing?: unknown;
-        };
-        return outcomeOf(payload.ok, payload.value, payload.error, payload.timing);
+    const latest = { text: '', previous: '' };
+    const context: Context = {
+      ref(name) {
+        const line = latest.text
+          .split('\n')
+          .find((entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry));
+        const ref = line?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
+        if (!ref) throw new Error(`no ref named ${name} in the latest snapshot`);
+        return ref;
+      },
+      id: (pattern) => {
+        const match = latest.previous.match(pattern)?.[1];
+        if (!match) throw new Error(`no ${pattern} in the previous result: ${latest.previous.slice(0, 200)}`);
+        return match;
       },
     };
-
-    // The protocol path: `host/browser/command` served by the real host handler.
-    let hostHandler: ((params: unknown, signal: AbortSignal) => Promise<unknown>) | null = null;
-    createBrowserCommandHost(
-      {
-        request: async () => ({}),
-        notify: () => undefined,
-        sendBinary: () => undefined,
-        handleRequest: (method: string, handler: typeof hostHandler) => {
-          if (method === 'host/browser/command') hostHandler = handler;
-        },
-        handleNotification: () => undefined,
-        servedMethods: () => [],
-        onClose: () => undefined,
-      } as never,
-      host.commandRunner,
-      { remoteBrowserControl: async () => ({}), remote: async () => ({}) }
-    );
-    const hostChannel: Channel = {
-      async run(request) {
-        const { action, ...input } = request;
-        try {
-          const value = (await hostHandler!(
-            { action, input: { turn_id: 1, ...input }, threadId: hostSession },
-            new AbortController().signal
-          )) as Parameters<typeof outcomeOf>[1];
-          return outcomeOf(true, value, undefined, undefined);
-        } catch (error) {
-          const failure = error as { message?: string; data?: { timing?: unknown } };
-          return outcomeOf(false, undefined, failure.message, failure.data?.timing);
-        }
-      },
-    };
-
-    const contextFor = (): { context: Context; remember(outcome: Outcome): void } => {
-      let latest = '';
-      let previous = '';
-      return {
-        remember(outcome) {
-          previous = outcome.text;
-          if (/\[p\d+-s\d+-e\d+\]/.test(outcome.text)) latest = outcome.text;
-        },
-        context: {
-          ref(name) {
-            const line = latest
-              .split('\n')
-              .find((entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry));
-            const ref = line?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
-            if (!ref) throw new Error(`no ref named ${name} in the latest snapshot`);
-            return ref;
-          },
-          id: (pattern) => {
-            const match = previous.match(pattern)?.[1];
-            if (!match) throw new Error(`no ${pattern} in the previous result: ${previous.slice(0, 200)}`);
-            return match;
-          },
-        },
-      };
-    };
-    const onBridge = contextFor();
-    const onHost = contextFor();
 
     const alpha = { tab: 'alpha' } as const;
     const steps: Step[] = [
@@ -337,7 +276,7 @@ async function run(): Promise<void> {
       { name: 'emulate-reset', input: () => ({ action: 'emulate', reset: true, ...alpha }) },
       {
         name: 'performance-start',
-        before: () => recordTraceOnPages(webContents.getAllWebContents().filter((page) => page !== parent!.webContents)),
+        before: () => recordTraceOnPages(webContents.getAllWebContents().filter((page) => !page.getURL().startsWith('data:'))),
         input: () => ({ action: 'performance', operation: 'start', ...alpha }),
       },
       { name: 'performance-stop', input: () => ({ action: 'performance', operation: 'stop', ...alpha }) },
@@ -365,28 +304,22 @@ async function run(): Promise<void> {
       { name: 'hide', input: () => ({ action: 'hide' }) },
     ];
 
-    const golden: Array<Record<string, unknown>> = [];
-    const covered = new Set<string>();
-    const mismatches: string[] = [];
-    const passes = new Map<string, Array<{ request: Record<string, unknown>; outcome: Outcome }>>();
-    const runPass = async (channel: Channel, context: ReturnType<typeof contextFor>) => {
-      const results: Array<{ request: Record<string, unknown>; outcome: Outcome }> = [];
-      for (const step of steps) {
-        step.before?.();
-        const request = step.input(context.context);
-        const outcome = await channel.run(request);
-        context.remember(outcome);
-        results.push({ request, outcome });
-      }
-      return results;
-    };
-    passes.set('bridge', await runPass(bridgeChannel, onBridge));
-    host.releaseSession(bridgeSession);
-    await showSession(hostSession);
-    passes.set('host', await runPass(hostChannel, onHost));
-    // The second pass reuses the released session, so its page and download
-    // counters continue where the first stopped; ids compare by order of first
-    // appearance within each pass. The stored corpus keeps the raw first pass.
+    assert.deepEqual(
+      steps.map((step) => step.name),
+      corpus.steps.map((step) => step.name),
+      'the script and the corpus must list the same steps'
+    );
+    const results: Array<{ request: Record<string, unknown>; outcome: Outcome }> = [];
+    for (const step of steps) {
+      step.before?.();
+      const request = step.input(context);
+      const outcome = await runCommand(harness, request);
+      latest.previous = outcome.text;
+      if (/\[p\d+-s\d+-e\d+\]/.test(outcome.text)) latest.text = outcome.text;
+      results.push({ request, outcome });
+    }
+
+    // Ids compare by order of first appearance, so a run that starts its page and download counters elsewhere still matches.
     const canonical = (): ((text: string) => string) => {
       const seen = {
         page: new Map<string, number>(),
@@ -404,80 +337,47 @@ async function run(): Promise<void> {
           .replace(/\b(is?)(\d+)\b(?=[\] .,:]|$)/g, (_all, kind, id) => `${kind}#${ordinal(seen.rule, `${kind}${id}`)}`)
           .replace(/[a-z0-9]{8}-(?=browser-fixture\.txt)/g, '');
     };
-    const canonBridge = canonical();
-    const canonHost = canonical();
+    const canonRun = canonical();
+    const canonCorpus = canonical();
+    const covered = new Set<string>();
+    const mismatches: string[] = [];
     for (const [index, step] of steps.entries()) {
-      const { request: bridgeRequest, outcome: viaBridge } = passes.get('bridge')![index];
-      const { outcome: viaHost } = passes.get('host')![index];
-      if (viaBridge.ok) covered.add(String(bridgeRequest.action));
-      const seen = normalize(viaBridge.text);
-      // A trace result is held to the full text: names, counts and structure,
-      // with only the two wall-clock fields normalised.
-      const isTrace = viaBridge.text.startsWith(TRACE_STOPPED);
+      const { request, outcome } = results[index];
+      const recorded = corpus.steps[index];
+      if (outcome.ok) covered.add(String(request.action));
+      const expectedText = String(recorded.ok ? recorded.text : recorded.error);
+      // A trace result is held to the full text: names, counts and structure, with only the two wall-clock fields normalised (the
+      // corpus stores them already normalised, so only the run's text goes through the trace normaliser).
+      const isTrace = outcome.text.startsWith(TRACE_STOPPED);
       if (isTrace) {
         for (const expected of RECORDED_TRACE_LINES) {
-          assert.ok(viaBridge.text.includes(expected), `the recorded trace was not rendered: missing ${expected}`);
+          assert.ok(outcome.text.includes(expected), `the recorded trace was not rendered: missing ${expected}`);
         }
       }
       const same =
-        viaBridge.ok === viaHost.ok &&
-        (isTrace
-          ? traceTextsEqual(viaBridge.text, viaHost.text)
-          : canonBridge(viaBridge.text) === canonHost(viaHost.text)) &&
-        viaBridge.imageMime === viaHost.imageMime &&
-        viaBridge.fileName === viaHost.fileName &&
-        viaBridge.hasTiming === viaHost.hasTiming;
+        outcome.ok === recorded.ok &&
+        JSON.stringify(JSON.parse(normalize(JSON.stringify(request)))) === JSON.stringify(recorded.request) &&
+        (isTrace ? normalizeTraceDurations(outcome.text) === expectedText : canonCorpus(expectedText) === canonRun(outcome.text)) &&
+        outcome.imageMime === recorded.imageMime &&
+        (outcome.hasTiming === undefined || outcome.hasTiming === recorded.hasTiming);
       if (!same) {
         mismatches.push(
-          `${step.name}\n  bridge: ${JSON.stringify([viaBridge.ok, seen.slice(0, 400)])}\n  host:   ${JSON.stringify([viaHost.ok, canonHost(viaHost.text).slice(0, 400)])}`
+          `${step.name}\n  corpus: ${JSON.stringify([recorded.ok, expectedText.slice(0, 400)])}\n  ${harness.engine}: ${JSON.stringify([outcome.ok, canonRun(outcome.text).slice(0, 400)])}`
         );
       }
-      golden.push({
-        name: step.name,
-        request: JSON.parse(normalize(JSON.stringify(bridgeRequest))),
-        ok: viaBridge.ok,
-        [viaBridge.ok ? 'text' : 'error']: seen,
-        ...(viaBridge.imageMime ? { imageMime: viaBridge.imageMime } : {}),
-        ...(viaBridge.fileName ? { fileName: viaBridge.fileName } : {}),
-        hasTiming: viaBridge.hasTiming,
-        hostChannelIdentical: same,
-      });
-      progress(`${step.name}: bridge ok=${viaBridge.ok} host ok=${viaHost.ok} same=${same}`);
+      progress(`${step.name}: ok=${outcome.ok} same=${same}`);
     }
 
     const unexercised = BROWSER_ACTIONS.filter((action: string) => !covered.has(action));
-    const out =
-      process.env.MIXDOG_BROWSER_GOLDEN_OUT ||
-      join(process.cwd(), '..', '..', 'native', 'core', 'fixtures', 'desktop-host', 'browser-golden.json');
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(
-      out,
-      `${JSON.stringify({ version: 2, producer: 'electron browser host via loopback bridge', actions: BROWSER_ACTIONS, steps: golden }, null, 2)}\n`
-    );
-    progress(`recorded ${golden.length} steps to ${out}`);
-    assert.deepEqual(mismatches, [], `host channel differs from the loopback bridge:\n${mismatches.join('\n')}`);
-    assert.deepEqual(unexercised, [], 'every browser action must succeed at least once through the bridge');
-    progress('integration passed');
+    assert.deepEqual(mismatches, [], `the ${harness.engine} answers differ from the corpus:\n${mismatches.join('\n')}`);
+    assert.deepEqual(unexercised, [], 'every browser action must succeed at least once');
   } finally {
     for (const response of stalledResponses) response.destroy();
-    await host?.dispose();
-    if (parent && !parent.isDestroyed()) parent.destroy();
     await new Promise<void>((resolve) => fixture.close(() => resolve()));
     await new Promise<void>((resolve) => frameFixture.close(() => resolve()));
     await new Promise<void>((resolve) => socketFixture.close(() => resolve()));
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => undefined);
   }
-}
+};
 
-void app
-  .whenReady()
-  .then(async () => {
-    await run();
-    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => undefined);
-    app.exit(0);
-  })
-  .catch(async (error) => {
-    progress(`failed: ${String((error as Error)?.stack || error)}`);
-    console.error(error);
-    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => undefined);
-    app.exit(1);
-  });
+export default suite;
