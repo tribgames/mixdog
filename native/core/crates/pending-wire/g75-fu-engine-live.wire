@@ -1,0 +1,25 @@
+# g75-fu-engine-live (core): what the lead applies after the wave. Apply after PROTO-WIRE has taken
+# mixdog-app-protocol/pending-rows/g75-fu-engine-live.rows (the engine crate does not compile before it).
+#
+# 1. mixdog-app-server-daemon/src/compose_flip.rs, the `snapshots:` field of the session deps (the `SettlingSavedLogins::new(...)` of the
+#    `SessionDeps` literal, where the `worktree_snapshots` block is built): put `EngineTurnSnapshots` (compose_browser_engine.rs, done)
+#    around that block, so the browser engine is told where an agent turn settles (`turn_settled`) and where a session runtime ends
+#    (`runtime_stopped`). `engine` is the `Arc<BrowserEngine>` built earlier in the same function (it implements `TurnEvents`).
+#    Today:
+#
+#        snapshots: Arc::new(SettlingSavedLogins::new({ <the worktree_snapshots block> }, saved_login_turns.clone())),
+#
+#    After:
+#
+#        snapshots: Arc::new(SettlingSavedLogins::new(
+#            Arc::new(crate::compose_browser_engine::EngineTurnSnapshots::new({ <the worktree_snapshots block, unchanged> }, engine.clone())),
+#            saved_login_turns.clone(),
+#        )),
+#
+#    (`SettlingSavedLogins::new` takes an `Arc<dyn TurnSnapshots>`; `engine.clone()` coerces to `Arc<dyn TurnEvents>`.)
+#
+# 2. No SERVICE_PENDING change: host/browser/signIn, host/browser/credentials/fill and host/browser/turn are requests the core sends the
+#    desktop (`requires: host.browserEngine`), not names the core serves.
+#
+# 3. No Cargo edge: mixdog-app-server-daemon already depends on mixdog-browser-engine and mixdog-core-session; the engine and
+#    mixdog-tools gain no new dependency.

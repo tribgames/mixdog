@@ -64,6 +64,7 @@ function harness() {
     lifecycle: {},
     tabs: {},
     taskLifecycle: {},
+    signIn: {},
     emulation: {},
     traceDirectory: () => '/traces',
     processMemoryMb: () => undefined,

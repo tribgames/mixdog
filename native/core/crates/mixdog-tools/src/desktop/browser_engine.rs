@@ -1,6 +1,9 @@
 //! The `browser` and `browser_devtools` tools' host commands, run by the core's browser engine when the connected desktop serves
 //! the engine's host lane (`host/browser/*`), and forwarded as `host/browser/command` otherwise.
 //!
+//! The turn a command belongs to is the engine's own count (it is told when the session's turn ends: `TurnEvents`), so the input
+//! carries none.
+//!
 //! The choice is made per command from what the connected side says it serves ([`HostChannel::serves`] for
 //! [`HostCapability::BrowserEngine`]); there is no switch. A command that is not an action of the Browser Use contract (the
 //! runtime-only bridge actions of the secret input and the saved logins, and every action the pane itself answers) always goes the
@@ -46,16 +49,6 @@ impl EngineHostCommands {
     }
 }
 
-/// The turn a command belongs to, as the decimal text the engine reads: the `turn_id` the input carries, else none (`0`: the
-/// command owns no page).
-fn turn_text(input: &Map<String, Value>) -> String {
-    match input.get("turn_id") {
-        Some(Value::Number(number)) => number.to_string(),
-        Some(Value::String(text)) => text.trim().to_owned(),
-        _ => "0".to_owned(),
-    }
-}
-
 /// The reply as the host's `host/browser/command` result value the `browser` tool renders (`browser_output`): text, image, outcome.
 fn reply_value(reply: ToolReply) -> Value {
     let mut value = Map::new();
@@ -89,7 +82,7 @@ impl HostCommands for EngineHostCommands {
         }
         let empty = Map::new();
         let fields = input.as_object().unwrap_or(&empty);
-        match self.engine.run(thread, &turn_text(fields), action, fields, cancel).await {
+        match self.engine.run(thread, action, fields, cancel).await {
             Ok(reply) => Ok(reply_value(reply)),
             Err(error) => Err(command_failure(error, cancel)),
         }
@@ -247,7 +240,7 @@ mod tests {
         let channel = Channel::new(true);
         let host = Arc::new(FakeHost::scripted(vec![listed("p1")]));
         let thread = ThreadId::from("s1");
-        let value = commands(&channel, &host, None).browser(&thread, "list_tabs", json!({"turn_id": 3}), &CancellationToken::new()).await.expect("lists");
+        let value = commands(&channel, &host, None).browser(&thread, "list_tabs", json!({}), &CancellationToken::new()).await.expect("lists");
         assert!(value["text"].as_str().is_some_and(|text| text.contains("p1")), "{value}");
         assert!(channel.sent().is_empty(), "nothing went out as host/browser/command");
         host.finish().expect("the engine asked the host's lane once");
@@ -302,15 +295,6 @@ mod tests {
         cancel.cancel();
         let answer = commands(&channel, &host, Some("a person has this session")).browser(&ThreadId::from("s1"), "snapshot", json!({}), &cancel).await;
         assert_eq!(answer, Err(HostCommandError::Cancelled));
-    }
-
-    #[test]
-    fn the_turn_is_the_number_the_input_carries() {
-        let turn = |input: Value| turn_text(input.as_object().unwrap());
-        assert_eq!(turn(json!({"turn_id": 7})), "7");
-        assert_eq!(turn(json!({"turn_id": " 12 "})), "12");
-        assert_eq!(turn(json!({"turn_id": null})), "0");
-        assert_eq!(turn(json!({})), "0");
     }
 
     #[test]

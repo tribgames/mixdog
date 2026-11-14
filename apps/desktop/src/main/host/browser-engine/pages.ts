@@ -6,7 +6,7 @@
  *
  * They are session methods: the page they name may not exist yet, so they go
  * through registerEngineSessionMethod and carry no `facts` of their own beyond
- * the descriptors. The placement rules are the old command runner's (a tab
+ * the descriptors (which also say whether this call made the page and whether a turn may reclaim it). The placement rules are the old command runner's (a tab
  * reference, a background page, a visible page of its own for an agent
  * command, the pane's page for an adopting one); the pane requests go through
  * the lifecycle, which also reports each reveal and hide as
@@ -86,14 +86,21 @@ function sessionPages(host: PagesHost, sessionId: string): Array<{ guest: Guest;
   return pages;
 }
 
+/** What a resolve knows of the page it answers with: this call made it, and a turn that ends badly may close it. */
+interface Origin {
+  created: boolean;
+  disposable: boolean;
+}
+
 function describe(
   host: PagesHost,
   ctx: EngineContext,
   sessionId: string,
-  page: { guest: Guest; tabId: string; background: boolean }
+  page: { guest: Guest; tabId: string; background: boolean },
+  origin: Origin = { created: false, disposable: false }
 ): PageDescriptor {
   const pageId = host.store.pageId(page.guest);
-  return { pageId, tabId: page.tabId, sessionId, background: page.background, facts: ctx.events.facts(pageId) };
+  return { pageId, tabId: page.tabId, sessionId, background: page.background, ...origin, facts: ctx.events.facts(pageId) };
 }
 
 async function resolve(host: PagesHost, ctx: EngineContext, params: Record<string, unknown>, signal: AbortSignal) {
@@ -172,7 +179,10 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
     tabId: target?.tabName ?? '',
     background: hidden,
   };
-  const descriptor = describe(host, ctx, sessionId, entry);
+  // A hidden page is the turn's to reclaim when an agent made it and nobody asked to keep it; the page a session's first command
+  // made is too (command-runner.ts: `backgroundPage ? kind === 'agent' && !keepAlive : !previousGuest`).
+  const disposable = backgroundPage ? backgroundPage.kind === 'agent' && !backgroundPage.keepAlive : !previous;
+  const descriptor = describe(host, ctx, sessionId, entry, { created, disposable });
   const leaseId = lease
     ? host.leases.acquire(descriptor.pageId, lease.commandId as string, lease.ttlMs as number)
     : undefined;
@@ -191,14 +201,17 @@ async function list(host: PagesHost, ctx: EngineContext, params: Record<string, 
 async function close(host: PagesHost, ctx: EngineContext, params: Record<string, unknown>) {
   const { pageId, reason } = params;
   if (typeof pageId !== 'string' || !pageId) throw new HostRpcError(HOST_INVALID_PARAMS, 'close needs a pageId.');
-  if (reason !== 'agent' && reason !== 'turnEnd' && reason !== 'idle') {
-    throw new HostRpcError(HOST_INVALID_PARAMS, 'close reason must be agent, turnEnd or idle.');
+  if (reason !== 'agent' && reason !== 'turnEnd' && reason !== 'idle' && reason !== 'discard') {
+    throw new HostRpcError(HOST_INVALID_PARAMS, 'close reason must be agent, turnEnd, idle or discard.');
   }
   const live = ctx.page(pageId);
   // A page that is already gone is closed: the answer is the same either way.
   if (!live || live.guest.isDestroyed()) return { closed: false };
   const sessionId = host.sessions.sessionIdForGuest(live.guest);
   if (!sessionId) return { closed: false };
+  // The page a failed command made goes only while it holds no document, the visible one included (a refused address leaves no
+  // blank tab behind).
+  if (reason === 'discard') return { closed: host.lifecycle.discardCreatedPage(sessionId, live.guest) };
   const found = host.lifecycle.backgroundEntryByPageId(sessionId, pageId);
   if (!found || found[1].window.isDestroyed()) {
     // The panel keeps the visible tab for the session; an agent that aimed at it is told what to do instead.

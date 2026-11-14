@@ -1,0 +1,167 @@
+# g75-fu-engine-live: what the Rust browser engine needs of the protocol to do what the TypeScript command runner did before the
+# desktop can declare `browserEngine`. Two additions to the page descriptor and the close reasons, and three requests:
+#   1. PageDescriptor.created / .disposable: the host says whether this call made the page (a failed command closes it when it is still
+#      blank: discardCreatedPage) and whether a turn that ends badly may reclaim it (command-runner.ts: a background page that is an agent
+#      page and not keepAlive, or the first page of a session with none). Without them every background page was disposable.
+#   2. BrowserPageCloseReason::Discard: `pages/close` of a page the failed command made (lifecycle.discardCreatedPage: closes only a page
+#      that holds no document; answers closed false otherwise).
+#   3. host/browser/signIn (a page request): the sign-in state the desktop keeps, asked before a click, fill or type
+#      (linkedSignIn.beforeAction) and after every command (autoSignIn.afterCommand, then linkedSignIn.replyLine). The note it answers is the
+#      saved-login line of a sign-in the host made (it begins with SAVED_SIGN_IN_DONE or SAVED_SIGN_IN_NEEDS_USER); the engine puts a fresh
+#      observation behind it. The line is the "Linked sign-in:" line.
+#   4. host/browser/credentials/fill (a page request): `fill` with `savedAccount`; the desktop holds the vault, matches the account to the
+#      page origin and writes the password (browser/host-agent.ts storedCredentialFill).
+#   5. host/browser/turn (a session request): the session turn ended (sessions.finishTurn: what the sign-in flows remember per turn goes,
+#      the untouched blank page of the agent is closed) or the session was released (taskLifecycle.forget).
+# The Rust that uses them is mixdog-browser-engine runner/runner.rs (sign_in, before_action, after_command, discard_created, turn_note,
+# fill_stored) and port.rs (sign_in, credentials_fill, turn); the desktop side is apps/desktop/src/main/host/browser-engine/{signin,pages}.ts
+# (done). The crate does not compile until these edits are applied.
+
+[methods]
+# none (host methods are server requests)
+
+[server_requests]
+Beside HostBrowserUploadReceiver (after it):
+
+    /// The sign-in state the desktop keeps for the page: before a click, fill or type it notes the field the agent names (provider sign-in), and after
+    /// a command it signs in with a saved login when the page asks for one and answers the note, and the identity line a provider flow last used.
+    HostBrowserSignIn => "host/browser/signIn" {
+        params: HostBrowserSignInParams,
+        result: HostBrowserSignInResult,
+        requires: Some("host.browserEngine"),
+    },
+
+    /// `fill` with a saved account: the desktop writes the stored login password into the page and answers whether the form took it.
+    HostBrowserCredentialsFill => "host/browser/credentials/fill" {
+        params: HostBrowserCredentialsFillParams,
+        result: HostBrowserCredentialsFillResult,
+        requires: Some("host.browserEngine"),
+    },
+
+    /// A session turn ended, or the session was released: the desktop drops what it remembered of them.
+    HostBrowserTurn => "host/browser/turn" {
+        params: HostBrowserTurnParams,
+        result: HostBrowserTurnResult,
+        requires: Some("host.browserEngine"),
+    },
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# native/core/crates/mixdog-app-protocol/src/free_text.rs: beside the (Kind::Answer, "host/browser/upload/receiver", ...) entry add
+#     (Kind::Answer, "host/browser/signIn", &["/note", "/line"]),
+#     (Kind::Answer, "host/browser/credentials/fill", &["/reason", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"]),
+# and the same paths in tests/it/free_text_fields.json (the note names a site and the line an identity). host/browser/turn answers no text.
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# 1. PageDescriptor: add after `background`:
+
+    /// This call made the page: a command that fails on it closes it when it still holds no document.
+    #[serde(default)]
+    pub created: bool,
+    /// A turn that ends badly may close the page: an agent hidden helper the person did not keep, or the page a session first command
+    /// made. A page the person can see, a user tab or a page kept alive is never disposable.
+    #[serde(default)]
+    pub disposable: bool,
+
+# 2. BrowserPageCloseReason: add after `Idle`:
+
+    /// The page a failed command made, closed when it still holds no document (the host answers `closed: false` for any other page).
+    Discard,
+
+# 3. After HostBrowserUploadReceiverResult add (derives and attrs exactly as HostBrowserUploadReceiverParams: Debug, Clone, PartialEq,
+#    Serialize, Deserialize, schemars::JsonSchema and ts_rs::TS under `codegen`, camelCase, ts(optional_fields); the enums derive
+#    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS and rename_all camelCase):
+
+    pub enum BrowserSignInOp {
+        /// Before a click, fill or type is sent.
+        BeforeAction,
+        /// After a command ran: the automatic sign-in, then the linked-identity line.
+        AfterCommand,
+    }
+
+    /// `host/browser/signIn`. `turn` is the session running turn (what a sign-in remembers is per turn); `action` and `command` (its `ref`,
+    /// `target`, `text` and `fields`) go with `beforeAction`; `explicitFill` marks a command that filled a saved account, which no automatic
+    /// sign-in follows.
+    pub struct HostBrowserSignInParams {
+        pub session_id: String,
+        pub page_id: String,
+        pub op: BrowserSignInOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        pub turn: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub action: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub command: Option<JsonValue>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub explicit_fill: Option<bool>,
+    }
+
+    /// `note`: the saved-login line of a sign-in the host made on the page (or the line that hands it to the person); the engine puts a fresh
+    /// observation behind it. `line`: the "Linked sign-in:" line of the identity a provider flow last used here.
+    pub struct HostBrowserSignInResult {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub line: Option<String>,
+        /// The page facts the host answers every page request with (the sign-in may have moved the page).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub facts: Option<PageFacts>,
+    }
+
+    /// `host/browser/credentials/fill`: the page is held to `expect` while the password is written.
+    pub struct HostBrowserCredentialsFillParams {
+        pub page_id: String,
+        pub account: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub expect: Option<Precondition>,
+    }
+
+    pub struct HostBrowserCredentialsFillResult {
+        pub username_filled: bool,
+        pub password_filled: bool,
+        /// `no-password-field` when the page has no visible password field of its own document.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub reason: Option<String>,
+        pub facts: PageFacts,
+    }
+
+    pub enum BrowserTurnOp {
+        /// The session running turn ended.
+        End,
+        /// The session was released.
+        Forget,
+    }
+
+    /// `host/browser/turn`.
+    pub struct HostBrowserTurnParams {
+        pub session_id: String,
+        pub op: BrowserTurnOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        pub turn: Option<i64>,
+        /// The turn ended badly (its pages were released by the engine).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub aborted: Option<bool>,
+    }
+
+    pub struct HostBrowserTurnResult {
+        /// How many pages the host own turn bookkeeping closed (the engine closes the pages it owns itself).
+        #[serde(default)]
+        pub closed: u32,
+    }
+
+# After the change the generated schema files and packages/protocol/src/index.ts carry the new types and fields (and the client method
+# table the three requests). The two PageDescriptor fields are required in the generated TypeScript: every desktop descriptor sets them.
+
+[remove]
+# none
+
+[window]
+# none (host/* requests are served by the desktop host, not a window method)

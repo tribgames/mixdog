@@ -340,8 +340,17 @@ observed_facts!(
     HostBrowserUploadResult,
     HostBrowserUploadReceiverResult,
     HostBrowserRefMintResult,
+    HostBrowserCredentialsFillResult,
 );
-observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult);
+observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult, HostBrowserTurnResult);
+
+impl Observed for HostBrowserSignInResult {
+    fn observe(&self, store: &FactsStore) {
+        if let Some(facts) = &self.facts {
+            store.record(facts);
+        }
+    }
+}
 
 impl Observed for HostBrowserSnapshotResult {
     fn observe(&self, store: &FactsStore) {
@@ -428,6 +437,9 @@ recording_host! {
     upload, HostBrowserUploadParams, HostBrowserUploadResult;
     upload_receiver, HostBrowserUploadReceiverParams, HostBrowserUploadReceiverResult;
     ref_mint, HostBrowserRefMintParams, HostBrowserRefMintResult;
+    sign_in, HostBrowserSignInParams, HostBrowserSignInResult;
+    credentials_fill, HostBrowserCredentialsFillParams, HostBrowserCredentialsFillResult;
+    turn, HostBrowserTurnParams, HostBrowserTurnResult;
 }
 
 /// What the host pushes, on its way to the lane's sink: the pushed facts are kept here too, and the end of the host's claim forgets
@@ -734,53 +746,82 @@ impl BrowserEngine {
         Arc::new(FactsSink { inner, store: self.inner.store.clone() })
     }
 
-    /// One Browser Use command of `thread` in turn `turn_id` (`begin_turn` and `finish_turn` mark turns; a command with no turn id
-    /// owns no page). `input` is the tool's arguments without `action`, with the runtime-set fields the runtime adds
-    /// (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`).
-    pub async fn run(&self, thread: &ThreadId, turn_id: &str, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, ToolError> {
-        let turn = turn_id.trim().parse::<u64>().unwrap_or(0);
+    /// One Browser Use command of `thread`. `input` is the tool's arguments without `action`, with the runtime-set fields the
+    /// runtime adds (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`). The command belongs to the session's
+    /// running turn (`TurnEvents` ends it).
+    pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, ToolError> {
         let inner = &self.inner;
+        let turn = locked(&inner.tasks).current(thread.as_str());
         match inner.run_command(thread, turn, action, input, cancel).await {
             Ok(reply) => Ok(guard_reply(&*inner.ports.secrets, thread.as_str(), reply)),
             Err(error) => Err(error.into_tool_error(&*inner.ports.secrets, thread.as_str())),
         }
     }
 
-    /// A turn of `thread` ended: the pages it opened for itself are released when it was aborted (a dialog that needs a person
-    /// keeps its page), and no later command of that turn runs. Answers how many pages were closed.
-    pub async fn finish_turn(&self, thread: &ThreadId, turn: u64, aborted: bool) -> usize {
+    /// The running turn of `thread` ended (`finishBrowserTurn`): the pages it opened for itself are released when it was aborted (a
+    /// dialog that needs a person keeps its page), no later command of that turn runs, and the host drops what it remembered of the
+    /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in is nothing to finish.
+    /// Answers how many pages were closed.
+    pub async fn finish_turn(&self, thread: &ThreadId, aborted: bool) -> usize {
         let inner = &self.inner;
-        let store = inner.store.clone();
-        let closing = locked(&inner.tasks).finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some()));
+        let (turn, closing) = {
+            let mut tasks = locked(&inner.tasks);
+            if !tasks.take_touched(thread.as_str()) {
+                return 0;
+            }
+            let turn = tasks.current(thread.as_str());
+            let store = inner.store.clone();
+            (turn, tasks.finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some())))
+        };
         let mut closed = 0;
         for page_id in closing {
             let params = HostBrowserPagesCloseParams { page_id: page_id.clone(), reason: BrowserPageCloseReason::TurnEnd };
-            if inner.host.pages_close(params, &CancellationToken::new()).await.is_ok_and(|answer| answer.closed) {
-                closed += 1;
+            match inner.host.pages_close(params, &CancellationToken::new()).await {
+                Ok(answer) => {
+                    closed += usize::from(answer.closed);
+                    inner.drop_page(&page_id);
+                }
+                // A close the host failed leaves the page owned, as the lifecycle kept it, so a later cleanup of it can try again.
+                Err(_) => locked(&inner.tasks).reown(thread.as_str(), turn, &page_id),
             }
-            inner.drop_page(&page_id);
         }
+        inner.turn_note(thread, BrowserTurnOp::End, Some(turn), aborted).await;
         closed
     }
 
-    /// The session is released: the pages it owned are no longer tracked.
-    pub fn forget_session(&self, thread: &ThreadId) {
+    /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
+    pub async fn forget_session(&self, thread: &ThreadId) {
         locked(&self.inner.tasks).forget(thread.as_str());
+        self.inner.turn_note(thread, BrowserTurnOp::Forget, None, false).await;
     }
 }
 
 impl TurnEvents for BrowserEngine {
-    fn turn_ended(&self, thread: &ThreadId, turn_id: &str, aborted: bool) {
-        let Ok(turn) = turn_id.trim().parse::<u64>() else { return };
+    fn turn_ended(&self, thread: &ThreadId, aborted: bool) {
         let engine = self.clone();
         let thread = thread.clone();
         mixdog_rt::spawn("browser-turn-pages", mixdog_rt::TaskClass::Work, async move {
-            engine.finish_turn(&thread, turn, aborted).await;
+            engine.finish_turn(&thread, aborted).await;
+        });
+    }
+
+    fn session_ended(&self, thread: &ThreadId) {
+        let engine = self.clone();
+        let thread = thread.clone();
+        mixdog_rt::spawn("browser-session-pages", mixdog_rt::TaskClass::Work, async move {
+            engine.forget_session(&thread).await;
         });
     }
 }
 
 impl Inner {
+    /// A turn-level note to the host (the turn ended, the session was released). The host keeps only memory for them, so a host
+    /// that cannot answer changes nothing the agent reads.
+    async fn turn_note(&self, thread: &ThreadId, op: BrowserTurnOp, turn: Option<u64>, aborted: bool) {
+        let params = HostBrowserTurnParams { session_id: thread.as_str().to_owned(), op, turn: turn.and_then(|turn| i64::try_from(turn).ok()), aborted: Some(aborted) };
+        let _ = self.host.turn(params, &CancellationToken::new()).await;
+    }
+
     fn slot(&self, page_id: &str) -> Arc<PageSlot> {
         locked(&self.slots).entry(page_id.to_owned()).or_default().clone()
     }
@@ -847,13 +888,13 @@ impl Inner {
             return self.tabless(action, &command, session, &tab, ctx).await;
         }
         locked(&self.tasks).begin(session, turn).map_err(RunError::Failed)?;
-        let known = locked(&self.directory).sessions.get(session).is_some_and(|held| held.current.is_some());
         let (descriptor, placement, _lease) = self.resolve_page(session, action, background, &tab, &ctx.cancel).await?;
         let page_id = descriptor.page_id.clone();
         {
-            // A page this command made (none was open) or a hidden helper is the turn's to reclaim; `open` keeps its page for the user.
+            // A page this command made (none was open) or a hidden helper of the agent is the turn's to reclaim, as the host says
+            // (`disposable`); `open` keeps its page for the user.
             let mut tasks = locked(&self.tasks);
-            tasks.use_page(session, turn, &page_id, descriptor.background || !known).map_err(RunError::Failed)?;
+            tasks.use_page(session, turn, &page_id, descriptor.disposable).map_err(RunError::Failed)?;
             if action == Action::Open && !background {
                 tasks.retain(&page_id);
             }
@@ -863,22 +904,45 @@ impl Inner {
             slot: self.slot(&page_id),
             page_id: page_id.clone(),
             thread: thread.clone(),
+            turn,
             cancel: ctx.cancel.clone(),
             user_wait: ctx.user_wait.clone(),
             timer: timer.clone(),
             background: background || descriptor.background,
         };
-        let mut reply = page.dispatch(action, command, expected, has_screenshot_options).await?;
-        if action == Action::Open && !background {
-            // An open always answers with its placement: exactly one of shown or pending (a failure to place is thrown).
-            reply.text = placement_line(&page.page_facts(), placement)?;
+        let hints = SignInHints::of(&command);
+        let worked = async {
+            let reply = page.dispatch(action, command, expected, has_screenshot_options).await?;
+            page.after_command(action, background, placement, &hints, reply).await
         }
+        .await;
+        let reply = match worked {
+            Ok(reply) => reply,
+            Err(error) => return Err(self.discard_created(&descriptor, error).await),
+        };
         let popups = page.page_facts().opened_popups;
         let mut tasks = locked(&self.tasks);
         for popup in &popups {
             tasks.inherit(&page_id, popup);
         }
         Ok(reply)
+    }
+
+    /// A command failed on a page it made: when the page holds no document the host closes it, so a refused address leaves no blank
+    /// tab behind, and the failure says so (`discardCreatedPage`).
+    async fn discard_created(&self, descriptor: &PageDescriptor, error: RunError) -> RunError {
+        if !descriptor.created || matches!(error, RunError::Reply(_)) {
+            return error;
+        }
+        let params = HostBrowserPagesCloseParams { page_id: descriptor.page_id.clone(), reason: BrowserPageCloseReason::Discard };
+        if !self.host.pages_close(params, &CancellationToken::new()).await.is_ok_and(|answer| answer.closed) {
+            return error;
+        }
+        self.drop_page(&descriptor.page_id);
+        match error {
+            RunError::Failed(message) => RunError::Failed(format!("{} The blank tab this command opened was closed.", with_final_stop(&message))),
+            other => other,
+        }
     }
 
     /// The page a command works on, opened or adopted when the action needs one, held by a lease until the command is done.
@@ -989,6 +1053,11 @@ impl Inner {
         if chosen.state != "completed" {
             return Err(RunError::Failed(format!("download {} is {}; wait for completion before attaching", chosen.id, chosen.state)));
         }
+        // The file stays where the host saved it and the reply names its path: nothing travels inline, whatever its size. It must still
+        // be a file the model can read.
+        if !self.ports.files.stat(std::path::Path::new(&chosen.path)).await.is_file {
+            return Err(RunError::Failed(format!("download {} is not a readable file", chosen.id)));
+        }
         reply.text.push_str(&format!("\n\nDownload {} is saved at {}; read it with that path.", chosen.id, chosen.path));
         Ok(reply)
     }
@@ -1007,6 +1076,25 @@ fn placement_line(facts: &PageFacts, placement: Option<BrowserPlacement>) -> Res
              Do not tell the user it is on screen."
         )),
         None => Err(RunError::Failed("Could not show the page in the browser panel: the host did not place it".to_owned())),
+    }
+}
+
+/// `message` ending in exactly one full stop (`message.replace(/\.?$/, '.')`).
+fn with_final_stop(message: &str) -> String {
+    format!("{}.", message.strip_suffix('.').unwrap_or(message))
+}
+
+/// What a command says that the host's sign-in hooks read once it ran.
+struct SignInHints {
+    /// The command filled a saved account: no automatic sign-in follows it (an explicit fill is a path of its own).
+    explicit_fill: bool,
+    /// The `maxChars` of the fresh observation a sign-in note is put ahead of.
+    max_chars: Option<Value>,
+}
+
+impl SignInHints {
+    fn of(command: &Value) -> Self {
+        Self { explicit_fill: command.get("savedAccount").is_some_and(Value::is_string), max_chars: command.get("maxChars").cloned() }
     }
 }
 
@@ -1098,6 +1186,8 @@ struct PageCtx {
     slot: Arc<PageSlot>,
     page_id: String,
     thread: ThreadId,
+    /// The session's turn this command runs in.
+    turn: u64,
     cancel: CancelView,
     user_wait: UserWait,
     timer: Arc<CommandTimer>,
@@ -1202,6 +1292,70 @@ impl PageCtx {
 
     fn observe_call<'a>(&'a self, expect: Option<&'a Precondition>) -> observe::PageCall<'a> {
         observe::PageCall { host: self.host(), page_id: &self.page_id, expect, cancel: &self.cancel }
+    }
+
+    /// One sign-in question to the host about this page. The hooks add to a command that already ran, so a host that cannot answer
+    /// them (a failure of its own) says nothing; a command the caller cancelled, or a person who took the page, still ends it.
+    async fn sign_in(&self, op: BrowserSignInOp, action: Option<&str>, command: Option<Value>, explicit_fill: Option<bool>) -> Result<Option<HostBrowserSignInResult>, RunError> {
+        let params = HostBrowserSignInParams {
+            session_id: self.session().to_owned(),
+            page_id: self.page_id.clone(),
+            op,
+            turn: i64::try_from(self.turn).ok(),
+            action: action.map(str::to_owned),
+            command,
+            explicit_fill,
+        };
+        match self.host().sign_in(params, self.token()).await {
+            Ok(said) => Ok(Some(said)),
+            Err(error @ (HostCallError::Cancelled | HostCallError::UserInput { .. })) => Err(error.into()),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Before a click, fill or type is sent (`linkedSignIn.beforeAction`): the host notes which field of a provider's sign-in the agent is
+    /// about to name, from the command's own `ref`, `target`, `text` and `fields`.
+    async fn before_action(&self, action: Action, command: &Value) -> Result<(), RunError> {
+        if !matches!(action, Action::Click | Action::Fill | Action::Type) {
+            return Ok(());
+        }
+        let named: Map<String, Value> = ["ref", "target", "text", "fields"].into_iter().filter_map(|key| command.get(key).map(|value| (key.to_owned(), value.clone()))).collect();
+        self.sign_in(BrowserSignInOp::BeforeAction, Some(action.name()), Some(Value::Object(named)), None).await?;
+        Ok(())
+    }
+
+    /// After the action: a page that asks for a sign-in a saved login fits is signed in by the host once per site and turn, and its
+    /// note leads a fresh observation that replaces the reply (`autoSignIn.afterCommand`); the identity a provider flow last used
+    /// is a line ahead of the reply (`linkedSignIn.replyLine`). An `open` answers with its placement, the note and the line.
+    async fn after_command(&self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &SignInHints, mut reply: ToolReply) -> Result<ToolReply, RunError> {
+        let said = self.sign_in(BrowserSignInOp::AfterCommand, None, None, Some(hints.explicit_fill)).await?;
+        let note = said.as_ref().and_then(|said| said.note.clone()).filter(|note| !note.is_empty());
+        let line = said.as_ref().and_then(|said| said.line.clone()).filter(|line| !line.is_empty());
+        if action == Action::Open && !background {
+            // An open always answers with its placement: exactly one of shown or pending (a failure to place is thrown).
+            let placed = placement_line(&self.page_facts(), placement)?;
+            reply.text = self.redact(&[Some(placed), note, line].into_iter().flatten().collect::<Vec<_>>().join("\n\n"));
+            return Ok(reply);
+        }
+        if let Some(note) = &note {
+            let mut observe = json!({"action": "snapshot"});
+            if let Some(max_chars) = &hints.max_chars {
+                observe["maxChars"] = max_chars.clone();
+            }
+            self.invalidate();
+            let after = match self.snapshot_reply(&observe, &ReplyOptions::default()).await {
+                Ok(after) | Err(RunError::Reply(after)) => after,
+                Err(error) => return Err(error),
+            };
+            reply = ToolReply { text: format!("{note}\n\n{}", after.text), ..after };
+        }
+        if let Some(line) = &line {
+            reply.text = format!("{line}\n\n{}", reply.text);
+        }
+        if note.is_some() || line.is_some() {
+            reply.text = self.redact(&reply.text);
+        }
+        Ok(reply)
     }
 
     /// The session's download ledger as the host keeps it; a reply is still given when it cannot be read.
@@ -1448,6 +1602,7 @@ impl PageCtx {
             }
         }
         let approved = if internal { None } else { self.inner.approve(&self.thread, &mut command, Some(self), &self.cancel, &self.user_wait).await? };
+        self.before_action(action, &command).await?;
         let options = |settle_action: bool, baseline: &Option<RefSet>| ReplyOptions {
             expected: expected.clone(),
             preexisting,
@@ -1598,16 +1753,18 @@ impl PageCtx {
         Ok(reply)
     }
 
-    /// `network`: the recorded requests. One request's own detail reads bodies from the page while its ledger is read, which the
-    /// mirror lends only synchronously.
+    /// `network`: the recorded requests, or one request's detail. The detail reads bodies from the page, so the request is copied
+    /// out of the ledger first (the mirror lends its ledgers only synchronously).
     async fn network_action(&self, command: &Value) -> Result<ToolReply, RunError> {
-        if !mixdog_js::js_trim(&text_of(command.get("requestId"))).is_empty() {
-            return Err(RunError::Failed("network with a requestId is not available: the engine cannot hold a page's request ledger while it reads the request's bodies".to_owned()));
-        }
         let precondition = self.page_precondition();
         let call = self.observe_call(Some(&precondition));
         let now = wall_clock_ms();
-        Ok(self.with_ledgers(|ledgers| finish_now(diagnostics::network(&call, ledgers, command, now)))?)
+        let request_id = diagnostics::network_request_id(command);
+        if request_id.is_empty() {
+            return Ok(self.with_ledgers(|ledgers| diagnostics::network_list(ledgers, command, now)));
+        }
+        let request = self.with_ledgers(|ledgers| diagnostics::network_request(ledgers, &request_id))?;
+        Ok(diagnostics::network_detail(&call, &request, command, now).await?)
     }
 
     async fn navigate_action(&self, action: Action, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
@@ -1883,8 +2040,11 @@ impl FormContext for FormCtx<'_> {
         })
     }
 
-    async fn fill_stored(&mut self, _account: &str) -> Result<StoredLoginFill, RefError> {
-        Err(RefError::Failed("filling a saved login is not available: the browser host serves no saved-login request".to_owned()))
+    async fn fill_stored(&mut self, account: &str) -> Result<StoredLoginFill, RefError> {
+        // The desktop holds the vault: it matches the account to the page's origin and writes the password into the page itself.
+        let params = HostBrowserCredentialsFillParams { page_id: self.page.page_id.clone(), account: account.to_owned(), expect: Some(self.page.page_precondition()) };
+        let filled = self.page.host().credentials_fill(params, self.page.token()).await.map_err(RefError::Host)?;
+        Ok(StoredLoginFill { password_filled: filled.password_filled, reason: filled.reason })
     }
 
     fn invalidate_interaction(&mut self) {
@@ -2139,9 +2299,9 @@ mod tests {
         ThreadId::from("s1")
     }
 
-    async fn run(engine: &BrowserEngine, turn: &str, action: &str, input: Value) -> Result<ToolReply, ToolError> {
+    async fn run(engine: &BrowserEngine, action: &str, input: Value) -> Result<ToolReply, ToolError> {
         let input = input.as_object().cloned().unwrap_or_default();
-        engine.run(&thread(), turn, action, &input, &CancellationToken::new()).await
+        engine.run(&thread(), action, &input, &CancellationToken::new()).await
     }
 
     fn page_row(page: &str, tab: &str) -> Value {
@@ -2150,6 +2310,14 @@ mod tests {
 
     fn resolved(page: &str) -> Expect {
         Expect::ok("host/browser/pages/resolve", json!({"page": page_row(page, "v1"), "leaseId": "lease-1"}))
+    }
+
+    /// The page the host just made for the command (`created`), which the turn may reclaim (`disposable`).
+    fn resolved_new(page: &str) -> Expect {
+        let mut row = page_row(page, "v1");
+        row["created"] = json!(true);
+        row["disposable"] = json!(true);
+        Expect::ok("host/browser/pages/resolve", json!({"page": row, "leaseId": "lease-1"}))
     }
 
     fn snapshot_answer() -> Expect {
@@ -2167,7 +2335,7 @@ mod tests {
     #[tokio::test]
     async fn list_tabs_asks_the_host_for_the_sessions_pages_and_carries_its_timing() {
         let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1")], "activePageId": "p1"}))]));
-        let reply = run(&engine(&host, None), "1", "list_tabs", json!({})).await.expect("lists");
+        let reply = run(&engine(&host, None), "list_tabs", json!({})).await.expect("lists");
         assert!(reply.text.contains("p1"), "{}", reply.text);
         assert!(reply.timing.is_some());
         host.finish().expect("one call");
@@ -2176,7 +2344,7 @@ mod tests {
     #[tokio::test]
     async fn a_command_the_contract_does_not_know_fails_before_it_reaches_the_host() {
         let host = Arc::new(FakeHost::scripted(Vec::new()));
-        let error = run(&engine(&host, None), "1", "teleport", json!({})).await.expect_err("unknown");
+        let error = run(&engine(&host, None), "teleport", json!({})).await.expect_err("unknown");
         assert_eq!(error.message_for_model, "unknown browser action \"teleport\"");
         assert!(host.calls().is_empty());
     }
@@ -2184,7 +2352,7 @@ mod tests {
     #[tokio::test]
     async fn a_session_a_person_took_over_is_refused_with_the_takeover_text() {
         let host = Arc::new(FakeHost::scripted(Vec::new()));
-        let error = run(&engine(&host, Some("a person has this session")), "1", "snapshot", json!({})).await.expect_err("taken over");
+        let error = run(&engine(&host, Some("a person has this session")), "snapshot", json!({})).await.expect_err("taken over");
         assert_eq!(error.message_for_model, "a person has this session");
         assert!(host.calls().is_empty());
     }
@@ -2196,7 +2364,7 @@ mod tests {
             snapshot_answer(),
             no_downloads(),
         ]));
-        let reply = run(&engine(&host, None), "1", "snapshot", json!({})).await.expect("snapshot");
+        let reply = run(&engine(&host, None), "snapshot", json!({})).await.expect("snapshot");
         assert!(reply.text.contains("Go"), "{}", reply.text);
         assert!(reply.timing.is_some_and(|timing| timing.snapshots == 1));
         host.finish().expect("resolve, snapshot, downloads");
@@ -2209,24 +2377,85 @@ mod tests {
     #[tokio::test]
     async fn a_page_a_turn_made_is_closed_when_the_turn_is_aborted_and_kept_when_it_finished() {
         let script = |turn_end: Option<Expect>| {
-            let mut calls = vec![resolved("p1"), snapshot_answer(), no_downloads()];
+            let mut calls = vec![resolved_new("p1"), snapshot_answer(), no_downloads()];
             calls.extend(turn_end);
             Arc::new(FakeHost::scripted(calls))
         };
         let kept = script(None);
         let engine_kept = engine(&kept, None);
-        run(&engine_kept, "3", "snapshot", json!({})).await.expect("snapshot");
-        assert_eq!(engine_kept.finish_turn(&thread(), 3, false).await, 0);
+        run(&engine_kept, "snapshot", json!({})).await.expect("snapshot");
+        assert_eq!(engine_kept.finish_turn(&thread(), false).await, 0);
         kept.finish().expect("nothing closed");
+        let ended = kept.calls().into_iter().rfind(|call| call.method == "host/browser/turn").expect("the host is told the turn ended");
+        assert_eq!((ended.params["op"].as_str(), ended.params["turn"].as_i64(), ended.params["aborted"].as_bool()), (Some("end"), Some(1), Some(false)));
 
         let aborted = script(Some(Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "turnEnd"}))));
         let engine_aborted = engine(&aborted, None);
-        run(&engine_aborted, "3", "snapshot", json!({})).await.expect("snapshot");
-        assert_eq!(engine_aborted.finish_turn(&thread(), 3, true).await, 1);
+        run(&engine_aborted, "snapshot", json!({})).await.expect("snapshot");
+        assert_eq!(engine_aborted.finish_turn(&thread(), true).await, 1);
         aborted.finish().expect("the page closed");
-        // A command of a turn that already finished is refused.
-        let error = run(&engine_aborted, "3", "snapshot", json!({})).await.expect_err("finished turn");
-        assert_eq!(error.message_for_model, "Browser task has already finished.");
+        // The next command is the next turn's: it owns pages of its own and is not refused.
+        assert_eq!(locked(&engine_aborted.inner.tasks).current("s1"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_page_the_host_did_not_call_disposable_is_never_closed_by_a_turn_and_an_idle_turn_tells_the_host_nothing() {
+        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
+        let engine = engine(&host, None);
+        assert_eq!(engine.finish_turn(&thread(), true).await, 0);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        assert_eq!(engine.finish_turn(&thread(), true).await, 0);
+        host.finish().expect("no close");
+        let told = host.calls().into_iter().filter(|call| call.method == "host/browser/turn").count();
+        assert_eq!(told, 1, "only the turn that ran a command ends at the host");
+    }
+
+    #[tokio::test]
+    async fn a_failure_on_a_page_the_command_made_closes_the_blank_page_and_says_so() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved_new("p1"),
+            Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() }),
+            Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "discard"})),
+        ]));
+        let error = run(&engine(&host, None), "snapshot", json!({})).await.expect_err("fails");
+        assert_eq!(error.message_for_model, "page is unavailable. The blank tab this command opened was closed.");
+        host.finish().expect("resolve, snapshot, discard");
+        // A page that was not the command's own is left alone, and so is one the host kept (it answers not closed).
+        let kept = Arc::new(FakeHost::scripted(vec![resolved("p1"), Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() })]));
+        let error = run(&engine(&kept, None), "snapshot", json!({})).await.expect_err("fails");
+        assert_eq!(error.message_for_model, "page is unavailable");
+        kept.finish().expect("no discard");
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_the_host_made_leads_a_fresh_observation_and_a_linked_identity_leads_the_reply() {
+        let note = "Signed in to a.test with its saved login (the password never left the host).";
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            snapshot_answer(),
+            no_downloads(),
+            Expect::ok("host/browser/signIn", json!({"note": note, "line": "Linked sign-in: a.test used Google."}))
+                .with_params(json!({"op": "afterCommand", "sessionId": "s1", "pageId": "p1", "turn": 1, "explicitFill": false})),
+            snapshot_answer(),
+            no_downloads(),
+        ]));
+        let reply = run(&engine(&host, None), "snapshot", json!({})).await.expect("snapshot");
+        assert!(reply.text.starts_with(&format!("Linked sign-in: a.test used Google.\n\n{note}\n\n")), "{}", reply.text);
+        assert!(reply.text.contains("Go"), "{}", reply.text);
+        host.finish().expect("the observation was taken again");
+    }
+
+    #[tokio::test]
+    async fn a_host_that_cannot_answer_the_sign_in_hooks_leaves_the_reply_as_it_was() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            snapshot_answer(),
+            no_downloads(),
+            Expect::err("host/browser/signIn", HostCallError::Failed { message: "vault unreadable".into() }),
+        ]));
+        let reply = run(&engine(&host, None), "snapshot", json!({})).await.expect("snapshot");
+        assert!(reply.text.contains("Go") && !reply.text.contains("vault"), "{}", reply.text);
+        host.finish().expect("asked once");
     }
 
     #[tokio::test]
@@ -2318,11 +2547,11 @@ mod tests {
             listing(),
         ]));
         let engine = engine(&host, None);
-        let closed = run(&engine, "1", "close_tab", json!({"tab": "research"})).await.expect("closes");
+        let closed = run(&engine, "close_tab", json!({"tab": "research"})).await.expect("closes");
         assert_eq!(closed.text, "Closed background tab \"research\".");
-        let visible = run(&engine, "1", "close_tab", json!({"tab": "v1"})).await.expect_err("visible");
+        let visible = run(&engine, "close_tab", json!({"tab": "v1"})).await.expect_err("visible");
         assert!(visible.message_for_model.starts_with("\"v1\" is the visible tab"), "{}", visible.message_for_model);
-        let unknown = run(&engine, "1", "close_tab", json!({"tab": "nowhere"})).await.expect_err("unknown");
+        let unknown = run(&engine, "close_tab", json!({"tab": "nowhere"})).await.expect_err("unknown");
         assert_eq!(unknown.message_for_model, "unknown background tab \"nowhere\"; call list_tabs");
         host.finish().expect("list, close, list, list");
     }
@@ -2330,7 +2559,7 @@ mod tests {
     #[tokio::test]
     async fn hide_asks_the_host_to_put_the_panel_away() {
         let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/surface", json!({})).with_params(json!({"sessionId": "s1", "op": "hide"}))]));
-        let reply = run(&engine(&host, None), "1", "hide", json!({})).await.expect("hides");
+        let reply = run(&engine(&host, None), "hide", json!({})).await.expect("hides");
         assert_eq!(reply.text, "Browser panel hide requested; tabs and page state are preserved.");
         host.finish().expect("one call");
     }
@@ -2340,7 +2569,7 @@ mod tests {
         let answer = Expect::ok("host/browser/pages/resolve", json!({"page": page_row("p1", "v1"), "leaseId": "lease-1", "placement": "shown"}))
             .with_params(json!({"sessionId": "s1", "open": {"reveal": true}}));
         let host = Arc::new(FakeHost::scripted(vec![answer]));
-        let reply = run(&engine(&host, None), "1", "open", json!({})).await.expect("opens");
+        let reply = run(&engine(&host, None), "open", json!({})).await.expect("opens");
         assert_eq!(reply.text, "Shown in the browser panel: page p1 \u{2014} (untitled) (https://a.test/).");
         host.finish().expect("one call");
         assert_eq!(host.notifications().len(), 1);
@@ -2350,7 +2579,7 @@ mod tests {
     async fn a_step_the_operator_denied_is_refused_before_anything_reaches_the_page() {
         let host = Arc::new(FakeHost::scripted(vec![resolved("p1")]));
         let policy = ActionPolicy::from_env(None, Some("click"), None, is_action);
-        let error = run(&engine_with(&host, None, policy), "1", "click", json!({"ref": "p1-s1-e1"})).await.expect_err("denied");
+        let error = run(&engine_with(&host, None, policy), "click", json!({"ref": "p1-s1-e1"})).await.expect_err("denied");
         assert_eq!(error.message_for_model, "Browser Use action is denied by policy; nothing was dispatched");
         host.finish().expect("only the page was resolved");
     }
