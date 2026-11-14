@@ -211,6 +211,14 @@ jobs:
           printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$bin" > "$HOME/chrome-wrapper"
           chmod +x "$HOME/chrome-wrapper"
           echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
+      # The Browser Use URL and redaction rules are served by the main-process
+      # module only (native-module.ts loads the dev build from the crate's
+      # target/release): the tests take the glibc 2.28 build of native-out.
+      - name: Main-process native module for the desktop tests
+        if: matrix.suite == 'desktop'
+        run: |
+          mkdir -p native/mixdog-main-native/target/release
+          cp native-out/mixdog_main_native.node native/mixdog-main-native/target/release/libmixdog_main_native.so
       - name: Desktop tests
         if: matrix.suite == 'desktop'
         run: npm test -- --test-shard=${{ matrix.shard }}/${{ matrix.shards }} 2>&1 | tee ../../desktop-tests.log
