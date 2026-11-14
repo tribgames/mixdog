@@ -23,9 +23,6 @@ import { summariesOfThreadRows } from './thread-rows';
 
 type Client = ProtocolClient<SessionFold>;
 
-/** The rows one `thread/items/list` page of a whole-conversation read asks for (ipc-validation.ts: a history page). */
-const HISTORY_PAGE_ITEMS = 512;
-
 export interface SessionLane {
   /** The chat calls as Node's host answered them, over the client that is open now. */
   chat(): Promise<ChatHostApi>;
@@ -34,10 +31,6 @@ export interface SessionLane {
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   /** Node's `prefetchSession`: the session's transcript tail is published as a state frame (`readTraceId` names it). */
   prefetchSession(sessionId: string, itemLimit?: number, readTraceId?: string): Promise<boolean>;
-  /** The transcript window this process holds of the session, read when it follows none. */
-  readSessionTranscript(sessionId: string): Promise<SessionSnapshot>;
-  /** The whole stored conversation. */
-  readSessionHistory(sessionId: string): Promise<SessionSnapshot | null>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
   dispose(): void;
@@ -179,27 +172,6 @@ export function createSessionLane({
         throw coreErrorForWindow(error);
       });
       return true;
-    },
-    async readSessionTranscript(sessionId) {
-      const client = await live();
-      return stateOf(sessionId) ?? readOnce(client, sessionId, HISTORY_PAGE_ITEMS);
-    },
-    async readSessionHistory(sessionId) {
-      const client = (await live()) as unknown as ChatClient;
-      const { foldRows } = sharedFor(client);
-      let items: unknown[] = [];
-      for (let anchor: string | undefined; ; ) {
-        const page = (await call('thread/items/list', {
-          threadId: sessionId,
-          limit: HISTORY_PAGE_ITEMS,
-          sortDirection: 'desc',
-          ...(anchor ? { cursor: { type: 'item', itemId: anchor } } : {}),
-        })) as { data?: unknown[]; hasOlder?: boolean; nextCursor?: string };
-        items = [...foldRows(page.data ?? []), ...items];
-        if (page.hasOlder !== true || !page.nextCursor) break;
-        anchor = page.nextCursor;
-      }
-      return { sessionId, items } as unknown as SessionSnapshot;
     },
     requestSessionStateResync(sessionId) {
       publish(sessionId);
