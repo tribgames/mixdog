@@ -162,7 +162,7 @@ test('secret input: one-shot slot, only the target field receives it, replies ar
     inputs
   );
   assert.deepEqual(result, { text: 'entered' });
-  assert.deepEqual(fills, [{ form: 'password', value: SENTINEL, username: '', ...BOUND }]);
+  assert.deepEqual(fills, [{ form: 'password', value: SENTINEL, username: '', ...BOUND, guard: undefined }]);
 });
 
 test('a computer secret goes only to the window and field it was bound to: unbound or junk targets are refused, never typed', async () => {
@@ -406,7 +406,7 @@ test('a sign-in typed in chat fills 아이디 + 비밀번호 and is saved for th
   inputs.provide(`${REQUEST}-username`, 'data-team');
   inputs.provide(`${REQUEST}-save`, '1');
   assert.deepEqual(await fillSecretInput(b.host, 's1', REQUEST, undefined, inputs), { text: 'entered' });
-  assert.deepEqual(b.fills, [{ form: 'login', value: SENTINEL, username: 'data-team', ...BOUND }]);
+  assert.deepEqual(b.fills, [{ form: 'login', value: SENTINEL, username: 'data-team', ...BOUND, guard: undefined }]);
   assert.deepEqual(b.saved, [{ origin: 'https://bank.example', username: 'data-team', password: SENTINEL }]);
   assert.equal(inputs.has(`${REQUEST}-username`), false, 'every slot of the request is gone');
   bindLogin();
