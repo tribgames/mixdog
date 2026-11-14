@@ -19,6 +19,7 @@ pub mod blob;
 pub mod client;
 pub mod desktop_pet;
 pub mod desktop_residual;
+pub mod desktop_residual_b;
 pub mod diagnostics;
 pub mod feedback;
 pub mod host;
