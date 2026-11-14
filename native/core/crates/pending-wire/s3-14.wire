@@ -1,5 +1,0 @@
-# s3-14 -> CORE-WIRE-G2
-
-- `native/core/crates/mixdog-tools/src/desktop/mod.rs`, directly before the line `mod computer_lease;` (after `mod computer_lane;`): `mod computer_launch_policy;`
-  Reason: `computer_policy.rs` (owned by s3-14) imports `super::computer_launch_policy::{AuthorizationSettings, LaunchPolicy, LIFECYCLE_ACTIONS, STEP_ACTIONS, WindowFacts}`; without the line mixdog-tools does not compile.
-- No Cargo.toml, workspace member, dependency edge, compose call or SERVICE_PENDING change: the module uses chrono, serde_json, tracing, mixdog-statefile, mixdog-core-api (all already dependencies of mixdog-tools) and tempfile (dev-dependency).

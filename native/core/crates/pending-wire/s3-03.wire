@@ -1,6 +1,0 @@
-# s3-03 core wire
-
-- `native/core/crates/mixdog-tools/src/desktop/mod.rs`, in the `mod computer_*` list after `mod computer_command;`: `pub mod computer_delta;`
-  (`pub`, so the module's items are not dead code until s3-18 hooks the capture path in).
-- No Cargo change: the module uses only mixdog-rt, serde, serde_json and sha2 (and, in tests, tokio `test-util`), all already dependencies of mixdog-tools.
-- No compose call and no SERVICE_PENDING name: this is an internal module, not a service.
