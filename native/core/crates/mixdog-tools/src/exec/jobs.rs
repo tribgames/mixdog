@@ -71,6 +71,9 @@ use crate::policy::CommandPolicy;
 /// Bytes kept in memory per stream; older bytes stay only in the spill log, apart from what a read of them needs
 /// (`Stream::keep_dropped`).
 const MEMORY_CAP: usize = 8 * 1024 * 1024;
+/// `SHELL_OUTPUT_DISK_CAP` (`shell-exec-output.mjs`): the most a command may write to its two logs together; past it the process is
+/// killed, so a runaway loop cannot fill the disk.
+pub const OUTPUT_DISK_CAP: u64 = 100 * 1024 * 1024;
 /// An unseen range up to this size is read whole; a longer one only at its two ends.
 const FULL_READ_BYTES: usize = 64 * 1024;
 const EDGE_READ_BYTES: usize = 16 * 1024;
@@ -292,6 +295,12 @@ impl ExitFacts {
     /// A failed end with no exit of a process to tell (an exit never seen, an outcome lost to a restart), with `error`.
     fn failed(error: Option<String>) -> Self {
         Self { status: JobStatus::Failed, exit_code: None, timed_out: false, signal: None, error }
+    }
+
+    /// A command killed for writing past [`OUTPUT_DISK_CAP`] failed, and says so.
+    fn mark_output_capped(&mut self) {
+        self.status = JobStatus::Failed;
+        self.error = Some(format!("output exceeded {OUTPUT_DISK_CAP} byte cap"));
     }
 
     /// What a job's ownership record keeps of its end, at `finished_ms` (`terminalRecord`).
@@ -546,6 +555,8 @@ struct JobState {
     last_output_ms: Option<u64>,
     /// The owner's user cycle when the command moved to the background (`stampShellJobCycle`).
     user_cycle: Option<u64>,
+    /// The command wrote past [`OUTPUT_DISK_CAP`] and was killed for it.
+    output_capped: bool,
 }
 
 impl JobState {
@@ -565,6 +576,7 @@ impl JobState {
             promoted_ms: None,
             last_output_ms: None,
             user_cycle: None,
+            output_capped: false,
         }
     }
 }
@@ -964,6 +976,9 @@ impl Job {
         if let (true, Some(promoted)) = (facts.timed_out && self.time_limit_ms > 0, state.promoted_ms) {
             let left = self.time_limit_ms.saturating_sub(promoted.saturating_sub(self.started_ms));
             facts.error = Some(format!("timed out after {left} ms"));
+        }
+        if state.output_capped {
+            facts.mark_output_capped();
         }
         facts
     }
@@ -1486,6 +1501,17 @@ impl ExecRuntime {
         lock(&self.jobs).values().any(|job| &job.owner == owner && job.counts_as_active(awaited_only, user_cycle))
     }
 
+    /// `otherSessionBackgroundShellJobCount` and the foreground side of `otherSessionShellHolders` (`task-tool.mjs`): the running
+    /// shell work of every owner but `owner`, as (foreground commands, background tasks). A task tracking the survivors of a finished
+    /// command is not a shell job of its own and is left out. Counts only; another session's command is never named.
+    pub fn other_owner_shell_work(&self, owner: &ThreadId) -> (usize, usize) {
+        let table = lock(&self.jobs);
+        let running = table.values().filter(|job| &job.owner != owner && !job.survivors && !job.state().finished);
+        running.fold((0, 0), |(foreground, background), job| {
+            if job.state().promoted_ms.is_some() { (foreground, background + 1) } else { (foreground + 1, background) }
+        })
+    }
+
     /// `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })`: the owner of every running awaited task, from one pass over
     /// the runtime's table. Node's task registry is process-wide, so a session that is not loaded but owns an awaited job is listed too.
     pub fn awaited_owners(&self) -> HashSet<ThreadId> {
@@ -1598,7 +1624,7 @@ impl ExecRuntime {
         mixdog_rt::spawn(
             "shell-collect",
             TaskClass::Work,
-            collect(job.clone(), source, self.clone(), logs),
+            collect(job.clone(), source, self.clone(), logs, processes.clone()),
         );
         Ok(job)
     }
@@ -1853,6 +1879,7 @@ async fn collect(
     mut source: Box<dyn EventSource<ProcessEvent>>,
     runtime: Arc<ExecRuntime>,
     logs: spill::LogWriter,
+    processes: Arc<dyn ProcessManager>,
 ) {
     let mut exit = None;
     logs.open().await;
@@ -1865,6 +1892,10 @@ async fn collect(
                     let target = if index == 1 { &mut state.stderr } else { &mut state.stdout };
                     target.push(&bytes);
                     state.last_output_ms = Some(runtime.now_ms());
+                    if !state.output_capped && state.stdout.end() + state.stderr.end() > OUTPUT_DISK_CAP {
+                        state.output_capped = true;
+                        let _ = processes.kill(&job.handle);
+                    }
                 }
                 logs.push(index, bytes).await;
             }
@@ -1932,6 +1963,16 @@ mod tests {
         let f = exit_facts(&exit(ExitStatus::Signal(11), None));
         assert_eq!((f.status, f.exit_code, f.signal.as_deref()), (JobStatus::Failed, None, Some("SIGSEGV")));
         assert_eq!(f.error.as_deref(), Some("terminated by signal SIGSEGV"));
+    }
+
+    /// `SHELL_OUTPUT_DISK_CAP`: the kill for writing past the cap ends the job failed, with the cap named, whatever the kill's exit said.
+    #[test]
+    fn a_job_killed_for_its_output_cap_fails_naming_the_cap() {
+        let mut f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
+        assert_eq!(f.status, JobStatus::Cancelled);
+        f.mark_output_capped();
+        assert_eq!(f.status, JobStatus::Failed);
+        assert_eq!(f.error.as_deref(), Some("output exceeded 104857600 byte cap"));
     }
 
     #[test]

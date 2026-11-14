@@ -38,6 +38,16 @@ fn sweep_dir(dir: &Path, now: SystemTime) {
     }
 }
 
+/// `mkdirSync(dir, { recursive: true, mode: 0o700 })`: the snapshot directory belongs to the user alone where the system has modes.
+#[allow(clippy::disallowed_methods, reason = "ReadState calls the store from the blocking pool; the trait is blocking")]
+fn make_private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)
+}
+
 impl FileSnapshotPersist {
     /// The store under `<data dir>/read-snapshots`; the directory is made on first save.
     pub fn new(data_dir: &Path) -> Self {
@@ -81,7 +91,7 @@ impl SnapshotPersist for FileSnapshotPersist {
             let _ = std::fs::remove_file(&path);
             return;
         };
-        if std::fs::create_dir_all(&self.dir).is_err() {
+        if make_private_dir(&self.dir).is_err() {
             return;
         }
         let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));

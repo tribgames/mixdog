@@ -2323,6 +2323,23 @@ async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
     assert!(!control.tasks().get("task-y").unwrap().owner_closed);
 }
 
+/// `otherSessionShellHolders` (`task-tool.mjs`): a task list names, by count only, the shell work other sessions of the
+/// runtime hold, and nothing when there is none.
+#[tokio::test]
+async fn a_task_list_counts_the_shell_work_other_sessions_hold() {
+    let rig = rig();
+    let list = body(rig.task.call(&ctx(&rig, "l0"), serde_json::json!({"action": "list"})).await);
+    assert!(!list.contains("[other sessions in this runtime]"));
+    background_of(&rig, "o1", "sess_elsewhere", "sleep 100").await;
+    background_of(&rig, "o2", "sess_elsewhere", "sleep 100").await;
+    let listed = body(rig.task.call(&ctx(&rig, "l1"), serde_json::json!({"action": "list"})).await);
+    assert!(listed.contains(
+        "[other sessions in this runtime] 0 foreground shell lease(s), 2 background shell job(s) — read-only; only their owner sessions can cancel them."
+    ));
+    assert!(!listed.contains("sleep 100"));
+    assert_eq!(rig.runtime.other_owner_shell_work(&ThreadId::from("sess_elsewhere")), (0, 0));
+}
+
 /// A stop that cannot confirm the processes gone answers `unconfirmed` and records it: the row is
 /// held (`terminationUnconfirmed`), `/release` finds it, and a closed owner's hold is found by the
 /// sessions that see its folder. The hold ends with the job (confirmed gone) or with the release.

@@ -67,6 +67,38 @@ impl RootCleanup for CodeGraphCleanup {
     }
 }
 
+/// `code-graph` (`forgetTrustedCodeGraphRoot`): the project registry's entries that are the removed root itself, so the root is
+/// no longer a trusted code-graph target once its worktree is gone. A path that cannot be unregistered is the cleanup's failure.
+pub struct TrustedRootCleanup {
+    registry: Arc<mixdog_workspace::catalog::Catalog>,
+}
+
+impl TrustedRootCleanup {
+    pub fn new(registry: Arc<mixdog_workspace::catalog::Catalog>) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl RootCleanup for TrustedRootCleanup {
+    fn name(&self) -> &str {
+        "trusted-code-graph-root"
+    }
+
+    async fn run(&self, root: &Path, _entry_id: &str) -> Result<(), String> {
+        let key = mixdog_scm::locks::path_key(root);
+        let rows = self.registry.list().await.map_err(|error| error.to_string())?;
+        let mut kept = Vec::new();
+        for row in rows.into_iter().filter(|row| !row.path.is_empty() && mixdog_scm::locks::path_key(Path::new(&row.path)) == key) {
+            match self.registry.remove(&row.path, None).await {
+                Ok(answer) if answer["removed"] == true => {}
+                _ => kept.push(PathBuf::from(row.path)),
+            }
+        }
+        kept_error(&kept)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup builds fixture trees")]
 mod tests {
@@ -83,5 +115,33 @@ mod tests {
         cleanup.run(&tmp.path().join("gone"), "entry").await.expect("cleaned");
         assert!(!dir.exists());
         assert_eq!(kept_error(&[PathBuf::from("a"), PathBuf::from("b")]), Err("kept: a, b".to_owned()));
+    }
+
+    /// `forgetTrustedCodeGraphRoot`: the registry entry of the removed root goes, a sibling's stays, and a root nothing registered
+    /// is not a failure.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_trusted_root_cleanup_unregisters_only_the_removed_root() {
+        let tokens = mixdog_rt::testing::tokens();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &tmp.path().join("core.sqlite")).expect("state");
+        let lanes = mixdog_workspace::lanes::Lanes {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+            cpu_bulk: tokens.cpu_bulk,
+        };
+        let registry = Arc::new(mixdog_workspace::catalog::Catalog::new(state, lanes));
+        let (gone, kept) = (tmp.path().join("gone"), tmp.path().join("kept"));
+        for dir in [&gone, &kept] {
+            std::fs::create_dir_all(dir).expect("dir");
+            registry.add(&dir.to_string_lossy(), &tokio_util::sync::CancellationToken::new(), None).await.expect("registered");
+        }
+        let cleanup = TrustedRootCleanup::new(registry.clone());
+        assert_eq!(cleanup.name(), "trusted-code-graph-root");
+        cleanup.run(&gone, "entry").await.expect("cleaned");
+        let listed: Vec<String> = registry.list().await.expect("list").into_iter().map(|row| row.path).collect();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(mixdog_scm::locks::path_key(Path::new(&listed[0])), mixdog_scm::locks::path_key(&kept));
+        cleanup.run(&tmp.path().join("never"), "entry").await.expect("nothing to clean");
     }
 }
