@@ -327,8 +327,6 @@ pub struct ToolOutput {
     /// The tool says this text result is a success, whatever the text reads as (Node `explicitSuccess`, e.g. an MCP
     /// result with `isError: false` whose text starts `Error:`): the batch does not classify it by its wording.
     pub explicit_success: bool,
-    /// The tool says this text result is a failure, whatever the text reads as (Node `explicitFailure`).
-    pub explicit_failure: bool,
 }
 
 /// Closed error-code set (T §1.9). Each renders to today's model text.

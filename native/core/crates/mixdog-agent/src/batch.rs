@@ -991,15 +991,14 @@ impl Run {
         // the cache write and the transcript (`finalize.mjs:174-177,238,292`). Only a text return is read: a structured one
         // (parts, an image among them) is normal (`classifyResultKind` of a non-string, result-classification.mjs:75).
         for i in &indices {
-            // `classifyToolReturn` (`execute-call.mjs`): the tool's own `explicitSuccess` / `explicitFailure` decides before
-            // the wording does.
-            let (explicit_success, explicit_failure) = outputs[*i].as_ref().map_or((false, false), |o| (o.explicit_success, o.explicit_failure));
+            // `classifyToolReturn` (`execute-call.mjs`): the tool's own `explicitSuccess` decides before the wording does (a
+            // failure a tool declares is its `Err`, already an error call).
+            let explicit_success = outputs[*i].as_ref().is_some_and(|o| o.explicit_success);
             if let Some(m) = staged[*i].as_mut()
                 && m.tool_kind == Some(ToolKind::Normal)
                 && let Content::Text(text) = &m.message.content
                 && !explicit_success
-                && (explicit_failure
-                    || crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error)
+                && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
             {
                 m.tool_kind = Some(ToolKind::Error);
                 // The kind is the failure a provider is told (`m.toolKind === 'error'`, anthropic-request-utils.mjs:411), and
