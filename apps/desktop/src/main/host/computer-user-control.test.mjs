@@ -60,7 +60,7 @@ function pillControls(section) {
       sent.push(params.action);
       return { ok: true };
     }),
-    snapshot: source.snapshot,
+    mirror: source,
     abortSession: async (id) => sent.push(`abort ${id}`),
     host: {
       pause: async () => host.push('pause'),
@@ -89,7 +89,7 @@ test("the core's Stop failing still ends the turns, and the Stop reports the fai
     core: createCoreUserControl(async () => {
       throw new Error('core gone');
     }),
-    snapshot: source.snapshot,
+    mirror: source,
     abortSession: async (id) => aborted.push(id),
     host: { pause: async () => {}, resume: async () => {}, stop: async () => {} },
   });
@@ -102,9 +102,45 @@ test("with no core session the desktop's own computer host keeps the pill action
   await controls.stop(['th1']);
   await controls.resume(3);
   await controls.pause();
-  controls.configureIdleResume(9);
   assert.deepEqual(sent, []);
-  assert.deepEqual(host, ['stop th1', 'resume 3', 'pause', 'idle 9']);
+  assert.deepEqual(host, ['stop th1', 'resume 3', 'pause']);
+});
+
+test('the idle-resume setting reaches the core without a session, and the desktop host as well where there is one', async () => {
+  const { controls, sent, host } = pillControls(null);
+  controls.configureIdleResume(9);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, ['configureIdleResume']);
+  assert.deepEqual(host, ['idle 9']);
+});
+
+test("a section that names the desktop's own host as the backend keeps every control, the setting included, off the core", async () => {
+  const { controls, sent, host } = pillControls({ ...open, backend: 'desktopHost' });
+  await controls.pause();
+  await controls.resume(2);
+  controls.configureIdleResume(4);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, []);
+  assert.deepEqual(host, ['pause', 'resume 2', 'idle 4']);
+});
+
+test('the setting and the pill actions go to the core where the desktop has no host of its own', async () => {
+  const source = createComputerPillSource(() => 5);
+  const sent = [];
+  const controls = createComputerPillControls({
+    core: createCoreUserControl(async (method, params) => {
+      sent.push(params.seconds === undefined ? params.action : `${params.action} ${params.seconds}`);
+      return { ok: true };
+    }),
+    mirror: source,
+    abortSession: async (id) => sent.push(`abort ${id}`),
+  });
+  await controls.pause();
+  await controls.resume(1);
+  controls.configureIdleResume(30);
+  await controls.stop(['th1']);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, ['pause', 'resume', 'configureIdleResume 30', 'stop', 'abort th1']);
 });
 
 test('a shortcut that failed to register is said by the pill', () => {
