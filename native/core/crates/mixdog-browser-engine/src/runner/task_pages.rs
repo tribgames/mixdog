@@ -5,6 +5,7 @@
 //! here. Releasing the whole session (`forget`) does too.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// A page's owner: the session and the turn that opened it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,22 +19,37 @@ struct Owner {
 pub struct TaskPages {
     owned: HashMap<String, Owner>,
     finished: HashMap<String, u64>,
+    /// The sessions with a command in their running turn.
+    touched: HashSet<String>,
 }
 
 /// `begin` after the turn was already finished.
 pub const TASK_FINISHED: &str = "Browser task has already finished.";
 
 impl TaskPages {
+    /// The session's running turn: the one after the last that finished. The core never numbers the engine's turns, the engine
+    /// counts them as it is told they end.
+    pub fn current(&self, session: &str) -> u64 {
+        self.finished.get(session).copied().unwrap_or(0) + 1
+    }
+
     /// A command of `turn` starts for `session`. `Ok(false)`: the command names no turn (`0`), so nothing is owned. A command of a
     /// turn already finished is refused.
-    pub fn begin(&self, session: &str, turn: u64) -> Result<bool, String> {
+    pub fn begin(&mut self, session: &str, turn: u64) -> Result<bool, String> {
         if turn == 0 {
             return Ok(false);
         }
         if turn <= self.finished.get(session).copied().unwrap_or(0) {
             return Err(TASK_FINISHED.to_owned());
         }
+        self.touched.insert(session.to_owned());
         Ok(true)
+    }
+
+    /// Whether a command ran in the session's turn since the last call; the answer is taken (a turn nobody ran a command in has
+    /// nothing to finish).
+    pub fn take_touched(&mut self, session: &str) -> bool {
+        self.touched.remove(session)
     }
 
     /// The command of `turn` works on `page`; `disposable` marks a page it created (or a hidden helper it owns).
@@ -83,9 +99,16 @@ impl TaskPages {
         closing
     }
 
+    /// A close that failed gives the page back to its turn: it stays owned for a later cleanup (`task-lifecycle.ts`: a close that
+    /// throws never reaches the release).
+    pub fn reown(&mut self, session: &str, turn: u64, page: &str) {
+        self.owned.insert(page.to_owned(), Owner { session: session.to_owned(), turn });
+    }
+
     /// The session is released: its marks and its pages are forgotten.
     pub fn forget(&mut self, session: &str) {
         self.finished.remove(session);
+        self.touched.remove(session);
         self.owned.retain(|_, owner| owner.session != session);
     }
 }
@@ -104,6 +127,20 @@ mod tests {
         assert_eq!(tasks.begin("s1", 3), Err(TASK_FINISHED.to_owned()));
         assert_eq!(tasks.begin("s1", 4), Ok(true));
         assert_eq!(tasks.begin("s2", 1), Ok(true));
+    }
+
+    #[test]
+    fn the_running_turn_is_the_one_after_the_last_that_finished_and_an_idle_turn_has_nothing_to_finish() {
+        let mut tasks = TaskPages::default();
+        assert_eq!(tasks.current("s1"), 1);
+        assert!(!tasks.take_touched("s1"));
+        assert_eq!(tasks.begin("s1", 1), Ok(true));
+        assert!(tasks.take_touched("s1") && !tasks.take_touched("s1"));
+        tasks.finish("s1", 1, false, |_| true);
+        assert_eq!((tasks.current("s1"), tasks.current("s2")), (2, 1));
+        tasks.begin("s1", 2).unwrap();
+        tasks.forget("s1");
+        assert_eq!((tasks.current("s1"), tasks.take_touched("s1")), (1, false));
     }
 
     #[test]
@@ -131,6 +168,18 @@ mod tests {
         tasks.use_page("s1", 2, "p4", true).unwrap();
         assert_eq!(tasks.finish("s1", 2, true, |_| true), ["p4"]);
         assert!(tasks.owns("p9"));
+    }
+
+    #[test]
+    fn a_page_whose_close_failed_is_owned_again_until_the_session_is_forgotten() {
+        let mut tasks = TaskPages::default();
+        tasks.use_page("s1", 1, "p1", true).unwrap();
+        assert_eq!(tasks.finish("s1", 1, true, |_| true), ["p1"]);
+        assert!(!tasks.owns("p1"));
+        tasks.reown("s1", 1, "p1");
+        assert!(tasks.owns("p1"));
+        tasks.forget("s1");
+        assert!(!tasks.owns("p1"));
     }
 
     #[test]

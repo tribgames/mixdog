@@ -104,6 +104,13 @@ host_methods! {
     upload, "host/browser/upload", HostBrowserUploadParams, HostBrowserUploadResult;
     /// `host/browser/upload/receiver`: the frame document an upload to a ref (or to the open chooser) would land in now.
     upload_receiver, "host/browser/upload/receiver", HostBrowserUploadReceiverParams, HostBrowserUploadReceiverResult;
+    /// `host/browser/signIn`: the sign-in state the desktop keeps per page and per turn (the saved logins' automatic sign-in, the
+    /// linked identity of a provider flow), asked about around a command.
+    sign_in, "host/browser/signIn", HostBrowserSignInParams, HostBrowserSignInResult;
+    /// `host/browser/turn`: a session's turn ended, or the session was released; the desktop drops what it remembered of them.
+    turn, "host/browser/turn", HostBrowserTurnParams, HostBrowserTurnResult;
+    /// `host/browser/credentials/fill`: a saved login written into the page by the desktop, which holds the vault.
+    credentials_fill, "host/browser/credentials/fill", HostBrowserCredentialsFillParams, HostBrowserCredentialsFillResult;
 }
 
 /// What the host pushes, in the order its writer sent it (`host/browser/events`, `page/facts`, `userInput`). Synchronous:
@@ -142,9 +149,13 @@ pub trait FilePort: Send + Sync {
     async fn write_frame(&self, run_dir: &Path, bytes: Bytes, mime_type: &str) -> std::io::Result<PathBuf>;
 }
 
-/// A turn ended: pages the turn's session held for it are released.
+/// What the core tells the engine of a session's turns. The engine counts the turns itself: the turn a command belongs to is the
+/// one after the last that ended.
 pub trait TurnEvents: Send + Sync {
-    fn turn_ended(&self, thread: &ThreadId, turn_id: &str, aborted: bool);
+    /// The session's running turn settled. `aborted`: it ended badly, so the pages it opened for itself are released.
+    fn turn_ended(&self, thread: &ThreadId, aborted: bool);
+    /// The session's runtime ended: its turn is over and the pages it owned are released.
+    fn session_ended(&self, thread: &ThreadId);
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@ use bytes::Bytes;
 use mixdog_app_server::Outgoing;
 use mixdog_browser_engine::BlobPort;
 use mixdog_browser_engine::FilePort;
+use mixdog_browser_engine::TurnEvents;
 use mixdog_browser_engine::approval::classify::ActionPolicy;
 use mixdog_browser_engine::approval::requester::PoolRow;
 use mixdog_browser_engine::approval::requester::Requester;
@@ -36,6 +37,7 @@ use mixdog_core_session::session::secret_input::CardScope;
 use mixdog_core_session::session::secret_input::HumanOnlyCard;
 use mixdog_core_session::session::secret_input::Redact;
 use mixdog_core_session::session::secret_input::SecretFill;
+use mixdog_core_session::session::turn_snapshots::TurnSnapshots;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::InteractiveIo;
 use mixdog_store::blobs::BlobStore;
@@ -264,5 +266,84 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
                 BrowserEngineTestRunResult { text: error.message_for_model, image: None, is_error: true, outcome: None }
             }
         }
+    }
+}
+
+/// The session deps' `TurnSnapshots` with the browser engine told beside it: where an agent turn settles the engine ends its running
+/// turn (the host forgets what it remembered of the turn, and the untouched blank page the agent left behind is closed), and where a
+/// session's runtime ends the engine lets go of the pages it tracked for it.
+pub struct EngineTurnSnapshots {
+    inner: Arc<dyn TurnSnapshots>,
+    turns: Arc<dyn TurnEvents>,
+}
+
+impl EngineTurnSnapshots {
+    pub fn new(inner: Arc<dyn TurnSnapshots>, turns: Arc<dyn TurnEvents>) -> Self {
+        Self { inner, turns }
+    }
+}
+
+impl TurnSnapshots for EngineTurnSnapshots {
+    fn turn_settled(&self, thread: &ThreadId) {
+        self.turns.turn_ended(thread, false);
+        self.inner.turn_settled(thread);
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        self.turns.session_ended(thread);
+        self.inner.runtime_stopped(thread);
+    }
+
+    fn dispose(&self) {
+        self.inner.dispose();
+    }
+}
+
+#[cfg(test)]
+mod turn_tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Log(Mutex<Vec<String>>);
+
+    struct Events(Arc<Log>);
+
+    impl TurnEvents for Events {
+        fn turn_ended(&self, thread: &ThreadId, aborted: bool) {
+            self.0.0.lock().unwrap().push(format!("ended {} {aborted}", thread.as_str()));
+        }
+
+        fn session_ended(&self, thread: &ThreadId) {
+            self.0.0.lock().unwrap().push(format!("session {}", thread.as_str()));
+        }
+    }
+
+    struct Snapshots(Arc<Log>);
+
+    impl TurnSnapshots for Snapshots {
+        fn turn_settled(&self, thread: &ThreadId) {
+            self.0.0.lock().unwrap().push(format!("settled {}", thread.as_str()));
+        }
+
+        fn runtime_stopped(&self, thread: &ThreadId) {
+            self.0.0.lock().unwrap().push(format!("stopped {}", thread.as_str()));
+        }
+
+        fn dispose(&self) {
+            self.0.0.lock().unwrap().push("dispose".to_owned());
+        }
+    }
+
+    #[test]
+    fn the_engine_is_told_where_a_turn_settles_and_a_runtime_ends_and_the_snapshots_still_are() {
+        let log = Arc::new(Log::default());
+        let both = EngineTurnSnapshots::new(Arc::new(Snapshots(log.clone())), Arc::new(Events(log.clone())));
+        let thread = ThreadId::from("s1");
+        both.turn_settled(&thread);
+        both.runtime_stopped(&thread);
+        both.dispose();
+        assert_eq!(*log.0.lock().unwrap(), ["ended s1 false", "settled s1", "session s1", "stopped s1", "dispose"]);
     }
 }
