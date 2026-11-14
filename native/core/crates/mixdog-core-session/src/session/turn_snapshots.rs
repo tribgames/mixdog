@@ -26,6 +26,9 @@ use mixdog_scm::worktree::manager::Worktrees;
 use super::worktree::SnapshotCleanups;
 
 pub trait TurnSnapshots: Send + Sync {
+    /// A turn of the thread started, before its first request: a decorator that holds another `TurnSnapshots` forwards it.
+    fn turn_begun(&self, _thread: &ThreadId) {}
+
     /// The turn that settles next did not complete (it failed or was stopped): said on `SessionDeps.snapshots` itself, right before
     /// `turn_settled`. A decorator that holds another `TurnSnapshots` forwards it when the one it holds needs it.
     fn turn_aborted(&self, _thread: &ThreadId) {}

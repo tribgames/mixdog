@@ -677,7 +677,7 @@ export type BrowserTestRunImage = { mimeType: string, data: string, };
 
 export type BrowserTestTool = "browser" | "browser_devtools";
 
-export type BrowserTurnOp = "end" | "forget";
+export type BrowserTurnOp = "begin" | "end" | "forget";
 
 export type BrowserTypeStep = { text: string, delayMs?: number, };
 

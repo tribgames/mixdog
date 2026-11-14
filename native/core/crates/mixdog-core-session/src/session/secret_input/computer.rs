@@ -143,6 +143,10 @@ impl SettlingSavedLogins {
 }
 
 impl TurnSnapshots for SettlingSavedLogins {
+    fn turn_begun(&self, thread: &ThreadId) {
+        self.inner.turn_begun(thread);
+    }
+
     fn turn_settled(&self, thread: &ThreadId) {
         self.clock.turn_settled(thread);
         self.inner.turn_settled(thread);

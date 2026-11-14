@@ -939,6 +939,13 @@
     "BrowserTurnOp": {
       "oneOf": [
         {
+          "description": "A turn of the session started: the host keeps the session's pages out of reclaim while it is live.",
+          "enum": [
+            "begin"
+          ],
+          "type": "string"
+        },
+        {
           "description": "The session's running turn ended.",
           "enum": [
             "end"
