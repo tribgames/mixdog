@@ -6872,20 +6872,23 @@ impl SessionActor {
         );
     }
 
-    /// The follow `seq` is made: a HEAD that moved before the watch was set is read now, and each later write of it is read when
-    /// it comes.
+    /// The follow `seq` is made: the live workspace of the (new) `cwd` is read now, which also covers a HEAD that moved before the
+    /// watch was set, and each later write of HEAD is read when it comes. A `cwd` outside any checkout is read once and followed by
+    /// nothing.
     fn head_following(&mut self, seq: u64, follow: Option<mixdog_scm::head_watch::HeadFollow>) {
-        let Some(mut follow) = follow.filter(|_| seq == self.head_follows && !self.tombstoned && !self.cell.closed.load(SeqCst)) else {
+        if seq != self.head_follows || self.tombstoned || self.cell.closed.load(SeqCst) {
             return;
-        };
-        let jobs = self.jobs_tx.clone();
-        self.head_task = Some(HeadTask(tokio::spawn(async move {
-            while follow.moved().await {
-                if jobs.send(JobDone::HeadMoved(seq)).is_err() {
-                    return;
+        }
+        if let Some(mut follow) = follow {
+            let jobs = self.jobs_tx.clone();
+            self.head_task = Some(HeadTask(tokio::spawn(async move {
+                while follow.moved().await {
+                    if jobs.send(JobDone::HeadMoved(seq)).is_err() {
+                        return;
+                    }
                 }
-            }
-        })));
+            })));
+        }
         self.read_live_workspace();
     }
 

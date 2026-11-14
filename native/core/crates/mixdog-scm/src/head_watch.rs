@@ -16,7 +16,6 @@ use std::sync::PoisonError;
 use mixdog_workspace::watcher::ChangeKind;
 use mixdog_workspace::watcher::ChangeSink;
 use mixdog_workspace::watcher::FolderWatcher;
-use mixdog_workspace::watcher::git_dirs_of;
 use tokio::sync::watch;
 
 /// The id of a git dir's folder watch on the HEAD watcher's own `FolderWatcher`.
@@ -82,10 +81,21 @@ impl HeadWatchers {
             .as_ref()
     }
 
-    /// The git dir the checkout holding `cwd` keeps its own `HEAD` in (a linked worktree's own dir, not the common one): the
-    /// nearest folder above `cwd`, itself included, that has a `.git`. Reads files: call it on a lane.
+    /// The git dir the checkout holding `cwd` keeps its own `HEAD` in (a linked worktree's or a submodule's own dir, not the
+    /// common one): the nearest folder above `cwd`, itself included, whose `.git` (a folder, or a `gitdir:` file) leads to a git
+    /// dir holding `HEAD` (`git-head.mjs` layoutAbove). Reads files: call it on a lane.
+    #[allow(clippy::disallowed_methods, reason = "a stat and one tiny read per folder, called only inside the lane job that follows")]
     pub fn git_dir_of(cwd: &Path) -> Option<PathBuf> {
-        cwd.ancestors().find_map(|folder| git_dirs_of(folder).pop())
+        cwd.ancestors().find_map(|folder| {
+            let dot_git = folder.join(".git");
+            let git_dir = if dot_git.is_dir() {
+                dot_git
+            } else {
+                let text = std::fs::read_to_string(&dot_git).ok()?;
+                mixdog_workspace::pathguard::lexical(&folder.join(text.trim().strip_prefix("gitdir:")?.trim()))
+            };
+            git_dir.join("HEAD").is_file().then_some(git_dir)
+        })
     }
 
     /// Follows the HEAD of the checkout holding `cwd`, sharing the watch of every other follower of the same git dir; `None`
@@ -175,9 +185,23 @@ mod tests {
         let own = main.path().join(".git/worktrees/w");
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("commondir"), "../..\n").unwrap();
+        std::fs::write(own.join("HEAD"), "ref: refs/heads/w\n").unwrap();
         std::fs::write(linked.path().join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
         let found = HeadWatchers::git_dir_of(linked.path()).expect("the linked checkout's git dir");
         assert_eq!(found, mixdog_workspace::pathguard::lexical(&own));
+        // A submodule's `.git` file names its git dir under the superproject's, with no `commondir`: its own HEAD is followed,
+        // not the superproject's.
+        let module = main.path().join("vendor/lib");
+        let module_git = main.path().join(".git/modules/lib");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::create_dir_all(&module_git).unwrap();
+        std::fs::write(module_git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(module.join(".git"), "gitdir: ../../.git/modules/lib\n").unwrap();
+        assert_eq!(HeadWatchers::git_dir_of(&module), Some(mixdog_workspace::pathguard::lexical(&module_git)));
+        // A `.git` folder with no HEAD is not a checkout: the search goes on upward.
+        let stray = main.path().join("stray");
+        std::fs::create_dir_all(stray.join(".git")).unwrap();
+        assert_eq!(HeadWatchers::git_dir_of(&stray), Some(main.path().join(".git")));
     }
 
     #[tokio::test]
