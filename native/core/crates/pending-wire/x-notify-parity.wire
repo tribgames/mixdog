@@ -1,0 +1,7 @@
+# x-notify-parity -> the CORE-WIRE task of the same wave
+
+- `native/core/crates/mixdog-core-domains/src/notify/mod.rs`, after `pub mod timeline;`, add:
+  `#[cfg(test)]`
+  `mod decision_parity_tests;`
+  Reason: `decision_parity_tests.rs` is a unit test of `notify::decision` (verify: `cargo test -p mixdog-core-domains decision_parity`).
+  Nothing else: `mixdog-testkit` is already a dev-dependency of mixdog-core-domains and `serde_json` a dependency; no workspace member, Cargo.toml line, compose call or SERVICE_PENDING change.
