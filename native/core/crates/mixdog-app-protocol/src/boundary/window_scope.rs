@@ -37,6 +37,7 @@ pub fn allows(method: &str) -> Result<(), WindowDenial> {
 }
 
 /// Every method the table names.
+#[cfg(test)]
 pub(super) fn table_methods() -> impl Iterator<Item = &'static str> {
     table().methods.iter().copied()
 }
