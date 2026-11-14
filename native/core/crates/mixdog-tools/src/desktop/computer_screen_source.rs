@@ -844,16 +844,19 @@ impl VideoScreen<HelperPicture> for ScreenSession {
         ScreenSession::handle_input(self, &control, generation)
     }
 
+    /// The locked geometry: the session answers `{plan, geometry, status}` and the viewer is told the geometry.
     fn start(&self) -> BoxFuture<Result<Value, String>> {
-        ScreenSession::start(self)
+        let starting = ScreenSession::start(self);
+        Box::pin(async move { starting.await.map(|started| started["geometry"].clone()) })
     }
 
     fn stop(&self, reason: &str) -> BoxFuture<()> {
         ScreenSession::stop(self, reason, None)
     }
 
+    /// A renewal is `{plan, geometry}`; the viewer is told the geometry.
     fn on_geometry(&self, listener: Listener<Value>) -> Unsub {
-        ScreenSession::on_geometry(self, listener)
+        ScreenSession::on_geometry(self, Arc::new(move |renewal: &Value| listener(&renewal["geometry"])))
     }
 
     fn on_stop(&self, listener: Listener<String>) -> Unsub {
