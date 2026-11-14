@@ -3,7 +3,7 @@ use super::text::{arg, default};
 use crate::coerce::*;
 use crate::registry::Table;
 use crate::value::{ErrorValue as E, Failure, Value as V};
-use std::cmp::Ordering;
+use mixdog_js::js_sort_by;
 macro_rules! functions { ($($name:ident),*) => { $(fn $name(a:&[V])->Result<V,Failure>{run(stringify!($name),a)})* pub const FUNCTIONS:Table=&[$((stringify!($name),$name)),*]; }; }
 #[allow(non_snake_case)]
 mod exports {
@@ -40,16 +40,23 @@ fn len(v: &V) -> f64 {
 fn null_zero(v: V) -> V {
     if is_defined(&v) { v } else { V::Number(0.0) }
 }
+fn relational_primitive(value: &V) -> V {
+    match value {
+        V::Array(_) | V::Error(_) => V::Text(to_js_string(value)),
+        V::Date(time) => V::Number(*time),
+        other => other.clone(),
+    }
+}
 fn less(a: &V, b: &V) -> bool {
-    match (a, b) {
-        (V::Text(a), V::Text(b)) => compare_utf16(a, b).is_lt(),
-        _ => to_js_number(a) < to_js_number(b),
+    match (relational_primitive(a), relational_primitive(b)) {
+        (V::Text(a), V::Text(b)) => compare_utf16(&a, &b).is_lt(),
+        (a, b) => to_js_number(&a) < to_js_number(&b),
     }
 }
 fn less_equal(a: &V, b: &V) -> bool {
-    match (a, b) {
-        (V::Text(a), V::Text(b)) => !compare_utf16(a, b).is_gt(),
-        _ => to_js_number(a) <= to_js_number(b),
+    match (relational_primitive(a), relational_primitive(b)) {
+        (V::Text(a), V::Text(b)) => !compare_utf16(&a, &b).is_gt(),
+        (a, b) => to_js_number(&a) <= to_js_number(&b),
     }
 }
 fn lower(v: V) -> V {
@@ -284,7 +291,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                             .replace(')', "\\)")
                             .replace('[', "\\[")
                             .replace(']', "\\]");
-                        let re = mixdog_js::regex::JsRegex::new(&format!("^{pattern}$"), "")
+                        let re = mixdog_js::JsRegex::new(&format!("^{pattern}$"), "")
                             .map_err(Failure::thrown)?;
                         if re.is_match(&s.to_lowercase()) {
                             return Ok(V::Number((i + 1) as f64));
@@ -559,19 +566,18 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             if !(i >= 1.0 && rows.first().is_some_and(|r| i <= len(r))) {
                 return err(E::Value);
             }
-            rows.sort_by(|a, b| {
-                let (a, b) = (
-                    parse_string(&cell(a, i - 1.0)),
-                    parse_string(&cell(b, i - 1.0)),
-                );
-                let ord = if less(&a, &b) {
-                    Ordering::Less
-                } else if less(&b, &a) {
-                    Ordering::Greater
+            // The source returns +1 for equal/incomparable keys, never 0.
+            // Preserve that comparator and V8's comparison order (including ties)
+            // instead of requiring Rust sort's strict weak ordering.
+            js_sort_by(&mut rows, |a, b| {
+                let a = parse_string(&cell(a, i - 1.0));
+                let b = parse_string(&cell(b, i - 1.0));
+                let before = if order == 1.0 {
+                    less(&a, &b)
                 } else {
-                    Ordering::Equal
+                    less(&b, &a)
                 };
-                if order == 1.0 { ord } else { ord.reverse() }
+                if before { -1.0 } else { 1.0 }
             });
             if col {
                 transpose(&V::Array(rows))

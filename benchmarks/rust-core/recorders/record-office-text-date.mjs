@@ -2,6 +2,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
+import vm from 'node:vm';
+import { constants as bufferConstants } from 'node:buffer';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -74,9 +76,47 @@ for(const name of ['DAVERAGE','DCOUNT','DCOUNTA','DGET','DMAX','DMIN','DPRODUCT'
  for(const criterion of [[['Height','>12']],[['Height','>12','<13']],[['Tree','Apple']],[['Height','>100']],[['Height',18]],[['Height','*']]])add(name,[db,'Yield',criterion]);
  add(name,[db,2,[['Height','>12']]]);add(name,[dbMixed,'Yield',[['Yield','*']]]);
 }
+// Corrective review regressions: these use the original library, not a model
+// of its result. Large REPT cases exceed V8's output limit while their ordinary
+// Array length remains legal; V8 uses a sparse array and rejects join length.
+const regressionStart = cases.length;
+for (const zone of ['UTC','America/New_York','Asia/Seoul'])
+  add('YEARFRAC',['2023-03-01','2024-02-29',1],zone);
+add('YEARFRAC',['2023-02-01','2024-01-29',1]);
+for (const args of [
+  [1e300,13,1],[-1e300,1,1],[2024,1e300,1],[2024,1,1e300],
+  [800000,-9575999,1],[1000000,-9999999,1],[1000001,-9999999,1],
+  [1000000.9,-9999999,1],[-1000000.9,9999999,1],[833333,-9999999.9,1],
+  [0,10000001,1],[0,10000002,1],
+  [275760,9,13],[275760,9,14],[-271821,4,20],[-271821,4,19],
+  [99.9,1,1],[-0.9,1,1],
+]) add('DATE',args);
+for (const name of ['DMAX','DMIN']) add(name,[[['id',1,2],['value',[2],'10']],'value',[['id','*']]]);
+const dbNested=[['id',1,2],['value',1e16,[-1e16,1]]];
+add('DSUM',[dbNested,'value',[['id','*']]]);
+add('DSUM',[[['id',1,2],['value',[error('#REF!')],error('#N/A')]],'value',[['id','*']]]);
+add('DAVERAGE',[[['id',1,2],['value',[1],[2]]],'value',[['id','*']]]);
+add('DAVERAGE',[[['id',1,2],['value',date(0),1]],'value',[['id','*']]]);
+for (const order of [1,-1]) {
+  add('SORT',[[[error('#REF!'),'error'],['A','text']],1,order]);
+  add('SORT',[[['same','first'],['same','second'],['a','third']],1,order]);
+  add('SORT',[Array.from({length:96},(_,i)=>[i%7===0?error('#REF!'):String((i*13)%17),i]),1,order]);
+}
+add('REPT',['abcd',Math.floor(bufferConstants.MAX_STRING_LENGTH/4)+1]);
+add('REPT',['😀',Math.floor(bufferConstants.MAX_STRING_LENGTH/2)+1]);
+add('REPT',['abc',-1]);
+add('REPT',['é😀',3]);
+const correctiveRegressions=cases.slice(regressionStart).map((entry,i)=>({case:regressionStart+i,name:entry.name}));
+// Shared Date::toString gap remains visible: V8 includes its time-zone name.
+const sharedDateStringStart=cases.length;
+for (const zone of ['UTC','America/New_York']) {
+  add('CONCAT',[date(0)],zone);
+  add('REPT',[date(0),1],zone);
+}
+const sharedDateStringCases=cases.slice(sharedDateStringStart).map((entry,i)=>({case:sharedDateStringStart+i,name:entry.name}));
 for(const name of new Set(cases.map(c=>c.name))) {add(name,[]);add(name,[null]);add(name,[error('#REF!')]);}
 const rows=[];
-for(const entry of cases){process.env.TZ=entry.zone;const fn=entry.name.split('.').reduce((v,k)=>v[k],library);if(typeof fn!=='function')throw new Error(`Missing export ${entry.name}`);let result;try{result={value:encode(fn(...entry.args.map(decode)))}}catch(e){result={thrown:e.message}}rows.push({...entry,...result});}
+for(const entry of cases){process.env.TZ=entry.zone;const fn=entry.name.split('.').reduce((v,k)=>v[k],library);if(typeof fn!=='function')throw new Error(`Missing export ${entry.name}`);let result;try{const invoke=()=>fn(...entry.args.map(decode)); const answer=entry.name==='REPT'&&entry.args[1]>1e8?vm.runInNewContext('invoke()',{invoke},{timeout:1000}):invoke();result={value:encode(answer)}}catch(e){if(e.code==='ERR_SCRIPT_EXECUTION_TIMEOUT')throw e;result={thrown:e.message}}rows.push({...entry,...result});}
 const names=[...new Set(rows.map(c=>c.name))].sort();
 // The current clock cannot be recorded as a constant; the Rust test checks its Date shape and time window.
 const clocks=['NOW','TODAY'].map(name=>({name,kind:library[name]() instanceof Date?'Date':'other'}));
@@ -84,9 +124,9 @@ process.env.TZ='UTC';
 const formulas=['LEFT("😀",1)&RIGHT("😀",1)','CODE(LEFT("😀",1))','UNICODE(RIGHT("😀",1))','CHAR(55296)','TEXT(1.005,"0.00")','DATE(2024,2,29)','WORKDAY(DATE(2024,1,5),2)','SUBSTITUTE("abc","a","X",1)'];
 const engine=formulas.map(formula=>{const value=evaluateFormula(formula,{sheet:'Sheet1',value:()=>null});const xml=xmlEncode(value);return {formula,value:encode(value),xml:encode(xml),xmlUtf8:Buffer.from(xml,'utf8').toString('hex')};});
 const rawSurrogates=rows.map((r,i)=>({r,i})).filter(({r})=>r.value?.utf16&&r.value.utf16.some((u,i,us)=>u>=0xd800&&u<=0xdbff?!(us[i+1]>=0xdc00&&us[i+1]<=0xdfff):u>=0xdc00&&u<=0xdfff?!(us[i-1]>=0xd800&&us[i-1]<=0xdbff):false)).map(({r,i})=>({case:i,name:r.name,args:r.args,utf16:r.value.utf16}));
-const golden={version:1,library:pkg.version,normalization:'Strings carry both raw UTF-16 and well-formed text; tests must not hide lone-surrogate differences.',names,clocks,cases:rows,engine,knownSharedRepresentationGaps:rawSurrogates};
+const golden={version:1,library:pkg.version,referenceLocale:Intl.DateTimeFormat().resolvedOptions().locale,normalization:'Strings carry both raw UTF-16 and well-formed text; tests must not hide lone-surrogate differences.',names,clocks,cases:rows,engine,correctiveRegressions,sharedDateStringCases,v8MaxStringUnits:bufferConstants.MAX_STRING_LENGTH,knownSharedRepresentationGaps:rawSurrogates};
 const bytes=JSON.stringify(golden,null,2)+'\n';
 const hash=b=>createHash('sha256').update(b).digest('hex');
-const manifest={version:1,recorder:'benchmarks/rust-core/recorders/record-office-text-date.mjs',source:'node_modules/@formulajs/formulajs/lib/esm/index.mjs',sourceSha256:hash(await readFile(source)),library:pkg.version,files:[{path:'golden.json',sha256:hash(bytes),bytes:Buffer.byteLength(bytes)}],cases:rows.length,names:[...names,...clocks.map(c=>c.name)].sort()};
+const manifest={version:1,recorder:'benchmarks/rust-core/recorders/record-office-text-date.mjs',source:'node_modules/@formulajs/formulajs/lib/esm/index.mjs',sourceSha256:hash(await readFile(source)),library:pkg.version,referenceLocale:Intl.DateTimeFormat().resolvedOptions().locale,files:[{path:'golden.json',sha256:hash(bytes),bytes:Buffer.byteLength(bytes)}],cases:rows.length,names:[...names,...clocks.map(c=>c.name)].sort()};
 if(argv.includes('--write')){await mkdir(out,{recursive:true});await writeFile(resolve(out,'golden.json'),bytes);await writeFile(resolve(out,'MANIFEST.json'),JSON.stringify(manifest,null,2)+'\n');console.log(JSON.stringify({cases:rows.length,names:manifest.names.length,sha256:manifest.files[0].sha256}));}
 else process.stdout.write(bytes);

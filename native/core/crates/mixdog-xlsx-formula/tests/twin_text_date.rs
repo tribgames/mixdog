@@ -39,25 +39,9 @@ fn encode(v: Value) -> Json {
     }
 }
 fn equal(want: &Json, got: &Json) -> bool {
-    // JS exposes one NaN, not its CPU payload/sign. Every other number, including -0, is bit-exact.
-    for key in ["numberBits", "dateBits"] {
-        if let (Some(w), Some(g)) = (
-            want.get(key).and_then(Json::as_str),
-            got.get(key).and_then(Json::as_str),
-        ) {
-            let (w, g) = (
-                u64::from_str_radix(w, 16).unwrap(),
-                u64::from_str_radix(g, 16).unwrap(),
-            );
-            return w == g || (f64::from_bits(w).is_nan() && f64::from_bits(g).is_nan());
-        }
-    }
-    match (want, got) {
-        (Json::Array(w), Json::Array(g)) => {
-            w.len() == g.len() && w.iter().zip(g).all(|(w, g)| equal(w, g))
-        }
-        _ => want == got,
-    }
+    // Preserve every recorded bit, including NaN sign/payload. An unresolved
+    // representation or arithmetic difference remains a visible replay failure.
+    want == got
 }
 fn replay(golden: &Json) {
     let mut differences = Vec::new();
@@ -162,4 +146,31 @@ fn twin_live_text_date() {
     let golden: Json = serde_json::from_str(&raw).unwrap();
     assert_eq!(golden, twin::load_golden("office-text-date"));
     replay(&golden);
+}
+
+#[test]
+fn corrective_fixture_keeps_exact_nan_bits_and_bounded_resource_errors() {
+    let golden = twin::load_golden("office-text-date");
+    assert_eq!(golden["v8MaxStringUnits"], (1u64 << 29) - 24);
+    assert!(golden["correctiveRegressions"].as_array().unwrap().len() >= 30);
+    assert_eq!(golden["sharedDateStringCases"].as_array().unwrap().len(), 4);
+    assert!(!equal(
+        &json!({"numberBits":"7ff8000000000000"}),
+        &json!({"numberBits":"fff8000000000000"})
+    ));
+    assert!(!equal(
+        &json!({"dateBits":"7ff8000000000000"}),
+        &json!({"dateBits":"fff8000000000000"})
+    ));
+    let overflow = golden["correctiveRegressions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| &golden["cases"][case["case"].as_u64().unwrap() as usize])
+        .filter(|case| case["name"] == "REPT" && case.get("thrown").is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(overflow.len(), 2);
+    for case in overflow {
+        assert_eq!(case["thrown"], "Invalid string length");
+    }
 }

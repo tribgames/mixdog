@@ -50,21 +50,45 @@ fn make(y: f64, m: f64, d: f64, h: f64, min: f64, s: f64, ms: f64, constructor: 
         return f64::NAN;
     }
     let y = if constructor && (0.0..=99.0).contains(&y.trunc()) {
-        y + 1900.0
+        y.trunc() + 1900.0
     } else {
         y
     };
+    // V8 MakeDay rejects these finite but unrepresentable calendar inputs
+    // before normalizing months. Keep the original bounds, including large
+    // cancelling year/month pairs which still produce valid dates inside them.
+    if !(-1_000_000.0..=1_000_000.0).contains(&y) || !(-10_000_000.0..=10_000_000.0).contains(&m) {
+        return f64::NAN;
+    }
     let month = m.trunc() as i64;
     let year = y.trunc() as i64 + month.div_euclid(12);
-    local_to_utc_ms(
-        year,
-        month.rem_euclid(12) + 1,
-        d.trunc() as i64,
-        h.trunc() as i64,
-        min.trunc() as i64,
-        s.trunc() as i64,
-        ms.trunc() as i64,
-    )
+    let month = month.rem_euclid(12) + 1;
+    // Determine the wall time in i128 before the shared i64 calendar helpers
+    // multiply days/hours. Values outside the time clip plus one possible local
+    // UTC offset cannot yield a valid Date. No valid cancelling components are
+    // rejected merely because an individual component is outside a usual range.
+    let components = [d, h, min, s, ms];
+    if components.iter().any(|v| v.trunc().abs() > i64::MAX as f64) {
+        return f64::NAN;
+    }
+    let [day, hour, minute, second, milli] = components.map(|v| v.trunc() as i64);
+    let adjusted_year = i128::from(year) - i128::from(month <= 2);
+    let era = adjusted_year.div_euclid(400);
+    let year_of_era = adjusted_year - era * 400;
+    let march_month = i128::from((month + 9) % 12);
+    let day_of_year = (153 * march_month + 2) / 5;
+    let days = era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100
+        + day_of_year
+        - 719_468
+        + i128::from(day)
+        - 1;
+    let wall = days * 86_400_000
+        + ((i128::from(hour) * 60 + i128::from(minute)) * 60 + i128::from(second)) * 1000
+        + i128::from(milli);
+    if wall.abs() > 8_640_000_000_000_000_i128 + 86_400_000 {
+        return f64::NAN;
+    }
+    local_to_utc_ms(year, month, day, hour, minute, second, milli)
 }
 fn midnight(t: f64) -> f64 {
     local_fields(t).map_or(f64::NAN, |f| {
@@ -173,6 +197,8 @@ fn yfrac(start: f64, end: f64, basis: &V) -> V {
                 let march = |y| make(y as f64, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, true);
                 let feb = (leap(s.year) && start < march(s.year) && end >= march(s.year))
                     || (leap(e.year) && end >= march(e.year) && start < march(e.year));
+                // The original also uses getMonth()+1, then tests month==1:
+                // its January-29 quirk is intentional parity, not February.
                 days / if (s.year == e.year && leap(s.year)) || feb || (e.month == 1 && ed == 29.0)
                 {
                     366.0

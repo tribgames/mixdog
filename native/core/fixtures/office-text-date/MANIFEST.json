@@ -4,14 +4,15 @@
   "source": "node_modules/@formulajs/formulajs/lib/esm/index.mjs",
   "sourceSha256": "4d3b65138fcbe8c4f6e8cca02725f392f489e6e63f9336b965437a3b7b9f257e",
   "library": "4.6.1",
+  "referenceLocale": "ko-KR",
   "files": [
     {
       "path": "golden.json",
-      "sha256": "f7fb2d5bc7cddeeadec80a0f408387e8f043a08f8d7b5fd517ac80c5b47a6339",
-      "bytes": 260232
+      "sha256": "7fdece4799a809c5e3c5ec45a2ac4d94241f2e51aeca756879e24d5abd3d13fd",
+      "bytes": 328215
     }
   ],
-  "cases": 1001,
+  "cases": 1043,
   "names": [
     "CHAR",
     "CHOOSE",
