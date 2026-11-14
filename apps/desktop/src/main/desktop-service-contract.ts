@@ -67,14 +67,6 @@ export interface DesktopService {
   /** Base64 of a stored attachment blob; null when it is permanently unreadable
    *  or, given `maxBytes`, larger than that on disk (decided without reading it). */
   readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null>;
-  /** The session's transcript as this host holds it (the window its views
-   *  were sent), read without publishing when nothing is held. Host-only:
-   *  a paired device's full-output reads and its attachment lookups. */
-  readSessionTranscript?(sessionId: string): Promise<SessionSnapshot>;
-  /** The session's whole stored conversation — every row, compaction-archived
-   *  history included — which `readSessionTranscript` (a window) may not hold.
-   *  Host-only: it decides whether an attachment id belongs to the session. */
-  readSessionHistory?(sessionId: string): Promise<SessionSnapshot | null>;
   markSessionRead(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
   searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]>;
@@ -191,8 +183,6 @@ export const DESKTOP_SERVICE_METHODS = [
   'listSessions',
   'readSessionFinalAnswer',
   'readAttachmentImage',
-  'readSessionTranscript',
-  'readSessionHistory',
   'markSessionRead',
   'listAgentPool',
   'searchSessionContent',
