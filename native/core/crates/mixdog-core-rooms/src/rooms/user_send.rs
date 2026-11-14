@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::boundary::validate::prompt::canonical_prompt_file_mime;
 use mixdog_js::{js_trim, slice_utf16, utf16_len};
 use serde_json::{Map, Value, json};
 
@@ -74,16 +75,6 @@ const MAX_SESSION_ID_LENGTH: usize = 256;
 /// `SUBMIT_OPTION_KEYS` (`ipc-validation.ts:339-349`), `id` as the wire names it.
 const SUBMIT_OPTION_KEYS: [&str; 9] =
     ["clientSubmissionId", "submittedAt", "displayText", "goalCommand", "retryFailedTurn", "priority", "pastedImages", "pastedTexts", "kickoff"];
-/// `OFFICE_MIME_TYPES` (`shared/prompt-limits.ts:21-31`).
-const OFFICE_MIME_TYPES: [&str; 7] = [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel.sheet.macroEnabled.12",
-    "application/msword",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.ms-excel",
-];
 
 /// `requiredSessionId` (`desktop-state.ts:58-65`).
 fn required_session_id(value: Option<&Value>) -> Result<String, RoomError> {
@@ -109,16 +100,6 @@ fn required_string(value: Option<&Value>, name: &str, maximum: usize) -> Result<
 fn base64_shaped(data: &str) -> bool {
     let body = data.trim_end_matches('=');
     data.len() - body.len() <= 2 && body.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
-}
-
-/// `canonicalPromptFileMimeType` (`shared/prompt-limits.ts:35-42`).
-fn canonical_file_mime(mime: &str) -> Option<&'static str> {
-    let base = mime.split(';').next().unwrap_or_default();
-    let base = mixdog_js::js_to_lowercase(js_trim(base));
-    if base == "application/pdf" {
-        return Some("application/pdf");
-    }
-    OFFICE_MIME_TYPES.into_iter().find(|candidate| mixdog_js::js_to_lowercase(candidate) == base)
 }
 
 /// A part's `data`: a non-empty base64 text of at most `maximum` units.
@@ -179,7 +160,7 @@ fn required_prompt_content(value: Option<&Value>) -> Result<Value, RoomError> {
                     return Err(invalid("too many prompt files."));
                 }
                 let mime = required_string(part.get("mimeType"), "file mime type", MAX_PROMPT_FILE_MIME_LENGTH)?;
-                let mime = canonical_file_mime(&mime).ok_or_else(|| invalid("file type is unsupported."))?;
+                let mime = canonical_prompt_file_mime(&mime).ok_or_else(|| invalid("file type is unsupported."))?;
                 let data = part_data(part, MAX_PROMPT_FILE_BASE64_LENGTH, "file data is invalid.")?;
                 file_length += data.len();
                 if file_length > MAX_PROMPT_FILE_BASE64_TOTAL {
