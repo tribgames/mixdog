@@ -279,8 +279,7 @@ async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone(
 
     let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
     assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
-    let leased = env.service.file_leases().open(previewed["mediaAssetId"].as_str().unwrap()).expect("the preview leased the file");
-    assert_eq!(leased.size, 8);
+    assert!(previewed.get("mediaAssetId").is_none(), "a preview mints no media lease: {previewed:?}");
     let mut range = target("pic.png", &pic);
     range["offset"] = json!(4);
     range["length"] = json!(2);
