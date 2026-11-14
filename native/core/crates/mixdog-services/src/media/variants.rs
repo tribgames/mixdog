@@ -75,6 +75,12 @@ pub async fn resolve_media_file(store: &Arc<MediaStore>, renditions: &StillRendi
         entry["available"] = json!(false);
         return Ok(entry);
     };
+    if let Some(seconds) = rendition.duration_seconds {
+        // A duration probed while building the poster, kept so the gallery badge survives a restart.
+        let owned = str_of(&entry, "id").to_owned();
+        store.run(move |s| s.remember_duration(&owned, seconds)).await??;
+        entry["durationSeconds"] = json!(seconds);
+    }
     entry["path"] = json!(rendition.path.to_string_lossy());
     entry["mime"] = json!(rendition.mime);
     entry["bytes"] = json!(rendition.bytes);

@@ -318,3 +318,18 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     provider.install(None, &CancellationToken::new()).await.expect("again");
     assert_eq!(server.hits(&format!("/{id}/resolve/main/tokenizer.json")), 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_routed_by_the_network_proxy_policy_still_lands {
+    let policy = mixdog_ai::netproxy::NetworkProxy::new(Arc::new(mixdog_ai::netproxy::ProcessEnv), mixdog_ai::netproxy::SystemProxy::default());
+    let clients = mixdog_ai::netproxy::clients::RoutedClients::new(policy, |_| reqwest::Client::builder().no_proxy().build());
+    crate::model_install::route_downloads(Arc::new(clients));
+    let body = big(3, 5_000);
+    let server = Server::start(vec![("/routed", Route::Body(body.clone()))]).await;
+    let dir = tempfile::tempdir().expect("dir");
+    let dest = dir.path().join("routed.bin");
+    let url = format!("{}/routed", server.base);
+    let spec = Spec { url: &url, dest: &dest, max_bytes: 10_000, expected_bytes: 0, label: "routed", lane: lane() };
+    assert_eq!(download_to_file(&spec, None, &CancellationToken::new()).await.expect("downloads"), body.len() as u64);
+    assert_eq!(std::fs::read(&dest).expect("file"), body);
+}

@@ -332,6 +332,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let app = state.app.clone();
     config.announce_to(Arc::new(move |method, params| app.notify(method, &params)));
     let watcher = ConfigWatcher::start_with_secrets(config.clone(), inputs.secrets.clone()).map_err(ComposeDomainsError::Watch)?;
+    // Model, runtime and engine downloads follow the network proxy setting and the OS's system proxy.
+    mixdog_services::model_install::route_downloads(inputs.seams.routed_clients.clone());
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone()).with_data_dir(inputs.paths.data_dir.clone());

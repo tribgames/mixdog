@@ -9,14 +9,21 @@
 //! - failed: the load failed; the failure is remembered for this instance (a
 //!   new instance, after an install or repair, is the retry) and recall runs on
 //!   its text lanes.
+//!
+//! A loaded model is released after an idle window (`IDLE_TIMEOUT`, the worker's idle dispose): a
+//! disposed model costs a reload, so the window is long, and a backlog being worked holds it warm
+//! ([`EmbeddingProvider::hold_warm`]).
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use mixdog_js::{js_trim};
 use serde_json::{Value, json};
 use mixdog_rt::Gate;
+use mixdog_rt::time::Instant;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
@@ -26,15 +33,62 @@ use crate::memory::embed::{compress, install};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
+/// The worker's `IDLE_TIMEOUT_MS`: 5 minutes.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// `EMBED_KEEP_WARM_MS`: how long a backlog being worked keeps the model resident.
+pub const KEEP_WARM: Duration = Duration::from_secs(6 * 60);
+
 type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
 type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
+
+/// When the model was last asked for, and until when a backlog keeps it warm (`createIdleLease`).
+struct Usage {
+    last_use: std::sync::Mutex<Instant>,
+    warm_until: std::sync::Mutex<Option<Instant>>,
+    /// A release timer is running.
+    armed: AtomicBool,
+}
+
+fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Releases the model once it has not been asked for during `idle` and no backlog holds it warm. A
+/// lease that is still held re-arms a full window; the timer ends with the provider.
+async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Usage>, idle: Duration, tick: StateTick) {
+    loop {
+        let seen = *locked(&usage.last_use);
+        mixdog_rt::time::sleep_until_unrefed(seen + idle).await;
+        let Some(loaded) = loaded.upgrade() else { return };
+        let now = Instant::now();
+        let last = *locked(&usage.last_use);
+        if locked(&usage.warm_until).is_some_and(|until| now < until) {
+            *locked(&usage.last_use) = now;
+            continue;
+        }
+        if now < last + idle {
+            continue;
+        }
+        usage.armed.store(false, Ordering::Release);
+        *locked(&loaded) = Loaded::default();
+        tick.bump();
+        // Asked for while it was released: the new load needs its own timer.
+        if *locked(&usage.last_use) > last && !usage.armed.swap(true, Ordering::AcqRel) {
+            continue;
+        }
+        return;
+    }
+}
 
 pub struct EmbeddingProvider {
     config: EmbedConfig,
     hub: String,
     /// The load, shared by every caller; a failure stays until a dispose. Shared with the task that runs
     /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
-    loaded: std::sync::Mutex<Loaded>,
+    loaded: Arc<std::sync::Mutex<Loaded>>,
+    usage: Arc<Usage>,
+    /// The idle window; zero never releases (`MIXDOG_EMBED_IDLE_TIMEOUT_MS=0`).
+    idle: Duration,
     /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
     /// dispose included.
     compress_started: Arc<std::sync::atomic::AtomicBool>,
@@ -56,13 +110,21 @@ impl EmbeddingProvider {
         Self {
             config,
             hub: install::HUB.to_owned(),
-            loaded: std::sync::Mutex::default(),
+            loaded: Arc::default(),
+            usage: Arc::new(Usage { last_use: std::sync::Mutex::new(Instant::now()), warm_until: std::sync::Mutex::new(None), armed: AtomicBool::new(false) }),
+            idle: IDLE_TIMEOUT,
             compress_started: Arc::default(),
             load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
             installing: Gate::new(),
             tick,
             compact: None,
         }
+    }
+
+    /// Releases the model after `idle` without use instead of [`IDLE_TIMEOUT`]; zero never releases.
+    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
+        self.idle = idle;
+        self
     }
 
     /// Compress the model cache with `compact` once the model first loads.
@@ -119,6 +181,26 @@ impl EmbeddingProvider {
         self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
+    /// A backlog is being worked: the model stays resident for [`KEEP_WARM`] more (it expires on its own,
+    /// so a stopped backlog never pins the model).
+    pub fn hold_warm(&self) {
+        let until = Instant::now() + KEEP_WARM;
+        let mut warm = locked(&self.usage.warm_until);
+        *warm = Some(warm.map_or(until, |held| held.max(until)));
+    }
+
+    /// The model was just asked for: the idle window restarts, and the release timer runs.
+    fn touched(&self) {
+        if self.idle.is_zero() {
+            return;
+        }
+        *locked(&self.usage.last_use) = Instant::now();
+        if !self.usage.armed.swap(true, Ordering::AcqRel) {
+            let (loaded, usage, idle, tick) = (Arc::downgrade(&self.loaded), self.usage.clone(), self.idle, self.tick.clone());
+            tokio::spawn(release_when_idle(loaded, usage, idle, tick));
+        }
+    }
+
     /// The worker's `dispose`: the loaded model (or the remembered failure) is released, so the next
     /// warmup loads again.
     pub fn dispose(&self) {
@@ -129,6 +211,7 @@ impl EmbeddingProvider {
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
     /// not installed; `Err` is the remembered load failure.
     pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
+        self.touched();
         if let Some(loaded) = self.current().get() {
             return loaded.clone().map(Some);
         }
@@ -242,5 +325,48 @@ mod unbuilt_tests {
         assert_eq!(info["engine"], "Transformers.js · ONNX Runtime");
         // Node recorded supported: true on win32/x64 (onnxRuntimeSupported(): only macOS Intel has no binding).
         assert_eq!(info["supported"], !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")));
+    }
+}
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+
+    fn failing(dir: &std::path::Path, idle: Duration) -> EmbeddingProvider {
+        EmbeddingProvider::installed_with_load(dir, || Box::pin(async { Err("no model in this test".to_owned()) })).with_idle_timeout(idle)
+    }
+
+    async fn settled(provider: &EmbeddingProvider) -> bool {
+        for _ in 0..100 {
+            if provider.current().get().is_none() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn an_idle_model_is_released_and_the_next_use_loads_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = failing(dir.path(), Duration::from_millis(40));
+        assert!(provider.warmup().await.is_err());
+        assert!(provider.current().get().is_some());
+        assert!(settled(&provider).await, "the idle model was not released");
+        assert!(provider.warmup().await.is_err());
+        assert!(provider.current().get().is_some(), "the next use loads again");
+    }
+
+    #[tokio::test]
+    async fn a_backlog_holds_the_model_and_a_zero_window_never_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = failing(dir.path(), Duration::from_millis(30));
+        assert!(held.warmup().await.is_err());
+        held.hold_warm();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(held.current().get().is_some(), "a held model is released");
+        let never = failing(dir.path(), Duration::ZERO);
+        assert!(never.warmup().await.is_err());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(never.current().get().is_some());
     }
 }

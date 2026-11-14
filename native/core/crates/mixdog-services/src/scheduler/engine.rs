@@ -59,6 +59,8 @@ struct State {
     /// Held while jobs are armed: an armed schedule keeps the core alive.
     keep_alive: Option<WorkGuard>,
     started: bool,
+    /// `<DATA_DIR>/prompts`: where a relative prompt reference (or the `<name>.md` default) is read from.
+    prompts_dir: Option<std::path::PathBuf>,
 }
 
 struct Inner {
@@ -136,6 +138,11 @@ impl Scheduler {
         #[cfg(any(test, feature = "test-support"))]
         self.record(serde_json::json!(["scheduler.stop"]));
         self.inner.stop();
+    }
+
+    /// Sets the folder a relative prompt reference is read from (`<DATA_DIR>/prompts`).
+    pub fn set_prompts_dir(&self, dir: std::path::PathBuf) {
+        self.inner.state.lock().unwrap().prompts_dir = Some(dir);
     }
 
     /// Replaces the loaded schedules (enabled ones only) without touching what is armed: the config a
@@ -663,13 +670,30 @@ impl Inner {
             self.update(name, |s| s.last_skipped_at = Some(now));
             return Ok(false);
         }
-        let prompt = row.map(|r| r.prompt).unwrap_or_default();
+        let prompt = self.resolve_prompt(name, row.map(|r| r.prompt).unwrap_or_default());
         if prompt.is_empty() {
             self.notify_failure(name, "prompt not found — fire skipped");
             return Ok(false);
         }
         self.update(name, |s| s.prompt = prompt.clone());
         self.fire_timed_prompt(armed, prompt, opts).await
+    }
+
+    /// The prompt to run: the file the row's prompt names (a path, or a name under the prompts folder;
+    /// an empty prompt means `<name>.md`) when it reads to something, else the row's own text.
+    fn resolve_prompt(&self, name: &str, inline: String) -> String {
+        let reference = if inline.is_empty() { format!("{name}.md") } else { inline.clone() };
+        let path = std::path::Path::new(&reference);
+        let full = if path.is_absolute() {
+            Some(path.to_path_buf())
+        } else {
+            self.state.lock().unwrap().prompts_dir.as_ref().map(|dir| dir.join(path))
+        };
+        let from_file = full.and_then(|f| std::fs::read(f).ok()).map(|b| String::from_utf8_lossy(&b).trim().to_owned());
+        match from_file {
+            Some(text) if !text.is_empty() => text,
+            _ => inline,
+        }
     }
 
     async fn fire_timed_prompt(

@@ -95,6 +95,16 @@ impl EmbedEnv {
         Self { model: std::env::var("MIXDOG_EMBED_MODEL").ok(), dtype: std::env::var("MIXDOG_EMBED_DTYPE").ok() }
     }
 
+    /// How long the loaded model may sit unused before it is released: `MIXDOG_EMBED_IDLE_TIMEOUT_MS` when it
+    /// is a number from 0 up (0 never releases), else five minutes.
+    pub fn idle_timeout() -> std::time::Duration {
+        let set = std::env::var("MIXDOG_EMBED_IDLE_TIMEOUT_MS").ok().map(|v| mixdog_js::string_to_number(&v));
+        match set {
+            Some(ms) if ms.is_finite() && ms >= 0.0 => std::time::Duration::from_millis(ms as u64),
+            _ => super::provider::IDLE_TIMEOUT,
+        }
+    }
+
     /// `getConfiguredEmbeddingModelId`: the trimmed model setting, else the default model.
     pub fn model_id(&self) -> String {
         let model = js_trim(self.model.as_deref().unwrap_or_default());
