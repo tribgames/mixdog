@@ -128,11 +128,12 @@ test('a saved account is written into the page and the form answer goes back', a
   assert.deepEqual(taken.log, ['fill work']);
 });
 
-test('a turn end and a session release reach the host bookkeeping', async () => {
+test('a turn start, a turn end and a session release reach the host bookkeeping', async () => {
   const h = harness();
+  assert.deepEqual(await h.call('turn', { sessionId: 'sess', op: 'begin', turn: 4 }), { closed: 0 });
   assert.deepEqual(await h.call('turn', { sessionId: 'sess', op: 'end', turn: 3, aborted: true }), { closed: 2 });
   assert.deepEqual(await h.call('turn', { sessionId: 'sess', op: 'forget' }), { closed: 0 });
-  assert.deepEqual(h.log, ['finish sess 3 true', 'forget sess']);
+  assert.deepEqual(h.log, ['begin sess 4', 'finish sess 3 true', 'forget sess']);
   await assert.rejects(h.call('turn', { sessionId: 'sess', op: 'end' }), (e) => e.code === -32602);
   await assert.rejects(h.call('turn', { sessionId: 'sess', op: 'nope', turn: 1 }), (e) => e.code === -32602);
 });

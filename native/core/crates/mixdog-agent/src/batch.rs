@@ -626,6 +626,14 @@ impl Run {
         Some(dedup_stub(&call.name, first_iteration, self.cross_turn.stub_total >= 5))
     }
 
+    /// A failed executed call keeps its FULL command text in the stored assistant turn (`restoreToolCallBodyForId`), so the model
+    /// retries against its own draft and not the compaction marker.
+    fn restore_failed_call_body(&mut self, wire_calls: &[ToolCall], call_id: &str) {
+        if let Some(assistant) = self.messages.iter_mut().rev().find(|m| m.tool_calls().iter().any(|call| call.id == call_id)) {
+            crate::stored_args::restore_call_body(assistant, wire_calls, call_id);
+        }
+    }
+
     /// Bookkeeping once a call has its result, in call order.
     /// Returns whether the body is a cache candidate (stored after the batch's
     /// budgets, so cache and transcript receive the same body).
@@ -791,6 +799,9 @@ impl Run {
                     let sig_pair = std::mem::take(&mut sigs[recorded]);
                     cacheable[recorded] =
                         self.record_executed(&calls[recorded], &result, sig_pair, later_mutation).await;
+                    if result.failed {
+                        self.restore_failed_call_body(wire_calls, &wire_calls[recorded].id);
+                    }
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     tool_ms[recorded] = result.tool_ms;

@@ -864,6 +864,19 @@ impl BrowserEngine {
 }
 
 impl TurnEvents for BrowserEngine {
+    fn turn_begun(&self, thread: &ThreadId) {
+        // A session that never used the browser has nothing to tell the host (its first command marks it live there).
+        if !locked(&self.inner.directory).sessions.contains_key(thread.as_str()) {
+            return;
+        }
+        let turn = locked(&self.inner.tasks).current(thread.as_str());
+        let inner = self.inner.clone();
+        let thread = thread.clone();
+        mixdog_rt::spawn("browser-turn-begin", mixdog_rt::TaskClass::Work, async move {
+            inner.turn_note(&thread, BrowserTurnOp::Begin, Some(turn), false).await;
+        });
+    }
+
     fn turn_ended(&self, thread: &ThreadId, aborted: bool) {
         // The turn's end is marked here, before this returns: the first command of the next turn is the next turn's however soon it
         // comes. Only the closing of the pages and the note to the host are left to the task.
@@ -2687,6 +2700,19 @@ mod tests {
         }
         assert_eq!(engine.inner.close_ended(&thread(), ended, true).await, 1);
         host.finish().expect("the ended turn's page closed after the next turn's command");
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_starts_after_a_command_ran_is_told_to_the_host_and_one_of_a_session_that_never_used_the_browser_is_not() {
+        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
+        let engine = engine(&host, None);
+        engine.turn_begun(&thread());
+        tokio::task::yield_now().await;
+        assert!(host.calls().iter().all(|call| call.method != "host/browser/turn"), "nothing to tell before the session used the browser");
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        engine.inner.turn_note(&thread(), BrowserTurnOp::Begin, Some(2), false).await;
+        let begun = host.calls().into_iter().rfind(|call| call.method == "host/browser/turn").expect("the host is told the turn started");
+        assert_eq!((begun.params["op"].as_str(), begun.params["turn"].as_i64()), (Some("begin"), Some(2)));
     }
 
     #[tokio::test]

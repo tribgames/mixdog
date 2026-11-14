@@ -182,7 +182,13 @@ impl FreshCompactor {
 #[async_trait]
 impl Compactor for FreshCompactor {
     fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
-        self.parts.meter().messages(messages)
+        let meter = self.parts.meter();
+        let tokens = meter.messages(messages);
+        // The transcript estimate prices every PDF as a native document; a provider that takes PDFs as text sends at most the extraction budget.
+        match &self.triggers {
+            Some(triggers) if !triggers.native_pdf => tokens.saturating_sub(meter.text_pdf_discount(messages)),
+            _ => tokens,
+        }
     }
 
     async fn prepare(&self, messages: &[AgentMessage]) {

@@ -1359,6 +1359,7 @@ impl Run {
             calls: calls.clone(),
         });
         let mut assistant = tool_call_message(&response);
+        assistant.message.tool_calls = crate::stored_args::compact_calls(&calls);
         assistant.turn_reminder = self.last_reminder.clone();
         let ticket = self.push(assistant).await?;
         // The tools start only once the assistant item that carries their

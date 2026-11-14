@@ -38,6 +38,7 @@ pub mod result_kind;
 pub mod run;
 pub mod skill_update;
 mod send;
+mod stored_args;
 #[cfg(feature = "test-support")]
 pub mod test_hooks;
 pub use send::assemble_request;
