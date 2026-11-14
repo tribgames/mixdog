@@ -45,9 +45,10 @@ mixdog-exthost-worker = { workspace = true }
 # 4. line ~351 `render_browser()` body unchanged (RoutedExtPool::render_browser has the same signature).
 # 5. line ~390 `pub fn ext_host(&self) -> &Arc<ExtHostPool>` -> `&Arc<RoutedExtPool>`.
 # 6. line ~729 the construction: `Arc::new(ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?)`
-#    -> `Arc::new(ext_host_pool(ext_host_config(js, data_dir, tokens).map_err(ComposeError::StateDir)?).map_err(ComposeError::ExtHost)?)`
-#    (use whichever ComposeError variant carries an io::Error for a missing current executable; add
-#    `ExtHostExe(std::io::Error)` with Display "the running executable cannot be found: {0}" if none fits).
+#    -> `Arc::new(ext_host_pool(ext_host_config(js, data_dir, tokens).map_err(ComposeError::ExtHostExe)?).map_err(ComposeError::ExtHost)?)`
+#    and add to `enum ComposeError`, after the `ExtHost(ExtHostError)` variant (no existing variant carries this io::Error):
+#        #[error("the running executable cannot be found: {0}")]
+#        ExtHostExe(std::io::Error),
 #    `ExecHosts { ext_pool: ext_host.clone() ... }` (line ~751) and `ext_host: ext_host.clone()` coerce unchanged.
 # 7. `close_ext_host` (line ~362) `self.ext_host.close().await` is unchanged: RoutedExtPool::close closes the Node pool,
 #    then the Rust pool and the shared browser.
