@@ -25,6 +25,7 @@ use tokio_util::sync::WaitForCancellationFuture;
 use crate::connection::AcceptedConnection;
 use crate::connection::ConnectionOrigin;
 use crate::connection::InboundFrames;
+use crate::connection::WindowRole;
 use crate::inbound::read_loop;
 use crate::socket::SocketRead;
 use crate::socket::SocketWrite;
@@ -214,6 +215,18 @@ impl Pending {
     /// never raise them.
     pub fn narrow_to_relay(&self, peer_id: String) -> bool {
         self.shared.narrow(ConnectionOrigin::Relay { peer_id })
+    }
+
+    /// Scopes this socket as one desktop window's. The window keeps the listener's rights
+    /// (`Local` on the loopback listener, `Ssh` on the tunnel's); only the window id and role
+    /// are added, and only before the connection starts. False when an origin was taken already.
+    pub fn narrow_to_window(&self, window_id: String, role: WindowRole) -> bool {
+        let tunnel = matches!(self.shared.origin(), ConnectionOrigin::SshTunnel);
+        self.shared.narrow(ConnectionOrigin::Window {
+            window_id,
+            tunnel,
+            role,
+        })
     }
 
     /// Resolves when the heartbeat or a drain abandons this socket.

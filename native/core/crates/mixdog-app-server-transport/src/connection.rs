@@ -21,14 +21,48 @@ pub enum ConnectionOrigin {
     /// A client in this process (headless `mixdogd exec`). It holds the local user's authority,
     /// so the method table scopes it as `Origin::Local`: the protocol has no separate origin.
     InProcess,
+    /// One desktop window's socket: it named itself with `Mixdog-Window` on the loopback
+    /// listener, or on the one an SSH port forward targets (`tunnel`). It keeps the rights of
+    /// the listener it came through, so the method table scopes it as `Local` or `Ssh`.
+    Window {
+        window_id: String,
+        tunnel: bool,
+        role: WindowRole,
+    },
+}
+
+/// What a window's socket is for, from `Mixdog-Window-Role`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowRole {
+    /// The window's own main connection (no role header means this).
+    Main,
+    /// A socket the window keeps for the server connection `connection_id`.
+    Server { connection_id: String },
 }
 
 impl ConnectionOrigin {
+    /// The window id of a [`Self::Window`] connection.
+    pub fn window_id(&self) -> Option<&str> {
+        match self {
+            Self::Window { window_id, .. } => Some(window_id),
+            _ => None,
+        }
+    }
+
+    /// The role of a [`Self::Window`] connection.
+    pub fn window_role(&self) -> Option<&WindowRole> {
+        match self {
+            Self::Window { role, .. } => Some(role),
+            _ => None,
+        }
+    }
+
     /// The origin the method table scopes calls by.
     pub fn origin(&self) -> Origin {
         match self {
             Self::Loopback | Self::InProcess => Origin::Local,
-            Self::SshTunnel => Origin::Ssh,
+            Self::SshTunnel | Self::Window { tunnel: true, .. } => Origin::Ssh,
+            Self::Window { tunnel: false, .. } => Origin::Local,
             Self::Relay { .. } => Origin::Relay,
         }
     }
