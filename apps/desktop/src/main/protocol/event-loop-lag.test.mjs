@@ -1,15 +1,15 @@
-// The bound that lets Electron main own the client library (desktop-services.md §12): under reconnect storms with a
-// large app snapshot and several sessions streaming at once, the main event loop is never blocked for more than 50 ms.
+// The bound that lets a process own the client library (desktop-services.md §12): under reconnect storms with a
+// large app snapshot and several sessions streaming at once, the event loop is never blocked for more than 50 ms.
 //
-// What runs: the real client library folding frames from its mock transport, the real connection relaying the store to a
-// window, and a real event-loop delay monitor (perf_hooks `monitorEventLoopDelay`) over the whole storm. The scripted
+// What runs: the real client library folding frames from its mock transport, a store listener standing for the
+// consumer of every change, and a real event-loop delay monitor (perf_hooks `monitorEventLoopDelay`) over the whole storm. The scripted
 // core streams every session from its own immediate-loop in bursts of 200 frames (one burst is delivered in a single
 // synchronous run, as the frames of one socket read are), drops the socket in the middle of the stream, and the next
 // generation re-handshakes, re-sends the ~1 MB app snapshot and re-folds the sessions while the streams of the other
 // sessions keep going. No frame is awaited between bursts. Frames are built before the monitor starts.
 //
-// `structuredClone` stands in for Electron's IPC serialisation (both are V8's structured-clone algorithm); the window's
-// push handler runs it on every push, so its cost is inside the measured turns.
+// `structuredClone` stands in for Electron's IPC serialisation (both are V8's structured-clone algorithm); the listener
+// runs it on every changed section, so its cost is inside the measured turns.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { monitorEventLoopDelay, PerformanceObserver } from 'node:perf_hooks';
@@ -18,8 +18,6 @@ import test from 'node:test';
 import { connect, sessionReducer } from '../../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts';
 import { SECTION_NAMES } from '../../shared/contract-sections.ts';
-import { createProtocolConnection } from './connection.ts';
-import { REPLACE_CHUNK_ENTRIES } from './section-relay.ts';
 
 const MAX_LOOP_BLOCK_MS = 50;
 const THREADS = ['t1', 't2', 't3', 't4'];
@@ -215,24 +213,16 @@ test('reconnect storms over concurrent streams in several sessions never block t
   // The incremental fold and the chunked replace finish over several turns; the next storm waits for them (a drop mid-fold discards it, and a newer replace supersedes an unfinished one).
   let folded = 0;
   client.store.subscribe((change) => void (change.type === 'appSnapshot' && folded++));
-  const pushes = { count: 0, replaces: 0, chunks: 0 };
-  // Every store listener (the relay's dirty marking, the connection's section watchers) runs under one label.
+  const delivered = { count: 0 };
+  // Every store listener (the consumer's section watchers) runs under one label.
   const subscribe = client.store.subscribe.bind(client.store);
   client.store.subscribe = (listener) => subscribe((change) => turnLog.timed('store listeners', () => listener(change)));
-  const connection = createProtocolConnection({
-    open: async () => client,
-    defer: (flush) => void setImmediate(() => turnLog.timed('relay flush (excl. IPC clone)', flush)),
+  client.store.subscribe((change) => {
+    if (change.type === 'appSnapshot') return;
+    turnLog.timed('IPC clone: delta', () => structuredClone(change));
+    delivered.count += 1;
   });
-  connection.attach({
-    push: (push) => {
-      turnLog.timed(push.kind === 'replace' ? 'IPC clone: replace chunk' : 'IPC clone: delta', () => structuredClone(push));
-      pushes.count += 1;
-      if (push.kind === 'replace' && push.stage === 'commit') pushes.replaces += 1;
-      if (push.kind === 'replace' && push.stage === 'chunk') pushes.chunks += 1;
-    },
-    notification() {},
-  });
-  await connection.start();
+  await client.subscribeApp();
   for (const id of THREADS) await client.resumeThread(id, { lastItems: 50 });
   // The first generation is the warm-up: it runs with the real code paths but outside the measurement.
   await immediate();
@@ -248,21 +238,20 @@ test('reconnect storms over concurrent streams in several sessions never block t
     await prepare(next);
     const previous = current;
     const foldedBefore = folded;
-    const replacesBefore = pushes.replaces;
     previous.serverClose(1006);
     gen.streams.clear();
     gen.pool = [];
     current = await net.accept();
     void serve(current, next);
     // The new generation's re-handshake, ~1 MB snapshot and session re-folds run while its streams start.
-    while (next.threadSnapshots < THREADS.length || next.framesSent < THREADS.length * BURST_FRAMES * 3 || folded === foldedBefore || pushes.replaces === replacesBefore) {
+    while (next.threadSnapshots < THREADS.length || next.framesSent < THREADS.length * BURST_FRAMES * 3 || folded === foldedBefore) {
       await immediate();
     }
   }
   monitor.disable();
   turnLog.stop();
-  // The last reconnect's snapshot folds over several turns; its replace follows appSnapshot.
-  for (let i = 0; i < 2000 && pushes.replaces < STORMS; i++) await immediate();
+  // The last reconnect's snapshot folds over several turns.
+  for (let i = 0; i < 2000 && folded < STORMS; i++) await immediate();
 
   const worstMs = monitor.max / 1e6;
   const longTurns = turnLog.report();
@@ -271,15 +260,14 @@ test('reconnect storms over concurrent streams in several sessions never block t
     console.log(`# turn ${turn.ms.toFixed(1)} ms: ${owners.join('; ')}`);
   }
   // Not vacuous: one handshake and one app snapshot per generation, every session re-folded each time, every storm
-  // streamed mid-session, and the windows were replaced with the whole store after each reconnect.
+  // streamed mid-session, and the store held the whole snapshot after each reconnect.
   assert.ok(generations.every((g, i) => i === 0 || (g.appSnapshots === 1 && g.threadSnapshots === THREADS.length)));
   assert.ok(generations.slice(1).every((g) => g.framesSent >= THREADS.length * BURST_FRAMES * 3), 'every storm streamed');
-  assert.ok(connection.snapshot().entries.length >= APP_SECTIONS, 'the large snapshot is in the store');
-  assert.ok(pushes.count > 0 && pushes.replaces >= STORMS, 'the window was replaced after every reconnect');
-  assert.ok(pushes.chunks >= pushes.replaces * Math.floor(APP_SECTIONS / REPLACE_CHUNK_ENTRIES), 'each replace went out in budgeted chunks');
+  const held = SECTION_NAMES.flatMap((name) => client.store.sections(name)).length;
+  assert.ok(held >= APP_SECTIONS, 'the large snapshot is in the store');
+  assert.ok(delivered.count > 0 && folded >= STORMS, 'the store was folded after every reconnect and its changes were delivered');
   assert.ok(worstMs <= MAX_LOOP_BLOCK_MS, `the main loop was blocked ${worstMs.toFixed(1)} ms (limit ${MAX_LOOP_BLOCK_MS})`);
   console.log(`# worst main-loop delay ${worstMs.toFixed(1)} ms over ${STORMS} storms`);
-  await connection.close();
 });
 
 

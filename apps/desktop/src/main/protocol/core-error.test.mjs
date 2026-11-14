@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { SECTIONS_IPC } from '../../shared/contract-sections.ts';
 import { ipcErrorEnvelope, ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { worktreeFailure } from '../../renderer/worktree-branch-model.ts';
-import { worktreeErrorWithCode } from '../worktree-validation.ts';
-import { coreErrorForWindow } from './core-error.ts';
-import { registerProtocolWindowIpc } from './window-ipc.ts';
+import { createCapabilityLane } from '../../shared/core-lanes/capability-route.ts';
+import { coreErrorForWindow } from '../../shared/core-lanes/core-error.ts';
+import { worktreeErrorWithCode } from '../../shared/worktree-error.ts';
 
 // The client library's failure shape: `message` is `<code> <reason> <jsonrpc message>`, `detail.data` the ErrorData.
 const rpcFailure = (data) =>
@@ -131,26 +130,24 @@ test('a coded refusal of another family goes through the IPC envelope with its c
 });
 
 test('a window call that the core refuses with a plain-Error text rejects with that text', async () => {
-  const handlers = new Map();
   const failure = rpcFailure({
     reason: 'domainError',
     domain: 'update',
     message: 'update check failed: offline',
   });
-  const dispose = registerProtocolWindowIpc({
-    connection: {
-      snapshot: async () => ({ status: 'ready', entries: [] }),
-      attach: () => () => {},
+  const lane = createCapabilityLane({
+    protocol: {
+      snapshot: () => ({ status: 'ready', entries: [] }),
+      noteUserInput() {},
+      respond() {},
+      pendingServerRequests: () => [],
+      onEvent: () => () => {},
       call: async () => {
         throw failure;
       },
     },
-    handle: (channel, listener) => handlers.set(channel, listener),
-    send: () => true,
-    removeHandler: () => {},
   });
-  await assert.rejects(handlers.get(SECTIONS_IPC.call)({}, 'usage/getUsageStats', {}), {
+  await assert.rejects(lane.invoke('getLeadStatus', [], undefined), {
     message: 'update check failed: offline',
   });
-  dispose();
 });
