@@ -1,0 +1,12 @@
+# g35-fu-x desktop wiring
+
+## x-pcaccess-desktop leftover (DESKTOP-WIRE-G8, with x-screen-source-desktop)
+index.ts still builds a second PcAccess queue for the phone password path only: `import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access'`,
+`let pcAccess: PcAccess | null` / `function windowsPcAccess()` and the `pcAccess: { ... approveWithCredential: ... windowsPcAccess()!.approveWithCredential(request) }`
+option of createScreenSourceHost. When x-screen-source-desktop routes the phone screen to the core source (the core's approve_with_credential),
+delete those four things from index.ts in the same wiring, then pc-access.ts and its test.
+
+## x-rs-desktop-pet-client (wave 4): placement
+`desktopPet/placement/resolve` (op geometry | pinned | clamp | clampFree | hereAnchor | herePosition | displayFor | positionOn) answers every placement
+rule of desktop-pet-store.ts; desktop-pet-window.ts must call it (with scale from prefs) instead of importing pinnedPetPosition, clampPetPosition,
+clampFreePetPosition, petHereAnchor, petHerePosition, displayForPetPosition, petPositionOn, desktopPetGeometry, so that desktop-pet-store.ts can be deleted.
