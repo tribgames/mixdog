@@ -9,9 +9,23 @@ use mixdog_app_protocol::v2::browser_engine::BrowserApprovalRememberKind;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::CancellationToken;
 
-/// One Browser Use step awaiting the person (`BrowserApprovalRequest` of `action-approval.ts`, plus the thread it runs in).
+/// Why a step asks (the classes of `action-approval.ts`; no class is added).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrowserApprovalKind {
+    #[default]
+    Submit,
+    Post,
+    Upload,
+    /// Always asks: nothing standing covers it.
+    Confirm,
+    /// The page holds payment evidence: the step asks once, every time.
+    Payment,
+}
+
+/// What the person (or the core gate's standing rules) is shown: one Browser Use step awaiting an answer
+/// (`BrowserApprovalRequest` of `action-approval.ts`, plus the thread it runs in).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct BrowserApprovalAsk {
+pub struct BrowserApprovalPrompt {
     pub thread_id: Option<ThreadId>,
     pub action: String,
     pub url: String,
@@ -34,6 +48,39 @@ pub struct BrowserApprovalAsk {
     pub payment: bool,
 }
 
+/// One file of an upload as it was when the person was asked.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BoundFile {
+    pub path: String,
+    pub size: u64,
+    /// The last modification time; `None` when the platform does not report one.
+    pub mtime: Option<SystemTime>,
+    /// The canonical path: the approved file is this one.
+    pub realpath: PathBuf,
+}
+
+/// What an approval was given for: a precondition of every dispatch of the approved step (the TOCTOU rebind). The
+/// document is the one the person was asked about, the command is the one shown, and an upload's files still have the
+/// canonical path, size and modification time they had.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Binding {
+    pub url: String,
+    pub document_id: String,
+    pub command_hash: String,
+    pub files: Vec<BoundFile>,
+    /// The receiving frame document's key; empty when it could not be confirmed.
+    pub receiver_key: String,
+}
+
+/// A classified step: its class, what the person is shown, and what an approval of it binds (what
+/// `s4-engine-approval`'s `classify` returns; `None` there when the step needs no approval).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BrowserApprovalAsk {
+    pub kind: BrowserApprovalKind,
+    pub prompt: BrowserApprovalPrompt,
+    pub binding: Binding,
+}
+
 /// How far an allowing answer reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Remember {
@@ -46,7 +93,7 @@ pub enum Remember {
     Always,
 }
 
-/// The person's (or a standing rule's) answer to a [`BrowserApprovalAsk`].
+/// The person's (or a standing rule's) answer to a [`BrowserApprovalPrompt`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApprovalAnswer {
     Allow { remember: Remember },

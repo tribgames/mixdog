@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use crate::error::HostCallError;
 use crate::types::ApprovalAnswer;
-use crate::types::BrowserApprovalAsk;
+use crate::types::BrowserApprovalPrompt;
 use crate::types::FileFacts;
 use crate::types::TakeoverGuard;
 
@@ -116,7 +116,7 @@ pub trait EngineSink: Send + Sync {
 /// Asks the person (or the standing rules behind the one core approval path) about a submit, post or upload.
 #[async_trait]
 pub trait ApprovalPort: Send + Sync {
-    async fn ask(&self, ask: BrowserApprovalAsk) -> Result<ApprovalAnswer, ToolError>;
+    async fn ask(&self, prompt: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError>;
 }
 
 /// A person's takeover of a session's pages.

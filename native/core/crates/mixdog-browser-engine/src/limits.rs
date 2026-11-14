@@ -36,7 +36,7 @@ pub const MAX_PRINTED_PDF_BYTES: u64 = 100 * 1024 * 1024;
 pub const EXTRACT_DEFAULT_LIMIT: usize = 50;
 pub const EXTRACT_MAX_LIMIT: usize = 200;
 pub const EXTRACT_DEFAULT_CHARS: usize = 12_000;
-/// Commands the engine runs at once across all pages.
+/// Commands the engine runs at once across all pages (`MAX_CONCURRENT_BROWSER_COMMANDS` of `host/browser-command.ts`).
 pub const MAX_CONCURRENT: usize = 32;
 
 /// Offscreen (background) page viewport: fixed and generous so fixed-width desktop layouts render without a scrollbar the agent cannot see.
