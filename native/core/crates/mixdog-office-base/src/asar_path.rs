@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
 
-static ASAR_SEGMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"([\/][^\/]+\.asar)([\/])", "i"));
+static ASAR_SEGMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"([\\/][^\\/]+\.asar)([\\/])", "i"));
 
 /// `physicalAsarPath(path)`: the first `<name>.asar` directory of the path becomes `<name>.asar.unpacked`.
 pub fn physical_asar_path(path: &str) -> String {
