@@ -243,7 +243,7 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
-/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview with its media
+/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview (no media lease is
 /// lease, and the preview range all name the granted file alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
