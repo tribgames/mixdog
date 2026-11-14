@@ -1,0 +1,14 @@
+# s4-engine-reply desktop wiring
+
+## facts.ts (apps/desktop/src/main/host/browser-engine/facts.ts, the `dismissedDialog` object of the page facts)
+Add the reason the guest state already holds (`record.dismissedDialog.reason`, 'unreachable' | 'early'):
+
+    dismissedDialog: {
+      type: dismissed.type,
+      message: known(dismissed.message),
+      at: record.dismissedDialogAt ?? 0,
+      reason: dismissed.reason,
+    },
+
+and the matching `reason?: string` on the facts type of packages/protocol (regenerated from pending-rows/s4-engine-reply.rows). facts.test.mjs: the
+dismissed dialog case expects `reason`. Until then the core engine says "its request never reached the browser" for every dismissed dialog.
