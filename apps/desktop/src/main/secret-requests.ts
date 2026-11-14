@@ -5,7 +5,7 @@
  */
 
 import type { TakeoverStateReader } from './takeover-gate';
-import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID, SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
+import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID, SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots.ts';
 
 export const SECRET_INPUT_TIMEOUT_MS = 120_000;
 /** A binding outlives the card's own wait (the runtime's 120 s) a little. */
