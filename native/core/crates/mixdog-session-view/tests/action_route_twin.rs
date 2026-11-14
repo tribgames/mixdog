@@ -2,15 +2,11 @@
 //! `tests/recorders/record-action-route.mjs`): every action, with the argument lists and call contexts of the recording, gives the
 //! same `{ method, params }` or the same error.
 
-use std::path::PathBuf;
-
 use mixdog_session_view::action_route::{RouteContext, resolve_action, session_actions};
 use serde_json::Value;
 
 fn golden() -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/action-route.json");
-    serde_json::from_str(&std::fs::read_to_string(path).expect("the recording is checked in"))
-        .expect("the recording is JSON")
+    serde_json::from_str(include_str!("goldens/action-route.json")).expect("the recording is JSON")
 }
 
 #[test]
