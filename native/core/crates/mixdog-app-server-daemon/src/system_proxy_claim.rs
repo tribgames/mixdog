@@ -31,7 +31,7 @@ impl SystemProxyClaims {
 }
 
 impl ClaimHook for SystemProxyClaims {
-    fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn Any + Send>> {
+    fn claimed(&self, serves: &[HostCapability], _resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn Any + Send>> {
         if !serves.contains(&HostCapability::SystemProxy) {
             return None;
         }
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn only_a_claim_serving_the_system_proxy_attaches_a_resolver() {
         let claims = SystemProxyClaims::new(Arc::new(SystemProxy::default()), Arc::new(mixdog_core_api::mock::MockHostChannel::default()));
-        assert!(claims.claimed(&[HostCapability::Browser, HostCapability::Notifications]).is_none());
-        assert!(claims.claimed(&[HostCapability::Browser, HostCapability::SystemProxy]).is_some());
+        assert!(claims.claimed(&[HostCapability::Browser, HostCapability::Notifications], None).is_none());
+        assert!(claims.claimed(&[HostCapability::Browser, HostCapability::SystemProxy], None).is_some());
     }
 }

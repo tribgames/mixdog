@@ -376,9 +376,14 @@ impl State {
     }
 }
 
-/// What a video poster is made with: the process manager and where ffmpeg is now.
+/// Runs one ffmpeg command for a poster and answers its result (see `Posters::run`).
+type PosterRun = Arc<dyn Fn(String, Vec<String>, PathBuf) -> tokio::task::JoinHandle<crate::tidy::process::ProcessResult> + Send + Sync>;
+
+/// What a video poster is made with: the ffmpeg run and where ffmpeg is now.
 struct Posters {
-    processes: Processes,
+    /// Runs ffmpeg with the arguments in the folder, on a blocking thread (the process runner is kept behind this function: a state
+    /// that held it directly kept the rendition task's future from being `Send`).
+    run: PosterRun,
     ffmpeg: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
 }
 
@@ -410,7 +415,17 @@ impl StillRenditions {
     /// Lets videos have a poster: `ffmpeg` answers where the ffmpeg binary is at the time (none while
     /// it is not installed), `processes` runs it. Set once; a second call changes nothing.
     pub fn enable_video_posters(&self, processes: Processes, ffmpeg: impl Fn() -> Option<PathBuf> + Send + Sync + 'static) {
-        let _ = self.0.posters.set(Posters { processes, ffmpeg: Arc::new(ffmpeg) });
+        let run: PosterRun = Arc::new(move |program: String, arguments: Vec<String>, dir: PathBuf| {
+            let (processes, runtime) = (processes.clone(), tokio::runtime::Handle::current());
+            tokio::task::spawn_blocking(move || {
+                runtime.block_on(async move {
+                    let mut options = RunOptions::new(&dir);
+                    options.timeout = POSTER_TIMEOUT;
+                    processes.run(&program, &arguments, options).await
+                })
+            })
+        });
+        let _ = self.0.posters.set(Posters { run, ffmpeg: Arc::new(ffmpeg) });
     }
 
     /// [`ensure_request`](Self::ensure_request) for a foreground still.
@@ -477,7 +492,21 @@ impl Inner {
 /// answer says nothing about the asset, so it does not.
 async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
     let permit = inner.scheduler.enqueue(request.priority).permit().await;
-    let outcome = generate(&inner, &request).await;
+    // A video's poster takes owned values only (the future borrows nothing of `inner` or the request across an await).
+    let outcome = if request.video {
+        let parts = inner.posters.get().map(|posters| (posters.run.clone(), posters.ffmpeg.clone()));
+        match parts {
+            Some((run, resolve)) => {
+                // The poster's future is made and driven on a blocking thread, so this task's future holds only its join handle.
+                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
+                let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
+                made.await.unwrap_or(Ok(None))
+            }
+            None => Ok(None),
+        }
+    } else {
+        generate(&inner, &request).await
+    };
     drop(permit);
     let waiters = {
         let mut state = inner.state.lock().unwrap();
@@ -494,9 +523,6 @@ async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
 }
 
 async fn generate(inner: &Inner, request: &Request) -> Outcome {
-    if request.video {
-        return poster(inner, request).await;
-    }
     let variant = request.variant;
     let source = request.source.clone();
     // A source `sharp` cannot open is "not a decodable image" to Node: no rendition.
@@ -580,33 +606,41 @@ fn parse_duration_seconds(text: &str) -> i64 {
 /// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
 /// a frame over the cap is no rendition.
 #[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
-async fn poster(inner: &Inner, request: &Request) -> Outcome {
-    let variant = request.variant;
+async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
     if variant != RenditionVariant::Thumb {
         return Ok(None);
     }
-    let Some(posters) = inner.posters.get() else { return Ok(None) };
-    let resolve = posters.ffmpeg.clone();
-    let Some(ffmpeg) = on_lane(inner.lane, move || resolve().filter(|path| path.is_file())).await? else { return Ok(None) };
-    let out = rendition_path(&inner.cache_dir, variant, &request.id, ".poster-tmp.jpg");
+    let found = on_lane(lane, move || {
+        let path = resolve()?;
+        path.is_file().then_some(path)
+    })
+    .await?;
+    let Some(ffmpeg) = found else { return Ok(None) };
+    let out = rendition_path(&cache_root, variant, &id, ".poster-tmp.jpg");
     let dir = out.parent().map(Path::to_owned).unwrap_or_default();
     let made = dir.clone();
-    if on_lane(inner.lane, move || fs::create_dir_all(&made)).await?.is_err() {
+    if on_lane(lane, move || fs::create_dir_all(&made)).await?.is_err() {
         return Ok(None);
     }
-    let mut options = RunOptions::new(&dir);
-    options.timeout = POSTER_TIMEOUT;
-    let ran = posters.processes.run(&ffmpeg.to_string_lossy(), &poster_arguments(&request.source, &out), options).await;
-    let read = on_lane(inner.lane, move || {
-        let bytes = fs::metadata(&out).ok().filter(|m| m.len() <= MAX_POSTER_BYTES).and_then(|_| fs::read(&out).ok());
+    let (program, arguments) = (ffmpeg.to_string_lossy().into_owned(), poster_arguments(&source, &out));
+    let Ok(ran) = run(program, arguments, dir).await else { return Ok(None) };
+    let read = on_lane(lane, move || {
+        let small = match fs::metadata(&out) {
+            Ok(meta) => meta.len() <= MAX_POSTER_BYTES,
+            Err(_) => false,
+        };
+        let bytes = if small { fs::read(&out).ok() } else { None };
         let _ = fs::remove_file(&out);
         bytes
     })
     .await?;
-    let Some(bytes) = read.filter(|bytes| !bytes.is_empty() && !ran.timed_out) else { return Ok(None) };
+    let bytes = match read {
+        Some(bytes) if !bytes.is_empty() && !ran.timed_out => bytes,
+        _ => return Ok(None),
+    };
     let seconds = parse_duration_seconds(&ran.stderr);
-    let (cache_dir, id) = (inner.cache_dir.clone(), request.id.clone());
-    let written = on_lane(inner.lane, move || write_rendition(&cache_dir, variant, &id, ".jpg", &bytes)).await??;
+    let (cache_dir, id) = (cache_root, id.clone());
+    let written = on_lane(lane, move || write_rendition(&cache_dir, variant, &id, ".jpg", &bytes)).await??;
     Ok(written.map(|rendition| Rendition { duration_seconds: (seconds != 0).then_some(seconds), ..rendition }))
 }
 
