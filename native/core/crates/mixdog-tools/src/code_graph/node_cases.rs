@@ -22,6 +22,7 @@ use mixdog_protocol::TurnId;
 use tokio_util::sync::CancellationToken;
 
 use super::CodeGraphTool;
+use super::Failure;
 use super::GraphCache;
 use super::TrustedRoots;
 
@@ -81,12 +82,13 @@ async fn answer(root: &Path, input: &JsonValue) -> String {
     let cache_dir = tempfile::tempdir().unwrap();
     let tool = CodeGraphTool::new(Arc::new(NoTrust), Arc::new(GraphCache::new(cache_dir.path().join("cache"))));
     let args: JsonValue = serde_json::from_str(&input.to_string().replace("<ROOT>", &shown.replace('\\', "\\\\"))).unwrap();
-    let text = match tool.call(&context(&AbsPath::new(root).unwrap()), args).await {
-        Ok(out) => match &out.parts[0] {
-            ToolPart::Text(t) => t.clone(),
-            _ => panic!("not text"),
-        },
-        Err(e) => e.message_for_model,
+    // The recorder asks `executeCodeGraphTool`, the layer under `validateBuiltinArgs`: the agent tool's argument guard
+    // (which drops `symbol` from the file modes) is no part of these recordings.
+    let ctx = context(&AbsPath::new(root).unwrap());
+    let text = match tool.answer(root.to_path_buf(), &args, ctx.io.maintenance, &ctx.cancel).await {
+        Ok(out) => out.text,
+        Err(Failure::Refused(message)) => message,
+        Err(Failure::Lane(e)) => panic!("lane failed: {e}"),
     };
     text.replace(&shown, "<ROOT>").replace(&shown.replace('\\', "/"), "<ROOT>")
 }
