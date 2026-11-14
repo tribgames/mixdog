@@ -5,7 +5,7 @@
 //! has its own fold lane that resolves blob stubs and applies notifications in order, so a slow feed delays only itself.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
@@ -17,7 +17,7 @@ use mixdog_app_protocol::{
     Delivery, SERVER_NOTIFICATIONS,
     v1::InitializeParams,
     v2::{
-        feed::{AppSnapshotParams, AppSubscribeParams, ThreadResumePosition},
+        feed::{AppSnapshotParams, AppSubscribeParams, ScopedFeedKind, ThreadResumePosition},
         op::{
             BlobPutParams, BlobReadParams, BlobReadResponse, OpScopeName, OpStatusParams,
             OpStatusResponse,
@@ -42,6 +42,9 @@ pub fn ladder_delay(attempt: u32, unit: f64, cfg: LadderConfig) -> u64 {
         .min(cfg.base_ms.saturating_mul(1u64 << attempt.min(32)));
     (unit * ceiling as f64).floor() as u64
 }
+
+/// The first frame of a scoped feed: its whole read model at the position before `startSeq`.
+const FEED_SNAPSHOT: &str = "feed/snapshot";
 
 pub fn new_op_id() -> String {
     uuid::Uuid::now_v7().to_string()
@@ -111,6 +114,9 @@ enum Hook {
         feed_id: String,
         thread: Option<(String, ResumeWindow)>,
     },
+    /// Runs inside frame handling like `Attach`: the feed of a scoped subscription (`feed/subscribe`, `system/ports/subscribe`)
+    /// is tracked from its attach position; its frames pass through as notifications.
+    Scoped { feed_id: String },
 }
 
 struct Park {
@@ -153,6 +159,8 @@ struct Shared {
     store: StoreData,
     subs: Vec<(String, ResumeWindow)>,
     app_subscribed: bool,
+    /// Feeds of scoped subscriptions the caller made on this connection (they end with it: the caller subscribes again).
+    scoped: HashSet<String>,
     server_requests: Vec<ServerRequest>,
     recv: HashMap<String, (String, u64)>,
     generation: u64,
@@ -166,6 +174,8 @@ struct Shared {
 enum Cmd {
     /// The feed is unsubscribed: its fold lane ends once its queued items are done.
     DropLane { feed: String },
+    /// The ladder's wait for the next attempt ends now.
+    AttachNow,
     Rpc {
         method: String,
         params: Json,
@@ -527,8 +537,11 @@ impl Inner {
                     if guard.generation != cur_gen {
                         return;
                     }
+                    let scoped = guard.scoped.contains(f.id.as_str());
                     let st = &mut guard.store;
-                    if f.id.as_str() == APP_FEED_ID {
+                    if scoped {
+                        passthrough = Some(resolved);
+                    } else if f.id.as_str() == APP_FEED_ID {
                         st.app = Some(f);
                         if snapshot {
                             match serde_json::from_value::<AppSnapshotParams>(params) {
@@ -775,6 +788,8 @@ struct Driver {
     lanes: HashMap<Option<String>, mpsc::UnboundedSender<FoldItem>>,
     next_id: u64,
     ever_ready: bool,
+    /// An attach was asked for: the next wait of the ladder is skipped.
+    attach_now: bool,
     done: bool,
 }
 
@@ -902,6 +917,8 @@ impl Driver {
             Cmd::DropLane { feed } => {
                 self.lanes.remove(&Some(feed));
             }
+            // Only a wait between attempts is cut short; a connected client has nothing to attach.
+            Cmd::AttachNow => self.attach_now = self.reader.is_none(),
             Cmd::Rpc {
                 method,
                 params,
@@ -939,6 +956,7 @@ impl Driver {
             s.connected = false;
             s.generation += 1;
             s.recv.clear();
+            s.scoped.clear();
             s.server_requests.clear();
             for id in ids {
                 let p = self.pending.remove(&id).expect("pending id");
@@ -1036,11 +1054,18 @@ impl Driver {
         }
         self.count_response(p.cls);
         let result = m.get("result").cloned().unwrap_or(Json::Null);
-        if let Some(Hook::Attach { feed_id, thread }) = &p.hook {
-            let Some(s) = result
-                .get("subscription")
-                .and_then(|s| serde_json::from_value::<Subscription>(s.clone()).ok())
-            else {
+        if let Some(hook) = &p.hook {
+            let (feed_id, thread) = match hook {
+                Hook::Attach { feed_id, thread } => (feed_id, thread.as_ref()),
+                Hook::Scoped { feed_id } => (feed_id, None),
+            };
+            // `system/ports/subscribe` answers with the subscription itself, every other subscribing call wraps it.
+            let wrapped = result.get("subscription");
+            let Some(s) = (match hook {
+                Hook::Scoped { .. } => Some(wrapped.unwrap_or(&result)),
+                Hook::Attach { .. } => wrapped,
+            })
+            .and_then(|s| serde_json::from_value::<Subscription>(s.clone()).ok()) else {
                 let _ = p.reply.send(Err(ClientError::ProtocolViolation(
                     "response without subscription".into(),
                 )));
@@ -1051,12 +1076,15 @@ impl Driver {
                 feed_id.clone(),
                 (s.epoch.to_string(), s.start_seq.saturating_sub(1)),
             );
-            match thread {
-                Some((id, w)) => match sh.subs.iter_mut().find(|(t, _)| t == id) {
+            match (thread, hook) {
+                (Some((id, w)), _) => match sh.subs.iter_mut().find(|(t, _)| t == id) {
                     Some(e) => e.1 = w.clone(),
                     None => sh.subs.push((id.clone(), w.clone())),
                 },
-                None => sh.app_subscribed = true,
+                (None, Hook::Scoped { .. }) => {
+                    sh.scoped.insert(feed_id.clone());
+                }
+                (None, Hook::Attach { .. }) => sh.app_subscribed = true,
             }
         }
         let _ = p.reply.send(Ok(result));
@@ -1096,7 +1124,7 @@ impl Driver {
             self.fold(None, FoldItem::Connection { n, cur_gen });
             return;
         };
-        let snapshot = n.method == wire::THREAD_SNAPSHOT || n.method == wire::APP_SNAPSHOT;
+        let snapshot = n.method == wire::THREAD_SNAPSHOT || n.method == wire::APP_SNAPSHOT || n.method == FEED_SNAPSHOT;
         let id = f.id.to_string();
         let gap = {
             let mut s = self.inner.lock();
@@ -1105,6 +1133,8 @@ impl Driver {
             s.thread_last_event.insert(id.clone(), at);
             let tracked = if id == APP_FEED_ID {
                 s.app_subscribed
+            } else if s.scoped.contains(&id) {
+                true
             } else {
                 s.subs.iter().any(|(t, _)| *t == id)
             };
@@ -1177,6 +1207,9 @@ impl Driver {
         let clock = self.inner.opts.clock.clone();
         let mut s = Box::pin(clock.sleep(ms));
         loop {
+            if std::mem::take(&mut self.attach_now) {
+                return self.inner.lock().terminal.is_none();
+            }
             let cmd = tokio::select! {
                 _ = &mut s => return self.inner.lock().terminal.is_none(),
                 c = self.cmd_rx.recv() => c,
@@ -1309,6 +1342,7 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         store: StoreData::default(),
         subs: Vec::new(),
         app_subscribed: false,
+        scoped: HashSet::new(),
         server_requests: Vec::new(),
         recv: HashMap::new(),
         generation: 0,
@@ -1336,6 +1370,7 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         lanes: HashMap::new(),
         next_id: 1,
         ever_ready: false,
+        attach_now: false,
         done: false,
     };
     driver.open().await?;
@@ -1393,7 +1428,16 @@ impl ProtocolClient for Client {
             });
             obj.insert("opId".into(), Json::String(op_id));
         }
-        self.inner.run(method, params, &info, None, false).await
+        let hook = scoped_feed_of(method, &params, true).map(|feed_id| Hook::Scoped { feed_id });
+        if let Some(feed) = scoped_feed_of(method, &params, false) {
+            {
+                let mut s = self.inner.lock();
+                s.scoped.remove(&feed);
+                s.recv.remove(&feed);
+            }
+            let _ = self.inner.cmd.send(Cmd::DropLane { feed });
+        }
+        self.inner.run(method, params, &info, hook, false).await
     }
 
     async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError> {
@@ -1543,7 +1587,42 @@ impl Drop for Client {
     }
 }
 
+/// What makes a waiting client attach now: a clone of it that outlives nothing the client does not (it only sends a command).
+#[derive(Clone)]
+pub struct Attacher {
+    cmd: mpsc::UnboundedSender<Cmd>,
+}
+
+impl Attacher {
+    /// A client that waits out the ladder before its next attempt dials now instead; one that is connected, or already
+    /// dialling, is not affected.
+    pub fn attach_now(&self) {
+        let _ = self.cmd.send(Cmd::AttachNow);
+    }
+}
+
+/// The feed a scoped subscription call opens (`subscribe`) or ends (`!subscribe`); `None` for any other call.
+fn scoped_feed_of(method: &str, params: &Json, subscribe: bool) -> Option<String> {
+    let (generic, ports) = if subscribe {
+        ("feed/subscribe", "system/ports/subscribe")
+    } else {
+        ("feed/unsubscribe", "system/ports/unsubscribe")
+    };
+    if method == ports {
+        return Some(ScopedFeedKind::Ports.prefix().to_owned());
+    }
+    if method == generic {
+        return params.get("feedId").and_then(Json::as_str).map(str::to_owned);
+    }
+    None
+}
+
 impl Client {
+    /// The handle that makes this client's ladder attach at once (see [`Attacher`]).
+    pub fn attacher(&self) -> Attacher {
+        Attacher { cmd: self.inner.cmd.clone() }
+    }
+
     async fn send_frame(&self, frame: Json) -> Result<(), ClientError> {
         let (reply, rx) = oneshot::channel();
         self.inner
@@ -1640,5 +1719,138 @@ mod tests {
 
         conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
         until("lane ended", || Arc::strong_count(&client.inner) == base).await;
+    }
+
+    /// A clock whose waits never end: only a cut-short wait lets the ladder go on.
+    struct Stalled;
+
+    #[async_trait]
+    impl Clock for Stalled {
+        async fn sleep(&self, _ms: u64) {
+            std::future::pending::<()>().await
+        }
+        fn jitter(&self) -> f64 {
+            0.5
+        }
+    }
+
+    async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../../packages/protocol-client/conformance/options.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(
+            Target { id: "local".into() },
+            net.clone(),
+            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
+        );
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        if let Some(clock) = clock {
+            opts.clock = clock;
+        }
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        (Arc::new(connecting.await.unwrap().unwrap()), net, conn)
+    }
+
+    async fn next_notification(events: &mut broadcast::Receiver<ClientEvent>) -> RpcNotification {
+        loop {
+            if let ClientEvent::Notification(n) = events.recv().await.unwrap() {
+                return n;
+            }
+        }
+    }
+
+    async fn subscribe_to(client: &Arc<Client>, conn: &crate::mock::MockConn, method: &str, params: Json, mode: &str) {
+        let call = {
+            let c = client.clone();
+            let method = method.to_owned();
+            tokio::spawn(async move { c.call_raw(&method, params, CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], method);
+        let subscription = json!({ "id": "sub-1", "mode": mode, "epoch": "e1", "startSeq": 1 });
+        let result = if method == "system/ports/subscribe" { subscription } else { json!({ "subscription": subscription }) };
+        conn.server_send(&json!({ "id": req["id"], "result": result }));
+        call.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_ports_feed_is_tracked_after_its_subscribe_and_its_frames_pass_through() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "system/ports/subscribe", json!({}), "snapshot").await;
+        conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+        let snapshot = next_notification(&mut events).await;
+        assert_eq!(snapshot.method, "feed/snapshot");
+        conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 1, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
+        let update = next_notification(&mut events).await;
+        assert_eq!(update.method, "system/ports/updated");
+        assert_eq!(update.feed.as_ref().unwrap().id.as_str(), "ports");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribe_ends_the_tracking_of_a_scoped_feed() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "snapshot").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 1 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        assert_eq!(next_notification(&mut events).await.method, "login/updated");
+        let unsubscribe = {
+            let c = client.clone();
+            tokio::spawn(async move { c.call_raw("feed/unsubscribe", json!({ "feedId": "login:f1" }), CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "feed/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsubscribe.await.unwrap().unwrap();
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 2 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 2 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_gap_in_a_scoped_feed_closes_the_socket() {
+        let (client, _net, conn) = ready(None).await;
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "replay").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 5 } }));
+        until("socket closed", || conn.client_close().is_some()).await;
+        assert_eq!(conn.client_close(), Some(1002));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn attach_now_ends_the_wait_of_the_ladder() {
+        let (client, net, conn) = ready(Some(Arc::new(Stalled))).await;
+        let mut status = client.inner.status.subscribe();
+        conn.server_close(1006, "gone");
+        status.wait_for(|s| matches!(s, ConnectionStatus::Reconnecting { .. })).await.unwrap();
+        assert_eq!(net.opened(), 1, "the stalled ladder has not dialled");
+        client.attacher().attach_now();
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), net.accept()).await.expect("the client dials at once");
+        let init: Json = serde_json::from_str(&next.next_sent().await).unwrap();
+        assert_eq!(init["method"], "initialize");
     }
 }
