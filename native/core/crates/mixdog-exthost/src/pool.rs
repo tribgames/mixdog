@@ -116,37 +116,54 @@ impl ExtHostPool {
     /// one (the host is never on the boot path). Must run inside the Tokio runtime; fails when the
     /// child-exit signal cannot be registered.
     pub fn new(config: ExtHostConfig) -> Result<Self, ExtHostError> {
-        Self::build(config, timer_grace())
+        Self::build(config, timer_grace(), None)
+    }
+
+    /// A second pool that uses `first`'s render browser instead of starting its own: one Chromium for
+    /// both, one launch count, and the browser is closed by `first`'s close (a pool that shares does not
+    /// close it), so `first` must be closed after this pool. `config.render_browser` is not used.
+    /// Same requirements as [`Self::new`].
+    pub fn sharing_browser(config: ExtHostConfig, first: &ExtHostPool) -> Result<Self, ExtHostError> {
+        Self::build(config, timer_grace(), Some((first.browser.clone(), first.browser_launches.clone())))
     }
 
     /// [`Self::new`] with the cancel grace waited out by `grace`. A test seam: a product build (which refuses
     /// `test-support`, see `build.rs`) cannot shorten the grace.
     #[cfg(feature = "test-support")]
     pub fn with_grace(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
-        Self::build(config, grace)
+        Self::build(config, grace, None)
     }
 
-    fn build(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
+    fn build(
+        config: ExtHostConfig,
+        grace: GraceWait,
+        shared: Option<(BrowserHandle, Arc<AtomicU64>)>,
+    ) -> Result<Self, ExtHostError> {
         let exits = ChildExits::watch()?;
         let (events, inbox) = mpsc::unbounded_channel();
         let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
         let pending_cap = config.pending_cap;
         let dispatcher_events = events.clone();
         let dispatcher_status = status.clone();
-        let browser_launches = Arc::new(AtomicU64::new(0));
         let rt = Handle::current();
-        let browser = browser::start(
-            config.render_browser.clone(),
-            config.spawn_io,
-            rt.clone(),
-            browser_launches.clone(),
-            exits.clone(),
-        );
+        let owns_browser = shared.is_none();
+        let (browser, browser_launches) = shared.unwrap_or_else(|| {
+            let launches = Arc::new(AtomicU64::new(0));
+            let browser = browser::start(
+                config.render_browser.clone(),
+                config.spawn_io,
+                rt.clone(),
+                launches.clone(),
+                exits.clone(),
+            );
+            (browser, launches)
+        });
         let dispatcher_browser = browser.clone();
         mixdog_rt::spawn("exthost.dispatch", TaskClass::Work, async move {
-            Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace)
-                .run(inbox)
-                .await;
+            let mut dispatcher =
+                Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace);
+            dispatcher.owns_browser = owns_browser;
+            dispatcher.run(inbox).await;
         });
         Ok(Self {
             events,
@@ -292,6 +309,8 @@ struct Dispatcher {
     /// The last spawn failed; no new spawn until another call arrives.
     spawn_failed: bool,
     shutting_down: bool,
+    /// This pool started the render browser and ends it on close; a pool that shares another's does not.
+    owns_browser: bool,
     closers: Vec<oneshot::Sender<()>>,
     grace: GraceWait,
 }
@@ -322,6 +341,7 @@ impl Dispatcher {
             seq: 0,
             spawn_failed: false,
             shutting_down: false,
+            owns_browser: true,
             closers: Vec::new(),
         }
     }
@@ -335,7 +355,9 @@ impl Dispatcher {
         }
         // Every worker owner has reaped; the shared browser's owner is next, so nothing of the
         // host is left running when `close` returns.
-        self.browser.shutdown().await;
+        if self.owns_browser {
+            self.browser.shutdown().await;
+        }
         for closer in self.closers.drain(..) {
             let _ = closer.send(());
         }

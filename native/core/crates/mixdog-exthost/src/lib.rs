@@ -7,6 +7,7 @@
 //!   in flight at ⌈W/2⌉ and answers `Overloaded` beyond a global pending cap.
 //! - A worker that holds state for a thread (office sessions live in the worker's memory) pins
 //!   the thread to itself until it exits.
+//! - [`RoutedExtPool`] puts a Rust worker pool and this Node pool behind one `ExtPool`, by method.
 //! - HTML layout shares one headless browser owned by the core ([`RenderBrowserConfig`]).
 //! - A cancelled call leaves its worker's slot occupied until the worker answers or exits; an
 //!   operator ends a stuck worker with `stop_worker`. Process exit is the only crash signal.
@@ -25,6 +26,7 @@ mod owner;
 pub mod frame;
 mod pool;
 mod process;
+mod routed;
 mod schedule;
 mod shared;
 mod stream;
@@ -55,6 +57,8 @@ pub use pool::ExtHostConfig;
 pub use pool::ExtHostPool;
 pub use pool::GraceWait;
 pub use pool::worker_count;
+pub use routed::NODE_WORKER_ID_OFFSET;
+pub use routed::RoutedExtPool;
 pub use syntax::SyntaxCheck;
 pub use syntax::SyntaxKind;
 pub use syntax::check_syntax;
