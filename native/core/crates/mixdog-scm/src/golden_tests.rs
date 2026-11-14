@@ -1007,6 +1007,30 @@ async fn a_removal_is_decided_then_finished_and_keeps_work_reachable() {
 }
 
 #[tokio::test]
+async fn a_store_spelled_through_a_link_removes_its_worktree_and_git_registration() {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    // The data dir is a link (a junction on Windows) to the real folder: git records real paths.
+    let data = tempfile::tempdir().unwrap();
+    let (real, linked) = (data.path().join("real"), data.path().join("linked"));
+    std::fs::create_dir_all(&real).unwrap();
+    link_dir(&real, &linked);
+    let worktrees = Worktrees::new(scm(), linked.clone());
+    let cancel = CancellationToken::new();
+    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t-link".into(), name_hint: "through".into(), ..CreateRequest::default() };
+    let made = worktrees.create(request, &cancel).await.unwrap();
+    assert!(Path::new(&made.path).starts_with(&linked), "{}", made.path);
+    let removed = worktrees.remove(&made.id, true, Some("s1"), &cancel).await.unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert!(!Path::new(&made.path).exists());
+    let listed = git(&repo, &["worktree", "list", "--porcelain"]);
+    assert_eq!(listed.lines().filter(|line| line.starts_with("worktree ")).count(), 1, "{listed}");
+}
+
+#[tokio::test]
 async fn a_reconcile_removes_clean_unretained_work_keeps_the_rest_and_resumes_a_decided_deletion() {
     use crate::worktree::reconcile::ReconcileOptions;
     let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;

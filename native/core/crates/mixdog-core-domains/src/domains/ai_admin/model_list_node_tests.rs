@@ -535,11 +535,9 @@ async fn a_quick_read_after_a_provider_change_answers_as_node_does() {
         .await
         .unwrap();
     sync.applied.wait_for(|applied| *applied >= 1).await.unwrap();
-    // `refresh.afterCredentialChange()`: `applyConfigChange` rebuilds the registered provider over the stored change,
-    // then `invalidateProviderCaches` drops every cache.
-    let record = rig.loaded.get()["providers"].as_object().cloned().unwrap();
-    rig.registry.sync_providers(&record, None).await.unwrap();
-    rig.readiness.reinit_providers().await.unwrap();
+    // `refresh.afterCredentialChange()`: `applyConfigChange`'s `reinitProviders` drops every cache and rebuilds the
+    // registered provider over the stored change.
+    rig.readiness.reinit_providers(None).await.unwrap();
     assert_rows("quick after the change", &read(true).await.unwrap(), &calls[3]["value"]);
     rig.host.settle_warm().await;
     assert_rows("full after the change", &read(false).await.unwrap(), &calls[4]["value"]);

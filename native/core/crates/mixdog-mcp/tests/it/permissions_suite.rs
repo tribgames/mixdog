@@ -106,3 +106,42 @@ async fn a_damaged_policy_is_kept_aside_and_its_good_copy_restored_but_without_o
     assert_eq!(policy.permission("worker", "mcp__gmail__read").name(), "disabled");
     assert_eq!(std::fs::read_to_string(agent.join("agent.json")).unwrap(), "{", "kept in place: moving it would read as no policy");
 }
+
+/// Node stat-checks the policy files on every read (`cachedRead`): a policy saved after the start load, by any
+/// writer, is what the refresh before the next connector call (or at a turn start) answers; one switched back on is
+/// on again. A call of a tool that is no connector tool reads nothing, as Node reads the files for an MCP name alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_policy_saved_after_the_start_load_is_read_at_the_next_refresh() {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let dir = tempfile::tempdir().unwrap();
+    let agent = dir.path().join("agents").join("worker");
+    std::fs::create_dir_all(&agent).unwrap();
+    let policy = ConnectorPolicy::new(dir.path().to_path_buf(), io);
+    policy.reload().await;
+    let tool = "mcp__outbox__say";
+    assert_eq!(policy.permission("worker", tool).name(), "auto");
+    // Each save has a size of its own, so its stamp moves however coarse the file times are.
+    for (connectors, expected) in [(r#"{"tools":{"outbox":{"say":"needs_approval"}}}"#, "needs_approval"), (r#"{"off":["outbox"]}"#, "disabled"), (r#"{"off":[]}"#, "auto")] {
+        std::fs::write(agent.join("agent.json"), format!(r#"{{"connectors":{connectors}}}"#)).unwrap();
+        policy.refresh("worker", Some(tool)).await;
+        assert_eq!(policy.permission("worker", tool).name(), expected, "after saving {connectors}");
+    }
+    std::fs::write(agent.join("agent.json"), r#"{"connectors":{"off":["outbox","other"]}}"#).unwrap();
+    policy.refresh("worker", Some("read")).await;
+    assert_eq!(policy.permission("worker", tool).name(), "auto", "a call of a built-in tool reads no policy");
+    let later = dir.path().join("agents").join("later");
+    std::fs::create_dir_all(&later).unwrap();
+    std::fs::write(later.join("agent.json"), r#"{"connectors":{"off":["outbox"]}}"#).unwrap();
+    policy.refresh("later", None).await;
+    assert_eq!(policy.permission("later", tool).name(), "disabled", "an agent made after the start load");
+
+    let root = dir.path().join("ws");
+    let paths = [root.clone()];
+    assert!(!policy.project_disabled(&paths, tool));
+    let mut projects = serde_json::Map::new();
+    projects.insert(root.to_string_lossy().into_owned(), json!({ "off": ["outbox"] }));
+    std::fs::write(dir.path().join("project-connectors.json"), json!({ "projects": projects }).to_string()).unwrap();
+    policy.refresh("", Some(tool)).await;
+    assert!(policy.project_disabled(&paths, tool), "the project switched the connector off");
+}

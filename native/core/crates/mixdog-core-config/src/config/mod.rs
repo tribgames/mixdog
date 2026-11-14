@@ -87,7 +87,6 @@ pub use agent_routes::DEFAULT_MIXY_NAME;
 pub use agent_routes::mixy_display_name;
 pub use agent_routes::mixy_identity_dir;
 pub use agent_routes::AgentRoutes;
-pub use agent_routes::MIXY_RUNTIME_ID;
 pub use agent_routes::RouteHome;
 pub use desktop::ActivityRailPins;
 pub use desktop::DesktopSettings;
@@ -332,12 +331,20 @@ impl Config {
         Ok(Self::assemble(path, guard, doc, publisher, lanes))
     }
 
+    /// Node's first read (`readAll`) of a config that does not parse, before anything opens it: the file is kept aside as
+    /// `<file>.corrupt-<ms>` and the newest complete backup of its dir is restored, or there is no config; an intact, missing or
+    /// non-object file is left as it is. For a reader that parses the file strictly before the core opens it (the boot's
+    /// migration), so a damaged config never stops a start.
+    pub async fn recover_malformed(path: impl Into<PathBuf>, lanes: ConfigLanes) -> Result<(), ConfigError> {
+        Arc::new(guard::Guard::new(path.into(), UserData::process())).recover_malformed(lanes).await
+    }
+
     /// A handle over the file's document without the opening read, for replaying Node's `updateConfig` alone (which
     /// does not run `readConfig` first).
     #[cfg(test)]
     fn open_unread(path: PathBuf, publisher: Arc<dyn StatePublisher>, lanes: ConfigLanes, user_data: Arc<UserData>) -> Self {
         let guard = Arc::new(guard::Guard::new(path.clone(), user_data));
-        // The in-memory document stands for the file while it is intact; a lost or damaged file is settled by the baseline.
+        // A write starts from the file (the baseline settles a lost or damaged one); this document only answers reads.
         let doc = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         Self::assemble(path, guard, doc, publisher, lanes).0
     }
@@ -715,10 +722,11 @@ impl Shared {
     ) -> Result<(Applied, T), ConfigError> {
         let mut raised = lock(&self.writer);
         let current = self.doc.load_full();
-        // `updateConfig`: under the file's lock, from what `readAllForRmW` settles on (the document while the file is
-        // intact), the edit is applied and the canonical result written between its snapshots.
+        // `updateConfig`: under the file's lock, from what `readAllForRmW` settles on (the file itself while it is intact, so
+        // an edit the watch has not delivered yet is kept), the edit is applied and the canonical result written between its
+        // snapshots.
         let written = self.guard.locked(lane, |baseline| {
-            let mut next = baseline.doc.unwrap_or_else(|| (*current).clone());
+            let mut next = baseline.doc;
             let fresh = next.is_empty();
             change(&mut next)?;
             // `writeAll`: a save writes the canonical document, whatever the edit put back.

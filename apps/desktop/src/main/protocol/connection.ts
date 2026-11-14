@@ -42,8 +42,9 @@ export interface ConnectionClient {
   /** `thread/unsubscribe`; the library drops the thread's fold. */
   unsubscribeThread(threadId: string): Promise<void>;
   respond(id: string | number, answer: ServerRequestAnswer): void;
-  /** The server requests this client's core is waiting on: added when it asks, removed when it resolves the ask, all
-   *  dropped with the socket. */
+  /** The server requests this client holds, the ones its core offers every eligible connection (the library's
+   *  `isOfferedRequest`): added when it asks, removed when it resolves the ask, all dropped with the socket. A capability's
+   *  request (`host/*`, `model/proxy/execute`) is not held: its handler's answer ends it. */
   pendingServerRequests(): ReadonlyArray<{ readonly id: string | number; readonly method: string; readonly params: unknown }>;
   /** One binary X17 frame; present when the library's transport supports the host media lane. */
   sendBinary?(frame: Uint8Array): void;
@@ -160,8 +161,10 @@ export interface ProtocolConnection {
   onEvent(listener: (event: ConnectionClientEvent) => void): () => void;
   notify(method: string, params: unknown): void;
   respond(id: string | number, answer: ServerRequestAnswer): void;
-  /** What the live client's core is asking now; none while no client is open. The set belongs to the client, so a
-   *  request of a closed or replaced client is never in it and an answer never crosses clients. */
+  /** The requests the live client holds: the ones its core offers every eligible connection (the approvals) and has not
+   *  resolved; none while no client is open. A capability's request (`host/*`, `model/proxy/execute`) is asked but not
+   *  listed: its handler's answer ends it. The set belongs to the client, so a request of a closed or replaced client is
+   *  never in it and an answer never crosses clients. */
   pendingServerRequests(): ReturnType<ConnectionClient['pendingServerRequests']>;
   sendBinary(frame: Uint8Array): void;
   /** The user operated this app (`input` event). Sends `client/activity` unless one went out within the minute. */

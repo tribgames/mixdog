@@ -1,7 +1,8 @@
 //! The worker pool behind [`ExtPool`] (RL §11): a dispatcher task that owns the queues, the
 //! workers and their slots, and nothing else. Workers are single-call processes started on
-//! demand; every wait is on a fact (a result, a credit, a process exit), except the one bound
-//! on a cancelled call: a worker still on it after [`CANCEL_GRACE`] is ended.
+//! demand; every wait is on a fact (a result, a credit, a process exit), except two bounds: a
+//! worker still on a cancelled call after [`CANCEL_GRACE`] is ended, and so is one still there
+//! `CLOSE_GRACE` after the close asked it to leave.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -65,6 +66,10 @@ pub fn timer_grace() -> GraceWait {
         })
     })
 }
+
+/// How long a worker has to leave on the close's `BYE` before it is ended with its job: its office session hosts quit the
+/// applications they own first (`closeOfficeSessions`, `src/ext-host/methods.mjs`), 3 to 5 s for a Word and an Excel.
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Calls accepted and not yet released by their consumer; beyond it a call is `Overloaded`.
 pub const DEFAULT_PENDING_CAP: usize = 64;
@@ -180,10 +185,10 @@ impl ExtHostPool {
         self.browser_launches.load(Ordering::Relaxed)
     }
 
-    /// Closes the host: every worker's owner is asked to kill its worker's group, and this returns
-    /// when each owner has signalled and reaped, and the shared render browser has too. The core's
-    /// stop procedure must await this before the runtime is dropped, so no owner is cut off
-    /// mid-wait. Calls still queued end `Unavailable`.
+    /// Closes the host: every worker is asked to leave (`BYE`), one still there after `CLOSE_GRACE`
+    /// has its owner kill its group, and this returns when each owner has signalled and reaped, and
+    /// the shared render browser has too. The core's stop procedure must await this before the
+    /// runtime is dropped, so no owner is cut off mid-wait. Calls still queued end `Unavailable`.
     pub async fn close(&self) {
         let (done, closed) = oneshot::channel();
         if self.events.send(Event::Shutdown(Some(done))).is_ok() {
@@ -391,6 +396,12 @@ impl Dispatcher {
                 self.closers.extend(closer);
                 self.shutdown();
             }
+            Event::CloseGrace => {
+                // A worker the close's `BYE` did not end: stuck in synchronous code, or its office hosts still quitting.
+                for io in self.workers.values().filter_map(|w| w.io.as_ref()) {
+                    io.kill.kill();
+                }
+            }
         }
     }
 
@@ -458,12 +469,24 @@ impl Dispatcher {
         for queued in self.schedule.drain() {
             fail(&queued, closing());
         }
-        // Every owner is asked to end its worker (a worker still spawning is asked when its
-        // process exists, in `on_spawned`); `run` returns only after each has signalled and reaped.
+        // Every worker is asked to leave, so it first ends what would outlive its job: an office session
+        // host quits the application DCOM started for it, the cleanup Node's exit hook asks for
+        // (`com-adapter.mjs` installExitHook). Its owner ends the group when it exits, or at `CLOSE_GRACE`
+        // (a worker still spawning is ended when its process exists, in `on_spawned`); `run` returns
+        // only after each has signalled and reaped.
+        let mut asked = false;
         for entry in self.workers.values() {
             if let Some(io) = &entry.io {
-                io.kill.kill();
+                let _ = io.writer.send(frame::bye());
+                asked = true;
             }
+        }
+        if asked {
+            let events = self.events.clone();
+            drop(mixdog_rt::spawn("exthost.close-grace", TaskClass::Work, async move {
+                mixdog_rt::time::sleep(CLOSE_GRACE).await;
+                let _ = events.send(Event::CloseGrace);
+            }));
         }
         self.publish();
     }

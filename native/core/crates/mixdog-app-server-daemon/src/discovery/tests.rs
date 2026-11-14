@@ -256,3 +256,13 @@ fn runtime_root_is_named_as_1_4_5_names_it() {
         );
     }
 }
+
+/// `readSessionDiscovery` drops a file whose pid is not alive: a file names a running core while its pid runs with the recorded
+/// start time, and names nobody once the pid names no process or another one (a reused pid).
+#[test]
+fn a_file_names_a_running_core_only_while_its_process_runs() {
+    let me = crate::verdict::current_identity().unwrap();
+    assert!(names_running_core(me.pid, &me.start_ms.to_string()).unwrap());
+    assert!(!names_running_core(me.pid, &(me.start_ms + 1).to_string()).unwrap(), "a reused pid");
+    assert!(!names_running_core(0, "0").unwrap(), "no process");
+}

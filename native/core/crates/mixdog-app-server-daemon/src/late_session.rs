@@ -21,6 +21,7 @@ use mixdog_core_api::CoreError;
 use mixdog_protocol::ThreadId;
 use serde_json::{Map, Value};
 
+use crate::compose_domains::internal_request;
 use crate::compose_mcp::CallerSessions;
 
 /// `SetupRequests`' surface, bound to `SessionSetupUi` once the directory exists.
@@ -232,8 +233,8 @@ impl Bound for LateRoomSummaries {
         self.0.get().is_some()
     }
 }
-/// The takeover holds of the sessions this process hosts, for the secret fill's gates (`TakeoverGates`). The gates are built before the directory (the fill is a tool pool
-/// input, the pool is a directory input): the reads `expect` the directory the verified cell holds.
+/// The takeover holds of the sessions this process hosts, for the secret fill's gates (`TakeoverGates`) and the human-only lock (`HumanOnlyLock`). The gates are built before
+/// the directory (the fill is a tool pool input, the pool is a directory input): the reads `expect` the directory the verified cell holds.
 pub struct LateHolds(pub Arc<LateDirectory>);
 
 impl LateHolds {
@@ -247,8 +248,8 @@ impl mixdog_core_session::session::secret_input::TakeoverHolds for LateHolds {
         self.directory().hold(thread)
     }
 
-    fn any_screen(&self) -> bool {
-        self.directory().any_screen()
+    fn screen(&self) -> Option<String> {
+        self.directory().screen()
     }
 }
 
@@ -270,6 +271,11 @@ pub struct LateComputerHosts(OnceLock<Option<Arc<mixdog_core::run_host::native_t
 impl LateComputerHosts {
     pub fn bind(&self, pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>>) -> Result<(), &'static str> {
         self.0.set(pool).map_err(|_| "computer hosts")
+    }
+
+    /// Whether the `computer` tool is registered: a pool was bound. Unbound reads as none (nothing is served before the bind).
+    pub fn registered(&self) -> bool {
+        self.0.get().is_some_and(Option::is_some)
     }
 
     fn host(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<Arc<dyn mixdog_tools::state::secrets::ComputerSecretHost>> {
@@ -839,21 +845,11 @@ impl LateDraftSettings {
     /// The method as the host's `invokeSession` calls it: the one argument, no options. Without the `session` scope Node's runtime
     /// writes the configured value, which the empty session takes at its first turn (workflow-packs.mjs:53-71, style-and-mode.mjs:40-61),
     /// and its answer is not read (session-host-lifecycle.ts:766-776): the call names no thread, whose record the core writes only
-    /// after the route (`begin_thread`), so the op is the domain's. Both are mutations, which the service refuses without an op
-    /// id: each call is its own operation.
-    async fn call(&self, method: &'static str, mut params: Value) -> Result<(), mixdog_core_api::CoreError> {
+    /// after the route (`begin_thread`), so the op is the domain's. Both are mutations: each call is its own operation
+    /// ([`internal_request`]).
+    async fn call(&self, method: &'static str, params: Value) -> Result<(), mixdog_core_api::CoreError> {
         let service = self.0.get().expect("draft settings bound (compose::verify_bound)");
-        let op = uuid::Uuid::now_v7().to_string();
-        params["opId"] = Value::String(op.clone());
-        service
-            .call(mixdog_core_api::call::CoreRequest {
-                method: mixdog_core_api::ids::Method(method),
-                params,
-                op: Some(mixdog_core_api::ids::OpId::from(op)),
-                ctx: mixdog_core_api::call::CallContext::internal("draft"),
-            })
-            .await
-            .map(|_| ())
+        service.call(internal_request(method, params, "draft")).await.map(|_| ())
     }
 }
 
@@ -982,6 +978,10 @@ impl LateTurnAdmission {
 impl mixdog_core_session::session::worktree::TurnAdmission for LateTurnAdmission {
     async fn admit(&self, thread: &str, cwd: mixdog_core_session::session::worktree::Cwd, cancel: &mixdog_rt::CancellationToken) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
         self.0.get().expect("turn admission bound (compose::verify_bound)").admit(thread, cwd, cancel).await
+    }
+
+    async fn prepare(&self, thread: &str, start: mixdog_core_session::session::worktree::TurnStart, cancel: &mixdog_rt::CancellationToken) -> Result<(), mixdog_scm::error::ScmFailure> {
+        self.0.get().expect("turn admission bound (compose::verify_bound)").prepare(thread, start, cancel).await
     }
 }
 

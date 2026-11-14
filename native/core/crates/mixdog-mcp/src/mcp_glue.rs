@@ -85,6 +85,7 @@ use crate::scope_runtime::ScopeConfigs;
 use crate::scope_runtime::ScopeRuntime;
 use crate::scope_runtime::request_scope;
 use crate::server::McpServer;
+use crate::server::Ready;
 use crate::server::ServerState;
 use crate::skill_catalog::SkillCatalog;
 use crate::skills_service::SkillsService;
@@ -140,11 +141,17 @@ pub struct Failure {
     pub auth_required: bool,
 }
 
-/// A connected server, as the status rows list it.
+/// A registered server's connection, as the status rows list it.
 #[derive(Clone, Debug)]
 pub struct LiveServer {
     pub tools: Vec<(String, String)>,
     pub capabilities: Value,
+    /// What its configuration could not resolve (`missingEnvWarnings`), kept on the connection (`getMcpServerStatus`'s
+    /// `warnings`, mcp/client.mjs:319).
+    pub warnings: Vec<String>,
+    /// Whether the connection is alive; false: it ended by itself, and the server stays registered with what it listed
+    /// (`getMcpServerStatus`'s `connected`, mcp/client.mjs:307-320), which `statusRows` reads failed.
+    pub connected: bool,
 }
 
 /// The owner of the runtime's own scope: the daemon, which closes it by exiting.
@@ -403,6 +410,44 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         catalog
     }
 
+    /// The data folder (`_mixdogPlugin.data`) of every enabled plugin server of `catalog`, by its name. A server whose
+    /// configuration cannot be turned into a connection is listed too: Node makes the folder of a connect that then
+    /// fails.
+    fn plugin_data_folders(catalog: &Catalog) -> Vec<(String, PathBuf)> {
+        catalog
+            .servers
+            .iter()
+            .filter(|(_, cfg)| cfg.get("enabled") != Some(&Value::Bool(false)))
+            .filter_map(|(name, cfg)| {
+                let data = cfg.pointer("/_mixdogPlugin/data").and_then(Value::as_str).filter(|data| !data.is_empty())?;
+                Some((name.clone(), PathBuf::from(data)))
+            })
+            .collect()
+    }
+
+    /// `ensurePluginServerData` (`plugin-servers.mjs`) just before a connect (`connect.mjs`, `server-connection.mjs`):
+    /// `folders` exist, as one maintenance-lane job. A folder that cannot be made is logged, and the server connects all
+    /// the same.
+    async fn make_plugin_data_folders(&self, folders: Vec<PathBuf>) {
+        if folders.is_empty() {
+            return;
+        }
+        let job = move |lane: &mixdog_rt::InLane<MaintenanceIo>| {
+            for folder in &folders {
+                if let Err(error) = mixdog_statefile::create_dir_all(lane, folder) {
+                    tracing::warn!(%error, folder = %folder.display(), "[mcp] a plugin server's data folder could not be created");
+                }
+            }
+        };
+        let ran = match self.maintenance.submit_wait(&CancellationToken::new(), job).await {
+            Ok(handle) => handle.await.map_err(|e| e.to_string()),
+            Err(error) => Err(error.to_string()),
+        };
+        if let Err(error) = ran {
+            tracing::warn!(%error, "[mcp] the plugin servers' data folders could not be created");
+        }
+    }
+
     /// The hub servers a configured server or an account name stands for.
     fn targets_of(catalog: &Catalog, name: &str) -> Vec<String> {
         if let Some(target) = account_target(&catalog.servers, name) {
@@ -549,12 +594,19 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         let mut account_names = HashSet::new();
         let one = |server: &Arc<crate::server::McpServer>| -> (Option<LiveServer>, Option<Failure>) {
             let oauth_needed = self.live_oauth(server.name()).is_some_and(|o| o.sign_in_required());
+            let listed = |connection: &Arc<Ready>, connected: bool| LiveServer {
+                tools: connection.catalog.entries.iter().map(|e| (e.qualified.clone(), e.description.clone())).collect(),
+                capabilities: connection.capabilities.clone(),
+                warnings: server.config().warnings.clone(),
+                connected,
+            };
             match &*server.state() {
-                ServerState::Ready(ready) => {
-                    let tools = ready.catalog.entries.iter().map(|e| (e.qualified.clone(), e.description.clone())).collect();
-                    (Some(LiveServer { tools, capabilities: ready.capabilities.clone() }), None)
+                ServerState::Ready(ready) => (Some(listed(ready, true)), None),
+                // `getMcpServerStatus` (mcp/client.mjs:307-320): a connection that ended by itself stays registered, not
+                // alive, with the tools, capabilities and warnings it had.
+                ServerState::Failed { cause } => {
+                    (server.connection().map(|dead| listed(&dead, false)), Some(Failure { msg: cause.clone(), auth_required: oauth_needed }))
                 }
-                ServerState::Failed { cause } => (None, Some(Failure { msg: cause.clone(), auth_required: oauth_needed })),
                 _ => (None, None),
             }
         };
@@ -575,11 +627,17 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
                 account_names.insert(account_name.clone());
                 let Some(server) = self.live_server(&account_name) else { continue };
                 let (l, f) = one(&server);
-                if let Some(l) = l {
-                    let slot = merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone() });
+                // A connector merges the accounts that are connected; a dead one is among its failures.
+                if let Some(l) = l.filter(|l| l.connected) {
+                    let slot = merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone(), warnings: Vec::new(), connected: true });
                     for tool in l.tools {
                         if !slot.tools.iter().any(|t| t.0 == tool.0) {
                             slot.tools.push(tool);
+                        }
+                    }
+                    for warning in l.warnings {
+                        if !slot.warnings.contains(&warning) {
+                            slot.warnings.push(warning);
                         }
                     }
                 }
@@ -608,7 +666,11 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             if catalog.servers.contains_key(server.name()) || account_names.contains(server.name()) {
                 continue;
             }
-            if let (Some(l), _) = one(&server) {
+            if let (Some(l), f) = one(&server) {
+                // A dead one's row carries how its connection ended (`getMcpServerStatus`'s `error`).
+                if let Some(f) = f {
+                    failures.entry(server.name().to_owned()).or_insert(f);
+                }
                 live.insert(server.name().to_owned(), l);
             }
         }
@@ -761,11 +823,17 @@ struct GlueConfigs {
 #[async_trait]
 impl ScopeConfigs for GlueConfigs {
     async fn resolve(&self, _scope: &str, cwd: &str, only: Option<&str>) -> Resolved {
-        let Some(glue) = self.glue.upgrade() else { return Resolved { configs: Vec::new(), targets: Vec::new() } };
+        let Some(glue) = self.glue.upgrade() else { return Resolved { configs: Vec::new(), targets: Vec::new(), data_folders: Vec::new() } };
         let catalog = if mcp_disabled() { empty_catalog() } else { glue.catalog_at(Ok(cwd.to_owned())).await };
         let (configs, _) = glue.configs_of(&catalog);
         let targets = only.map(|name| McpGlue::targets_of(&catalog, name)).unwrap_or_default();
-        Resolved { configs, targets }
+        Resolved { configs, targets, data_folders: McpGlue::plugin_data_folders(&catalog) }
+    }
+
+    async fn make_data_folders(&self, folders: Vec<PathBuf>) {
+        if let Some(glue) = self.glue.upgrade() {
+            glue.make_plugin_data_folders(folders).await;
+        }
     }
 }
 #[async_trait]
@@ -950,10 +1018,13 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
     for (name, cfg) in &catalog.servers {
         seen.insert(name);
         let live = input.live.get(name);
+        // `statusRows`: a registered server whose connection ended by itself is failed, not connected; its row keeps the
+        // tools, capabilities and warnings it had.
+        let alive = live.filter(|l| l.connected);
         let fail = input.failures.get(name);
         let entry = catalog.entries.get(name).cloned().unwrap_or(Value::Null);
         let owner = entry.get("owner").filter(|o| !o.is_null());
-        let pending = live.is_none() && input.login_pending.contains(name);
+        let pending = alive.is_none() && input.login_pending.contains(name);
         let stored = if owner.is_some() { Vec::new() } else { accounts_of(cfg) };
         let connector = if owner.is_some() { None } else { connector_of_server(cfg) };
         let record = if stored.is_empty() { None } else { connector.and_then(|c| input.in_use.get(c.id)) };
@@ -967,13 +1038,13 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
             .collect();
         let accounts_sign_in = !accounts.is_empty() && accounts.iter().all(|a| a["authRequired"] == json!(true));
         let fail_sign_in = fail.map(|f| Failure { msg: f.msg.clone(), auth_required: f.auth_required || accounts_sign_in });
-        let status = server_status(cfg, live.is_some(), fail_sign_in.as_ref(), pending);
+        let status = server_status(cfg, alive.is_some(), fail_sign_in.as_ref(), pending);
         let auth_required = status == "sign-in required";
         let mut row = Map::new();
         row.insert("name".to_owned(), json!(name));
         row.insert("configured".to_owned(), json!(true));
         row.insert("enabled".to_owned(), json!(cfg.get("enabled") != Some(&Value::Bool(false))));
-        row.insert("connected".to_owned(), json!(live.is_some()));
+        row.insert("connected".to_owned(), json!(alive.is_some()));
         row.insert("status".to_owned(), json!(status));
         row.insert("transport".to_owned(), json!(transport_label(cfg)));
         row.insert("toolCount".to_owned(), json!(live.map_or(0, |l| l.tools.len())));
@@ -985,7 +1056,10 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
         let cap = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(truthy);
         row.insert("capabilities".to_owned(), json!({"tools": cap("tools"), "prompts": cap("prompts"), "resources": cap("resources")}));
         row.insert("error".to_owned(), if auth_required { Value::Null } else { fail.map_or(Value::Null, |f| json!(f.msg)) });
-        row.insert("warnings".to_owned(), entry.get("warnings").cloned().unwrap_or(json!([])));
+        // `server-catalog.mjs:198`: the catalog entry's warnings, then the connection's.
+        let mut warnings = entry.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default();
+        warnings.extend(live.into_iter().flat_map(|l| l.warnings.iter().map(|w| json!(w))));
+        row.insert("warnings".to_owned(), Value::Array(warnings));
         row.insert("source".to_owned(), catalog.sources.get(name).cloned().unwrap_or(json!("config")));
         if auth_required {
             row.insert("authRequired".to_owned(), json!(true));
@@ -1038,8 +1112,8 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
         if seen.contains(name.as_str()) {
             continue;
         }
-        servers.push(json!({
-            "name": name, "connected": true, "warnings": [], "toolCount": live.tools.len(),
+        let mut row = json!({
+            "name": name, "connected": live.connected, "warnings": live.warnings, "toolCount": live.tools.len(),
             "tools": live.tools.iter().map(|(n, d)| json!({"name": n, "description": d})).collect::<Vec<_>>(),
             "capabilities": {
                 "tools": live.capabilities.get("tools").is_some_and(truthy),
@@ -1047,7 +1121,12 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
                 "resources": live.capabilities.get("resources").is_some_and(truthy),
             },
             "configured": false, "status": "connected",
-        }));
+        });
+        // `{ ...live, configured: false, status: 'connected' }`: a dead connection's row carries how it ended.
+        if !live.connected && let Some(f) = input.failures.get(name) {
+            row["error"] = json!(f.msg);
+        }
+        servers.push(row);
     }
     servers.sort_by(|a, b| mixdog_js::locale_compare(a["name"].as_str().unwrap_or_default(), b["name"].as_str().unwrap_or_default()));
     let declaration_errors: Vec<Value> = catalog
@@ -1205,8 +1284,9 @@ impl McpRuntime for McpGlue {
     fn tools(&self) -> Vec<Value> {
         let mut out = Vec::new();
         for server in self.live_servers() {
-            let ServerState::Ready(ready) = &*server.state() else { continue };
-            for entry in &ready.catalog.entries {
+            // A server whose connection ended by itself still lists its tools, as `getMcpTools` does.
+            let Some(catalog) = server.catalog() else { continue };
+            for entry in &catalog.entries {
                 let a = &entry.annotations;
                 let mut annotations = Map::new();
                 if let Some(v) = &a.title {

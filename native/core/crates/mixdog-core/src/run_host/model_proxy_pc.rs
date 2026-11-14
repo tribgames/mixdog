@@ -233,7 +233,7 @@ fn consumes_read_windows(name: &str) -> bool {
 }
 
 /// `takesImages = false` (mixdog-local.mjs): the text-only local runtime.
-fn takes_images(name: &str) -> bool {
+pub(super) fn takes_images(name: &str) -> bool {
     name != "mixdog-local"
 }
 

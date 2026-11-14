@@ -102,6 +102,11 @@ pub trait ConnectorPermissions: Send + Sync {
     /// Saves "always allow" for the bot's own entry of the tool; false when it
     /// could not be saved.
     async fn allow_always(&self, bot_id: &str, tool: &str) -> bool;
+    /// Brings the agent's connector policy and the project policy up to date
+    /// with their files before they are read (Node reads them stat-checked,
+    /// `cachedRead`); with `tool`, the tool about to be called, only when it is
+    /// a connector tool. Permissions held in memory have nothing to read.
+    async fn refresh(&self, _connector_agent_id: &str, _tool: Option<&str>) {}
 }
 
 pub struct AuthorizeRequest<'a> {
@@ -256,6 +261,8 @@ impl ToolPolicy {
         // agent's connectors and the project switched off depends on the tool, so it is
         // read here per call (under the name the tool has in the schema).
         let schema = rq.schema_name.unwrap_or(name);
+        // A switch saved since the last call applies to this one.
+        self.connectors.refresh(&rq.facts.connector_agent_id, Some(schema)).await;
         let mut surface = rq.surface.clone();
         surface.connector_disabled = self.connectors.disabled(&rq.facts.connector_agent_id, schema);
         surface.project_disabled = self.connectors.project_disabled(rq.thread_id, schema);

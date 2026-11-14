@@ -227,7 +227,7 @@ const startedThreadId = (started: unknown): string => {
  *  read from the core when the reply arrives (`thread/read` without items, folded by the client library's own
  *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
  *  The pending approvals are the ones the core asked this connection
- *  for (`item/*` server requests), joined by the library's own projection, so `toolApproval` is what Node's reply shows. */
+ *  for (the server requests the library holds), joined by the library's own projection, so `toolApproval` is what Node's reply shows. */
 export function createCapabilityLane({
   protocol,
 }: {
@@ -238,9 +238,9 @@ export function createCapabilityLane({
       throw coreErrorForWindow(error);
     });
   // The approvals the core is waiting on are the live client's own `pendingServerRequests` (added when the core asks, removed when
-  // it resolves the ask, all dropped with the socket), read when needed: nothing is cached here, so a request of a closed or replaced
-  // connection is never offered and an answer never crosses connections.
-  const pendingApprovals = (): unknown[] => protocol.pendingServerRequests().filter((asked) => asked.method.startsWith('item/'));
+  // it resolves the ask, all dropped with the socket; a capability's request, `host/*`, is never held), read when needed: nothing
+  // is cached here, so a request of a closed or replaced connection is never offered and an answer never crosses connections.
+  const pendingApprovals = (): readonly unknown[] => protocol.pendingServerRequests();
   let control: Promise<string> | null = null;
   const controlThread = (): Promise<string> => {
     if (control) return control;

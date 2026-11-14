@@ -2,11 +2,13 @@
 //! the search and memory ingests and the Auto effort prewarm gate (the delete purge hooks are
 //! tested against a recorded Node delete in `mixdog-core`'s `purge_populated_delete`).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_services::memory::service::MemoryModule;
 use serde_json::Value;
 use serde_json::json;
 
@@ -61,11 +63,12 @@ fn a_turn_reaches_session_search_with_its_visibility() {
     assert!(hidden.agent_only);
 }
 
+/// The calls, and the sessions marked as having loaded the module.
 #[derive(Default)]
-struct Memory(Mutex<Vec<Value>>);
+struct Memory(Mutex<Vec<Value>>, Mutex<HashSet<String>>);
 
 #[async_trait]
-impl mixdog_services::memory::service::MemoryModule for Memory {
+impl MemoryModule for Memory {
     async fn memory(&self, args: Value) -> String {
         lock(&self.0).push(args);
         String::new()
@@ -73,18 +76,31 @@ impl mixdog_services::memory::service::MemoryModule for Memory {
     async fn recall(&self, _: Value, _: &tokio_util::sync::CancellationToken) -> String {
         String::new()
     }
+    fn note_session_use(&self, thread: &str) {
+        lock(&self.1).insert(thread.to_owned());
+    }
+    fn take_session_use(&self, thread: &str) -> bool {
+        lock(&self.1).remove(thread)
+    }
 }
 
-/// A closing session's model context goes to the memory module's `ingest_session`; with memory
-/// off, or nothing to ingest, nothing is called.
+/// A closing session whose runtime loaded the memory module (a recall or memory call since it was
+/// opened) goes to the module's `ingest_session` with its model context, once; with memory off,
+/// nothing to ingest, or no such call, nothing is called.
 #[tokio::test]
 async fn a_closing_session_is_ingested_by_the_memory_module() {
     let memory = Arc::new(Memory::default());
     let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
     let ingest = super::MemoryCloseIngest::new(Some(memory.clone()), sensitive.clone());
     let messages = vec![json!({ "role": "user", "content": "hi" })];
+    for id in ["sess_1", "sess_2", "sess_3"] {
+        memory.note_session_use(id);
+    }
+    ingest.ingest(&ThreadId::from("sess_1"), "/ws", messages.clone()).await;
+    // Closed again without a call since: the runtime that loaded the module ended with the first close.
     ingest.ingest(&ThreadId::from("sess_1"), "/ws", messages.clone()).await;
     ingest.ingest(&ThreadId::from("sess_2"), "/ws", Vec::new()).await;
+    ingest.ingest(&ThreadId::from("sess_4"), "/ws", messages.clone()).await;
     super::MemoryCloseIngest::new(None, sensitive).ingest(&ThreadId::from("sess_3"), "/ws", messages.clone()).await;
     assert_eq!(
         *lock(&memory.0),
@@ -107,6 +123,7 @@ async fn memory_is_fed_with_the_sessions_sensitive_values_redacted() {
         sensitive.remember(id, s["calls"].as_array().map(Vec::as_slice).unwrap_or_default());
     }
     let memory = Arc::new(Memory::default());
+    memory.note_session_use(id);
     let ingest = super::MemoryCloseIngest::new(Some(memory.clone()), sensitive);
     let input = session["messages"]["input"].as_array().expect("input").clone();
     ingest.ingest(&ThreadId::from(id), "/ws", input).await;

@@ -59,6 +59,7 @@ pub struct RunSettings {
     pub compact: Option<mixdog_agent::boundary::CompactSettings>,
     pub escalated_max_output_tokens: Option<u32>,
     pub read_body_required: bool,
+    pub vision: Option<Arc<dyn mixdog_agent::env::ModelVision>>,
     pub effort: Option<mixdog_agent::effort::EffortWiring>,
     pub step_auto_effort: Option<mixdog_agent::step_effort::StepAutoEffort>,
     pub text_only: Option<mixdog_agent::text_only::TextOnlyInput>,
@@ -194,8 +195,18 @@ mod session_view;
 pub struct HostRunParts {
     services: HostServices,
     /// Each thread's `_providerPrefixGuardState`: the fingerprint of the request its last completed turn settled on, in memory
-    /// only (Node never stores it).
-    prefix_guards: std::sync::Mutex<std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>>,
+    /// only (Node never stores it), beside the transcript lineage that turn ran on.
+    prefix_guards: std::sync::Mutex<std::collections::HashMap<ThreadId, KeptPrefixGuard>>,
+}
+
+/// A thread's kept prefix guard. Node deletes `_providerPrefixGuardState` wherever it rewrites the transcript outside a
+/// send (a rewind, a clear, a reclaimed prompt, a rewound context: `session-crud.mjs:344`, `:474`); the session names a new
+/// `transcriptEpoch` on the turn after each of those, so a guard kept under another lineage is that deleted state.
+#[derive(Default)]
+struct KeptPrefixGuard {
+    /// The header's `transcriptEpoch` of the turn the guard was taken for.
+    epoch: Option<String>,
+    guard: Option<mixdog_agent::prefix_guard::Snapshot>,
 }
 
 /// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
@@ -253,8 +264,21 @@ impl HostRunParts {
         Self { services, prefix_guards: std::sync::Mutex::default() }
     }
 
-    fn prefix_guards(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>> {
+    fn prefix_guards(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, KeptPrefixGuard>> {
         self.prefix_guards.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The guard a turn on `header` starts with: the one the thread's last completed turn kept, unless the transcript was
+    /// rewritten since (the header names another lineage), where the next send baselines afresh as Node's does.
+    fn prefix_guard_for(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_agent::prefix_guard::Snapshot> {
+        let epoch = header.get("transcriptEpoch").and_then(Value::as_str).map(str::to_owned);
+        let mut guards = self.prefix_guards();
+        let kept = guards.entry(thread.clone()).or_default();
+        if kept.epoch != epoch {
+            kept.guard = None;
+            kept.epoch = epoch;
+        }
+        kept.guard.clone()
     }
 }
 
@@ -545,15 +569,8 @@ impl RunParts for HostRunParts {
     }
 
     fn keep_prefix_guard(&self, thread: &ThreadId, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
-        let mut guards = self.prefix_guards();
-        match guard {
-            Some(guard) => {
-                guards.insert(thread.clone(), guard);
-            }
-            None => {
-                guards.remove(thread);
-            }
-        }
+        // The lineage stays the one the turn started on (`prefix_guard_for`).
+        self.prefix_guards().entry(thread.clone()).or_default().guard = guard;
     }
 
     async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {
@@ -662,6 +679,7 @@ impl RunParts for HostRunParts {
         config.compact = settings.compact;
         config.escalated_max_output_tokens = settings.escalated_max_output_tokens;
         config.read_body_required = settings.read_body_required;
+        config.vision = settings.vision;
         config.effort = settings.effort;
         // The judge is built only when auto effort is on for the turn (`stepAutoEffort`), over the
         // shared model and the ladder of this run's route.
@@ -769,7 +787,7 @@ impl RunParts for HostRunParts {
                 &cwd.to_string_lossy(),
             ))),
             blobs: s.blobs.clone(),
-            carry: RunCarry { prefix_guard: self.prefix_guards().get(thread).cloned(), ..RunCarry::from_saved(header) },
+            carry: RunCarry { prefix_guard: self.prefix_guard_for(thread, header), ..RunCarry::from_saved(header) },
         })
     }
 }

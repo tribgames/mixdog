@@ -160,6 +160,16 @@ const HOST_READ_ACTIONS: [&str; 14] = [
 const RETAIN_REF_ACTIONS: [&str; 5] =
     ["release_session", "release_cursor_theme", "release_held_input", "release_sequence_holds", "restore_input_state"];
 
+/// `OBSERVE_ONLY_ALLOWED_ACTIONS` (`computerActionsWith('observeOnly')`) among the commands `run` sends: the helper's and the
+/// host's reads and `diagnose` (the lifecycle actions of that set never pass through `run`).
+fn observe_only_admits(action: &str) -> bool {
+    action == "diagnose" || READ_ACTIONS.contains(&action) || HOST_READ_ACTIONS.contains(&action)
+}
+
+/// `isObserveOnly()`: whether the desktop's "Observation only" setting (`desktop.computerObserveOnly`) is on now. The user's
+/// setting, read live; not [`ComputerConfig::observe_only`], the backend's static helper flag.
+pub type ObserveOnlySetting = Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// How the helper is run.
 #[derive(Clone, Debug)]
 pub struct ComputerConfig {
@@ -169,7 +179,8 @@ pub struct ComputerConfig {
     pub session_id: String,
     /// Tags input this process injects so the helper's observer can tell it from the user's.
     pub input_marker: Option<String>,
-    /// Refuse every mutation (the helper's `read_only` run).
+    /// Refuse every mutation (the helper's `read_only` run). A static flag of this backend, which nothing in the core turns on;
+    /// it is not the user's "Observation only" setting, which is the live [`ObserveOnlySetting`] (`with_observe_only_setting`).
     pub observe_only: bool,
     /// Pause after a background sequence step, in milliseconds.
     pub sequence_settle_ms: u64,
@@ -347,6 +358,9 @@ pub struct ProcessComputerBackend {
     /// (`hostBoundComputerSessions`, `client.mjs:367`).
     bound: AtomicBool,
     observer: Option<Arc<dyn ExecutionObserver>>,
+    /// The user's "Observation only" setting (`desktop.computerObserveOnly`), read live at each action's admission and before each
+    /// `act` step; `None` admits every action. Distinct from the static `config.observe_only`.
+    observe_only_setting: Option<ObserveOnlySetting>,
 }
 
 /// The environment the Linux preflight reads, taken afresh for each action.
@@ -371,7 +385,8 @@ impl LinuxSession {
 /// Told when this session's visible execution opens and closes: the edges of `executing`, which the
 /// computer-use pill follows (`beginCommand` / `endExecution` of Node's coordinator).
 pub trait ExecutionObserver: Send + Sync {
-    /// An action ran with no execution open. `observe_only` is the backend's setting.
+    /// An action ran with no execution open. `observe_only` is the backend's static `ComputerConfig::observe_only`, not the
+    /// user's live "Observation only" (Node's pill does not read that setting either).
     fn began(&self, observe_only: bool);
     /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
     fn ended(&self);
@@ -381,6 +396,12 @@ impl ProcessComputerBackend {
     /// Reports the execution's edges to `observer`.
     pub fn with_observer(mut self, observer: Arc<dyn ExecutionObserver>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    /// Refuses every action but a read while `setting` reads on (the desktop's "Observation only").
+    pub fn with_observe_only_setting(mut self, setting: ObserveOnlySetting) -> Self {
+        self.observe_only_setting = Some(setting);
         self
     }
 
@@ -408,6 +429,23 @@ impl ProcessComputerBackend {
         was_open
     }
 
+    /// `isObserveOnly()`: the desktop's "Observation only" as it reads now; off without a setting.
+    fn observing_only(&self) -> bool {
+        self.observe_only_setting.as_ref().is_some_and(|on| on())
+    }
+
+    /// `assertObservationInputAllowed` (desktop `observation-policy.ts`): while "Observation only" is on, `action` is refused in
+    /// Node's words unless it is a read.
+    fn assert_observation_input_allowed(&self, action: &str) -> Result<(), ComputerError> {
+        if self.observing_only() && !observe_only_admits(action) {
+            return Err(ComputerError::Failed {
+                code: "observation_only".into(),
+                message: format!("observation_only: Computer Use is observing only, so '{action}' input is blocked. Turn off \"Observation only\" in Settings to allow input."),
+            });
+        }
+        Ok(())
+    }
+
     /// The helper runs under `manager`; it starts on the first action and restarts after a
     /// timeout or cancellation.
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
@@ -424,6 +462,7 @@ impl ProcessComputerBackend {
             secret_focus: AtomicBool::new(false),
             executing: AtomicBool::new(false),
             bound: AtomicBool::new(false),
+            observe_only_setting: None,
         }
     }
 
@@ -643,6 +682,10 @@ impl ProcessComputerBackend {
         let mut messages = Vec::new();
         for step in steps {
             let Value::Object(mut step) = step else { continue };
+            // Node runs every step back through admission and checks again right before each input transport
+            // (`input-dispatch.ts`): "Observation only" turned on mid-sequence stops the steps left. Node reports the refused
+            // step as a failed row; here, as for any failed step, the error ends the call.
+            self.assert_observation_input_allowed(text(&step, "action"))?;
             for (key, value) in &target {
                 step.entry(key.clone()).or_insert_with(|| value.clone());
             }
@@ -789,7 +832,8 @@ impl ProcessComputerBackend {
             input,
             displays: &displays,
             readiness: &readiness,
-            observe_only: self.config.observe_only,
+            // `observeOnly: isObserveOnly()`: the report's input_mode is the live setting's.
+            observe_only: self.config.observe_only || self.observing_only(),
         };
         Ok(vec![ToolPart::Text(computer_gnome::diagnose_text(&report))])
     }
@@ -1315,6 +1359,11 @@ impl ComputerBackend for ProcessComputerBackend {
                 return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
             }
         }
+        let name = text(&command, "action").to_string();
+        // `assertObservationInputAllowed` at admission: while "Observation only" is on, anything but a read is refused before it
+        // opens an execution or reaches the helper. Node's client has already tracked the session and its coordinator begun the
+        // pill when its router refuses; this core refuses first, so a refused input leaves the session unbound and shows no pill.
+        self.assert_observation_input_allowed(&name)?;
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
         self.bound.store(true, Ordering::SeqCst);
         if !self.executing.swap(true, Ordering::SeqCst) {
@@ -1322,7 +1371,6 @@ impl ComputerBackend for ProcessComputerBackend {
                 observer.began(self.config.observe_only);
             }
         }
-        let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
         // refused, and the next action (which moves on) lifts the hold.
         if self.secret_focus.load(Ordering::SeqCst) {
@@ -1668,6 +1716,58 @@ mod tests {
         cancel.cancel();
         assert_eq!(backend.wait_reply(receive, &cancel).await, Err(ComputerError::Cancelled));
         assert_eq!(seen(), ["began:false", "ended"], "a cancelled call aborts the session");
+    }
+
+    /// `assertObservationInputAllowed`: while the desktop's "Observation only" is on, an input is refused in Node's words before it
+    /// opens an execution or starts the helper, and a read still runs; once it is off, the same input runs.
+    #[tokio::test]
+    async fn observation_only_refuses_input_at_admission() {
+        let observing = Arc::new(AtomicBool::new(true));
+        let edges = Arc::new(Edges::default());
+        let setting = observing.clone();
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
+            .with_observer(edges.clone())
+            .with_observe_only_setting(Arc::new(move || setting.load(Ordering::SeqCst)));
+        let write = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
+
+        assert_eq!(
+            backend.run(write(), CancellationToken::new()).await,
+            Err(ComputerError::Failed {
+                code: "observation_only".into(),
+                message: "observation_only: Computer Use is observing only, so 'clipboard_write' input is blocked. Turn off \"Observation only\" in Settings to allow input.".into(),
+            })
+        );
+        assert!(!backend.is_bound() && !backend.status().active, "nothing reached the helper");
+        assert!(locked(&edges.0).is_empty(), "no execution opened");
+        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        backend.run(read, CancellationToken::new()).await.unwrap();
+        observing.store(false, Ordering::SeqCst);
+        backend.run(write(), CancellationToken::new()).await.unwrap();
+    }
+
+    /// Node admits each `act` step again: "Observation only" turned on after the sequence was admitted refuses the next input
+    /// step in Node's words, once the step before it has reached the helper.
+    #[tokio::test]
+    async fn observation_only_turned_on_mid_sequence_stops_the_steps_left() {
+        // Off for the sequence's admission and its first step, on from the second step's check.
+        let reads = Arc::new(AtomicU64::new(0));
+        let counted = reads.clone();
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
+            .with_observe_only_setting(Arc::new(move || counted.fetch_add(1, Ordering::SeqCst) >= 2));
+        let act = ComputerRequest {
+            action: ComputerAction::Act,
+            input: json!({"window_id":"w","actions":[{"type":"key","keys":"a"},{"type":"click","x":1,"y":2}]}),
+        };
+
+        assert_eq!(
+            backend.run(act, CancellationToken::new()).await,
+            Err(ComputerError::Failed {
+                code: "observation_only".into(),
+                message: "observation_only: Computer Use is observing only, so 'click' input is blocked. Turn off \"Observation only\" in Settings to allow input.".into(),
+            })
+        );
+        assert!(backend.is_bound() && backend.status().active, "the first step reached the helper");
+        assert_eq!(reads.load(Ordering::SeqCst), 3, "the admission and each step read the setting");
     }
 
     #[cfg(unix)]

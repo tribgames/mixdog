@@ -161,10 +161,10 @@ struct Hooks {
 
 #[async_trait]
 impl ToolHooks for Hooks {
-    async fn after_tool(&self, _call: &GateCall, _result: &str) -> Option<String> {
+    async fn after_tool(&self, _call_id: &str, _call: &GateCall, _result: &str) -> Option<String> {
         self.text.clone()
     }
-    async fn after_failure(&self, call: &GateCall, result: &str) {
+    async fn after_failure(&self, _call_id: &str, call: &GateCall, result: &str) {
         self.failures.lock().expect("failures").push((call.name.clone(), result.to_owned()));
     }
 }

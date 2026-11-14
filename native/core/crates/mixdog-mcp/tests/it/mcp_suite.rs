@@ -9,6 +9,7 @@ use mixdog_mcp::McpHub;
 use mixdog_mcp::McpIo;
 use mixdog_mcp::McpServer;
 use mixdog_mcp::McpServerConfig;
+use mixdog_mcp::admission::AdmissionError;
 use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::result::Spiller;
 use mixdog_mcp::rpc::RpcError;
@@ -190,9 +191,30 @@ async fn died(dir: &std::path::Path, extra: Value) -> (Arc<McpServer>, std::path
 async fn a_call_on_a_dead_connection_reconnects_and_is_replayed_once() {
     let dir = tempfile::tempdir().unwrap();
     let (server, counted) = died(dir.path(), json!({})).await;
+    assert!(server.catalog().is_some_and(|c| c.entries.iter().any(|e| e.tool == "echo")), "the dead connection's tools stay listed");
     assert_eq!(call(&server, "echo", json!({"text": "after"})).await.unwrap(), "after");
     assert_eq!(starts(&counted), 2, "one reconnect");
     server.close().await;
+}
+
+/// `getMcpTools` and `resolveMcpToolTarget` (mcp/client.mjs:232-238, 1622-1633) do not look at liveness: a server whose
+/// connection ended by itself still offers its tools, and the call that finds the connection gone reconnects it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_connections_tools_stay_offered_and_their_call_reconnects_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let counted = dir.path().join("starts");
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    hub.apply(vec![config("mock", json!({"env": {"MOCK_STARTS": counted}}))]);
+    let server = hub.server("mock").unwrap();
+    until(&server, |s| matches!(s, ServerState::Ready(_))).await;
+    let offered = hub.tools().len();
+    assert_eq!(unlisted(&server, "die_soon").await, "dying");
+    until(&server, |s| matches!(s, ServerState::Failed { .. })).await;
+    assert_eq!(hub.tools().len(), offered, "the dead server's tools are still offered");
+    let (target, entry) = hub.resolve("mcp__mock__echo").expect("its tool still resolves");
+    assert_eq!(call(&target, &entry.tool, json!({"text": "back"})).await.unwrap(), "back");
+    assert_eq!(starts(&counted), 2, "the call reconnected it");
+    hub.close_all().await;
 }
 
 /// `reconnectMcpServer` (mcp/client.mjs:432-452): the reconnect is shared; calls that failed on the same connection
@@ -227,7 +249,9 @@ async fn a_reconnect_that_fails_is_reported_with_the_first_failure() {
         }
         other => panic!("{other:?}"),
     }
-    // A server whose reconnect failed is not connected: the next call says so and does not reconnect again.
+    // A server whose reconnect failed is not connected (`replaceServerConnection` unregisters it): its tools are gone,
+    // and the next call says so and does not reconnect again.
+    assert!(server.catalog().is_none(), "a failed reconnect drops the tools");
     assert!(matches!(call(&server, "echo", json!({})).await, Err(CallError::NotReady { .. })));
     server.close().await;
 }
@@ -306,6 +330,23 @@ async fn list_changed_relists_the_catalog() {
     until(&server, |s| matches!(s, ServerState::Ready(r) if r.catalog.entries.len() == 10)).await;
     assert_ne!(server.catalog().unwrap().digest, before);
     server.close().await;
+}
+
+/// `connectServer` (mcp/client.mjs:1501-1508) registers its `list_changed` handler only for a server that advertised
+/// `tools.listChanged`: another server's announcement is dropped and its listing stays as it was.
+#[tokio::test(flavor = "multi_thread")]
+async fn list_changed_from_a_server_that_did_not_advertise_it_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    for advertised in [json!({"tools": {}}), json!({"tools": {"listChanged": false}})] {
+        let server = ready(json!({"env": {"MOCK_CAPABILITIES": advertised.to_string()}}), dir.path()).await;
+        let before = server.catalog().unwrap().digest.clone();
+        call(&server, "grow", json!({})).await.unwrap();
+        // The announcement follows the answer on the same stream: the answer of a later call arrives after it.
+        assert_eq!(call(&server, "echo", json!({"text": "after"})).await.unwrap(), "after");
+        mixdog_rt::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(server.catalog().unwrap().digest, before, "{advertised}: the listing is not refreshed");
+        server.close().await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -426,6 +467,101 @@ async fn a_scope_holds_its_own_servers_and_releasing_it_closes_only_them() {
     assert!(of("global", "shared") && of("runtime-b", "shared"), "the other scopes are untouched");
     hub.close_all().await;
     assert!(!hub.has_scope("global") && !hub.has_scope("runtime-b"));
+}
+
+/// `_sharedStdio` (mcp/client.mjs:80-87; `stdio-lifetime.slow.test.mjs`, "share one process tree" and "ending one session
+/// keeps"): scopes that connect the same stdio server with the same configuration share one process; a scope that lets
+/// it go leaves it to the others, and the last one closes it. A configuration of its own is a process of its own, and a
+/// shared connection that ended by itself is connected again in place, for every scope holding it.
+#[tokio::test(flavor = "multi_thread")]
+async fn scopes_with_the_same_stdio_configuration_share_one_process_until_the_last_lets_it_go() {
+    let dir = tempfile::tempdir().unwrap();
+    let counted = dir.path().join("starts");
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    let same = config("mock", json!({"env": {"MOCK_STARTS": counted}}));
+    hub.apply_in("s1", vec![same.clone()]);
+    hub.apply_in("s2", vec![same.clone()]);
+    let (one, two) = (hub.server_in("s1", "mock").unwrap(), hub.server_in("s2", "mock").unwrap());
+    assert!(Arc::ptr_eq(&one, &two), "the second scope adopts the first's connection");
+    until(&one, |s| matches!(s, ServerState::Ready(_))).await;
+    assert_eq!(starts(&counted), 1, "one process for both scopes");
+    assert!(hub.held_elsewhere("s1", &one));
+
+    hub.apply_in("s3", vec![config("mock", json!({"env": {"MOCK_STARTS": counted, "MOCK_SCOPE": "s3"}}))]);
+    let own = hub.server_in("s3", "mock").unwrap();
+    assert!(!Arc::ptr_eq(&own, &one), "another configuration is not shared");
+    until(&own, |s| matches!(s, ServerState::Ready(_))).await;
+    assert_eq!(starts(&counted), 2);
+
+    assert_eq!(unlisted(&one, "die_soon").await, "dying");
+    until(&one, |s| matches!(s, ServerState::Failed { .. })).await;
+    hub.apply_in("s2", vec![same.clone()]);
+    assert!(Arc::ptr_eq(&hub.server_in("s2", "mock").unwrap(), &one), "the retry connects the shared connection again");
+    until(&one, |s| matches!(s, ServerState::Ready(_))).await;
+    assert_eq!(starts(&counted), 3, "one new process, for both scopes");
+    assert!(Arc::ptr_eq(&hub.server_in("s1", "mock").unwrap(), &one));
+
+    hub.release_scope("s1").await;
+    assert!(matches!(&*two.state(), ServerState::Ready(_)), "the other scope keeps the process");
+    assert_eq!(call(&two, "echo", json!({"text": "still"})).await.unwrap(), "still");
+    assert!(!hub.held_elsewhere("s2", &two));
+    hub.release_scope("s2").await;
+    assert!(matches!(&*two.state(), ServerState::Closed), "the last scope to let it go closes it");
+
+    // A scope connecting the configuration afterwards starts a process again.
+    hub.apply_in("s4", vec![same]);
+    let again = hub.server_in("s4", "mock").unwrap();
+    assert!(!Arc::ptr_eq(&again, &one));
+    until(&again, |s| matches!(s, ServerState::Ready(_))).await;
+    assert_eq!(starts(&counted), 4);
+    hub.close_all().await;
+}
+
+/// `callAdmissionFor` and `closeCallAdmission` (mcp/client.mjs:340-370): Node keys a call's admission gate by scope and
+/// server name, so a connection the scopes share admits each scope's calls by that scope's gate. With `maxConcurrency` 1,
+/// a call one scope has hanging does not hold up another scope's; a scope that lets the connection go has its waiting
+/// calls refused, while the other scope keeps the connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shared_connection_admits_each_scopes_calls_by_that_scopes_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    let same = config("mock", json!({"maxConcurrency": 1, "timeoutMs": 0}));
+    hub.apply_in("s1", vec![same.clone()]);
+    hub.apply_in("s2", vec![same]);
+    let server = hub.server_in("s1", "mock").unwrap();
+    assert!(Arc::ptr_eq(&server, &hub.server_in("s2", "mock").unwrap()), "one shared connection");
+    until(&server, |s| matches!(s, ServerState::Ready(_))).await;
+    assert!(!Arc::ptr_eq(&server.gate_in("s1"), &server.gate_in("s2")), "each scope has its own gate");
+    assert!(Arc::ptr_eq(&server.gate_in("s1"), &server.gate_in("s1")));
+    let call_in = |scope: &'static str, tool: &'static str, cancel: CancellationToken| {
+        let server = Arc::clone(&server);
+        tokio::spawn(async move {
+            let out = server.call_tool_in(scope, scope, tool, json!({"text": scope}), &cancel, None).await?;
+            Ok::<String, CallError>(text_of(&out.parts))
+        })
+    };
+    let hanging = CancellationToken::new();
+    let held = call_in("s1", "hang", hanging.clone());
+    while server.gate_in("s1").active() < 1 {
+        tokio::task::yield_now().await;
+    }
+    let waiting = call_in("s1", "echo", CancellationToken::new());
+    while server.gate_in("s1").queued() < 1 {
+        tokio::task::yield_now().await;
+    }
+    let elsewhere = call_in("s2", "echo", CancellationToken::new());
+    let answered = tokio::time::timeout(Duration::from_secs(30), elsewhere).await.expect("the other scope's call is not queued behind the first's");
+    assert_eq!(answered.unwrap().unwrap(), "s2");
+
+    hub.release_scope("s1").await;
+    match waiting.await.unwrap() {
+        Err(CallError::Admission(AdmissionError::Closed(reason))) => assert_eq!(reason, "MCP mock disconnected"),
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(&*server.state(), ServerState::Ready(_)), "the other scope keeps the connection");
+    hanging.cancel();
+    assert!(held.await.unwrap().is_err());
+    hub.close_all().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

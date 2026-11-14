@@ -21,6 +21,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Subscribe;
 use mixdog_core_api::feed::AttachDecision;
 use mixdog_core_api::feed::AttachRequest;
+use mixdog_core_api::feed::AttachStart;
 use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::ResumeFrom;
 use mixdog_core_api::feed::Window;
@@ -51,6 +52,12 @@ use super::control::ControlCell;
 use super::control::Ctl;
 use super::directory::CreateSpec;
 use super::directory::DirInner;
+use super::prompt_submission::LaneAttachments;
+use super::prompt_submission::LongText;
+use super::prompt_submission::NoStore;
+use super::prompt_submission::Submission;
+use super::prompt_submission::materialize_prompt_submission;
+use super::prompt_submission::touches_store;
 use super::run::ProducerMsg;
 use super::state::Queued;
 use super::stop;
@@ -66,6 +73,8 @@ pub struct SessionHandle {
     pub(crate) control: bool,
     pub(crate) cell: Arc<ControlCell>,
     pub(crate) feed: Arc<dyn Feed>,
+    /// The thread feed as a subscriber attaches to it: what the subscribing replies (`thread/start`, `thread/resume`) hand out.
+    pub(crate) subscriptions: Arc<CountedFeed>,
     pub(crate) inbox: mpsc::Sender<Inbox>,
     pub(crate) producers: mpsc::Sender<ProducerMsg>,
     pub(crate) lineage: Lineage,
@@ -253,11 +262,59 @@ impl SessionHandle {
         super::SessionDirectory::over(directory).seat_session(&self.id).await
     }
 
-    /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the originals a composer staged for
-    /// the message's images are claimed first, so staging limits can no longer take them; one
-    /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
-    /// resized copy. The claim and the enqueue are not interleaved with another send's.
+    /// `materializePromptSubmission(prompt, options)` at intake (`session-turns.mjs:112-113`, [`super::prompt_submission`]), before the PDF
+    /// intake and the claim of the staged originals, as Node runs it: the pasted texts are stored and the prompt's text tokens become
+    /// the stored texts they stand for, so the model reads each pasted text; an image or file sent inline is stored and named by
+    /// reference (a file relabelled a PDF by its bytes then meets the PDF limits); the pasted images name their stored images; the
+    /// prompt's text is held to 1 MiB. The message lists each among its attachments (`attachmentsForIntake`) and its row keeps no
+    /// bytes. A refusal is Node's sentence and the submit's answer. A submission that asks nothing of the store runs no lane job.
+    async fn take_in_prompt(&self, req: &mut CoreRequest, cancel: &mixdog_rt::CancellationToken) -> Result<(), CoreError> {
+        let Some(input) = req.params.get("input").filter(|input| input.is_object()) else { return Ok(()) };
+        let (prompt, options) = (input.get("prompt").cloned(), input.get("options").cloned().unwrap_or(Value::Null));
+        let Some(prompt) = prompt else { return Ok(()) };
+        let long_text = LongText::Inline;
+        let taken = if touches_store(&prompt, &options, long_text) {
+            let store = self.deps.attachments.clone();
+            on_lane(self.deps.lanes.io, cancel, move |lane| materialize_prompt_submission(&LaneAttachments { store: &store, lane }, &prompt, &options, long_text)).await?
+        } else {
+            materialize_prompt_submission(&NoStore, &prompt, &options, long_text)
+        };
+        let Submission { prompt, options } = taken.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        req.params["input"]["prompt"] = prompt;
+        // Only the pasted tables change; options the submission did not give stay ungiven.
+        for key in ["pastedImages", "pastedTexts"] {
+            if let Some(table) = options.get(key) {
+                req.params["input"]["options"][key] = table.clone();
+            }
+        }
+        Ok(())
+    }
+
+    /// `daemonWorkGate.deferring` (`daemon-work-gate.mjs`), which `submitSession` wraps around `admitted`: an in-core start (a
+    /// routine's, a channel's, an agent's) waits out the core's hold on turn starts (`hold{on}`, LR §5.1) before it enters the
+    /// turn gate, so the wait holds no admission; it is refused once the drain commit closed the hold, and its caller's cancel
+    /// ends the wait. A client's start is the actor's to queue under the hold. The wait keeps the thread loaded: Node's start opens
+    /// its session after the wait (`submitAdmitted`'s `entryForSession`), while here the caller's start is on this thread's cell.
+    async fn deferring(&self, ctx: &CallContext) -> Result<(), CoreError> {
+        if matches!(ctx.caller, Caller::Connection(_)) {
+            return Ok(());
+        }
+        let _waiting = super::directory::InFlight::enter(&self.cell.deferring);
+        let mut hold = self.deps.start_hold.clone();
+        let open = async move { hold.wait_for(|read| *read != super::StartHold::Held).await.map(|read| *read) };
+        match Scope::new().cancel(&ctx.cancel).run(open).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)? {
+            Ok(super::StartHold::Closed(drain_reason)) => Err(CoreError::ServerShuttingDown { drain_reason }),
+            // Open, or a core whose hold is gone: nothing holds the start.
+            _ => Ok(()),
+        }
+    }
+
+    /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the prompt is taken in ([`Self::take_in_prompt`]) and its PDFs
+    /// admitted, then the originals a composer staged for the message's images are claimed, so staging limits can no longer
+    /// take them; one that is gone (or cannot be claimed in time) is dropped from the message, leaving the resized copy. The
+    /// claim and the enqueue are not interleaved with another send's.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
+        self.deferring(&req.ctx).await?;
         // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
         // in its intake, and the thread refuses starts while that delete runs.
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
@@ -266,6 +323,7 @@ impl SessionHandle {
         let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
+        self.take_in_prompt(&mut req, &cancel).await?;
         // The attachments' intake comes first: a refused message claims nothing (`submitAdmitted` throws before
         // `claimStagedOriginals`), and the refusal is the submit's answer.
         let provider = self.header_snapshot().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -277,17 +335,6 @@ impl SessionHandle {
             // A full lane is waited out (the claim keeps the user's originals); only a lane that cannot run it claims nothing.
             let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
-        }
-        // `materializePastedTexts` at intake (`attachments/store.mjs:466-499`): an inline pasted text is stored as a blob before it is
-        // queued, so the prompt's stored row lists it among its attachments and every later reader names the same reference.
-        if let Some(texts) = req.params.pointer("/input/options/pastedTexts").filter(|texts| texts.is_object()).cloned() {
-            let store = self.deps.attachments.clone();
-            let texts = on_lane(self.deps.lanes.io, &cancel, move |lane| {
-                let mut texts = texts;
-                super::restore_hydrate::materialize_texts(&store, lane, &mut texts).map(|()| texts)
-            })
-            .await??;
-            req.params["input"]["options"]["pastedTexts"] = texts;
         }
         // A full inbox must not hold the gate past the caller's cancel.
         // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
@@ -315,10 +362,10 @@ impl SessionHandle {
             window: window_of(&from.window),
         });
         let view = self.cell.view.load_full();
-        let feed: Arc<dyn FeedSource> = self.feed.clone();
-        // The resume's release drains what an earlier process left queued (`resume.mjs:72`); a full control lane has
-        // a resume of its own pending, and the queue then drains at the next boundary or submit, as it would without one.
-        let _ = self.cell.ctl_tx.try_send(super::control::Ctl::Resumed);
+        let feed: Arc<dyn FeedSource> = self.subscriptions.clone();
+        // The resume's release drains what an earlier process left queued (`resume.mjs:72`) and restarts the idle clock, a full
+        // control lane or not.
+        self.cell.deliver(super::control::Ctl::Resumed);
         Ok(Reply::Subscribe(Subscribe {
             result: json!({ "thread": view.summary }),
             feed,
@@ -379,12 +426,7 @@ impl SessionHandle {
             others_keep,
             at: self.deps.clock.now_ms(),
         };
-        let done = super::message_reactions::react_to_message(&messages, &change).map_err(|message| CoreError::DomainError {
-            domain: "session".into(),
-            code: None,
-            message: Some(message.into()),
-            detail: None,
-        })?;
+        let done = super::message_reactions::react_to_message(&messages, &change).map_err(|message| mixdog_core_base::support::failed("session", message))?;
         let mut reply = json!({ "changed": done.changed, "messageId": done.message_id, "reactions": done.reactions });
         let Some(message) = done.message else {
             return Ok(Reply::Value(reply));
@@ -538,12 +580,7 @@ impl SessionHandle {
             Some(file) => review.revert_turn_review_file(&cwd, self.id.as_str(), &file, &checkpoint).await,
             None => review.revert_turn_review(&cwd, self.id.as_str(), &checkpoint).await,
         };
-        done.map(|reply| Reply::Value(Value::Object(reply))).map_err(|error| CoreError::DomainError {
-            domain: "turnReview".into(),
-            code: None,
-            message: Some(error.message.into()),
-            detail: None,
-        })
+        done.map(|reply| Reply::Value(Value::Object(reply))).map_err(|error| mixdog_core_base::support::failed("turnReview", error.message))
     }
 
     /// `thread/delete`: `deleteSession` (`true` once the session is gone, `false` when nothing
@@ -752,21 +789,71 @@ async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::recor
 
 impl FeedSource for SessionHandle {
     fn feed_id(&self) -> FeedId {
+        self.subscriptions.feed_id()
+    }
+
+    fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
+        self.subscriptions.attach(req)
+    }
+
+    fn detach(&self, sub: SubscriptionId) {
+        self.subscriptions.detach(sub);
+    }
+
+    fn ordered(&self) -> bool {
+        self.subscriptions.ordered()
+    }
+}
+
+/// The thread feed with its subscriptions counted on the control cell (Node's `addSubscriber`, and `unsubscribeSession` for
+/// the last view): a watched thread is off the idle clock, and the last detach puts it back on it. Each subscription is
+/// counted once: not again for a lag recovery of it or another attach under its id, and a detach of one it never counted
+/// changes nothing.
+pub(crate) struct CountedFeed {
+    cell: Arc<ControlCell>,
+    feed: Arc<dyn Feed>,
+    counted: std::sync::Mutex<std::collections::HashSet<SubscriptionId>>,
+}
+
+impl CountedFeed {
+    pub(crate) fn new(cell: Arc<ControlCell>, feed: Arc<dyn Feed>) -> Self {
+        Self { cell, feed, counted: std::sync::Mutex::default() }
+    }
+
+    fn counted(&self) -> std::sync::MutexGuard<'_, std::collections::HashSet<SubscriptionId>> {
+        self.counted.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl FeedSource for CountedFeed {
+    fn feed_id(&self) -> FeedId {
         self.feed.feed_id()
     }
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        if !self.cell.subscribing() {
-            return Err(self.closing());
+        // A lag recovery re-enters a subscription already counted.
+        if matches!(req.start, AttachStart::Recover { .. }) {
+            return self.feed.attach(req);
         }
+        if !self.cell.subscribing() {
+            return Err(CoreError::ThreadClosing { thread_id: self.cell.thread.clone() });
+        }
+        let sub = req.sub.clone();
         let decision = self.feed.attach(req);
-        self.cell.subscribed(decision.is_ok());
+        let counted = decision.is_ok() && self.counted().insert(sub);
+        self.cell.subscribed(counted);
         decision
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        self.feed.detach(sub);
-        self.cell.unsubscribed();
+        self.feed.detach(sub.clone());
+        if self.counted().remove(&sub) {
+            self.cell.unsubscribed();
+        }
+    }
+
+    fn ordered(&self) -> bool {
+        self.feed.ordered()
     }
 }
 

@@ -60,6 +60,13 @@ pub trait RouteChange: Send + Sync {
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
     /// change the clear writes in its own patch.
     fn environment_reset(&self, header: &Header) -> HeaderChange;
+
+    /// `applyTurnContextMeta` (`ask-turn-prepare.mjs`): the window figures a turn starts with, derived anew from the live provider's
+    /// model rows, so a provider or model row edited since the route was seated (a custom provider's `contextWindow` override)
+    /// reaches the running session. Nothing by default.
+    fn turn_window(&self, _header: &Header) -> HeaderChange {
+        HeaderChange { set: Default::default(), unset: Vec::new() }
+    }
 }
 
 /// `statusRoutes.writeGatewaySessionRoute(session.id, routeForStatusline(route), { clientHostPid })`

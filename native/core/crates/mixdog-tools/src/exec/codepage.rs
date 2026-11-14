@@ -14,7 +14,7 @@ use encoding_rs::Encoding;
 pub type Label = &'static str;
 
 const NON_ASCII_DECISION_BYTES: usize = 16;
-const WINDOW_CAP: usize = 4096;
+pub(super) const WINDOW_CAP: usize = 4096;
 const SCAN_CHUNK: usize = 64 * 1024;
 const SYNC_BACK_BYTES: u64 = 64 * 1024;
 
@@ -154,8 +154,9 @@ pub fn aligned_offset(bytes: &[u8], base: u64, offset: u64, label: Label) -> u64
     pos
 }
 
-/// `FileEncodingSniffer` over a stream held in memory: one decision per stream, remembered only
-/// when firm.
+/// `FileEncodingSniffer` over a stream's bytes from an absolute offset (all memory holds of it, or
+/// just the window from its first non-ASCII byte): one decision per stream, remembered only when
+/// firm.
 pub struct Sniffer {
     oem: Option<Label>,
     label: Option<Label>,
@@ -173,7 +174,8 @@ impl Sniffer {
         if self.label.is_some() { size } else { self.first.unwrap_or(size) }
     }
 
-    /// The label, or `None` while undecided. `bytes` holds the stream from absolute `base`.
+    /// The label, or `None` while undecided. `bytes` holds the stream from absolute `base` on: all
+    /// that memory holds, or the window from its first non-ASCII byte (`Stream::probe` in jobs.rs).
     pub fn probe(&mut self, bytes: &[u8], base: u64, final_: bool) -> Option<Label> {
         if self.label.is_some() {
             return self.label;

@@ -32,12 +32,15 @@ use super::iteration_metrics;
 use super::compact_telemetry;
 use super::post_compact_snapshot;
 use super::pre_send_check;
+use super::provider_pressure;
 use super::provider_token_calibration;
 use super::record_provider_context_baseline;
 use super::terminal_usage;
+use super::unanchored_after_restart;
 use crate::compact::tool_schema::RequestTools;
 use crate::env::CompactPass;
 use crate::env::PassStage;
+use crate::env::SessionPressure;
 use crate::message::AgentMessage;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
@@ -150,6 +153,16 @@ pub fn check_change(header: &Header, messages: &[AgentMessage], tools: &[ToolDef
     let mut draft = Draft::new(header);
     draft.apply(pre_send_check(&status_input(header, messages, tools, books), now, reactive)?);
     draft.finish()
+}
+
+/// What the decision before a send reads from the session for `messages` and `tools`: the pressure its provider reading
+/// gives them, the figure [`check_change`] records for that send (`None` when the estimate prices them), and its
+/// unanchored mark (`shouldCompactForSession`).
+pub fn send_pressure(header: &Header, messages: &[AgentMessage], tools: &[ToolDefinition], books: &Books<'_>) -> SessionPressure {
+    SessionPressure {
+        tokens: provider_pressure(&status_input(header, messages, tools, books)).map(|tokens| tokens as u64),
+        unanchored: unanchored_after_restart(header),
+    }
 }
 
 /// The status input of a request: the session header, the transcript about to go out and its tools.

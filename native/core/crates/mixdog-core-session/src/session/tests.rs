@@ -48,7 +48,7 @@ use super::testing::Rig;
 use super::testing::Script;
 use super::testing::lock;
 
-fn connection() -> CallContext {
+pub(crate) fn connection() -> CallContext {
     CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new())
 }
 
@@ -1036,6 +1036,25 @@ async fn the_header_is_patched_and_read_through_the_ports_seam_only() {
     }
 }
 
+/// A header change no note carries (the compaction count of a compaction that shows nothing live: the `session` tool's
+/// scheduled one, an agent session's) is in what `thread/read` answers once it is durable, as Node's rows read the live session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_header_change_no_note_carries_reaches_the_thread_read() {
+    let rig = Rig::new();
+    // The product's transcript: the summary reads the header's compaction count.
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::transcript::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let read = || CoreRequest { method: Method("thread/read"), params: json!({ "threadId": handle.id }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(before) = handle.request(read()).await.expect("thread/read") else { panic!("thread/read answers a value") };
+    assert_eq!(before["thread"]["compactCount"], json!(0));
+    let params = json!({ "threadId": handle.id, "set": { "compaction": { "compactCount": 1, "lastStage": "manual" } }, "unset": [] });
+    handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("patched");
+    let Reply::Value(after) = handle.request(read()).await.expect("thread/read") else { panic!("thread/read answers a value") };
+    assert_eq!(after["thread"]["compactCount"], json!(1));
+}
+
 /// `HeaderUpdates`: an update runs on the thread's actor, on the header as it stands, so
 /// concurrent updates and patches neither lose a write nor retry: twenty updates that each add one
 /// to a counter they read leave twenty more, beside a patch made in between.
@@ -1198,6 +1217,131 @@ async fn a_started_thread_begins_with_the_tools_its_seed_wrote() {
     let header = handle.cell.header.load_full();
     assert_eq!(header["tools"], json!([{ "name": "read" }]));
     assert_eq!(header["toolSpec"], json!(["tools:readonly"]));
+}
+
+/// A session the service creates itself (`create_session`: a bot's task session, Mixy's heartbeat run) is seeded as a
+/// started thread is, under the id it then has; a refused seed creates nothing and abandons the id it was given.
+#[tokio::test(start_paused = true)]
+async fn an_internal_session_begins_with_the_tools_its_seed_wrote() {
+    use mixdog_store::schema::record::Header;
+    #[derive(Default)]
+    struct Seeds {
+        refuse: std::sync::atomic::AtomicBool,
+        seeded: Mutex<Vec<ThreadId>>,
+        abandoned: Mutex<Vec<ThreadId>>,
+    }
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Seeds {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.seeded).push(thread.clone());
+            if self.refuse.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("refused".to_owned());
+            }
+            let mut seeded = header.clone();
+            seeded.insert("tools".into(), json!([{ "name": "read" }]));
+            Ok(seeded)
+        }
+        fn abandon(&self, thread: &ThreadId) {
+            lock(&self.abandoned).push(thread.clone());
+        }
+    }
+    let rig = Rig::new();
+    let seeds = Arc::new(Seeds::default());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = seeds.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let id = directory.create_session(Header::new(), json!({})).await.expect("created");
+    assert_eq!(lock(&seeds.seeded).as_slice(), [id.clone()]);
+    assert_eq!(directory.handle(&id).expect("loaded").cell.header.load_full()["tools"], json!([{ "name": "read" }]));
+    assert!(lock(&seeds.abandoned).is_empty(), "a created thread keeps what its seed opened");
+    seeds.refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(directory.create_session(Header::new(), json!({})).await.is_err());
+    let refused = lock(&seeds.seeded).last().cloned().expect("seeded");
+    assert_eq!(lock(&seeds.abandoned).as_slice(), [refused.clone()]);
+    assert!(directory.stored_header(&refused).await.is_none(), "a refused seed creates nothing");
+}
+
+/// An imported conversation (`create_imported_session`) begins with the tools of the import's seed, which opens no MCP
+/// scope, under the id it then has; it is never given the seed that opens one.
+#[tokio::test(start_paused = true)]
+async fn an_imported_session_begins_with_the_tools_of_the_imports_seed() {
+    use mixdog_store::schema::record::Header;
+    struct Seeds(Mutex<Vec<ThreadId>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Seeds {
+        async fn seed(&self, _: &ThreadId, _: &Header) -> Result<Header, String> {
+            Err("the seed that opens a scope".to_owned())
+        }
+        async fn seed_imported(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(thread.clone());
+            let mut seeded = header.clone();
+            seeded.insert("tools".into(), json!([{ "name": "read" }]));
+            Ok(seeded)
+        }
+    }
+    let rig = Rig::new();
+    let seeds = Arc::new(Seeds(Mutex::default()));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = seeds.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let id = directory.create_imported_session(Header::new(), json!({})).await.expect("created");
+    assert_eq!(lock(&seeds.0).as_slice(), [id.clone()]);
+    assert_eq!(directory.handle(&id).expect("loaded").cell.header.load_full()["tools"], json!([{ "name": "read" }]));
+}
+
+/// A thread's runtime boots on the route its header names (Node's `createRuntime({ provider, model })`, a resume's
+/// `setRoute(resumedRoute)`): a session created on its creator's route (a task session, a delegated worker) before its
+/// tools and prompt are composed, and a stored thread when it is opened for use.
+#[tokio::test(start_paused = true)]
+async fn a_thread_boots_on_its_headers_route_before_it_is_composed_and_when_it_is_opened() {
+    use mixdog_store::schema::record::Header;
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Route(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Route {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("no thread is started")
+        }
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("no thread is started")
+        }
+        async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+            panic!("no thread is started")
+        }
+        fn boot(&self, thread: &ThreadId, header: &Header) {
+            lock(&self.0).push(json!(["boot", thread, header.get("model")]));
+        }
+    }
+    struct Tools(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seed", thread]));
+            Ok(header.clone())
+        }
+        async fn seed_agent(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seedAgent", thread]));
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let directory_over = || {
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(Route(steps.clone()));
+        deps.new_tools = Arc::new(Tools(steps.clone()));
+        SessionDirectory::new(Arc::new(deps))
+    };
+    let directory = directory_over();
+    let routed = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
+    let task = directory.create_session(routed.clone(), json!({})).await.expect("created");
+    let worker = directory.create_agent_session(routed, json!({})).await.expect("created");
+    assert_eq!(*lock(&steps), [json!(["boot", task, "harness-model"]), json!(["seed", task]), json!(["boot", worker, "harness-model"]), json!(["seedAgent", worker])]);
+    // A restart opens the stored task session for use: its runtime boots on the route its record holds.
+    lock(&steps).clear();
+    let reopened = directory_over();
+    reopened.open_handle(&task, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(*lock(&steps), [json!(["boot", task, "harness-model"])]);
 }
 
 /// A new thread's route is settled under its future id before its tools are composed, and seated on
@@ -1965,8 +2109,8 @@ async fn a_control_actor_that_unwinds_after_its_reply_is_unlisted_until_it_is_re
     assert_eq!(directory.control_ids(), [id]);
 }
 
-/// Unload, reopen and fork. A control thread that unloads (its last subscriber left) is not synced; reopened, it is again, from its
-/// record's header. Its heir (`thread/fork`) is a thread of its own, not a second control session.
+/// Unload, reopen and fork. A control thread that unloads (its last subscriber left and its idle delay passed) is not synced;
+/// reopened, it is again, from its record's header. Its heir (`thread/fork`) is a thread of its own, not a second control session.
 #[tokio::test(start_paused = true)]
 async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_is_not() {
     let rig = Rig::new();
@@ -1974,7 +2118,7 @@ async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_i
     let id = start_control(&directory, "op-control").await.expect("control start");
     let handle = directory.handle(&id).expect("loaded");
     subscribe(&handle);
-    handle.cell.unsubscribed();
+    left_idle(&handle).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
     assert!(directory.control_ids().is_empty(), "an unloaded thread is not live");
     handle.inbox.closed().await;
@@ -2593,7 +2737,7 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
 
     let parked = start_thread(&directory).await;
     subscribe(&parked);
-    parked.cell.unsubscribed();
+    left_idle(&parked).await;
     eventually_on!(&[&parked.cell.stepped, directory.left()], || directory.handle(&parked.id).is_none().then_some(())).await;
     directory.finished(&parked.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
 
@@ -3823,7 +3967,11 @@ async fn a_goal_continues_across_a_turn_until_it_stops() {
     mixdog_rt::time::sleep(std::time::Duration::from_millis(200)).await;
     let inputs = lock(&inputs).clone();
     assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
-    assert_eq!(inputs[1]["meta"], json!({ "source": "goal-continuation", "synthetic": true }));
+    let meta = &inputs[1]["meta"];
+    assert_eq!((&meta["source"], &meta["synthetic"]), (&json!("goal-continuation"), &json!(true)), "{meta}");
+    // Its prompt carries the turn's transcript metadata as a user prompt does (`persistedUserTranscriptMetadata`).
+    assert!(meta.pointer("/transcript/messageId").and_then(Value::as_str).is_some_and(|id| id.starts_with("msg_")), "{meta}");
+    assert!(meta.pointer("/transcript/attemptId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()), "{meta}");
     assert!(!inputs[1]["content"].as_str().unwrap_or_default().is_empty(), "the runtime's continuation prompt");
     let users: Vec<String> = rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
     assert_eq!(users, ["start"], "the automatic turn shows no user row");
@@ -4357,20 +4505,37 @@ fn subscribe(handle: &SessionHandle) {
     handle.cell.subscribed(true);
 }
 
+/// The last subscriber of a settled thread leaves and its idle delay passes (`Inbox::IdleDue` stands for it, so a test on the
+/// real clock does not wait it out): the thread unloads, as Node releases a session `idle and unwatched`.
+pub async fn left_idle(handle: &SessionHandle) {
+    eventually_on!(&[&handle.cell.stepped], || (!handle.turn_busy()).then_some(())).await;
+    handle.cell.unsubscribed();
+    // The leave is taken before the deadline: on a multi-threaded runtime a step already polling could take the inbox first.
+    caught_up(handle).await;
+    handle.inbox.send(super::actor::Inbox::IdleDue).await.expect("the actor takes the inbox");
+}
+
+/// `retention.mjs`: the last subscriber leaving retains the thread (`retainedAt`); it unloads once it has been idle and
+/// unwatched for the idle delay, and its context goes to memory.
 #[tokio::test(start_paused = true)]
-async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context() {
+async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_and_ingests_its_context() {
     let rig = Rig::new();
     rig.set_script(echo());
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
     subscribe(&handle);
     subscribe(&handle);
     handle.cell.unsubscribed();
     assert!(directory.handle(&handle.id).is_some(), "one subscriber is left");
 
     handle.cell.unsubscribed();
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
+    tokio::time::advance(Duration::from_secs(2)).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
     eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
@@ -4380,9 +4545,86 @@ async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
 }
 
-/// `idleEvictMs`: a thread nobody ever watched (a worker, a headless run) has no last unsubscribe,
-/// so it unloads once it has been quiet for the idle delay; one still working starts the delay
-/// over, and one that was watched is not on this clock.
+/// The feed a `thread/resume` reply hands the server counts the subscription the server attaches: the watched thread is
+/// off the idle clock (`unwatchedRetained`). Its detach counts once (a second detach of it counts nothing while another view
+/// stays); the last view leaving retains the thread for the idle delay, a resume meanwhile starts the delay over
+/// (`idleClock.refresh`), and a whole delay unwatched unloads it.
+#[tokio::test(start_paused = true)]
+async fn a_resumed_subscription_keeps_the_thread_off_the_idle_clock_and_its_last_detach_retains_it() {
+    use mixdog_core_api::FeedSource;
+    use mixdog_core_api::sink::ConnectionSink;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    let resume = |op: &str| request("thread/resume", json!({ "threadId": handle.id, "window": { "lastItems": 10 } }), op);
+    let Reply::Subscribe(resumed) = handle.request(resume("op-resume-1")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
+    let feed: Arc<dyn FeedSource> = resumed.feed;
+    let client = mixdog_core_api::mock::MockConnection::new(ConnectionId(7), mixdog_core_api::mock::MockLimits::default());
+    let sub = mixdog_core_api::ids::SubscriptionId::from("client");
+    let attached = mixdog_core_api::feed::subscribe(&feed, sub.clone(), resumed.window, None, &client).expect("attach");
+    client.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    assert_eq!(handle.cell.attached(), 1, "the subscription is counted");
+
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
+
+    subscribe(&handle);
+    feed.detach(sub.clone());
+    feed.detach(sub);
+    assert_eq!(handle.cell.attached(), 1, "the second detach counted nothing");
+    handle.cell.unsubscribed();
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "retained for the idle delay");
+
+    let Reply::Subscribe(_) = handle.request(resume("op-resume-2")).await.expect("thread/resume") else { panic!("thread/resume subscribes") };
+    caught_up(&handle).await;
+    tokio::time::advance(Duration::from_secs(2)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "the resume started the delay over");
+    tokio::time::advance(super::actor::IDLE_EVICT).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// `sessionBusy` counts `commandBusy`: a compaction running when the idle deadline comes keeps the thread nobody watches
+/// loaded and answers; its end starts the idle delay over (`onBusyChange`), and the thread unloads a whole delay later.
+#[tokio::test(start_paused = true)]
+async fn a_running_compaction_keeps_a_thread_nobody_watches_loaded() {
+    let rig = Rig::new();
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *lock(&rig.compaction.hold) = Some(hold.clone());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { handle.request(request("thread/compact/start", json!({ "threadId": handle.id, "opId": "op-compact" }), "op-compact")).await })
+    };
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    caught_up(&handle).await;
+
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a compacting thread is not evicted");
+    // Half a delay later it still compacts: the deadline the busy thread armed again is nearer than a whole delay after its end.
+    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
+    caught_up(&handle).await;
+    hold.notify_one();
+    let answered = crate::session::testing::awaiting(|| "the compaction's answer".to_owned(), compacting).await;
+    assert!(matches!(answered, Ok(Ok(Reply::Value(_)))), "the compaction answers: {answered:?}");
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "not before a whole delay after the compaction");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// `idleEvictMs`: a quiet thread nobody watches (a worker, a headless run) unloads once it has been quiet for the idle
+/// delay; one still working starts the delay over.
 #[tokio::test(start_paused = true)]
 async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
     let rig = Rig::new();
@@ -4434,7 +4676,7 @@ async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check(
     subscribe(&handle);
     assert!(!directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"), "opened");
     assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
-    handle.cell.unsubscribed();
+    left_idle(&handle).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
     handle.inbox.closed().await;
 
@@ -4470,7 +4712,7 @@ async fn an_idle_close_is_guarded_and_leaves_a_tombstone() {
     let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
     let live = CancellationToken::new();
     subscribe(&handle);
-    handle.cell.unsubscribed();
+    left_idle(&handle).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
     handle.inbox.closed().await;
 
@@ -4510,7 +4752,7 @@ async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open()
     let live = CancellationToken::new();
     async fn unload(directory: &SessionDirectory, handle: Arc<SessionHandle>) {
         subscribe(&handle);
-        handle.cell.unsubscribed();
+        left_idle(&handle).await;
         eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
         // Out of the directory is not stopped: the actor still hands off what it accepted. Its inbox
         // closes when it ends, and only then is the stored header final.
@@ -4599,7 +4841,7 @@ async fn a_close_from_a_stale_admission_word_is_refused_after_an_attach_and_deta
     // Read afresh, it is the unload's business (ever attached, nobody now); a close from it
     // takes the word once, and a second close from the same word cannot.
     let fresh = cell.admission();
-    assert!(cell.ever_attached());
+    assert_ne!(fresh, seen, "the word keeps the attach in its history");
     assert!(cell.close_if_unchanged(fresh));
     assert!(!cell.close_if_unchanged(fresh), "the word is taken");
     assert!(!cell.subscribing(), "a closed thread takes no attach");
@@ -4631,12 +4873,14 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     turn(&handle, "hello", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     subscribe(&handle);
-    handle.cell.unsubscribed();
+    left_idle(&handle).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
     // The decision is made where the session unloads, before anything is spawned.
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
 
+/// A run outlives the client that walked away (`releaseClient`): the thread stays loaded while it runs, and its end starts the
+/// idle delay over.
 #[tokio::test(start_paused = true)]
 async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     let rig = Rig::new();
@@ -4654,10 +4898,43 @@ async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     subscribe(&handle);
     turn(&handle, "hold", "op-1").await;
     handle.cell.unsubscribed();
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
     assert!(directory.handle(&handle.id).is_some(), "the run is live");
+    // Half a delay later it still runs: the deadline the busy thread armed again is nearer than a whole delay after its end.
+    tokio::time::advance(super::actor::IDLE_EVICT / 2).await;
+    caught_up(&handle).await;
 
     release.send(true).expect("release");
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "not before the delay after the run");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// The last view's leave reaches the actor although its control lane is full: the thread goes back on the idle clock and
+/// unloads a delay later, never left loaded with nobody watching.
+#[tokio::test(start_paused = true)]
+async fn the_last_detach_on_a_full_control_lane_still_retains_the_thread() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    subscribe(&handle);
+    // The deadline armed at the open finds the thread watched: it is off the idle clock.
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "a watched thread is not evicted");
+
+    // No await between the fill and the leave: the actor drains nothing before it.
+    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {}
+    handle.cell.unsubscribed();
+    // The leave waits for room behind the fill, and the actor takes it before the clock moves.
+    caught_up(&handle).await;
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
@@ -4965,7 +5242,7 @@ async fn an_unloading_thread_goes_to_memory_with_its_sensitive_values_as_the_mar
     turn(&handle, &format!("the code is {CODE}"), "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     subscribe(&handle);
-    handle.cell.unsubscribed();
+    left_idle(&handle).await;
     eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     let ingested = serde_json::to_string(&lock(&rig.closes.seen)[0].1).expect("messages json");
     assert!(!ingested.contains(CODE), "the memory ingest holds the value: {ingested}");
@@ -5670,7 +5947,7 @@ async fn a_rewind_hands_back_the_prompts_attachments_and_refuses_a_composer_that
 
     let rig = Rig::new();
     let deps = rig.deps_parts(rig.store.clone());
-    let root = deps.attachments.0.clone();
+    let root = rig._data.path().to_path_buf();
     let deps = Arc::new(deps);
     let first = SessionDirectory::new(deps.clone());
     let id = start_thread(&first).await.id.clone();

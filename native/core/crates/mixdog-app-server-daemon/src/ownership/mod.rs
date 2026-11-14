@@ -46,7 +46,7 @@ pub const LOCK_FILE: &str = "daemon-owner.lock";
 #[derive(Debug)]
 pub enum AcquireError {
     /// Another core owns the data dir (`EWOULDBLOCK` / `ERROR_LOCK_VIOLATION`).
-    /// The core exits with `ALREADY_OWNED`; the launcher reads discovery and attaches.
+    /// The core yields: it exits 0 (`crash_record::yield_ownership`), and the launcher waits for the holder's discovery and attaches.
     AlreadyOwned,
     /// The typed boot failure `ownershipUnavailable{os_error}`. Mixdog never runs
     /// without the lock.

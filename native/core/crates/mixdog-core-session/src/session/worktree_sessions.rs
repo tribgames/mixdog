@@ -10,9 +10,13 @@
 //!   them, so they are never "unknown". A session whose record cannot be read carries none.
 //! - Activity is `subAgentActivityAt` of the header (`0` reads as none) and its `title || name`;
 //!   an absent or unreadable session is left out.
-//! - The running jobs are the background shells the task registry holds. It keeps no record
-//!   across a restart (decisions.md, "Shell job records"), so there is nothing else to read; a
-//!   running shell without a folder refuses the listing as Node's strict reader does.
+//! - The running jobs are the background shells this process's task registry holds; a running
+//!   shell without a folder refuses the listing as Node's strict reader does. Node's
+//!   `runningShellJobs` reads the job records instead (`listShellJobRecords`, the non-terminal
+//!   ones), so it also counts a record another live process keeps running, and one a gone
+//!   runtime left running until the start-up pass ends it. This reads neither: a gone runtime's
+//!   record ends as failed at the next start (`ExecRuntime::reconcile_lost_jobs`, a pass beside
+//!   the start, not before it).
 
 use std::collections::HashMap;
 use std::collections::HashSet;

@@ -43,6 +43,10 @@ impl ConnectorPermissions for ConnectorPolicy {
     async fn allow_always(&self, bot_id: &str, tool: &str) -> bool {
         self.write_permission(bot_id, tool, Permission::Auto).await
     }
+
+    async fn refresh(&self, connector_agent_id: &str, tool: Option<&str>) {
+        ConnectorPolicy::refresh(self, connector_agent_id, tool).await;
+    }
 }
 
 /// Adds the connected account and the sender, subject and date of the messages a mail or

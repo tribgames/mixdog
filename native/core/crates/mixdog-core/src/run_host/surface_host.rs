@@ -24,8 +24,10 @@ use mixdog_agent::env::Clock;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::support::failed;
 use mixdog_core_domains::domains::ai_admin::route_set_service::PRE_SESSION;
+use mixdog_core_ports::ports::gate::connector_policy_agent;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_core_ports::ports::threads::ThreadState;
@@ -53,7 +55,6 @@ use mixdog_tools::policy::surface::AGENT_DENIED_TOOLS;
 use mixdog_mcp::McpHub;
 use mixdog_mcp::hub::normalize_scope;
 use mixdog_mcp::mcp_glue::McpScopes;
-use mixdog_mcp::server::ServerState;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::status::StatusSurface;
@@ -83,12 +84,14 @@ use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 use super::workflow_surface::RunWorkflowSurface;
 use super::workflow_surface::denials::reaction_disabled;
 use super::reactions::REACTION_TOOL_NAME;
+use super::route_surface::ResumedSurface;
 use super::route_surface::header_diff;
 use super::route_surface::is_agent_owner;
 use super::route_surface::load_tool_def;
 use super::tool_exposure::tool_exposure_migration_needed;
 use super::tool_migration::has_unanswered_tool_calls;
 use super::tool_migration::invalidate_for_tool_surface_migration;
+use super::tool_migration::mark_tool_surface_migrated;
 use super::session_tools::BRIDGE;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
@@ -145,9 +148,10 @@ impl ToolSurfaceHost for HubSurfaceHost {
     fn mcp_server_instructions(&self, scope: Option<&str>) -> Value {
         let mut out = Map::new();
         for server in self.hub.servers_in(&normalize_scope(scope)) {
-            let state = server.state();
-            let ServerState::Ready(ready) = &*state else { continue };
-            let text = ready.instructions.as_deref().map_or("", js_trim);
+            // `getMcpServerInstructionsMap` (mcp/client.mjs:384-391) does not look at liveness: a server whose connection
+            // ended by itself keeps the instructions it gave, as it keeps its tools.
+            let Some(connection) = server.connection() else { continue };
+            let text = connection.instructions.as_deref().map_or("", js_trim);
             if !text.is_empty() {
                 out.insert(server.name().to_owned(), Value::String(text.to_owned()));
             }
@@ -322,6 +326,14 @@ impl LeadSurfaceHost {
         }
     }
 
+    /// `honoredSchemaAllowlist`: the caller's allowlist `header` carries, which an agent-owned session honors only for
+    /// a hidden agent.
+    fn honored_allowlist(&self, header: &Header) -> Option<Vec<String>> {
+        let agent = header.get("promptIdentity").and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
+        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (!is_agent_owner(&Value::Object(header.clone())) || (self.sources.hidden_agent)(agent));
+        honored.then(|| strings(header.get("schemaAllowedTools")))
+    }
+
     /// `buildPreSessionSurface()`: the surface a Lead with no session would start with.
     pub(crate) async fn preview_surface(&self) -> Result<Header, String> {
         let s = &self.sources;
@@ -379,7 +391,6 @@ impl LeadSurfaceHost {
         let connectors_only = header_diff(header, session.as_object().expect("session object"));
         let owner_is_agent = is_agent_owner(&session);
         let identity = header.get("promptIdentity").filter(|identity| identity.is_object());
-        let agent = identity.and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
         let route = s.routes.route(thread);
         let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
         // ctiveWorkflowContext(config): the workflow the config makes active, not the session's.
@@ -390,9 +401,7 @@ impl LeadSurfaceHost {
                 denied.push(name);
             }
         }
-        // `honoredSchemaAllowlist`: an agent-owned session honors one only for a hidden agent.
-        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (!owner_is_agent || (s.hidden_agent)(agent));
-        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
+        let allowed = self.honored_allowlist(header);
         // `applyPolicy`: the workflow as the config gives it, the overlays dropped.
         let map = session.as_object_mut().expect("session object");
         for key in ["workflowOverlay", "orchestrationModeOverlay", "workflowOpenedTools", "promptFoldPending", "compactionFoldPending"] {
@@ -521,10 +530,7 @@ impl LeadSurfaceHost {
                 denied.push(name);
             }
         }
-        let owner_is_agent = is_agent_owner(&Value::Object(header.clone()));
-        let agent = header.get("promptIdentity").and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
-        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (!owner_is_agent || (s.hidden_agent)(agent));
-        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
+        let allowed = self.honored_allowlist(header);
         let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
         s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied, allow: allowed, provider, model, has_git_tool }).await
     }
@@ -610,6 +616,8 @@ impl TurnSettings for LeadSurfaceHost {
         let s = &self.sources;
         // `applied?.gates === gates`: a thread already brought to the live gate list is not staged again.
         let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
+        // The connector switches the turn's surface and its calls are judged by, as saved.
+        s.connectors.refresh(&connector_policy_agent(&header), None).await;
         let gates = self.gates(&s.feature_denied.denied(Some(&header)).await?);
         let identity = header.get("promptIdentity").is_some_and(Value::is_object);
         if !conversation && identity {
@@ -773,23 +781,12 @@ impl LeadSurfaceHost {
     /// (see `decisions.md` `deferred-fold-5`), so the header carries none.
     fn migrate_exposure_of(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
         let s = &self.sources;
-        let mut session = Value::Object(header.clone());
-        if unanswered || !tool_exposure_migration_needed(&session, None, &load_tool_def(s.tool_host.as_ref())) {
+        if unanswered || !tool_exposure_migration_needed(&Value::Object(header.clone()), None, &load_tool_def(s.tool_host.as_ref())) {
             return Ok(None);
         }
-        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
-        let before = SystemBlocks::from_header(header);
-        session["messages"] = Value::Array(before.node_messages());
         let mode = header.get("deferredSurfaceMode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("lead").to_owned();
         let options = ApplyOptions { provider: Some(clean(header.get("provider"))), model: Some(clean(header.get("model"))), disallowed: Vec::new() };
-        surface.apply(&mut session, &mode, &[], &options);
-        let mut next = session.as_object().cloned().ok_or_else(|| "the migrated session is not an object".to_owned())?;
-        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
-        let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
-        after.combined = before.combined;
-        if after != before {
-            after.write(&mut next);
-        }
+        let (mut next, ()) = self.over_system_blocks(header, |surface, session| surface.apply(session, &mode, &[], &options))?;
         let invalidated = invalidate_for_tool_surface_migration(s.clock.as_ref());
         for key in invalidated.unset {
             next.shift_remove(&key);
@@ -797,6 +794,25 @@ impl LeadSurfaceHost {
         next.extend(invalidated.set);
         next.shift_remove("pendingCacheBreakIntent");
         Ok(Some(next))
+    }
+
+    /// `change` run over `header` as Node runs it over the live session, whose system prompt is its `messages`: the
+    /// header it leaves, with the system blocks written back only where `change` rewrote them, and what `change` answered.
+    fn over_system_blocks<R>(&self, header: &Header, change: impl FnOnce(&ToolSurface<'_>, &mut Value) -> R) -> Result<(Header, R), String> {
+        let s = &self.sources;
+        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
+        let before = SystemBlocks::from_header(header);
+        let mut session = Value::Object(header.clone());
+        session["messages"] = Value::Array(before.node_messages());
+        let answer = change(&surface, &mut session);
+        let mut next = session.as_object().cloned().ok_or_else(|| "the session is not an object".to_owned())?;
+        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+        let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
+        after.combined = before.combined;
+        if after != before {
+            after.write(&mut next);
+        }
+        Ok((next, answer))
     }
 
     /// `header` with the MCP fold applied over the system prompt as the session holds it (`messages`), the blocks
@@ -807,28 +823,53 @@ impl LeadSurfaceHost {
         if !first_turn && !truthy(header.get("deferredProviderMode")) {
             return Ok((header.clone(), None));
         }
+        self.over_system_blocks(header, |surface, session| {
+            if first_turn && truthy(header.get("deferredInitialRefreshPending")) {
+                // One-shot: cleared before the fold, so the fold never runs twice.
+                session["deferredInitialRefreshPending"] = json!(false);
+                surface.refresh_initial_mcp_surface(session, live);
+                // Node returns here (`turn-prepare.mjs:53-57`): the reconcile of a first turn is the request boundary's.
+                None
+            } else {
+                self.reconcile_cached(thread, surface, session, live)
+            }
+        })
+    }
+}
+
+/// `restoreResumedToolSurface(target, targetRoute)` (`session-switch/resume.mjs:66-75`): the deferred surface of the
+/// thread's mode (`deferredSurfaceModeForLead(getMode())`) applied again over the tools the manager step resolved, with
+/// the model's standalone tools (`getStandaloneTools()`), on the thread's own route; a surface persisted for another
+/// exposure is migrated, and marked so (`markToolSurfaceMigrated`).
+#[async_trait]
+impl ResumedSurface for LeadSurfaceHost {
+    async fn restored(&self, session: &Header) -> Result<Header, String> {
         let s = &self.sources;
-        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
-        let before = SystemBlocks::from_header(header);
-        let mut session = Value::Object(header.clone());
-        session["messages"] = Value::Array(before.node_messages());
-        let state = if first_turn && truthy(header.get("deferredInitialRefreshPending")) {
-            // One-shot: cleared before the fold, so the fold never runs twice.
-            session["deferredInitialRefreshPending"] = json!(false);
-            surface.refresh_initial_mcp_surface(&mut session, live);
-            // Node returns here (`turn-prepare.mjs:53-57`): the reconcile of a first turn is the request boundary's.
-            None
-        } else {
-            self.reconcile_cached(thread, &surface, &mut session, live)
-        };
-        let mut next = session.as_object().cloned().ok_or_else(|| "the folded session is not an object".to_owned())?;
-        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
-        let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
-        after.combined = before.combined;
-        if after != before {
-            after.write(&mut next);
+        // Finalized for the owner as the first turn's rebuild stored them (`applyToolDenials`' `finalizeSessionToolList`):
+        // a thread that honors an allowlist gets no standalone tool outside it, a worker its own `git` and `task`.
+        let agent_owned = is_agent_owner(&Value::Object(session.clone()));
+        let standalone = finalize_docs(
+            s.workflow.internal_tools(session).await.map_err(String::from)?,
+            self.honored_allowlist(session).as_deref(),
+            &strings(session.get("disallowedTools")),
+            agent_owned.then_some(&self.agent_defs),
+        );
+        let mode = deferred_mode(thread_mode(session));
+        let options = ApplyOptions { provider: Some(clean(session.get("provider"))), model: Some(clean(session.get("model"))), disallowed: Vec::new() };
+        let load_tool = load_tool_def(s.tool_host.as_ref());
+        let (mut next, migrating) = self.over_system_blocks(session, |surface, target| {
+            let migrating = tool_exposure_migration_needed(target, None, &load_tool);
+            surface.apply(target, mode, &standalone, &options);
+            migrating
+        })?;
+        if migrating {
+            let marked = mark_tool_surface_migrated(s.clock.as_ref(), None, None).change;
+            for key in marked.unset {
+                next.shift_remove(&key);
+            }
+            next.extend(marked.set);
         }
-        Ok((next, state))
+        Ok(next)
     }
 }
 
@@ -879,7 +920,7 @@ impl NewThreadTools for LeadSurfaceHost {
         s.scopes.start(&scope, thread.as_str(), &cwd).map_err(|error| format!("mcp scope {scope}: {error}"))?;
         let mut scoped = header.clone();
         scoped.insert("mcpScopeId".to_owned(), json!(scope));
-        self.seed_scoped(thread, &scoped, &scope).await
+        self.seed_scoped(thread, &scoped, Some(scope.as_str())).await
     }
 
     /// The desktop's control thread is the runtime that Node boots separately (`ensureControlSession`): it
@@ -891,7 +932,13 @@ impl NewThreadTools for LeadSurfaceHost {
         let scope = s.scopes.open_runtime(&s.cwd).await.map_err(|error| format!("mcp scope of the runtime: {error}"))?;
         let mut scoped = header.clone();
         scoped.insert("mcpScopeId".to_owned(), json!(scope));
-        self.seed_scoped(thread, &scoped, &scope).await
+        self.seed_scoped(thread, &scoped, Some(scope.as_str())).await
+    }
+
+    /// An imported conversation (`createImportedSession`) is seeded as a new thread is, in no scope of its own: the header
+    /// keeps the null `mcpScopeId` `importedSessionOptions` leaves it, so it lists the default scope's servers.
+    async fn seed_imported(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        self.seed_scoped(thread, header, None).await
     }
 
     /// `createSession` for an agent-owned session (`prepareAgentSession`, session-builder.mjs): the tools its spec
@@ -900,7 +947,7 @@ impl NewThreadTools for LeadSurfaceHost {
     /// (`composeSessionSystem`: no caller prompt, the agent's own role). The prompt itself, the deferred surface and
     /// the workflow fields are the first turn's: an empty thread with an identity is rebuilt whole there
     /// (`empty_surface_change`, which a delegated worker takes with its owner's finalization).
-    async fn seed_agent(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+    async fn seed_agent(&self, _thread: &ThreadId, header: &Header) -> Result<Header, String> {
         let s = &self.sources;
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
         let model = clean(header.get("model"));
@@ -912,15 +959,15 @@ impl NewThreadTools for LeadSurfaceHost {
         let skills_listed = if allowed.as_ref().is_some_and(Vec::is_empty) { false } else { s.skills.any_for(&cwd).await? };
         // `toolSpec` is the preset the record names (`opts.tools || presetObj.tools || 'full'`, stamped as `preset`).
         let spec = header.get("toolSpec").or_else(|| header.get("preset")).filter(|spec| !spec.is_null()).cloned().unwrap_or_else(|| json!("full"));
-        // `disallowedTools: featureDenied` (session-builder.mjs) and `react` outside a bot's own chat.
+        // `disallowedTools: featureDenied` (session-builder.mjs).
         let mut denied = strings(header.get("disallowedTools"));
         for name in s.feature_denied.denied(Some(header)).await? {
             if !denied.contains(&name) {
                 denied.push(name);
             }
         }
-        let reaction_session: serde_json::Map<String, Value> = [("id".to_owned(), json!(thread.as_str()))].into_iter().collect();
-        if reaction_disabled(&reaction_session, true) && !denied.iter().any(|name| name == REACTION_TOOL_NAME) {
+        // `reactionDisabled(opts, ownerIsAgent)`: an agent owner is denied `react` whatever its id.
+        if reaction_disabled(header, true) && !denied.iter().any(|name| name == REACTION_TOOL_NAME) {
             denied.push(REACTION_TOOL_NAME.to_owned());
         }
         let resolved = resolve(
@@ -953,8 +1000,9 @@ impl NewThreadTools for LeadSurfaceHost {
 }
 
 impl LeadSurfaceHost {
-    /// `seed` over a header that already names the thread's MCP scope, `scope`, which is open.
-    async fn seed_scoped(&self, thread: &ThreadId, header: &Header, scope: &str) -> Result<Header, String> {
+    /// `seed` in the MCP scope `scope`, which is open and which the header already names; `None`: the header names none
+    /// (an imported conversation) and the default scope's servers are read.
+    async fn seed_scoped(&self, thread: &ThreadId, header: &Header, scope: Option<&str>) -> Result<Header, String> {
         let s = &self.sources;
         // `new-session-config.mjs:39`: a new session reloads the config and ends with `invalidatePreSessionToolSurface()`;
         // moved before the thread's key is taken, so the new thread is brought to the key it starts on.
@@ -963,8 +1011,13 @@ impl LeadSurfaceHost {
         let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
         let skills_listed = s.skills.any_for(&cwd).await?;
-        // `activeWorkflowContext(config)`: the workflow the config makes active.
-        let target = s.workflow.target(header, "", None).await.map_err(String::from)?;
+        // The record with the id it is created under (`sessionOptions`' `resolveSessionMode({ sessionId: rt.reservedSessionId })`):
+        // an agent home's or room member's id makes it an agent-mode Lead, whose denials and workflow parts are that mode's.
+        let mut identified = header.clone();
+        identified.insert("id".to_owned(), json!(thread.as_str()));
+        let mode = session_mode_of(&identified);
+        // `activeWorkflowContext(config)`: the workflow the config makes active, and `leadPromptParts({ agentMode, agentId })`.
+        let target = s.workflow.target(&identified, "", None).await.map_err(String::from)?;
         let allowed = header.get("schemaAllowedTools").is_some_and(Value::is_array).then(|| strings(header.get("schemaAllowedTools")));
         // `sessionDeny`: the caller's denials, `agent` where the workflow delegates to no one, and
         // `react` outside a bot's own chat.
@@ -977,22 +1030,21 @@ impl LeadSurfaceHost {
                 denied.push(name.clone());
             }
         }
-        if workflow_disallows_agent_tool(&target.summary, session_mode_of(header) == "agent") {
+        if workflow_disallows_agent_tool(&target.summary, mode == "agent") {
             denied.push("agent".to_owned());
         }
         // `reactionDisabled(opts, false)` (`session-tool-surface.mjs:33-36`): a bot's home chat or its room seat keeps `react`.
-        let reaction_session: serde_json::Map<String, Value> = [("id".to_owned(), json!(thread.as_str()))].into_iter().collect();
-        if reaction_disabled(&reaction_session, false) {
+        if reaction_disabled(&identified, false) {
             denied.push(REACTION_TOOL_NAME.to_owned());
         }
         let routing = resolve(
             &s.pool,
-            s.mcp.tools(Some(scope), &cwd),
+            s.mcp.tools(scope, &cwd),
             &Resolve { tool_spec: header.get("toolSpec"), model: &model, skills_listed, agent_owned: false, schema_allowed: None, disallowed: &[] },
         );
         let resolved = resolve(
             &s.pool,
-            s.mcp.tools(Some(scope), &cwd),
+            s.mcp.tools(scope, &cwd),
             &Resolve { tool_spec: header.get("toolSpec"), model: &model, skills_listed, agent_owned: false, schema_allowed: allowed.as_deref(), disallowed: &denied },
         );
         // `schemaOmittedToolNames`: with a caller allowlist, every routed tool it hides is omitted from BP1 too.
@@ -1001,14 +1053,11 @@ impl LeadSurfaceHost {
             let visible: Vec<String> = resolved.iter().map(|tool| tool.spec().name.to_lowercase()).collect();
             omit.extend(routing.iter().map(|tool| tool.spec().name.clone()).filter(|name| !name.is_empty() && !visible.contains(&name.to_lowercase())));
         }
-        let mut session = Value::Object(header.clone());
-        session["id"] = json!(thread.as_str());
+        let mut session = Value::Object(identified.clone());
         session["tools"] = Value::Array(resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect());
         session["disallowedTools"] = json!(denied);
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
-        // Resolved from the record with its id (`sessionModeOf(session)`): an agent home's or room member's id makes it an agent session.
-        let mode = session_mode_of(session.as_object().expect("the session record is an object"));
         session["sessionMode"] = json!(mode);
         let standalone = internal_tools(&s.pool);
         // `filterModelToolsForProfile(modelStandaloneTools())`: a headless or heartbeat thread carries its runtime's
@@ -1025,12 +1074,11 @@ impl LeadSurfaceHost {
             };
             model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
         };
-        extra.extend(s.mcp.tools(Some(scope), &cwd).iter().map(tool_doc));
-        // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the `lead` agent
-        // (`sessionOptions`: `agent: homeAgent || 'lead'`).
-        let mut identified = header.clone();
-        identified.insert("id".to_owned(), json!(thread.as_str()));
-        identified.insert("promptIdentity".to_owned(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": "lead" }));
+        extra.extend(s.mcp.tools(scope, &cwd).iter().map(tool_doc));
+        // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the agent it runs as
+        // (`sessionOptions`: `agent: homeAgent || 'lead'`; a home or room member header names its home agent).
+        let agent = Some(clean(header.get("agent"))).filter(|agent| !agent.is_empty()).unwrap_or_else(|| MIXY_AGENT_ID.to_owned());
+        identified.insert("promptIdentity".to_owned(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": agent }));
         let roster = roster_revision(&target);
         let request = RebuildRequest {
             header: identified,

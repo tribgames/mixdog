@@ -44,6 +44,16 @@ const scopedMethods = new Set<string>(
 /** Notifications delivered on a scoped feed (`fs:<watchId>`, `ports`, ...). */
 export const isScopedMethod = (method: string): boolean => scopedMethods.has(method);
 
+const offeredRequests = new Set<string>(methodTable.serverRequests.filter((r) => r.requires === null).map((r) => r.method));
+/** Server requests the core offers every eligible connection (`requires: null`, the approvals): each stays open until the core
+ *  resolves it (`serverRequest/resolved`) or the socket closes (P §8.3-8.4), so a client holds it until then. The others are sent
+ *  to the one connection holding a capability (`requires`: `host.*`, `modelProxy`; DS §12): that connection's answer ends one, and
+ *  when the core stops waiting it says so (`serverRequest/resolved` for `host/*`, `model/proxy/cancel` for `model/proxy/execute`).
+ *  A method this table does not list (a newer core's) is not offered by any rule this client knows, so it is not held either: held
+ *  by mistake it reads as the thread's approval card, while the core keeps a real approval open for every eligible connection, where
+ *  a client that knows the method answers it. The Rust client agrees: its `ServerRequest` does not parse an unknown method. */
+export const isOfferedRequest = (method: string): boolean => offeredRequests.has(method);
+
 export const methodInfo: MethodLookup = (method) => methods.get(method);
 /** App-feed notifications whose params are a `SectionUpdate`. */
 export const isSectionMethod = (method: string): boolean => sectionMethods.has(method);

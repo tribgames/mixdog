@@ -5,7 +5,6 @@
 
 use std::sync::Mutex;
 
-use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_session::session::NoRouteExclusions;
 use mixdog_mcp::skill_deps::DependencySource;
@@ -20,7 +19,6 @@ use async_trait::async_trait;
 use mixdog_agent::env::Clock;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
-use mixdog_core_ports::ports::route::RouteSession;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
@@ -304,50 +302,21 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
     assert_eq!(header["title"], json!(49));
     assert!(header["deferredCallableTools"].as_array().expect("callable").contains(&json!("office")));
 }
-/// The saved messages and the running turn's, as the session holds them.
+/// The thread's model conversation, as `thread/messages/read` answers it.
 struct Rows {
-    messages: Vec<Value>,
-    live: Vec<Value>,
+    rows: Vec<Value>,
     unreadable: bool,
 }
 
 #[async_trait]
 impl ThreadMessages for Rows {
     async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
-        if self.unreadable { Err(PortError::Denied("no such thread".into())) } else { Ok(self.messages.clone()) }
+        if self.unreadable { Err(PortError::Denied("no such thread".into())) } else { Ok(self.rows.clone()) }
     }
-}
-
-#[async_trait]
-impl RouteSession for Rows {
-    fn generation(&self, _: &ThreadId) -> u64 {
-        0
-    }
-    async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
-        Ok(self.live.clone())
-    }
-    fn has_user_conversation(&self, _: &[Value]) -> bool {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn update_route(&self, _: &ThreadId, _: Route, _: bool) -> Result<bool, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    fn write_statusline(&self, _: &ThreadId, _: &Route) {}
-    fn invalidate_context_status(&self, _: &ThreadId) {}
 }
 
 fn transcript(rows: Rows) -> ThreadTranscript {
-    let rows = Arc::new(rows);
-    ThreadTranscript::new(rows.clone(), rows)
+    ThreadTranscript::new(Arc::new(rows))
 }
 
 /// Every golden case: a body is present in the transcript exactly when Node found it so.
@@ -358,7 +327,14 @@ async fn a_skill_body_is_present_in_the_transcript_as_node_finds_it() {
     assert_eq!(cases.len(), 16);
     for case in cases {
         let rows = |key: &str| case[key].as_array().cloned().unwrap_or_default();
-        let transcript = transcript(Rows { messages: rows("messages"), live: rows("live"), unreadable: false });
+        // Node's case holds the saved messages and, while a turn runs, its working ones (`liveTurnMessages`). The thread
+        // holds the working ones then: every row the turn committed reaches it before the next request, and a compaction
+        // rewrites it. So the case's choice is made here, and this test checks the reading of the rows (user rows, their
+        // text, `body_present`); that the thread holds those rows while a turn runs is the next-turn case of
+        // `skill_wire_node_cases` (mixdog-core), which runs the loop.
+        let live = rows("live");
+        let held = if live.is_empty() { rows("messages") } else { live };
+        let transcript = transcript(Rows { rows: held, unreadable: false });
         let texts = transcript.user_texts(&thread()).await.expect("texts");
         let present = body_present(texts, case["body"].as_str().expect("body"));
         assert_eq!(present, case["present"].as_bool().expect("present"), "{}", case["name"]);
@@ -368,6 +344,6 @@ async fn a_skill_body_is_present_in_the_transcript_as_node_finds_it() {
 /// A transcript that cannot be read is the port's error, not an empty transcript.
 #[tokio::test]
 async fn an_unreadable_transcript_is_an_error() {
-    let transcript = transcript(Rows { messages: vec![json!({"role": "user", "content": "hi"})], live: Vec::new(), unreadable: true });
+    let transcript = transcript(Rows { rows: vec![json!({"role": "user", "content": "hi"})], unreadable: true });
     assert_eq!(transcript.user_texts(&thread()).await, Err(PortError::Denied("no such thread".into())));
 }

@@ -19,10 +19,13 @@ use std::time::SystemTime;
 
 use mixdog_protocol::BlobDescriptor;
 use mixdog_protocol::MAX_BLOB_BYTES;
+use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_protocol::message_class::user_text::ReadError;
 use mixdog_rt::InLane;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+use crate::fsio::Access;
 use crate::fsio::IoError;
 use crate::fsio::IoLane;
 use crate::fsio::IoOp;
@@ -57,8 +60,14 @@ pub fn digest_of(bytes: &[u8]) -> Digest {
     Digest::try_from(text).expect("sha256 hex is a digest")
 }
 
-fn hex(digest: &Digest) -> &str {
+/// The 64 hex digits of `digest`: the reference the attachment layer names the blob by (`attachmentRef`).
+pub fn hex(digest: &Digest) -> &str {
     &digest.as_str()[DIGEST_PREFIX.len()..]
+}
+
+/// The digest an attachment reference names (`/^[a-f0-9]{64}$/`, `attachmentPath`); `None` for anything else.
+pub fn digest_of_reference(reference: &str) -> Option<Digest> {
+    Digest::try_from(format!("{DIGEST_PREFIX}{reference}")).ok()
 }
 
 struct Shard {
@@ -172,6 +181,13 @@ impl BlobStore {
         Ok(pin)
     }
 
+    /// [`Self::put`] creating the file with `access` ([`crate::fsio::publish_file_with`], which needs no write lane): the
+    /// session's prompt-attachment intake publishes from the interactive lane it runs on, owner-only as `saveBuffer` writes
+    /// (`writeFileAtomicSync(target, buffer, { mode: 0o600 })`).
+    pub fn put_with<L: IoLane>(&self, _lane: &InLane<L>, bytes: &[u8], access: Access) -> Result<BlobPin, BlobError> {
+        self.put_unlaned(bytes, |path, bytes| crate::fsio::publish_file_with(path, bytes, access))
+    }
+
     pub(crate) fn put_unlaned(
         &self,
         bytes: &[u8],
@@ -183,10 +199,19 @@ impl BlobStore {
         let digest = digest_of(bytes);
         let pin = self.pin(&digest);
         let path = self.path(&digest);
+        // `saveBuffer` (`attachments/store.mjs:146-161`): a file at the address that is not these bytes, or cannot be read,
+        // counts as absent and the bytes are written again. One that is not these bytes is unlinked first (a failure
+        // ignored), as Node does. One that cannot be read is left to the publish, whose rename replaces it: the read may
+        // have failed for a reason that passes (EMFILE, EINTR), and if the publish then fails too a good blob that stored
+        // records name is kept rather than deleted (this is also the log's commit path, which `saveBuffer` does not cover).
         let present = match read_verified(&path, &digest) {
             Ok(_) => true,
-            Err(BlobError::Missing { .. } | BlobError::Corrupt { .. }) => false,
-            Err(e) => return Err(e),
+            Err(BlobError::Corrupt { .. }) => {
+                let _ = std::fs::remove_file(&path);
+                false
+            }
+            // Not there, or not readable.
+            Err(_) => false,
         };
         if !present {
             publish(&path, bytes)?;
@@ -351,6 +376,41 @@ fn read_verified(path: &Path, digest: &Digest) -> Result<Vec<u8>, BlobError> {
         return Err(BlobError::Corrupt { digest: digest.clone() });
     }
     Ok(bytes)
+}
+
+/// The store inside one lane job, as the stored text is read through it (the session's user text, the compaction, the
+/// transcript commit).
+pub struct LaneBlobs<'a, L> {
+    pub blobs: &'a BlobStore,
+    pub lane: &'a InLane<L>,
+}
+
+impl<L: IoLane> Blobs for LaneBlobs<'_, L> {
+    /// `readAttachmentTextWithin` (store.mjs:430): the blob's UTF-8 text when the file holds at most `max_bytes`, `None` when
+    /// it holds more. A file that is not there is `Missing`; a reference off the pattern (`attachmentPath` throws), an empty or
+    /// non-regular file, one whose bytes do not hash to its name, and every other failure are `Other`. The size is the file's
+    /// own, and at most `max_bytes + 1` bytes are read.
+    fn text_within(&self, reference: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
+        let digest = digest_of_reference(reference).ok_or(ReadError::Other)?;
+        let path = self.blobs.path(&digest);
+        let failure = |error: std::io::Error| if error.kind() == std::io::ErrorKind::NotFound { ReadError::Missing } else { ReadError::Other };
+        let meta = mixdog_statefile::metadata(self.lane, &path).map_err(failure)?;
+        if !meta.is_file() || meta.len() == 0 {
+            return Err(ReadError::Other);
+        }
+        if meta.len() > max_bytes {
+            return Ok(None);
+        }
+        let wanted = usize::try_from(max_bytes.saturating_add(1)).unwrap_or(usize::MAX);
+        let bytes = mixdog_statefile::read_range(self.lane, &path, 0, wanted).map_err(failure)?;
+        if bytes.len() as u64 > max_bytes {
+            return Ok(None);
+        }
+        if digest_of(&bytes) != digest {
+            return Err(ReadError::Other);
+        }
+        Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+    }
 }
 
 /// The descriptor of a body slot whose encoding is `bytes`.

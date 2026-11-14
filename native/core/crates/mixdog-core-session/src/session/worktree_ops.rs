@@ -9,14 +9,12 @@ use std::sync::Arc;
 use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::CancellationToken;
 use mixdog_scm::error::ScmFailure;
-use mixdog_scm::locks::path_key;
 use mixdog_scm::repo::on_lane;
 use mixdog_scm::worktree::errors;
 use mixdog_scm::worktree::manager::CreateRequest;
 use mixdog_scm::worktree::manager::RepoFacts;
 use mixdog_scm::worktree::manager::Worktrees;
 use mixdog_scm::worktree::measure::DIRTY_CHOICE_PREVIEW;
-use mixdog_scm::worktree::merge::parse_status_paths;
 use mixdog_scm::worktree::names;
 use mixdog_scm::worktree::ownership::Owner;
 use mixdog_scm::worktree::registry::WorktreeRecord;
@@ -121,21 +119,37 @@ impl Ops {
         }
     }
 
-    /// The managed worktree whose checkout is `path` or contains it.
+    /// The records, each with its checkout's canonical path, and `path`'s canonical path: Node's `pathKey` compares canonical
+    /// paths (git reports real ones, and a record or a caller may spell one through a link, a junction or a short name).
+    async fn canonical_records(&self, path: &str, cancel: &CancellationToken) -> Result<(String, Vec<(String, WorktreeRecord)>), ScmFailure> {
+        let records = self.records(cancel).await?;
+        let paths = records.iter().map(|r| PathBuf::from(&r.path)).chain([PathBuf::from(path)]).collect();
+        let mut real: Vec<String> = self.wt.canonical_paths(paths, cancel).await?.iter().map(|p| text(p)).collect();
+        let wanted = real.pop().expect("the path is the last one in");
+        Ok((wanted, real.into_iter().zip(records).collect()))
+    }
+
+    /// The managed worktree whose checkout is `path` or contains it (`findWorktreeContaining`'s canonical `isWithin`).
     pub async fn worktree_containing(&self, path: &str, cancel: &CancellationToken) -> Result<Option<WorktreeRecord>, ScmFailure> {
         if mixdog_js::js_trim(path).is_empty() {
             return Ok(None);
         }
-        match self.records(cancel).await?.into_iter().find(|r| is_within(&r.path, path)) {
-            Some(record) => Ok(Some(self.with_branch(record, cancel).await?)),
+        let (wanted, records) = self.canonical_records(path, cancel).await?;
+        match records.into_iter().find(|(real, _)| is_within(real, &wanted)) {
+            Some((_, record)) => Ok(Some(self.with_branch(record, cancel).await?)),
             None => Ok(None),
         }
     }
 
+    /// The managed worktree whose checkout is `path` (`getWorktreeByPath`'s canonical `pathKey`). A blank path names none (it
+    /// would resolve to the daemon's own folder).
     pub async fn worktree_by_path(&self, path: &str, cancel: &CancellationToken) -> Result<Option<WorktreeRecord>, ScmFailure> {
-        let wanted = path_key(Path::new(path));
-        match self.records(cancel).await?.into_iter().find(|r| path_key(Path::new(&r.path)) == wanted) {
-            Some(record) => Ok(Some(self.with_branch(record, cancel).await?)),
+        if mixdog_js::js_trim(path).is_empty() {
+            return Ok(None);
+        }
+        let (wanted, records) = self.canonical_records(path, cancel).await?;
+        match records.into_iter().find(|(real, _)| same_path(real, &wanted)) {
+            Some((_, record)) => Ok(Some(self.with_branch(record, cancel).await?)),
             None => Ok(None),
         }
     }
@@ -155,17 +169,6 @@ impl Ops {
     /// What the removal of a ready worktree would refuse, checked before anything moves.
     pub async fn assert_removable(&self, entry_id: &str, force: bool, session: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         self.wt.assert_worktree_removable(entry_id, force, Some(session), cancel).await
-    }
-
-    /// The project folder's uncommitted changes (tracked and untracked, ignored excluded).
-    async fn uncommitted(&self, top_level: &Path, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
-        let status = self
-            .wt
-            .scm()
-            .git
-            .read(cancel, top_level, &["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
-            .await?;
-        Ok(parse_status_paths(&status))
     }
 
     /// A new worktree for `session` on a new branch named after `name_hint`, or the one a
@@ -193,12 +196,19 @@ impl Ops {
         if let Some(record) = retried {
             return Ok(Created { record, changes: None });
         }
+        let subdir = project
+            .project_path
+            .strip_prefix(&project.top_level)
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
         let mut pending = Vec::new();
         match carry {
             None => {}
             // The manager moves the changes while it creates the worktree.
             Some("carry") => {}
-            Some(_) => pending = self.uncommitted(&project.top_level, cancel).await?,
+            // `judgePendingChanges` (manager.mjs): carry.mjs `uncommittedChanges`, every untracked file
+            // but the project's own identity marker.
+            Some(_) => pending = self.wt.uncommitted_changes(&project.top_level, &subdir, cancel).await?,
         }
         if carry == Some("ask") && !pending.is_empty() {
             return Err(ScmFailure::coded(
@@ -234,6 +244,7 @@ impl Ops {
                     tx_id: tx_id.to_owned(),
                     name_hint: name_hint.to_owned(),
                     base_branch: project.current_branch.clone(),
+                    confirm_large,
                     carry: (carry == Some("carry")).then(|| "carry".to_owned()),
                     ..CreateRequest::default()
                 },
@@ -249,11 +260,6 @@ impl Ops {
             // the one surfaced; Node attaches the undo's own failure to it (`rollbackErrors`, :43-52).
             let undone: Result<(), ScmFailure> = async {
                 if let Some(reference) = &reference {
-                    let subdir = project
-                        .project_path
-                        .strip_prefix(&project.top_level)
-                        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-                        .unwrap_or_default();
                     self.wt.restore_from_recovery_ref(&project.top_level, &subdir, reference, cancel).await?;
                 }
                 self.wt.remove(&record.id, true, Some(session), cancel).await?;
@@ -370,6 +376,7 @@ impl Ops {
                     branch: Some(branch.to_owned()),
                     existing_branch: !create,
                     start_commit: None,
+                    confirm_large,
                     ..CreateRequest::default()
                 },
                 cancel,

@@ -249,7 +249,10 @@ fn read_config(data: &Path) -> Result<(Value, Option<String>), ApplyError> {
         Err(error) => return Err(ApplyError::io("read", &path, error)),
     };
     let hash = durable::sha256_hex(&bytes);
-    // A config that does not parse is never quarantined: the run stops (SM §11.5).
+    // A config that does not parse is never quarantined here: the run stops (SM §11.5). The daemon's boot keeps a file
+    // `JSON.parse` refuses aside and restores its newest backup before the migration starts (`Config::recover_malformed`),
+    // so under the daemon this stops only on a config that is not an object (`null` included), or on a text `JSON.parse`
+    // accepts that this strict parse refuses (invalid UTF-8, nesting deeper than 128, a number out of range).
     let schema = |detail: String| {
         ApplyError::Blocked(Blocked::StoreSchema {
             key: CONFIG_FILE.to_owned(),

@@ -45,8 +45,9 @@ pub struct Loaded {
     pub fresh: bool,
 }
 
+/// A file's size and mtime, `None` without a file; `Err` when it cannot be stat'ed.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn stamp(path: &Path) -> Result<Option<String>, ()> {
+pub(crate) fn stamp(path: &Path) -> Result<Option<String>, ()> {
     match std::fs::metadata(path) {
         Ok(meta) => {
             let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());

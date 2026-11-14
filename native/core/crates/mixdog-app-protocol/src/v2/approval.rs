@@ -106,7 +106,7 @@ pub struct ComputerApprovalRequestParams {
     pub request: JsonValue,
 }
 
-/// To every eligible connection, losers included (P §8.4 step 4).
+/// To every eligible connection, losers included (P §8.4 step 4); to the claimant alone, with an empty threadId and resolution cancelled, for a `host/*` request the core stopped waiting for without its answer (DS §12).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

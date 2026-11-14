@@ -102,6 +102,74 @@ fn a_build_reuses_cached_files_only_while_their_signature_matches() {
     assert_eq!(reparsed.node("src/b.mjs").unwrap().resolved_imports, vec!["src/a.mjs".to_owned()]);
 }
 
+/// The edges Node's graph takes from the `mixdog-graph` binary: a go.mod module path, a Java package, a C# namespace,
+/// Rust `mod`/`use`, a tsconfig path alias, a workspace package, and a Python module looked up from the root, `src/`
+/// and `lib/` (never beside the importer). A rebuild with every file from the cache keeps what the index keys on.
+#[test]
+fn imports_resolve_through_manifests_packages_and_namespaces_as_the_binary_does() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("proj");
+    let files = [
+        ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+        ("tsconfig.json", r#"{"compilerOptions":{"baseUrl":".","paths":{"@lib/*":["web/lib/*"]}}}"#),
+        ("packages/shared/package.json", r#"{"name":"@acme/shared","main":"index.ts"}"#),
+        ("packages/shared/index.ts", "export function sharedThing(): number { return 1; }\n"),
+        ("web/lib/math.ts", "export function add(a: number, b: number): number { return a + b; }\n"),
+        ("web/alias.ts", "import { add } from '@lib/math';\nexport function viaAlias() { return add(3, 4); }\n"),
+        ("web/pkg.ts", "import { sharedThing } from '@acme/shared';\nexport function viaPkg() { return sharedThing(); }\n"),
+        ("Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        ("src/main.rs", "mod geom;\nuse crate::geom::shapes::circle_area;\n\nfn main() {\n    println!(\"{}\", circle_area(1.0));\n}\n"),
+        ("src/geom/mod.rs", "pub mod shapes;\n"),
+        ("src/geom/shapes.rs", "pub fn circle_area(r: f64) -> f64 {\n    3.14 * r * r\n}\n"),
+        ("go.mod", "module example.com/demo\n\ngo 1.21\n"),
+        ("gopkg/geo/geo.go", "package geo\n\nfunc Total(xs []float64) float64 {\n\treturn xs[0]\n}\n"),
+        ("gopkg/cmd/main.go", "package main\n\nimport \"example.com/demo/gopkg/geo\"\n\nfunc main() {\n\t_ = geo.Total([]float64{1, 2})\n}\n"),
+        ("java/com/acme/util/Calc.java", "package com.acme.util;\n\npublic class Calc {\n    public static int twice(int x) { return x * 2; }\n}\n"),
+        ("java/com/acme/app/Main.java", "package com.acme.app;\n\nimport com.acme.util.Calc;\n\npublic class Main {\n    public static void main(String[] a) { System.out.println(Calc.twice(2)); }\n}\n"),
+        ("cs/Util/Helper.cs", "namespace Acme.Util {\n    public static class Helper {\n        public static int Triple(int x) { return x * 3; }\n    }\n}\n"),
+        ("cs/App/Program.cs", "using Acme.Util;\n\nnamespace Acme.App {\n    class Program {\n        static void Main() { System.Console.WriteLine(Helper.Triple(2)); }\n    }\n}\n"),
+        ("pyproj/geo.py", "def area(r):\n    return r * r\n"),
+        ("pyproj/use.py", "from geo import area\n\n\ndef run():\n    return area(2)\n"),
+        ("src/pkg/__init__.py", ""),
+        ("src/pkg/core.py", "def thing():\n    return 1\n"),
+        ("app.py", "from pkg.core import thing\n\n\ndef go():\n    return thing()\n"),
+    ];
+    for (rel, text) in files {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    let expected = [
+        ("web/alias.ts", vec!["web/lib/math.ts"]),
+        ("web/pkg.ts", vec!["packages/shared/index.ts"]),
+        ("src/main.rs", vec!["src/geom/mod.rs", "src/geom/shapes.rs"]),
+        ("src/geom/mod.rs", vec!["src/geom/shapes.rs"]),
+        ("gopkg/cmd/main.go", vec!["gopkg/geo/geo.go"]),
+        ("java/com/acme/app/Main.java", vec!["java/com/acme/util/Calc.java"]),
+        ("cs/App/Program.cs", vec!["cs/Util/Helper.cs"]),
+        ("pyproj/use.py", vec![]),
+        ("app.py", vec!["src/pkg/core.py"]),
+    ];
+    let (_dir, cache) = no_cache();
+    let fresh = super::graph::Graph::build(&root, &[], &cache).unwrap();
+    cache.flush().unwrap();
+    let cached = super::graph::Graph::build(&root, &[], &cache).unwrap();
+    for graph in [&fresh, &cached] {
+        for (rel, imports) in &expected {
+            assert_eq!(graph.node(rel).unwrap().resolved_imports, *imports, "{rel}");
+        }
+        assert_eq!(graph.dependents("gopkg/geo/geo.go"), vec!["gopkg/cmd/main.go".to_owned()]);
+        // packageName / namespaceName / goPackageName as the binary's record carries them, fresh and from the cache.
+        let names = |rel: &str| {
+            let node = graph.node(rel).unwrap();
+            (node.package_name.clone(), node.namespace_name.clone(), node.go_package_name.clone())
+        };
+        assert_eq!(names("java/com/acme/util/Calc.java"), ("com.acme.util".to_owned(), String::new(), String::new()));
+        assert_eq!(names("cs/Util/Helper.cs"), (String::new(), "Acme.Util".to_owned(), String::new()));
+        assert_eq!(names("gopkg/geo/geo.go"), (String::new(), String::new(), "geo".to_owned()));
+    }
+}
+
 #[test]
 fn a_fanned_out_call_with_one_missing_file_is_incomplete() {
     let (_tmp, root) = project_with_sentinel();

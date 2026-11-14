@@ -28,6 +28,7 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_protocol::ProcessHandle;
+use mixdog_tools::exec::signal_name;
 use serde_json::Value;
 use url::Url;
 
@@ -212,10 +213,15 @@ impl CommandRunner {
         }
         match exit.status {
             ExitStatus::Code(code) => HandlerRun { exit_code: code, stdout, stderr: stderr_text, ..HandlerRun::default() },
+            // `hook command terminated by ${terminationSignal}` (`command-handler.mjs`): the signal's name.
             ExitStatus::Signal(signal) => HandlerRun {
                 exit_code: -1,
                 stdout,
-                stderr: if stderr_text.is_empty() { format!("hook command terminated by signal {signal}") } else { stderr_text },
+                stderr: if stderr_text.is_empty() {
+                    format!("hook command terminated by {}", signal_name(signal).map_or_else(|| signal.to_string(), str::to_owned))
+                } else {
+                    stderr_text
+                },
                 ..HandlerRun::default()
             },
         }

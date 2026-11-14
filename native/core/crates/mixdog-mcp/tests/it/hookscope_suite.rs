@@ -76,11 +76,13 @@ async fn a_hook_runs_in_its_runtimes_scope_and_a_gone_runtime_has_none() {
     let hooks = json!({"hooks": {"CwdChanged": [{"hooks": [{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]}]}});
     std::fs::write(dir.path().join("hooks.json"), hooks.to_string()).unwrap();
     let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
-    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
-    let config = McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap();
     let runtime = hub.runtime_scope().to_owned();
     for scope in [runtime.as_str(), "s1"] {
-        hub.apply_in(scope, vec![config.clone()]);
+        // A configuration of its own in each scope, so each runs its own process and counts its own runs: scopes that
+        // connect the same configuration share one process (`_sharedStdio`).
+        let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string(), "MOCK_SCOPE": scope}});
+        let config = McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap();
+        hub.apply_in(scope, vec![config]);
         hub.server_in(scope, "mock").unwrap().connect().await.unwrap();
     }
     let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);

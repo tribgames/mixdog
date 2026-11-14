@@ -65,6 +65,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_protocol::ThreadId;
 use mixdog_tools::orch::service::ServiceCall;
 use mixdog_tools::orch::service::ToolService;
@@ -129,8 +130,6 @@ const BACKGROUND: [&str; 9] = [
 ];
 /// `AGENT_DEFINITION_ACTIONS`.
 const AGENT_DEFINITION: [&str; 4] = ["create_definition", "save_definition", "delete_definition", "restore_definition"];
-/// `MIXY_AGENT_ID`: the representative agent's id.
-const MIXY_AGENT_ID: &str = "lead";
 /// `OWN_AGENT_ACTIONS`: actions on one agent's own settings.
 const OWN_AGENT: [&str; 4] = ["set_agent_route", "set_agent_permission", "set_agent_connector", "set_agent_connector_tool"];
 /// What an unattended run may still change.

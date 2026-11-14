@@ -2,9 +2,12 @@
 //!
 //! Node's presenter (`runtime/shared/err-text.mjs`) classifies provider, transport and
 //! cancellation failures before it reaches the plain-message rules. The agent tool's own
-//! failures are plain messages, so [`PlainErrorText`] ports only that tail; a host that wants
-//! the full classification supplies its own [`ErrorText`].
+//! failures are plain messages, so [`PlainErrorText`] ports only that tail; a job's failure,
+//! which may be a provider's, reads through the full classification ([`PresentedErrorText`]).
 
+use mixdog_ai::service::error_text::ErrorView;
+use mixdog_ai::service::error_text::PresentOptions;
+use mixdog_ai::service::error_text::present_error_text;
 use mixdog_js::JsRegex;
 
 pub trait ErrorText: Send + Sync {
@@ -41,5 +44,26 @@ impl ErrorText for PlainErrorText {
         } else {
             text.to_owned()
         }
+    }
+}
+
+/// `presentErrorText(error, { surface: 'agent' })`, as `completeBackgroundTask` stores a job's error.
+pub struct PresentedErrorText;
+
+impl ErrorText for PresentedErrorText {
+    fn present(&self, message: &str) -> String {
+        present_error_text(&ErrorView::message(message), &PresentOptions { surface: "agent".into(), ..PresentOptions::default() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A job whose provider stream was cut reads as Node's board stores it, not as the bare `terminated` of the failure.
+    #[test]
+    fn a_job_failure_reads_through_the_full_classification() {
+        assert_eq!(PresentedErrorText.present("terminated"), "Connection to the provider was lost.");
+        assert_eq!(PlainErrorText.present("terminated"), "terminated");
     }
 }

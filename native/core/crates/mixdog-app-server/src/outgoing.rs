@@ -336,7 +336,11 @@ impl Outgoing {
 
     /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
     /// the capability's deadline, if it has one (`timedOut`), or when `cancel` fires
-    /// (`cancelled`); the request is forgotten then, so a late answer is dropped.
+    /// (`cancelled`); the request is forgotten then, so a late answer is dropped. A wait that ends
+    /// without the claimant's answer (cancelled, past the deadline, or dropped with its run) tells
+    /// the claimant to stop the work ([`AbandonOnDrop`]: `serverRequest/resolved`, or
+    /// `model/proxy/cancel` for a model proxy call); an answer, result or error, and a closed
+    /// claimant are told nothing.
     async fn ask(
         &self,
         claimant: Arc<Connection>,
@@ -362,16 +366,19 @@ impl Outgoing {
             Some(cancel) => Scope::new().cancel(cancel),
             None => Scope::new(),
         };
-        // A computer capture keeps running on the claimant until it is told its asker is gone.
-        let mut abandon = (capability == HostCapability::Computer).then(|| AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, answered: false });
+        // The claimant runs the request until it answers or is told its asker is gone, as Node's browser bridge aborted a
+        // command whose HTTP request its client dropped (`requestBridgeWithin`; the bridge server's `aborted`).
+        let mut abandon = AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, capability, answered: false };
         match scope.deadline(capability.deadline().map(|limit| Instant::now() + limit)).run(reply).await {
             Scoped::Done(Ok(reply)) => {
-                if let Some(abandon) = abandon.as_mut() {
-                    abandon.answered = true;
-                }
+                abandon.answered = true;
                 reply
             }
-            Scoped::Done(Err(_)) => Err(desktop_host_unavailable("claimantClosed").into()),
+            // A closed claimant needs no word.
+            Scoped::Done(Err(_)) => {
+                abandon.answered = true;
+                Err(desktop_host_unavailable("claimantClosed").into())
+            }
             Scoped::Cancelled => Err(desktop_host_unavailable("cancelled").into()),
             Scoped::DeadlineExceeded => Err(desktop_host_unavailable("timedOut").into()),
         }
@@ -458,35 +465,28 @@ impl Drop for ForgetOnDrop {
     }
 }
 
-/// Tells the claimant a `host/*` request ended without its answer (cancelled, past its deadline, dropped), so it stops the work.
+/// Tells the claimant a request ended without its answer (cancelled, past its deadline or lease, dropped), so it stops the work,
+/// in its capability's one word whichever wait sent it ([`Outgoing::ask`], `request_streamed`): `model/proxy/cancel` for a
+/// `model/proxy/execute` call, so the run stops spending (the relay's own cancel; Node's expiry unpublished the call), and
+/// `serverRequest/resolved` (cancelled) for a `host/*` request, whose handler the desktop aborts. An answer, result or error, and a
+/// closed claimant need no word (`answered`).
 struct AbandonOnDrop {
     conn: Arc<Connection>,
     id: RequestId,
+    capability: HostCapability,
     answered: bool,
 }
 
 impl Drop for AbandonOnDrop {
     fn drop(&mut self) {
-        if !self.answered {
-            let _ = self.conn.sink.send_control(abandoned_request_frame(&self.id));
+        if self.answered {
+            return;
         }
-    }
-}
-
-/// Tells the connection running a model/proxy/execute request that its caller gave up: the
-/// request ended without an answer (dropped, cancelled), so the run must stop spending.
-struct CancelOnDrop {
-    conn: Arc<Connection>,
-    id: RequestId,
-    answered: bool,
-}
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        if !self.answered {
-            let params = serde_json::json!({ "requestId": self.id });
-            let _ = self.conn.sink.send_control(notification_frame("model/proxy/cancel", params));
-        }
+        let word = match self.capability {
+            HostCapability::ModelProxy => notification_frame("model/proxy/cancel", serde_json::json!({ "requestId": self.id })),
+            _ => abandoned_request_frame(&self.id),
+        };
+        let _ = self.conn.sink.send_control(word);
     }
 }
 
@@ -568,8 +568,9 @@ impl HostChannel for Outgoing {
             .sink
             .send_control(request_frame(id, method.as_str(), params))
             .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        // Only a call the connection runs for us can be told to stop; a closed connection needs no word.
-        let mut cancel = (capability == HostCapability::ModelProxy).then(|| CancelOnDrop { conn: Arc::clone(&claimant), id: request_id, answered: false });
+        // Given up without its answer, the claimant is told to stop in its capability's word, as `ask` does ([`AbandonOnDrop`]:
+        // `model/proxy/cancel` for `model/proxy/execute`, the one streamed request); an answer and a closed connection need no word.
+        let mut cancel = AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, capability, answered: false };
         // The claimant vouches for the request or it is given up: the claim window until its first
         // sign of life, the lease after each one (a heartbeat or an event). Dropping the request
         // then sends the claimant `model/proxy/cancel`, as Node's expiry unpublishes the call.
@@ -584,15 +585,11 @@ impl HostChannel for Outgoing {
                 }
                 Scoped::Done(Some(Streamed::Alive)) => claimed = true,
                 Scoped::Done(Some(Streamed::Done(reply))) => {
-                    if let Some(cancel) = cancel.as_mut() {
-                        cancel.answered = true;
-                    }
+                    cancel.answered = true;
                     return reply;
                 }
                 Scoped::Done(None) => {
-                    if let Some(cancel) = cancel.as_mut() {
-                        cancel.answered = true;
-                    }
+                    cancel.answered = true;
                     return Err(desktop_host_unavailable("claimantClosed").into());
                 }
                 Scoped::DeadlineExceeded => {

@@ -141,6 +141,11 @@ pub trait WorkerStore: Send + Sync {
     fn keep(&self, session: &str, worker: Option<Row>);
     /// Whether `session`'s map is a kept one (its session record is gone).
     fn kept(&self, session: &str) -> bool;
+    /// Resolves once every write made before the call is in what [`worker_maps`](Self::worker_maps) reads (Node's store
+    /// applies a write to the projection its reads answer from at once); `Err` while a write the store refused is owed.
+    async fn settled(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// What this process knows of its loaded sessions now.
@@ -162,7 +167,9 @@ pub trait LiveSessions: Send + Sync {
 }
 
 /// A loaded session's stamp: its published header (compared by identity, and held, so its address is not reused while the
-/// stamp lives), whether a turn runs, and its stage. Two equal stamps of a session mean its reads answer the same.
+/// stamp lives), whether a turn runs, and its stage. Two equal stamps of a session mean its live reads answer the same; the
+/// registry's `cancelled` overlay, which its session reads add, is not in the stamp, so `set_cancelled` touches the
+/// session's tag facts itself.
 pub struct LiveStamp {
     pub header: Arc<dyn std::any::Any + Send + Sync>,
     pub running: bool,
@@ -194,6 +201,9 @@ pub struct AgentRegistry {
     /// `descriptor.parked` (`agent-tree.mjs`): the idle agents the idle release parked, until a turn starts on them. Of
     /// this process only, as Node's descriptors are.
     parked: Mutex<HashSet<String>>,
+    /// `descriptor.status = 'cancelled'` (`agent-cancel.mjs` `closeRuntime`): the agents whose running turn a close
+    /// stopped, until a turn starts on them. Of this process only, as Node's descriptors are.
+    cancelled: Mutex<HashSet<String>>,
 }
 
 /// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
@@ -383,6 +393,17 @@ fn released_at(map: &Row, now: f64) -> bool {
     at > 0.0 && at >= now - TAG_TOMBSTONE_TTL_MS
 }
 
+/// `agentDescriptor`: a session whose running turn a close stopped reads `cancelled`, its stage too (`closeRuntime`,
+/// `agent-cancel.mjs`), so a scan builds it no open idle row; a closed one keeps its own.
+fn described(cancelled: &HashSet<String>, mut session: Row) -> Row {
+    if !cancelled.is_empty() && session.get("closed") != Some(&Value::Bool(true)) && cancelled.contains(&clean(session.get("id"))) {
+        for key in ["status", "stage"] {
+            session.insert(key.into(), Value::String("cancelled".into()));
+        }
+    }
+    session
+}
+
 fn is_legacy(row: &Row) -> bool {
     clean(either(row, "parentSessionId", "ownerSessionId")).is_empty()
 }
@@ -423,7 +444,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default(), cancelled: Mutex::default() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -726,7 +747,8 @@ impl AgentRegistry {
         if !include_closed {
             out.retain(|s| s.get("closed") != Some(&Value::Bool(true)));
         }
-        out
+        let cancelled = self.cancelled.lock().unwrap_or_else(|p| p.into_inner());
+        out.into_iter().map(|session| described(&cancelled, session)).collect()
     }
 
     fn loaded_session(&self, id: &str) -> Option<Row> {
@@ -742,12 +764,13 @@ impl AgentRegistry {
         }
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.sessions_visited += 1);
-        self.loaded_session(id).or_else(|| {
+        let session = self.loaded_session(id).or_else(|| {
             let at = st.session_at.get(id)?;
             #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.sessions_visited += 1);
             Some(st.sessions[at].clone())
-        })
+        })?;
+        Some(described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), session))
     }
 
     /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
@@ -809,6 +832,24 @@ impl AgentRegistry {
     /// Whether the idle release parked the session and no turn started on it since.
     pub(crate) fn is_parked(&self, session: &str) -> bool {
         self.parked.lock().unwrap_or_else(|p| p.into_inner()).contains(session)
+    }
+
+    /// `descriptor.status = 'cancelled'` when `on` (`closeRuntime`: the close stopped a running turn), `'running'` when not
+    /// (`runAgentTurn`: a turn started on it).
+    pub(crate) fn set_cancelled(&self, session: &str, on: bool) {
+        let changed = {
+            let mut cancelled = self.cancelled.lock().unwrap_or_else(|p| p.into_inner());
+            if on { cancelled.insert(session.to_owned()) } else { cancelled.remove(session) }
+        };
+        if changed {
+            // The session's tags read it again.
+            let mut guard = self.lock();
+            let st = &mut *guard;
+            let views = st.views.get_mut();
+            for tag in st.tags.of_session(session) {
+                views.facts.touch(&tag);
+            }
+        }
     }
 
     /// `idleRows()` (`close-flow/idle-release.mjs`): every owner's open idle worker row, by session. A Lead's own row,
@@ -1596,8 +1637,9 @@ impl TerminalTrace for AgentRegistry {
 impl super::TurnStarts for AgentRegistry {
     fn turn_started(&self, thread: &ThreadId) {
         let id = thread.as_str();
-        // `descriptor.parked = false` (`agent-tree/agent-turns.mjs`).
+        // `descriptor.parked = false`, `descriptor.status = 'running'` (`agent-tree/agent-turns.mjs`).
         self.set_parked(id, false);
+        self.set_cancelled(id, false);
         let mut st = self.lock();
         let Some(map) = st.map(id).filter(|m| m.contains_key("releasedAt")).cloned() else { return };
         let mut map = map;
@@ -2038,6 +2080,10 @@ impl WorkerStore for StoreWorkers {
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
         }
+    }
+
+    async fn settled(&self) -> Result<(), String> {
+        StoreWorkers::settled(self).await
     }
 }
 

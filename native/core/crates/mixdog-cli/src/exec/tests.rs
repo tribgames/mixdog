@@ -22,6 +22,7 @@ use serde_json::json;
 
 use super::ExecArgs;
 use super::ExecOptions;
+use super::Invocation;
 use super::Sink;
 use super::ToolMode;
 use super::boundary::Boundary;
@@ -657,10 +658,15 @@ struct Wrapper {
     args: ExecArgs,
 }
 
-fn parse(argv: &[&str]) -> Result<ExecOptions, String> {
+fn invocation(argv: &[&str]) -> Result<Invocation, String> {
     let mut full = vec!["exec"];
     full.extend_from_slice(argv);
-    Wrapper::try_parse_from(full).map_err(|err| err.to_string())?.args.into_options(None)
+    Wrapper::try_parse_from(full).map_err(|err| err.to_string())?.args.into_invocation(None)
+}
+
+fn parse(argv: &[&str]) -> Result<ExecOptions, String> {
+    let Invocation::Run(options) = invocation(argv)? else { panic!("{argv:?} asks for help") };
+    Ok(options)
 }
 
 #[test]
@@ -673,11 +679,77 @@ fn the_command_line_is_the_nodes() {
     assert_eq!(parse(&["--readonly", "fix it"]).unwrap_err(), "option --readonly is not supported for mixdog exec");
 }
 
+/// Node's `classifyCliInvocation` on `["exec", ...argv]` (`headless-command.mjs` `parseTokens`): an option counts wherever it
+/// stands until `--`, the first value of a repeated option wins, and a malformed line is Node's refusal word for word.
+#[test]
+fn options_stand_anywhere_until_the_escape_and_refusals_are_nodes() {
+    let opts = parse(&["--provider", "p", "--model", "m", "say", "--json", "hi", "--effort", "high", "--fast"]).unwrap();
+    assert_eq!((opts.message.as_str(), opts.json, opts.effort.as_deref(), opts.fast), ("say hi", true, Some("high"), true));
+    let opts = parse(&["say", "hi", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "--tool-mode", "readonly"]).unwrap();
+    assert_eq!((opts.provider.as_deref(), opts.model.as_deref(), opts.tool_mode), (Some("anthropic"), Some("claude-sonnet-4-6"), ToolMode::Readonly));
+    let opts = parse(&["--provider", "anthropic", "--provider", "openai", "--model", "m", "--json", "--json", "hi"]).unwrap();
+    assert_eq!((opts.provider.as_deref(), opts.json), (Some("anthropic"), true));
+    // `--` ends the options, one that comes first too; a flag is still read past it (`argv.includes`).
+    let opts = parse(&["--provider", "p", "--model", "m", "--", "say", "--model", "x", "--json"]).unwrap();
+    assert_eq!((opts.message.as_str(), opts.model.as_deref(), opts.json), ("say --model x --json", Some("m"), true));
+    let opts = parse(&["--", "--provider", "p", "hi"]).unwrap();
+    assert_eq!((opts.message.as_str(), opts.provider), ("--provider p hi", None));
+
+    let refusals: [(&[&str], &str); 17] = [
+        (&["--provider", "p", "--model", "m", "hi", "--readonly"], "option --readonly is not supported for mixdog exec"),
+        (&["hi", "--bogus"], "unknown option --bogus"),
+        (&["-x", "hi"], "unknown option -x"),
+        (&["--provider=anthropic", "--model=m", "hi"], "unknown option --provider=anthropic"),
+        (&["--provider", "--model", "m", "hi"], "option --provider requires a non-option value"),
+        (&["--provider", "p", "--model", "-x", "hi"], "option --model requires a non-option value"),
+        (&["hi", "--provider"], "option --provider requires a non-option value"),
+        (&["--provider", "", "--model", "m", "hi"], "option --provider requires a non-option value"),
+        (&["--provider", "exec", "--model", "m", "hi"], "option --provider requires a route value before \"exec\""),
+        (&["--effort", " Exec ", "hi"], "option --effort requires a route value before \" Exec \""),
+        (&["--workflow", "exec", "hi"], "option --workflow is not supported for mixdog exec"),
+        (&["--worktree", "--no-worktree", "hi"], "options --worktree and --no-worktree are mutually exclusive"),
+        (
+            &["--worktree=a b", "hi"],
+            "option --worktree name \"a b\" is invalid: use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit",
+        ),
+        (&["--worktree", "task", "hi"], "option --worktree is not supported for mixdog exec"),
+        (&["--worktree", "exec", "hi"], "option --worktree is not supported for mixdog exec"),
+        (&["hi", "--tool-mode"], "unknown option --tool-mode"),
+        (&["--"], "usage: mixdog exec [options] <message...>"),
+    ];
+    for (argv, refusal) in refusals {
+        assert_eq!(parse(argv).unwrap_err(), refusal, "{argv:?}");
+    }
+    // The interactive CLI's `--plain` (Node's readline REPL) is not an option of the core's exec.
+    assert_eq!(parse(&["--plain", "hi"]).unwrap_err(), "unknown option --plain");
+
+    // `--help` or `-h` anywhere asks for the usage, a missing value beside it included; an unknown option is still refused.
+    for argv in [&["--help"][..], &["say", "hi", "-h"], &["--provider", "--help"], &["--", "--help"]] {
+        assert!(matches!(invocation(argv), Ok(Invocation::Help)), "{argv:?}");
+    }
+    assert_eq!(invocation(&["--help", "--bogus"]).unwrap_err(), "unknown option --bogus");
+}
+
 #[test]
 fn the_usage_log_follows_the_environment_when_not_given() {
     let wrapper = Wrapper::try_parse_from(["exec", "go"]).unwrap();
-    let opts = wrapper.args.into_options(Some("/log/usage.json".into())).unwrap();
+    let Ok(Invocation::Run(opts)) = wrapper.args.into_invocation(Some("/log/usage.json".into())) else { panic!("`go` runs") };
     assert_eq!(opts.usage_log, Some(PathBuf::from("/log/usage.json")));
+}
+
+/// A path option's value is the word the OS gave, Unicode or not (an unpaired surrogate on Windows, a stray byte on Unix);
+/// the rest of the line is read as text.
+#[cfg(any(windows, unix))]
+#[test]
+fn a_path_that_is_not_unicode_is_kept() {
+    use std::ffi::OsString;
+    #[cfg(windows)]
+    let path = <OsString as std::os::windows::ffi::OsStringExt>::from_wide(&[u16::from(b'd'), 0xD800]);
+    #[cfg(unix)]
+    let path = <OsString as std::os::unix::ffi::OsStringExt>::from_vec(vec![b'd', 0xFF]);
+    let argv = [OsString::from("exec"), "--cwd".into(), path.clone(), "--usage-log".into(), path.clone(), "go".into()];
+    let Ok(Invocation::Run(opts)) = Wrapper::try_parse_from(argv).unwrap().args.into_invocation(None) else { panic!("`go` runs") };
+    assert_eq!((opts.message.as_str(), opts.cwd, opts.usage_log), ("go", PathBuf::from(&path), Some(PathBuf::from(&path))));
 }
 
 // ---- the read-only tool mode, replayed from Node's recording (`fixtures/exec-readonly`, `record-exec-readonly.mjs`) ----

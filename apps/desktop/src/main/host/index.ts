@@ -15,6 +15,7 @@ import { createVisualizeHost, type VisualizeControl } from './visualize';
 import { type NotificationPresenter, registerNotificationHost } from './notification';
 import { registerSystemProxyHost } from './system-proxy';
 import { type ComputerControlSource, registerComputerHost } from './computer';
+import { registerHumanOnlyHolds } from './human-only';
 
 export interface DesktopHostOptions {
   connection: HostConnection;
@@ -70,6 +71,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
   registerComputerHost(connection, options.computer);
+  const humanOnly = registerHumanOnlyHolds(connection);
   registerNotificationHost(connection, options.notifications);
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;
@@ -84,6 +86,9 @@ export function createDesktopHost(options: DesktopHostOptions) {
     reports,
     /** Claims the host role; commands are served from here on. */
     async claim(): Promise<void> {
+      // Each reconnect claims again: a human-only dialog still open holds the core again first (a hold does not
+      // need the claim, so it holds even when the claim is refused).
+      humanOnly.redeclare();
       await connection.request(HOST_METHOD.claim, { hostId: options.hostId } satisfies HostClaimParams);
       claimed = true;
       commands.start();

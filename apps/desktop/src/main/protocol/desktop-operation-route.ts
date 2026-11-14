@@ -306,7 +306,7 @@ const SAME_REPLY: readonly string[] = [
   'readProjectTextFileIn', 'readProjectTextFileAuthorized', 'writeProjectTextFileIn', 'writeProjectTextFileAuthorized',
   'writeProjectTextFilesIn', 'writeProjectTextFilesAuthorized', 'readScopedEditorSettings', 'readWorkspaceFile',
   'writeWorkspaceFile', 'searchWorkspaceTextIn', 'statProjectFileIn', 'listHostDirectories', 'listServerDirectories',
-  'sendTestNotification', 'termProfiles', 'termAttach', 'remoteAccessSetEnabled', 'remoteAccessSetName',
+  'sendTestNotification', 'termProfiles', 'remoteAccessSetEnabled', 'remoteAccessSetName',
   'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
   'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
   'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
@@ -333,6 +333,8 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   // Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns the size, where the core writes
   // null; the id is the core's own (a client id it accepted, else the one it made).
   termEnsure: (reply) => terminalReply(reply),
+  // The same answer for a running tab, null for one that is not (Node's `termAttach`).
+  termAttach: (reply) => (reply == null ? null : terminalReply(reply)),
   // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
   serverUploadChunk: (_reply, { args }) => ({
     received: Number(args[1]) + Buffer.from(String(args[2]), 'base64').length,

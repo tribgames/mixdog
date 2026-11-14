@@ -147,6 +147,10 @@ impl SessionOps for DirectorySessions {
             // The route is the thread's first route, seated as a new task's is: `createSession` resolves the model's window with
             // it (`resolveSessionContextMeta`, `session-lifecycle.mjs:281`), without which no compaction has a budget.
             Some(routes) => {
+                // The seat's runtime boots on the route its creator passed (`createSession(sessionId, { ...routeParams(route) })`,
+                // `agent-home-sessions.ts`, `agent-rooms.ts`; `createRuntime({ provider, model, … })`, `lifecycle.mjs`), so its seed
+                // and an empty-thread rebuild compose for the seat's model, as they do when the seat is opened again from its record.
+                self.directory.deps().new_route.boot(&thread, &header);
                 let route: Map<String, Value> = ["provider", "model", "effort"]
                     .iter()
                     .filter_map(|key| header.shift_remove(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v)))
@@ -322,5 +326,92 @@ mod tests {
         assert_eq!(stamps.take(now + 5), now + 5);
         sessions.set_archived("room_c", true).await.unwrap();
         assert_eq!(stamp("room_c").await, Some(json!(now + 6)));
+    }
+
+    /// Node creates a home or room seat with the seat's route (`createSession(sessionId, { ...routeParams(route) })`,
+    /// `agent-home-sessions.ts`, `agent-rooms.ts`) and boots its runtime on it (`createRuntime`, `lifecycle.mjs`): the seat's
+    /// live route boots on its route before the seat is seeded, and the route is then seated on its header through the route
+    /// change path. A seat whose creator passed no route boots on none (the create's own boot sees a header without a model).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_seat_boots_on_its_route_before_it_is_seeded_then_takes_it_onto_its_header() {
+        use mixdog_core_ports::ports::route::{Route, RouteSession};
+        use mixdog_core_session::session::{NewThreadRoute, NewThreadTools};
+        type Steps = Arc<std::sync::Mutex<Vec<Value>>>;
+        fn push(steps: &Steps, step: Value) {
+            steps.lock().unwrap().push(step);
+        }
+        struct Boots(Steps);
+        #[async_trait]
+        impl NewThreadRoute for Boots {
+            async fn adopt(&self, _: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
+                unreachable!("no thread is started")
+            }
+            async fn adopt_control(&self, _: &ThreadId) -> Result<Map<String, Value>, String> {
+                unreachable!("no thread is started")
+            }
+            async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+                unreachable!("no thread is started")
+            }
+            fn boot(&self, thread: &ThreadId, header: &Header) {
+                push(&self.0, json!(["boot", thread.as_str(), header.get("model")]));
+            }
+        }
+        struct Seeds(Steps);
+        #[async_trait]
+        impl NewThreadTools for Seeds {
+            async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+                push(&self.0, json!(["seed", thread.as_str(), header.get("model")]));
+                Ok(header.clone())
+            }
+        }
+        struct Seats(Steps);
+        #[async_trait]
+        impl RouteSession for Seats {
+            fn generation(&self, _: &ThreadId) -> u64 {
+                0
+            }
+            async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+                Ok(Vec::new())
+            }
+            fn has_user_conversation(&self, _: &[Value]) -> bool {
+                false
+            }
+            async fn update_route(&self, thread: &ThreadId, fields: Route, _: bool) -> Result<bool, PortError> {
+                push(&self.0, json!(["route", thread.as_str(), fields.get("model")]));
+                Ok(true)
+            }
+            async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
+                unreachable!("no route change")
+            }
+            async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
+                unreachable!("no route change")
+            }
+            async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+                unreachable!("no route change")
+            }
+            fn write_statusline(&self, _: &ThreadId, _: &Route) {}
+            fn invalidate_context_status(&self, _: &ThreadId) {}
+        }
+        let rig = Rig::new();
+        let steps: Steps = Arc::default();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(Boots(steps.clone()));
+        deps.new_tools = Arc::new(Seeds(steps.clone()));
+        let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+        let sessions = DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory))).with_routes(Arc::new(Seats(steps.clone())));
+        sessions.create("home_seat", &json!({ "provider": "openai", "model": "gpt-x", "sessionProfile": { "homeAgent": "bench" } })).await.unwrap();
+        sessions.create("room_bare", &json!({})).await.unwrap();
+        assert_eq!(
+            *steps.lock().unwrap(),
+            [
+                json!(["boot", "home_seat", "gpt-x"]),
+                json!(["boot", "home_seat", null]),
+                json!(["seed", "home_seat", null]),
+                json!(["route", "home_seat", "gpt-x"]),
+                json!(["boot", "room_bare", null]),
+                json!(["boot", "room_bare", null]),
+                json!(["seed", "room_bare", null]),
+            ]
+        );
     }
 }

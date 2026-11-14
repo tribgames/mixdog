@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { isOfferedRequest } from '../../../../../packages/protocol-client/src/method-table.ts';
 import { SECTIONS_IPC } from '../../shared/contract-sections.ts';
 import { createCapabilityLane } from './capability-route.ts';
 import { createProtocolConnection, MAX_FOLLOWED_LOGINS, SECTION_NAMES } from './connection.ts';
@@ -46,7 +47,8 @@ function fakeClient() {
   const calls = [];
   const notes = [];
   const answers = [];
-  // The library client's own pending set: added when the core asks, removed when it resolves the ask, dropped with the socket.
+  // The library client's own pending set: added when the core asks what it offers every connection (not a capability's request,
+  // which its handler ends), removed when it resolves the ask, dropped with the socket.
   const pending = [];
   return {
     store,
@@ -67,8 +69,9 @@ function fakeClient() {
       return () => handlers.delete(listener);
     },
     emit: (event) => {
-      if (event.type === 'serverRequest') pending.push(event.request);
-      else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+      if (event.type === 'serverRequest') {
+        if (isOfferedRequest(event.request.method)) pending.push(event.request);
+      } else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
       else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
       handlers.forEach((h) => h(event));
     },
@@ -794,6 +797,40 @@ test('host connection answers core requests, aborts abandoned ones and reports a
   assert.equal(client.answers.length, 1, 'an abandoned request is not answered');
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
   assert.equal(closed, 1);
+});
+
+// A reopen drops the old client before closing it, so the host connection hears no status of it. A request of the old client ends
+// with it and is never answered on the new one, so the new core's frames under a reused id reach only the new core's request.
+test('a host request belongs to the client that asked it: a reopened connection neither answers it nor lets it stand for a new one', async () => {
+  const first = fakeClient();
+  const second = fakeClient();
+  const clients = [first, second];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  const host = createHostConnection(connection);
+  await connection.start();
+  const runs = [];
+  host.handleRequest('host/systemProxy/resolve', (params, signal) => {
+    let settle;
+    const done = new Promise((resolve) => (settle = resolve));
+    runs.push({ params, signal, settle });
+    return done;
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+  first.emit({ type: 'serverRequest', request: { id: 'host-1', method: 'host/systemProxy/resolve', params: { n: 1 } } });
+  first.emit({ type: 'serverRequest', request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 2 } } });
+  await connection.reopen();
+  assert.deepEqual(runs.map((run) => run.signal.aborted), [true, true], "the old client's requests end with it");
+  runs[0].settle({ rules: 'old' });
+  await settle();
+  assert.deepEqual([first.answers, second.answers], [[], []], 'and are answered nowhere');
+
+  second.emit({ type: 'serverRequest', request: { id: 'host-2', method: 'host/systemProxy/resolve', params: { n: 3 } } });
+  assert.equal(runs[2].signal.aborted, false);
+  runs[1].settle({ rules: 'old' });
+  await settle();
+  second.emit({ type: 'serverRequestResolved', params: { requestId: 'host-2' } });
+  assert.equal(runs[2].signal.aborted, true, "the new core's resolved frame ends its own request");
+  assert.deepEqual(second.answers, [], 'and nothing is answered on the new client');
 });
 
 test('discovery names the rpc endpoint only while the core serves', () => {

@@ -103,6 +103,7 @@ function twoConnectionFixture(t) {
   };
   const open = (id, kind, webContentsId) => {
     const service = fakeService(id);
+    const protocol = fakeProtocol();
     pool.add({ id, kind, service });
     const view = fakeWindow(webContentsId);
     routes.register(view.webContents, id);
@@ -124,7 +125,7 @@ function twoConnectionFixture(t) {
         trashItem: async () => {},
       },
       connectionKind: kind,
-      terminals: createServiceTerminalHost(service),
+      terminals: createServiceTerminalHost(service, protocol),
       ...(kind === 'ssh'
         ? { serviceUserDataPath: () => '/root/.mixdog-remote/user-data' }
         : { updater, previewNotificationSound: async () => 'played' }),
@@ -133,7 +134,7 @@ function twoConnectionFixture(t) {
       remove();
       scope.dispose();
     });
-    return { service, ...view };
+    return { service, protocol, ...view };
   };
   const local = open('local', 'local', 1);
   const server = open('server-a', 'ssh', 2);
@@ -190,7 +191,17 @@ test('service events and snapshots reach only their connection windows', async (
   assert.equal(channels(f.server.sent, DESKTOP_IPC.state).length, 1);
   assert.equal(channels(f.local.sent, DESKTOP_IPC.state).length, 0);
 
-  f.server.service.publishEvent('terminal-data', { id: 'term-1', data: 'server output' });
+  // A tab's output is read on its own feed of the connection's core; the phones' lane (`process:relay`) is not a window's.
+  const output = (feedId, text) => ({
+    type: 'notification',
+    notification: {
+      method: 'process/outputDelta',
+      params: { processHandle: 'term-1', bytesB64: Buffer.from(text).toString('base64') },
+      feed: { id: feedId },
+    },
+  });
+  f.server.protocol.emit(output('process:relay', 'lane output'));
+  f.server.protocol.emit(output('process:term-1', 'server output'));
   f.server.service.publishEvent('folder-changed', '/srv/repo');
   await waitUntil(
     () =>

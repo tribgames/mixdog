@@ -16,6 +16,8 @@ use mixdog_protocol::JsonValue;
 /// What a PostToolUse / PostToolUseFailure hook receives.
 #[derive(Clone, PartialEq, Debug)]
 pub struct PostToolEvent {
+    /// The model's id of the call (`toolCallId`), the payload's `tool_use_id`.
+    pub call_id: String,
     pub name: String,
     pub args: JsonValue,
     /// `effectiveToolCwd`: the shell call's own `cwd` argument, else the session's.
@@ -52,9 +54,10 @@ impl SessionToolHooks {
 
     /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time
     /// it finished.
-    fn event(&self, call: &GateCall, result: &str) -> PostToolEvent {
+    fn event(&self, call_id: &str, call: &GateCall, result: &str) -> PostToolEvent {
         let cwd = call.cwd.as_ref().map_or_else(|| self.cwd.clone(), |cwd| cwd.to_string_lossy().into_owned());
         PostToolEvent {
+            call_id: call_id.to_owned(),
             name: call.name.clone(),
             args: call.args.clone(),
             cwd: effective_tool_cwd(&call.name, &call.args, &cwd),
@@ -123,13 +126,13 @@ fn updated_text(value: &JsonValue) -> Option<String> {
 
 #[async_trait]
 impl ToolHooks for SessionToolHooks {
-    async fn after_tool(&self, call: &GateCall, result: &str) -> Option<String> {
-        let answer = self.dispatch.post_tool(&self.event(call, result)).await?;
+    async fn after_tool(&self, call_id: &str, call: &GateCall, result: &str) -> Option<String> {
+        let answer = self.dispatch.post_tool(&self.event(call_id, call, result)).await?;
         updated_text(&answer)
     }
 
-    async fn after_failure(&self, call: &GateCall, result: &str) {
-        self.dispatch.post_failure(&self.event(call, result)).await;
+    async fn after_failure(&self, call_id: &str, call: &GateCall, result: &str) {
+        self.dispatch.post_failure(&self.event(call_id, call, result)).await;
     }
 
     /// `Some(reason)` only for a blocking decision; the reason defaults to Node's text.
@@ -185,18 +188,18 @@ mod tests {
         let fake = Arc::new(Fake::default());
         let h = hooks(&fake);
         let call = GateCall::new("shell", json!({"command": "ls", "cwd": "sub"}));
-        assert_eq!(h.after_tool(&call, "out").await, None);
+        assert_eq!(h.after_tool("c1", &call, "out").await, None);
         let seen = fake.seen.lock().unwrap()[0].clone();
-        assert_eq!((seen.session_id.as_str(), seen.result.as_str()), ("s1", "out"));
+        assert_eq!((seen.session_id.as_str(), seen.call_id.as_str(), seen.result.as_str()), ("s1", "c1", "out"));
         assert!(seen.cwd.ends_with("sub") && seen.cwd.contains("work"), "{}", seen.cwd);
         *fake.answer.lock().unwrap() = Some(json!("replaced"));
-        assert_eq!(h.after_tool(&call, "out").await.as_deref(), Some("replaced"));
+        assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("replaced"));
         *fake.answer.lock().unwrap() = Some(json!({"content": [{"type": "text", "text": "a"}, {"type": "x"}]}));
-        assert_eq!(h.after_tool(&call, "out").await, None);
+        assert_eq!(h.after_tool("c1", &call, "out").await, None);
         *fake.answer.lock().unwrap() = Some(json!({"content": [{"type": "text", "text": "a"}, {"text": "b"}]}));
-        assert_eq!(h.after_tool(&call, "out").await.as_deref(), Some("a\n{\"text\":\"b\"}"));
+        assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("a\n{\"text\":\"b\"}"));
         *fake.answer.lock().unwrap() = Some(JsonValue::Null);
-        assert_eq!(h.after_tool(&call, "out").await.as_deref(), Some(""));
+        assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some(""));
     }
 
     /// A call prepared in one folder and finished after the session moved to another reports the folder it ran in.
@@ -205,8 +208,8 @@ mod tests {
         let fake = Arc::new(Fake::default());
         let h = hooks(&fake);
         let prepared_in = Path::new("/started");
-        h.after_tool(&GateCall::new("edit", json!({"file_path": "x"})).at(prepared_in), "out").await;
-        h.after_failure(&GateCall::new("shell", json!({"command": "ls", "cwd": "sub"})).at(prepared_in), "bad").await;
+        h.after_tool("c1", &GateCall::new("edit", json!({"file_path": "x"})).at(prepared_in), "out").await;
+        h.after_failure("c2", &GateCall::new("shell", json!({"command": "ls", "cwd": "sub"})).at(prepared_in), "bad").await;
         let seen = fake.seen.lock().unwrap().clone();
         assert!(seen[0].cwd.contains("started") && !seen[0].cwd.contains("work"), "{}", seen[0].cwd);
         assert!(seen[1].cwd.contains("started") && seen[1].cwd.ends_with("sub"), "{}", seen[1].cwd);

@@ -93,10 +93,17 @@ enum Route {
 
 enum Recovery {
     Proceed(Box<ModelResponse>),
-    /// Run another attempt of the same logical send (the decider's `Retry` or `Fallback`).
+    /// Run another attempt of the same logical send on the provider's own ladder (the decider's `Retry` or `Fallback` on the
+    /// request and stream rows for a send that showed nothing, the provider's re-issue): inside Node's `provider.send`, the
+    /// same round of its loop.
     Replay,
+    /// Run another attempt of the same logical send as the loop's own replay (the connection and recovery rows, a send
+    /// whose shown output was withdrawn or that was cut in a tool call's arguments, the content-filter replay: Node's
+    /// `retry_transport`), which Node's loop runs as a new round (`applyRetryAction`, then `beginIteration` and
+    /// `sendProviderRequest`).
+    LoopReplay,
     /// The request itself changed (a dropped tool, repaired replay, stripped images): the old
-    /// send ended in its failure and the replay is a new logical send.
+    /// send ended in its failure and the replay is a new logical send, in a new round of Node's loop.
     Rebuilt,
     RetryRound,
 }
@@ -336,6 +343,7 @@ impl Run {
 
     async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
+        self.send_started_ms = self.request_started_ms;
         self.send_identity = Default::default();
         self.reissue = None;
         self.emit(RunEvent::ProviderSendStarted);
@@ -394,15 +402,29 @@ impl Run {
                     return Ok(SendResult::Proceed(response));
                 }
                 Recovery::Replay => continue,
+                Recovery::LoopReplay => {
+                    self.begin_replay_round();
+                    continue;
+                }
                 Recovery::Rebuilt => {
                     if let Some(group) = self.send_group.take() {
                         group.settle(SendEnd::Surfaced).await;
                     }
+                    self.begin_replay_round();
                     continue;
                 }
                 Recovery::RetryRound => return Ok(SendResult::RetryRound),
             }
         }
+    }
+
+    /// A replay Node's loop runs as a new round starts the `loop` row's marks again, after the failed round's wait and
+    /// notice: `beginIteration` sets `iterT0` and `sendProviderRequest` sets `sendStartedAt`, so the row of the send that
+    /// settles times that round alone. `request_started_ms`, which the usage and cache figures read, is left as it is.
+    fn begin_replay_round(&mut self) {
+        let now = self.env.clock.now_ms();
+        self.iteration_started_ms = now;
+        self.send_started_ms = now;
     }
 
     /// `projectProviderRequest`'s prefix guard: the request's fingerprint against the one the session last settled on; a
@@ -1027,7 +1049,8 @@ impl Run {
         // runs the provider's whole `withRetry` (`send-with-recovery.mjs:229`; recorded: every lap
         // of `refused`, `dns` and `cut` repeats the provider ladder). The request and stream
         // rows are the provider's own ladder, so only these replays refill them.
-        if matches!(next.class(), RetryClass::Connection | RetryClass::Recovery) {
+        let loop_replay = matches!(next.class(), RetryClass::Connection | RetryClass::Recovery);
+        if loop_replay {
             self.retry.restart_provider_rows(next.model());
             // The provider's whole send runs again, its re-issue included.
             self.reissue = None;
@@ -1076,7 +1099,10 @@ impl Run {
                 .await?;
             }
         }
-        Ok(Recovery::Replay)
+        // Node's provider never re-issues a send that showed output or was cut in a tool call's arguments
+        // (`retry-executor.mjs`: `replaySafe`, `isToolInputCut`): its loop replays it (`retryTransport`,
+        // `recoverExposedStall`, `recoverToolInputCut`), in a new round as its connection and recovery replays.
+        Ok(if loop_replay || retractable || split_notice { Recovery::LoopReplay } else { Recovery::Replay })
     }
 
     /// Whether the provider re-issues this send now that its ladder ended on `error` (`canFallbackNonStreaming`): once
@@ -1179,7 +1205,8 @@ impl Run {
         if !tail_is_notice {
             self.push(AgentMessage::sourced(Source::ContentFilterRecovery, CONTENT_FILTER_NOTICE)).await?;
         }
-        Ok(Recovery::Replay)
+        // `scheduleTransportReplay`: the loop's replay, a new round.
+        Ok(Recovery::LoopReplay)
     }
 
     /// The typed rejections a changed request can clear, each tried once.
@@ -1295,11 +1322,8 @@ impl Run {
         error: ProviderError,
         replay_safe: bool,
     ) -> Result<Recovery, AgentError> {
-        let policy = self
-            .config
-            .compact
-            .as_ref()
-            .and_then(CompactPolicy::resolve);
+        let settings = self.config.compact.as_ref();
+        let policy = settings.and_then(CompactPolicy::resolve);
         if !self.context_overflow_retry_used && policy.is_some() && replay_safe {
             self.context_overflow_retry_used = true;
             self.reactive_overflow_retry_pending = true;
@@ -1313,13 +1337,16 @@ impl Run {
             .compactor
             .as_ref()
             .map(|c| c.estimate_tokens(&self.messages));
+        // Node states `sessionRef.contextWindow` (null when the session states none) whether automatic
+        // compaction is on or off (`recoverContextOverflow`); only the reserve comes from the policy.
+        let context_window = settings.and_then(|s| s.context_window).filter(|window| *window > 0);
         let overflow = AgentError::ContextOverflow(Box::new(ContextOverflow {
             stage: "send",
             provider: self.provider.id().to_string(),
             model: self.model.clone(),
-            context_window: policy.as_ref().and_then(|p| p.context_window),
-            // Node passes `sessionRef.contextWindow` (null when the session states none), not the boundary.
-            budget_tokens: policy.as_ref().and_then(|p| p.context_window),
+            context_window,
+            // Node passes the window as the budget, not the boundary.
+            budget_tokens: context_window,
             reserve_tokens: policy.as_ref().map(|p| p.reserve_tokens),
             message_tokens_est: estimate,
             cause: Some(error.message.clone()),

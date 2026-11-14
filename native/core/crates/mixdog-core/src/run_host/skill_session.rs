@@ -23,7 +23,6 @@ use mixdog_agent::env::Clock;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::gate::connector_policy_agent;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
-use mixdog_core_ports::ports::route::RouteSession;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
@@ -322,23 +321,19 @@ impl DeferredToolArm for HeaderSkillArm {
         }
     }
 }
-/// The `TranscriptTexts` of the running product: the running turn's working messages when there
-/// are any, else the thread's saved messages (`currentSkillContext`).
+/// The `TranscriptTexts` of the running product (`currentSkillContext`): the thread's model
+/// conversation. While a turn runs it is Node's `session.liveTurnMessages` (the history and the
+/// turn so far, `[...historyMessages, userTurnMessage]`): every row the turn commits is in the
+/// thread before its next request leaves, and a compaction rewrites it there. Idle, it is
+/// `session.messages`.
 pub struct ThreadTranscript {
-    session: Arc<dyn RouteSession>,
     messages: Arc<dyn ThreadMessages>,
 }
 
 impl ThreadTranscript {
-    /// `session` is the one the route changes use (its `live_turn_messages` is
-    /// `session.liveTurnMessages`); `messages` reads `session.messages`.
-    pub fn new(session: Arc<dyn RouteSession>, messages: Arc<dyn ThreadMessages>) -> Self {
-        Self { session, messages }
-    }
-
-    async fn rows(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
-        let live = self.session.live_turn_messages(thread).await?;
-        if live.is_empty() { self.messages.messages(thread).await } else { Ok(live) }
+    /// `messages` reads the thread's model conversation (`thread/messages/read`).
+    pub fn new(messages: Arc<dyn ThreadMessages>) -> Self {
+        Self { messages }
     }
 }
 
@@ -346,7 +341,7 @@ impl ThreadTranscript {
 impl TranscriptTexts for ThreadTranscript {
     /// A transcript that cannot be read is the port's error; the Skill tool fails with it.
     async fn user_texts(&self, thread: &ThreadId) -> Result<Vec<String>, PortError> {
-        let rows = self.rows(thread).await?;
+        let rows = self.messages.messages(thread).await?;
         Ok(rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("user")).map(|row| row.get("content").map_or_else(String::new, message_text)).collect())
     }
 }

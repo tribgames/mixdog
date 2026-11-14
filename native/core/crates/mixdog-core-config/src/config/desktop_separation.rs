@@ -105,10 +105,8 @@ impl Shared {
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
         // Node's pass is `updateConfig`: under the file's lock, from what `readAllForRmW` settles on, snapshotted by the guard.
         let written = self.guard.locked(lane, |baseline| {
-            let preimage = match baseline.doc {
-                Some(restored) => restored,
-                None => read_preimage(&self.path)?,
-            };
+            // An intact (or absent) file is the pre-image as it is on disk, not the canonical document of the baseline.
+            let preimage = if baseline.forced { baseline.doc } else { read_preimage(&self.path)? };
             if marked(&record(preimage.get("desktop"))) {
                 return Ok(None);
             }

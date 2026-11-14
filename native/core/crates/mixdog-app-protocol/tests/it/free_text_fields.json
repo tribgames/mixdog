@@ -2343,7 +2343,7 @@
   },
   {
    "class": "free",
-   "reason": "Values a person types into a form. A workflow's inputs: a JSON body. A custom provider's extra body fields: a JSON body, whose size the core measures as Node's JSON.stringify does, each lone unit as its six-character escape (mixdog-core-domains ai_account/custom_config.rs normalize_request_body). A custom provider's header values: Node's check refuses a value outside Latin-1 with `[custom-provider] headers.<name> has an invalid value`, and the core's check refuses U+FFFD with the same text before anything is sent (normalize_headers). A probed MCP server's header values: never sent, any header is configured authentication, Node and the core answer {auth: configured}. Recorded: native/core/fixtures/lone-surrogate-wire (custom-*-header-lone, custom-*-body-*, mcp-probe-header-lone).",
+   "reason": "Values a person types into a form. A workflow's inputs: a JSON body. A custom provider's extra body fields: a JSON body, whose size the core measures as Node's JSON.stringify does, each lone unit as its six-character escape (mixdog-ai providers/custom/config.rs normalize_request_body). A custom provider's header values: Node's check refuses a value outside Latin-1 with `[custom-provider] headers.<name> has an invalid value`, and the core's check refuses U+FFFD with the same text before anything is sent (normalize_headers). A probed MCP server's header values: never sent, any header is configured authentication, Node and the core answer {auth: configured}. Recorded: native/core/fixtures/lone-surrogate-wire (custom-*-header-lone, custom-*-body-*, mcp-probe-header-lone).",
    "fields": [
     "request account/discoverCustomProviderModels /input/headers/*",
     "request account/discoverCustomProviderModels /input/requestBody/*",
@@ -2385,12 +2385,13 @@
   },
   {
    "class": "free",
-   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name, the text of a Computer Use reply (the model reads it as the tool's result).",
+   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name, the text of a Computer Use reply (the model reads it as the tool's result), what a human-only hold is for (the model reads it in Computer Use's refusal).",
    "fields": [
     "answer host/computer/capture /text",
     "answer host/screen/displays /*/label",
     "answer host/update/command /message",
     "notification host/update/report /state/message",
+    "request host/humanOnly/begin /label",
     "request host/state/set /value/*/title",
     "request host/state/set /value/error",
     "request host/state/set /value/tabs/*/title"
@@ -3833,6 +3834,7 @@
     "request github/request /opId",
     "request github/star /opId",
     "request host/claim /hostId",
+    "request host/humanOnly/end /holdId",
     "request host/remoteTarget/set /token",
     "request host/state/set /key",
     "request host/state/set /value/*/history/*/id",

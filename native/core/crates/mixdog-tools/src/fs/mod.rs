@@ -36,6 +36,7 @@ mod node_cases;
 pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
+pub use read::READ_PDF_MAX_PAGES_PER_CALL;
 pub use read::ReadTool;
 pub(crate) use read::normalize_input_path;
 pub use read_state::FileVersion;

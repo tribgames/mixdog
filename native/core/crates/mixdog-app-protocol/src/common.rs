@@ -910,6 +910,12 @@ macro_rules! server_request_definitions {
             pub fn method(&self) -> &'static str {
                 match self { $(Self::$variant { .. } => $wire,)* }
             }
+
+            /// The initialize capability whose holder the request is sent to (`ServerRequestSpec::requires`); `None` for a
+            /// request offered to every eligible connection.
+            pub fn requires(&self) -> Option<&'static str> {
+                match self { $(Self::$variant { .. } => $requires,)* }
+            }
         }
 
         #[cfg(feature = "codegen")]

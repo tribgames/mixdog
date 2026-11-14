@@ -24,10 +24,12 @@ use mixdog_agent::compact::summary_run::ForkRequest;
 use mixdog_agent::compact::summary_run::ForkSource;
 use mixdog_agent::compact::summary_run::RouteResolver;
 use mixdog_agent::compact::summary_run::RouteStep;
+use mixdog_agent::compact::summary_run::SummaryCall;
 use mixdog_agent::compact::summary_run::SummaryFailure;
 use mixdog_agent::compact::summary_run::SummaryMode;
 use mixdog_agent::compact::summary_run::SummaryResponse;
 use mixdog_agent::compact::summary_run::SummaryRoute;
+use mixdog_agent::compact::summary_run::SummarySender;
 use mixdog_agent::compact::triggers::CacheTail;
 use mixdog_agent::compact::triggers::CacheWarmLedger;
 use mixdog_agent::compact::triggers::ToolMediaMeter;
@@ -104,6 +106,24 @@ impl RouteResolver for Asked {
     async fn resolve(&self, step: RouteStep) -> Result<Option<SummaryRoute>, SummaryFailure> {
         self.0.lock().unwrap().push(step);
         Ok(None)
+    }
+}
+
+/// A summary request that never answers.
+struct Stalled;
+#[async_trait]
+impl SummarySender for Stalled {
+    async fn send(&self, _: &str, _: &str, _: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
+        std::future::pending::<Result<SummaryResponse, SummaryFailure>>().await
+    }
+}
+
+/// Every step is the conversation's own route, whose summary request never answers.
+struct StalledRoute;
+#[async_trait]
+impl RouteResolver for StalledRoute {
+    async fn resolve(&self, step: RouteStep) -> Result<Option<SummaryRoute>, SummaryFailure> {
+        Ok(Some(SummaryRoute { step, provider_name: "p".into(), model: "m".into(), context_window: 200_000, calibration: 1.0, fast: false, effort: None, sender: Arc::new(Stalled) }))
     }
 }
 
@@ -190,6 +210,17 @@ async fn a_conversation_over_the_sessions_threshold_is_summarized_on_its_plan() 
     let error = compactor.compact(request(&messages)).await.err().expect("no route is available");
     assert!(matches!(error, CompactError::Failed(ref m) if m == "compact summary route unavailable"), "{error:?}");
     assert_eq!(*asked.0.lock().unwrap(), vec![RouteStep::Session], "mode self: the conversation's own model only");
+}
+
+/// `handoffTimeoutMs` (`summarySendOpts`' `combinedSignal`): a summary request past the session's deadline fails the
+/// compaction with the reason `AbortSignal.timeout` aborts with, on the route it ran on; it does not wait for the provider.
+#[tokio::test]
+async fn a_summary_past_the_sessions_deadline_fails_the_compaction() {
+    let timed = CompactSettings { handoff_timeout_ms: Some(20), ..settings(Some(200_000)) };
+    let compactor = FreshCompactor::for_session(SessionCompactor { resolver: Arc::new(StalledRoute), ..session(timed, Some(1), Arc::default()) }).expect("a compactor");
+    let messages = conversation();
+    let error = compactor.compact(request(&messages)).await.err().expect("the summary never answers");
+    assert!(matches!(error, CompactError::RouteFailed(ref m, _) if m == "The operation was aborted due to timeout"), "{error:?}");
 }
 
 #[tokio::test]

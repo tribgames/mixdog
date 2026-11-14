@@ -849,13 +849,16 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     }
     let shutdown = real.session_shutdown_step(stop_reason.clone());
     let later = real.runtime_stop_steps(stop_reason.clone());
-    // The shell runtime's completions and strip changes (Node's `shellJobsPoller` and `notifySessionCompletion`) reach the directory and the sections.
+    // The shell runtime's completions and strip changes (Node's `shellJobsPoller` and `notifySessionCompletion`) reach the directory and the sections;
+    // its running background shells, the lifecycle.
     crate::exec_events::consume(
         exec_events,
         crate::exec_events::Targets {
             directory: real.directory.clone(),
             threads: Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(real.directory.clone())),
             publisher: real.publisher.clone(),
+            lifecycle: real.late_lifecycle.clone(),
+            shells: shell_control.clone(),
         },
         stop.clone(),
     );
@@ -907,6 +910,8 @@ mod review_restart_tests;
 mod office_startup_tests;
 #[cfg(test)]
 mod state_set_aside_tests;
+#[cfg(test)]
+mod config_watch_tests;
 #[cfg(test)]
 mod session_send_tests;
 #[cfg(test)]

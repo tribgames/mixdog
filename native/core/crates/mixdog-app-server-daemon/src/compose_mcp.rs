@@ -92,6 +92,19 @@ use crate::setup_status::ServiceStatus;
 /// for the tool is up (Node reads the bridge discovery file, `builtin-features.mjs`).
 pub trait BridgeFeatures: Send + Sync {
     fn present(&self, feature: &str) -> bool;
+    /// Whether this core registered the tool the bridge drives (Node registers every one). The skill gate and the setup status
+    /// (`bridge_feature_on`) report a feature whose tool is missing as off whatever its bridge or its `MIXDOG_FEATURE_*`
+    /// override says, and the feature probes report its bridge as down. The tool-deny gate (`feature_disallowed_tools`) still
+    /// lets the override outrank that probe fact, which allows nothing: the tool does not exist.
+    fn registered(&self, _feature: &str) -> bool {
+        true
+    }
+}
+
+/// A bridge-gated feature (`browser`, `computer`, `terminal`, `visualize`) as the skill gate and the setup status both decide it:
+/// off when this core did not register its tool, else the `MIXDOG_FEATURE_*` override, else `bridge_up` (the bridge fact).
+fn bridge_feature_on(env: &dyn Fn(&str) -> Option<String>, bridges: &dyn BridgeFeatures, id: &str, bridge_up: impl FnOnce() -> bool) -> bool {
+    bridges.registered(id) && feature_env_override(env, &format!("MIXDOG_FEATURE_{}", id.to_uppercase())).unwrap_or_else(bridge_up)
 }
 
 /// An [`ExtensionHost`] bound after the services that hold it are built: `compose_domains`
@@ -189,8 +202,8 @@ impl ConfigSkillSettings {
 }
 
 /// `DomainSeams.feature_activity` (wp-config-setup-7, `FeatureActivity::active(id)`) for browser, computer and terminal: the
-/// env override, else the bridge fact, exactly the non-`visualize` arm of the skill gate above, over the same `BridgeFeatures`
-/// value (`McpInputs.bridges`), so the two cannot disagree.
+/// env override, else the bridge fact, and only for a registered tool. It is `bridge_feature_on`, which the skill gate's
+/// non-`visualize` arm also calls, over the same `BridgeFeatures` value (`McpInputs.bridges`), so the two cannot disagree.
 pub struct BridgeActivity {
     env: EnvReader,
     bridges: Arc<dyn BridgeFeatures>,
@@ -205,7 +218,7 @@ impl BridgeActivity {
 impl mixdog_core_agents::setup::FeatureActivity for BridgeActivity {
     fn active(&self, id: &str) -> bool {
         let env = |name: &str| (self.env)(name);
-        feature_env_override(&env, &format!("MIXDOG_FEATURE_{}", id.to_uppercase())).unwrap_or_else(|| self.bridges.present(id))
+        bridge_feature_on(&env, &*self.bridges, id, || self.bridges.present(id))
     }
 }
 
@@ -328,12 +341,11 @@ impl SkillSettingsSource for ConfigSkillSettings {
         let mut active: HashSet<String> =
             CONFIG_FEATURES.iter().filter(|id| builtin_feature_active(&doc, id, &env, onnx)).map(|id| (*id).to_owned()).collect();
         for id in ["browser", "computer", "terminal", "visualize"] {
-            let var = feature_env_override(&env, &format!("MIXDOG_FEATURE_{}", id.to_uppercase()));
-            let on = match id {
-                "visualize" => var.unwrap_or_else(|| module_enabled(&doc, id) && self.bridges.present(id)),
-                _ => var.unwrap_or_else(|| self.bridges.present(id)),
+            let bridge_up = || match id {
+                "visualize" => module_enabled(&doc, id) && self.bridges.present(id),
+                _ => self.bridges.present(id),
             };
-            if on {
+            if bridge_feature_on(&env, &*self.bridges, id, bridge_up) {
                 active.insert(id.to_owned());
             }
         }
@@ -709,6 +721,27 @@ mod tests {
         assert!(on.gate.active_features.contains("browser") && !on.gate.active_features.contains("terminal"));
         let forced = settings(serde_json::json!({}), &[("MIXDOG_FEATURE_TERMINAL", "1"), ("MIXDOG_FEATURE_BROWSER", "off")], &["browser"]);
         assert!(forced.gate.active_features.contains("terminal") && !forced.gate.active_features.contains("browser"));
+    }
+
+    /// Every bridge up, but no `computer` tool registered (no helper): neither the bridge nor the override turns Computer Use
+    /// on, for the skill gate or for the setup status.
+    #[test]
+    fn a_feature_without_its_tool_is_never_active() {
+        use mixdog_core_agents::setup::FeatureActivity as _;
+        struct NoComputerTool;
+        impl BridgeFeatures for NoComputerTool {
+            fn present(&self, _: &str) -> bool {
+                true
+            }
+            fn registered(&self, feature: &str) -> bool {
+                feature != "computer"
+            }
+        }
+        let env: EnvReader = Arc::new(|name: &str| (name == "MIXDOG_FEATURE_COMPUTER").then(|| "1".to_owned()));
+        let gate = ConfigSkillSettings::new(Arc::new(Doc(Map::new())), env.clone(), Arc::new(NoComputerTool)).current().gate;
+        assert!(gate.active_features.contains("browser") && !gate.active_features.contains("computer"));
+        let activity = BridgeActivity::new(env, Arc::new(NoComputerTool));
+        assert!(activity.active("browser") && !activity.active("computer"));
     }
 
     struct Memory(std::sync::Mutex<std::collections::HashMap<String, String>>);

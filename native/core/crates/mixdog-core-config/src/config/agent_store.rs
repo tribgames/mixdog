@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::Config;
 use super::ConfigError;
+use super::patch;
 use super::service::core_error;
 
 #[async_trait]
@@ -16,11 +17,18 @@ impl AgentConfigStore for Config {
         Config::agent(self)
     }
 
+    /// `saveConfigAndAdopt`'s write, inside the transaction: what `change` made of the section is stored as the difference of
+    /// the two stored forms (`createConfigPatch`), so a section's defaults are never written.
     async fn update(&self, change: AgentChange) -> Result<(), CoreError> {
-        self.update_agent(move |doc| change(doc).map_err(ConfigError::Rejected))
-            .await
-            .map(|_| ())
-            .map_err(core_error)
+        self.update_agent(move |agent| {
+            let mut after = agent.clone();
+            change(&mut after).map_err(ConfigError::Rejected)?;
+            *agent = patch::apply_config_patch(agent, &patch::create_config_patch(agent, &after));
+            Ok(())
+        })
+        .await
+        .map(|_| ())
+        .map_err(core_error)
     }
 }
 
@@ -60,6 +68,25 @@ mod tests {
         assert_eq!(agent["worktree"], json!({ "a": 1 }));
         let stored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(stored["other"], json!(true));
+    }
+
+    /// Node's stored form (`storedAgentForm`): a whole normalized `autoClear` keeps only what differs from its defaults, and
+    /// one equal to them leaves no key.
+    #[tokio::test]
+    async fn an_update_stores_only_what_differs_from_the_section_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, path) = open(&dir).await;
+        let stored = || serde_json::from_slice::<Value>(&std::fs::read(&path).unwrap()).unwrap()["agent"].clone();
+        for (enabled, want) in [(false, Some(json!({ "enabled": false }))), (true, None)] {
+            let change: AgentChange = Box::new(move |agent| {
+                let section = json!({ "enabled": enabled, "idleMs": null, "custom": false, "providerIdleMs": {}, "minContextPercent": 10 });
+                agent.insert("autoClear".into(), section);
+                Ok(())
+            });
+            AgentConfigStore::update(&config, change).await.unwrap();
+            assert_eq!(stored().get("autoClear").cloned(), want, "enabled {enabled}");
+            assert_eq!(stored()["worktree"], json!({ "a": 1 }));
+        }
     }
 
     #[tokio::test]

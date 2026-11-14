@@ -24,11 +24,23 @@ pub struct RuntimeEntry {
     /// `entry.controller && !entry.controller.signal?.aborted`.
     pub controller_live: bool,
     pub stage: Option<String>,
-    /// The entry's session record (`entry.session`): `owner`, `agent`, `ownerSessionId`, `parentSessionId`.
+    /// The entry's session record (`entry.session`): its [`SESSION_FIELDS`](Self::SESSION_FIELDS), as
+    /// [`session_of`](Self::session_of) takes them from the session's header.
     pub session: Value,
 }
 
 impl RuntimeEntry {
+    /// The fields of [`session`](Self::session) the activity read looks at.
+    pub const SESSION_FIELDS: [&'static str; 4] = ["owner", "agent", "ownerSessionId", "parentSessionId"];
+
+    /// The session record of an entry for the session with `header`: the [`SESSION_FIELDS`](Self::SESSION_FIELDS) it
+    /// holds, and nothing else of it (a live entry keeps no copy of the header's catalogs).
+    pub fn session_of(header: &serde_json::Map<String, Value>) -> Value {
+        Value::Object(
+            Self::SESSION_FIELDS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect(),
+        )
+    }
+
     /// `isTurnInFlight(entry)`.
     pub fn is_turn_in_flight(&self) -> bool {
         if self.closed {

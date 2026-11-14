@@ -95,6 +95,7 @@ use mixdog_mcp::plugin_admin::GitRunner;
 use mixdog_mcp::plugin_admin::PluginAdmin;
 pub use adapters::DoctorHost;
 pub use adapters::LateDomains;
+pub(crate) use adapters::internal_request;
 pub use adapters::ServiceMcpStatus;
 pub use local::LocalSeams;
 pub use local::VoiceToggle;
@@ -190,7 +191,7 @@ pub struct DomainSeams {
     /// The pending quota resumes (quota-resume.json): the setup action set_quota_auto_resume drops them when it turns the switch off.
     pub quota_resume: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
     /// Whether the desktop's browser, computer and terminal bridges are up (the MIXDOG_FEATURE_* overrides first, then the bridge
-    /// discovery files): the same fact the skill gate reads. The `features` status prints it.
+    /// discovery files) for a tool the core registered: the same fact the skill gate reads. The `features` status prints it.
     pub feature_activity: Arc<dyn FeatureActivity>,
     /// The live Lead route (provider, model, effort, fast, model parameters, context limits): the session's fact, printed
     /// by the `summary` status.

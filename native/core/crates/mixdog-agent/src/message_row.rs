@@ -157,6 +157,11 @@ fn str_of<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
+/// A stored pixel size (`width`/`height` of an image block), when it is one.
+fn pixels(row: &Value, key: &str) -> Option<u32> {
+    row.get(key).and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok())
+}
+
 // ---- content ---------------------------------------------------------------------------------------
 
 fn part_of(part: &Value) -> Result<ContentPart, String> {
@@ -178,7 +183,7 @@ fn part_of(part: &Value) -> Result<ContentPart, String> {
         "image" | "file" => {
             let mime_type = text("mimeType").or_else(|| text("mediaType")).unwrap_or_default();
             match (text("data"), text("attachmentRef"), text("url"), kind) {
-                (Some(data), _, _, "image") => Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type, width: None, height: None })),
+                (Some(data), _, _, "image") => Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type, width: pixels(part, "width"), height: pixels(part, "height") })),
                 (None, None, Some(url), "image") => Ok(ContentPart::Image(ImageSource::Url(url))),
                 (Some(data), _, _, _) => Ok(ContentPart::File { source: BinarySource::Base64(data), mime_type, filename: text("filename"), text: None }),
                 (None, Some(reference), _, _) => Ok(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename: text("filename"), text: None }),
@@ -224,7 +229,18 @@ pub fn part_row(part: &ContentPart) -> Value {
             }
             row
         }
-        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => json!({ "type": "image", "data": data, "mimeType": mime_type }),
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, width, height }) => {
+            // The size a tool reported stays on the stored block, as on Node's (`{ type: 'image', width, height, source }`): without it
+            // the message the next turn rebuilds from the row is not the one this turn sent, and the prefix guard refuses that turn.
+            let mut row = json!({ "type": "image", "data": data, "mimeType": mime_type });
+            if let Some(width) = width {
+                row["width"] = json!(width);
+            }
+            if let Some(height) = height {
+                row["height"] = json!(height);
+            }
+            row
+        }
         ContentPart::Image(ImageSource::Url(url)) => json!({ "type": "image", "url": url }),
         ContentPart::Image(ImageSource::FileId(id)) => json!({ "type": "image", "fileId": id }),
         ContentPart::File { source, mime_type, filename, text } => {
@@ -594,7 +610,11 @@ mod tests {
         call.message_id = Some("msg_1".into());
         let result = AgentMessage::tool_text("c1", "echo:{}", ToolKind::Normal);
         let user = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("see".into(), None)]));
-        for message in [call, result, user, AgentMessage::user("hi")] {
+        // A tool image with the size its tool reported (a capture, a rendered PDF page) and one without.
+        let sized = |width, height| ContentPart::Image(ImageSource::Base64 { data: "iVBO".into(), mime_type: "image/png".into(), width, height });
+        let mut image = AgentMessage::tool_text("c1", "", ToolKind::Normal);
+        image.message.content = Content::Parts(vec![ContentPart::Text("page".into(), None), sized(Some(800), Some(600)), sized(None, None)]);
+        for message in [call, result, image, user, AgentMessage::user("hi")] {
             let row = row_of(&message);
             let back = message_of(&row).expect("row");
             assert_eq!(row_of(&back), row);

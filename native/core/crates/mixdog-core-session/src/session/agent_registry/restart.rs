@@ -181,8 +181,12 @@ impl AgentRegistry {
         Ok(any)
     }
 
-    /// `pendingRestartFailures()`: the rows whose turn a restart ended and whose owner has not been told.
+    /// `pendingRestartFailures()`: the rows whose turn a restart ended and whose owner has not been told. It reads once the
+    /// store holds this process's earlier writes, as Node's reads the projection its writes change at once: the rows
+    /// [`Self::recover_stale_worker_rows`] just settled are listed, a row an earlier pass stamped is not. A write the store
+    /// refused stays owed and is reported by its writer; the read then answers what is stored.
     pub async fn pending_restart_failures(&self) -> Result<Vec<(String, Row)>, String> {
+        let _ = self.store.settled().await;
         Ok(Self::pool_rows(self.store.worker_maps().await?).into_iter().filter(|(_, row)| is_unnotified_restart_failure(row)).collect())
     }
 

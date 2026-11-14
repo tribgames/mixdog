@@ -14,6 +14,9 @@ use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DocumentSource;
 use mixdog_core_api::domain::provider::Message;
 
+/// `MAX_PDF_BYTES` (`attachments/limits.mjs`): the largest PDF sent as a native document block or accepted at intake.
+pub const MAX_PDF_BYTES: u64 = 20 * 1024 * 1024;
+
 /// How an inline file payload can reach a model (`inlineFileKind`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FileKind {

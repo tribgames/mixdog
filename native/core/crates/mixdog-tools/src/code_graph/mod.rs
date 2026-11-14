@@ -12,7 +12,6 @@ mod node_cases;
 mod outline;
 mod output;
 mod refs;
-mod resolve;
 mod roots;
 #[cfg(test)]
 mod routing_tests;

@@ -10,31 +10,29 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_core_api::domain::retry::RetryPolicy;
-use mixdog_protocol::ProviderId;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::transport::http::HttpSend;
-use crate::providers::connect::rewrite::HttpAdapter;
-use crate::providers::connect::rewrite::RewriteCodec;
+use crate::catalog::CachedModelInfo;
 use crate::providers::connect::rewrite::Rewriter;
-use crate::providers::connect::rewrite::StaticCredential;
 use crate::providers::compat::CompatChatCodec;
 use crate::providers::compat::CompatConfig;
 use crate::providers::compat::CompatProfile;
 use crate::providers::compat::profile::CredentialKind;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::providers::compat::responses::normalize_cache_key;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
+pub mod config;
 pub mod listing;
 pub mod reasoning;
 
@@ -144,21 +142,100 @@ pub fn normalize_model_headers(raw: &Map<String, Value>, label: &str) -> Result<
     normalize_headers(raw, label, MODEL_REFUSED_HEADERS)
 }
 
-/// Layers the provider's and model's extras over an encoded request: provider
-/// then model body fields (reserved keys keep the app's value), provider
-/// headers, then model headers over them.
+/// What a custom provider's requests resolve their reasoning from: the model rows the provider holds
+/// (`getCachedModelInfo`), the turn's effort, else the config's `reasoningEffort`, and the endpoint.
+#[derive(Clone)]
+pub struct ReasoningSource {
+    pub rows: Arc<dyn CachedModelInfo>,
+    pub configured: Option<String>,
+    pub base_url: String,
+}
+
+impl ReasoningSource {
+    /// `resolveCustomReasoning({ protocol, model: getCachedModelInfo(model), effort: opts.effort ??
+    /// config.reasoningEffort, baseURL })`.
+    pub fn resolve(&self, protocol: &Protocol, request: &ModelRequest) -> reasoning::Resolved {
+        let row = self.rows.cached_row(&request.model);
+        let effort = request.options.effort.as_deref().or(self.configured.as_deref());
+        reasoning::resolve(protocol, &reasoning_facts(row.as_deref()), effort, &self.base_url)
+    }
+}
+
+/// The reasoning facts of the model `row` the provider holds (`null` when it holds none).
+fn reasoning_facts(row: Option<&Value>) -> reasoning::ReasoningRow {
+    let model = row.unwrap_or(&Value::Null);
+    let mut facts = crate::effort::reasoning_row(model);
+    facts.reasoning_content_field = model.get("reasoningContentField").and_then(Value::as_str) == Some("reasoning_content");
+    if let Some(custom) = model.get("customReasoning") {
+        facts.custom.replay = custom.get("replay").and_then(Value::as_bool);
+        facts.custom.wire_format = custom.get("wireFormat").and_then(Value::as_str).and_then(reasoning::WireFormat::parse);
+        facts.custom.wire_values = custom
+            .get("wireValues")
+            .and_then(Value::as_object)
+            .map(|values| values.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+            .unwrap_or_default();
+    }
+    facts
+}
+
+/// `customSessionCacheKey`: the session's identity as a Responses `prompt_cache_key`, normalized; a one-shot role's
+/// shared scope keys on the request's own key first. Empty when neither is set.
+fn session_cache_key(options: &RequestOptions) -> String {
+    let named = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty());
+    let session = options.session_id.as_deref().filter(|s| !s.is_empty());
+    let key = if options.prompt_cache_scope.as_deref() == Some("shared") { named.or(session) } else { session.or(named) };
+    key.map(normalize_cache_key).unwrap_or_default()
+}
+
+/// Takes `object`'s entries from `key` on, in their order; none when it has no `key`.
+fn split_from(object: &mut Map<String, Value>, key: &str) -> Map<String, Value> {
+    let Some(at) = object.keys().position(|k| k == key) else {
+        return Map::new();
+    };
+    let mut head: Vec<(String, Value)> = std::mem::take(object).into_iter().collect();
+    let tail = head.split_off(at);
+    object.extend(head);
+    tail.into_iter().collect()
+}
+
+/// Layers a custom provider's own shaping over an encoded request: on the OpenAI wires the model row's reasoning
+/// fields and (Responses) the session's cache key, then provider then model body fields over them (reserved keys
+/// keep the app's value), before the stream flags on the Chat and Messages wires and last on the Responses wire, as
+/// Node orders them; the session headers (Responses), the provider's headers, then the model's over them.
 pub struct CustomRewriter {
     pub config: CustomRequestConfig,
+    /// The protocol of the wire this rewriter's engine sends on (a provider may serve several).
+    pub wire: Protocol,
+    pub reasoning: ReasoningSource,
 }
 
 impl Rewriter for CustomRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let model = request.model.as_str();
+        // `applyCompatProviderChatOptions` / `resolveReasoning`. The Messages codec places its own
+        // (`AnthropicConfig::custom_reasoning`): its tool choice and betas follow them.
+        let mut own = match self.wire {
+            Protocol::OpenaiChat | Protocol::OpenaiResponses => self.reasoning.resolve(&self.wire, request).fields,
+            Protocol::Anthropic => Map::new(),
+        };
+        // Every custom Responses route keys the prompt cache on the session (`supportsPromptCacheKey`).
+        let session = if self.wire == Protocol::OpenaiResponses { session_cache_key(&request.options) } else { String::new() };
+        if !session.is_empty() {
+            own.insert("prompt_cache_key".to_owned(), Value::String(session.clone()));
+        }
         let model_extras = self.config.model_body.get(model).and_then(Value::as_object);
-        if !self.config.request_body.is_empty() || model_extras.is_some() {
+        if !own.is_empty() || !self.config.request_body.is_empty() || model_extras.is_some() {
             let mut body: Value = serde_json::from_slice(&wire.body)
                 .map_err(|_| invalid("request body is not JSON".to_owned()))?;
             if let Some(object) = body.as_object_mut() {
+                // Node sets the stream flags after these fields on the Chat and Messages wires (`params.stream`
+                // follows `applyCustomRequestBody`); the Responses body names `stream` among its first keys and
+                // takes them last.
+                let stream_flags = match self.wire {
+                    Protocol::OpenaiChat | Protocol::Anthropic => split_from(object, "stream"),
+                    Protocol::OpenaiResponses => Map::new(),
+                };
+                object.extend(own);
                 for layer in [Some(&self.config.request_body), model_extras].into_iter().flatten() {
                     for (key, value) in layer {
                         if !RESERVED_BODY_KEYS.contains(&key.as_str()) && !UNSAFE_KEYS.contains(&key.as_str()) {
@@ -166,18 +243,29 @@ impl Rewriter for CustomRewriter {
                         }
                     }
                 }
+                object.extend(stream_flags);
             }
             wire.body = serde_json::to_vec(&body).map_err(|_| invalid("request body is not JSON".to_owned()))?;
         }
+        // The Messages request's own `anthropic-beta` is a per-request header, over the provider's default headers and
+        // the model's (`requestHeadersFor`, `customRequestHeaders`): a configured one goes out only when it names none.
+        let own_betas = self.wire == Protocol::Anthropic
+            && wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"));
+        let configured = |name: &str| !(own_betas && name.eq_ignore_ascii_case("anthropic-beta"));
         let mut set = |name: &str, value: &str| {
             wire.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(name));
             wire.headers.push((name.to_owned(), value.to_owned()));
         };
-        for (name, value) in &self.config.headers {
+        // `customSessionHeaders`: the same identity as headers, under the provider's and the model's own.
+        if !session.is_empty() {
+            set("session-id", &session);
+            set("x-client-request-id", &session);
+        }
+        for (name, value) in self.config.headers.iter().filter(|(name, _)| configured(name)) {
             set(name, value);
         }
         if let Some((_, headers)) = self.config.model_headers.iter().find(|(m, _)| m == model) {
-            for (name, value) in headers {
+            for (name, value) in headers.iter().filter(|(name, _)| configured(name)) {
                 if !AUTH_HEADERS.contains(&name.to_ascii_lowercase().as_str())
                     && !MODEL_REFUSED_HEADERS.contains(&name.to_ascii_lowercase().as_str())
                 {
@@ -224,53 +312,11 @@ pub fn chat_codec(id: &str, base_url: &str, replay: crate::providers::compat::ch
     Arc::new(CompatChatCodec::new(profile, config))
 }
 
-/// `resolveCustomReasoning({ protocol: 'openai-chat', model, effort, baseURL }).replay` for the model `row` the
-/// provider holds (`getCachedModelInfo`, `null` when it holds none) and the turn's effort, else the provider's
-/// `reasoningEffort`.
-pub fn chat_replays(row: Option<&Value>, effort: Option<&str>, base_url: &str) -> bool {
-    let model = row.unwrap_or(&Value::Null);
-    let mut facts = crate::effort::reasoning_row(model);
-    facts.reasoning_content_field = model.get("reasoningContentField").and_then(Value::as_str) == Some("reasoning_content");
-    if let Some(custom) = model.get("customReasoning") {
-        facts.custom.replay = custom.get("replay").and_then(Value::as_bool);
-        facts.custom.wire_format = custom.get("wireFormat").and_then(Value::as_str).and_then(reasoning::WireFormat::parse);
-        facts.custom.wire_values = custom
-            .get("wireValues")
-            .and_then(Value::as_object)
-            .map(|values| values.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
-            .unwrap_or_default();
-    }
-    reasoning::resolve(&Protocol::OpenaiChat, &facts, effort, base_url).replay
-}
-
 /// The `openai-responses` protocol's codec for the endpoint at `base_url`.
 pub fn responses_codec(id: &str, base_url: &str) -> Arc<dyn WireCodec> {
     let profile = profile(id, Wire::Responses);
     let config = config(&profile, base_url);
     Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1))
-}
-
-/// A custom provider's adapter around the protocol's family codec. `api_key`
-/// is empty for a keyless endpoint.
-pub fn adapter(
-    id: &str,
-    family: Arc<dyn WireCodec>,
-    http: Arc<dyn HttpSend>,
-    config: CustomRequestConfig,
-    api_key: &str,
-    retry_policy: RetryPolicy,
-) -> Result<HttpAdapter, ProviderError> {
-    if !id.starts_with("custom-") || id.len() == "custom-".len() {
-        return Err(invalid(format!("invalid custom provider id: {id}")));
-    }
-    let credential = (!api_key.is_empty()).then(|| ("authorization".to_owned(), format!("Bearer {api_key}")));
-    Ok(HttpAdapter::new(
-        ProviderId::from(id),
-        Arc::new(RewriteCodec::new(family, CustomRewriter { config })),
-        http,
-        Arc::new(StaticCredential(credential)),
-        retry_policy,
-    ))
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! `config/getCompactionSettings`, `config/setCompactionSettings`, `config/getAutoClear` and
 //! `config/setAutoClear` (Node `settings-compaction-api.mjs`) as a domain service. The agent
-//! config lives behind `AgentConfigStore` (`Config::agent` / `Config::update_agent`); the live
-//! route and the session adoption behind `CompactionHost`.
+//! config lives behind `AgentConfigStore` (`Config::agent`, and `saveConfigAndAdopt`'s write of
+//! the section); the live route and the session adoption behind `CompactionHost`.
 
 use std::sync::Arc;
 
@@ -31,10 +31,12 @@ pub type AgentChange = Box<dyn FnOnce(&mut Doc) -> Result<(), CoreError> + Send>
 pub trait AgentConfigStore: Send + Sync {
     /// `Config::agent()`.
     fn agent(&self) -> Doc;
-    /// `Config::update_agent`: runs `change` on the section as that transaction starts, so no
-    /// other writer's edit can fall between its read and its write. An `Err` from `change`
-    /// writes nothing and comes back unchanged; a failure of the store itself comes back as the
-    /// store's own `CoreError`.
+    /// `saveConfigAndAdopt`'s write of the section, in one transaction of the store (`Config`'s
+    /// runs inside `Config::update_agent` and stores only what differs from the section's
+    /// defaults, Node's `createConfigPatch`): runs `change` on the section as that transaction
+    /// starts, so no other writer's edit can fall between its read and its write. An `Err` from
+    /// `change` writes nothing and comes back unchanged; a failure of the store itself comes back
+    /// as the store's own `CoreError`.
     async fn update(&self, change: AgentChange) -> Result<(), CoreError>;
 }
 

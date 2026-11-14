@@ -83,12 +83,9 @@ pub async fn open_for_post(directory: &SessionDirectory, session_id: &str) -> Re
 /// generation fence dropped).
 fn unavailable(session_id: &str, error: CoreError) -> CoreError {
     match error {
-        CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. } => CoreError::DomainError {
-            domain: "session".into(),
-            code: None,
-            message: Some(format!("session {session_id} is not available").into()),
-            detail: None,
-        },
+        CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. } => {
+            mixdog_core_base::support::failed("session", format!("session {session_id} is not available"))
+        }
         other => other,
     }
 }

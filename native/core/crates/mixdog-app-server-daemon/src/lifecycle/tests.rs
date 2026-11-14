@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use mixdog_core_api::CoreState;
+use mixdog_core_session::session::StartHold;
 use mixdog_protocol::DrainReason;
 
 use super::testing::fixture;
@@ -348,12 +349,12 @@ fn an_update_stop_waits_for_running_work_and_nothing_times_it() {
     let _client = fx.lifecycle.connection(ClientKind::Session);
     let work = fx.lifecycle.begin_activity(turn());
     fx.lifecycle.hold(true).unwrap();
-    assert!(*fx.lifecycle.hold_gate().borrow());
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
 
     fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
-    // Commit: admission sees the drain, deferred starts are released into it.
+    // Commit: admission sees the drain, deferred starts are released into it, which refuses them.
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Draining { reason: DrainReason::Update });
-    assert!(!*fx.lifecycle.hold_gate().borrow());
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Closed(DrainReason::Update));
     let notices = fx.recorder.notices();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].running.len(), 1);
@@ -385,6 +386,7 @@ fn abort_needs_the_token_the_status_shows_and_then_cancels() {
     let token = fx.lifecycle.status().drain.clone().unwrap().confirm_token;
     fx.lifecycle.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
     assert_eq!(fx.recorder.cancelled().len(), 1);
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Closed(DrainReason::Quit), "no turn starts after the abort");
     fx.recorder.wait_exit();
 }
 

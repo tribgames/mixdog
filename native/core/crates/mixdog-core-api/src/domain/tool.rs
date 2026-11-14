@@ -208,6 +208,9 @@ pub enum ToolPart {
     /// `width`/`height`: the frame's pixel size where the producing tool reports it (the computer tool's capture), else `None`.
     Image { mime: String, data: ImageData, width: Option<u32>, height: Option<u32> },
     Json(JsonValue),
+    /// A document the model reads whole (Node's `{ type: 'document', source: { type: 'base64', media_type, data } }`
+    /// block: `read`'s answer for a short PDF when the model takes PDFs natively).
+    Document { mime: String, data: Vec<u8> },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -295,6 +298,13 @@ pub struct CallOptions {
     /// command those tools cover only when the tool that replaces it is among them; `None` is a caller with no session
     /// information (a command is then only noted).
     pub offered_tools: Option<Arc<Vec<String>>>,
+    /// The calling session's provider takes a PDF as a native document block (Node `pdfReadModes`' `pdfNativeDocument`):
+    /// `read` then answers a short PDF with the document itself, when the model also sees images
+    /// (`pdf_page_images`). A caller with no session leaves it `false` and gets the pages as text.
+    pub pdf_native_document: bool,
+    /// The calling session's model sees images (Node `pdfReadModes`' `pdfPageMode` is `'image'`, else `'ocr'`): only
+    /// such a model is answered with a PDF's document block.
+    pub pdf_page_images: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

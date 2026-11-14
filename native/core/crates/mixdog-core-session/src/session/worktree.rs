@@ -411,6 +411,13 @@ impl SessionWorkspaces {
 #[async_trait]
 pub trait TurnAdmission: Send + Sync {
     async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure>;
+
+    /// `prepareTurnWorkspace` (`turn-prepare.mjs:110`), once the turn is admitted and before its loop: a session in
+    /// recovery refuses the turn, a pending worktree intent is provisioned, and a new worktree's setup runs. A host
+    /// without session workspaces has nothing to prepare.
+    async fn prepare(&self, _thread: &str, _start: TurnStart, _cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        Ok(())
+    }
 }
 
 /// The workspace a session's status pass publishes (`baseRouteState().workspace`).
@@ -440,6 +447,11 @@ impl LiveWorkspace for NoLiveWorkspace {
 impl TurnAdmission for SessionWorkspaces {
     async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure> {
         Ok(Box::new(self.admit_turn(thread, cwd, cancel).await?))
+    }
+
+    async fn prepare(&self, thread: &str, start: TurnStart, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        self.prepare_turn_workspace(thread, start, cancel).await?;
+        Ok(())
     }
 }
 
@@ -493,8 +505,8 @@ impl SessionWorkspaces {
         self.inner.intent(session).map(|i| json!({ "name": i.name }))
     }
 
-    /// Turn-start gate, before the user row, the provider and any worker spawn: a session in
-    /// recovery refuses; a pending worktree intent is provisioned now.
+    /// Turn-start gate, once the turn is admitted and before the provider and any worker spawn:
+    /// a session in recovery refuses; a pending worktree intent is provisioned now.
     pub async fn prepare_turn_workspace(
         &self,
         session: &str,

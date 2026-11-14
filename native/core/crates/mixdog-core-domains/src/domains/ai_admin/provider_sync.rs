@@ -29,16 +29,26 @@ use tokio::sync::watch;
 /// The loaded config as the sync readers see it: `getConfig()` of the runtime.
 pub struct LoadedConfig {
     current: Mutex<Arc<Obj>>,
+    /// One permit, held by a rebuild (`reload`, `first_pass`) from its load to its hand-on. The provider sync and the
+    /// providers change effect both rebuild, so rebuilds hand on in the order they loaded: one that read an older config
+    /// never replaces one that read a newer.
+    rebuilding: tokio::sync::Semaphore,
 }
 
 impl LoadedConfig {
     pub fn new(initial: Obj) -> Self {
-        Self { current: Mutex::new(Arc::new(initial)) }
+        Self { current: Mutex::new(Arc::new(initial)), rebuilding: tokio::sync::Semaphore::new(1) }
     }
 
     /// The loaded config of the last rebuild.
     pub fn get(&self) -> Arc<Obj> {
         self.current.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// The providers of the loaded config (`loadConfig().providers`): the runtime's provider config the readiness
+    /// initializes.
+    pub fn providers(&self) -> Obj {
+        self.get().get("providers").and_then(Value::as_object).cloned().unwrap_or_default()
     }
 
     /// Stores a rebuilt loaded config.
@@ -58,6 +68,34 @@ pub async fn load_config(config: &Config, effective: &EffectiveProviders) -> Res
     loaded.insert("providers".into(), Value::Object(providers));
     loaded.insert("presets".into(), Value::Array(presets));
     Ok(loaded)
+}
+
+/// One rebuild: `loadConfig()`, then, unless `only_if_changed` finds it the same as the one held, the loaded config is
+/// stored in `loaded` and its providers are handed to the readiness. Whether it was handed on; `Err` when the load
+/// failed, which keeps the previous one. One rebuild at a time (`LoadedConfig::rebuilding`).
+async fn rebuild(
+    config: &Config,
+    effective: &EffectiveProviders,
+    readiness: &ProviderReadiness,
+    loaded: &LoadedConfig,
+    only_if_changed: bool,
+) -> Result<bool, String> {
+    // The semaphore is never closed, so the permit is always granted.
+    let _rebuilding = loaded.rebuilding.acquire().await;
+    let next = load_config(config, effective).await?;
+    if only_if_changed && next == *loaded.get() {
+        return Ok(false);
+    }
+    loaded.replace(next);
+    readiness.set_providers(loaded.providers());
+    Ok(true)
+}
+
+/// Rebuilds the loaded config now and hands its providers to the readiness, as the sync does on a change (Node's
+/// `applyConfigChange` reloads the runtime's config before its effects run). `Err` when the load failed; the previous
+/// one stays.
+pub async fn reload(config: &Config, effective: &EffectiveProviders, readiness: &ProviderReadiness, loaded: &LoadedConfig) -> Result<(), String> {
+    rebuild(config, effective, readiness, loaded, false).await.map(drop)
 }
 
 /// The running sync: `applied` counts the rebuilds handed on, so a caller can wait for the one a change
@@ -154,11 +192,8 @@ pub fn spawn_provider_sync_on(
                 () = deadline => {}
             }
             expiry = effective.credential_expiry().await;
-            match load_config(&config, &effective).await {
-                Ok(next) => {
-                    let providers = next.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-                    loaded.replace(next);
-                    readiness.set_providers(providers);
+            match reload(&config, &effective, &readiness, &loaded).await {
+                Ok(()) => {
                     count += 1;
                     applied_tx.send_replace(count);
                 }
@@ -189,12 +224,5 @@ pub(super) async fn first_pass(
     changes.borrow_and_update();
     // A stored permit is a touch before this load; the load reads what it left.
     touched.notified().now_or_never();
-    let Ok(next) = load_config(config, effective).await else { return false };
-    if next == *loaded.get() {
-        return false;
-    }
-    let providers = next.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-    loaded.replace(next);
-    readiness.set_providers(providers);
-    true
+    rebuild(config, effective, readiness, loaded, true).await.unwrap_or(false)
 }

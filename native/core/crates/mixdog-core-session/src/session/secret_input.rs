@@ -10,6 +10,7 @@
 mod computer;
 mod fill;
 mod gates;
+mod human_only;
 mod redact;
 mod replies;
 mod saved_login;
@@ -55,6 +56,9 @@ pub use gates::TakeoverGates;
 pub use gates::TakeoverHold;
 pub use gates::TakeoverHolds;
 pub(crate) use gates::takeover_hold;
+pub use human_only::GatedComputerBackend;
+pub use human_only::HumanOnlyLock;
+pub use human_only::HumanOnlyService;
 pub use redact::SessionSecrets;
 pub use replies::Redact;
 pub use replies::RedactingComputerBackend;

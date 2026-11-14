@@ -11,14 +11,13 @@ use mixdog_js::{js_trim, value_to_string};
 use serde_json::{json, Value};
 
 use mixdog_core_ports::ports::domain_sessions::Obj;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 
 pub const CODING_MODE: &str = "coding";
 pub const AGENT_MODE: &str = "agent";
-/// `MIXY_AGENT_ID`: the primary assistant's runtime id.
-pub const MIXY_AGENT_ID: &str = "lead";
 
 /// Where a bot's route lives (`agent-store.mjs`): the store Node keeps beside the config.
 ///

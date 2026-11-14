@@ -19,6 +19,9 @@
 //!   the session's background work still running (`working`: `hasActiveBackgroundTasks`) waits
 //!   its whole delay again.
 //!
+//! A source that names no session (`statusMayHaveChanged()` alone, [`SessionDirectory::status_may_have_changed`]) has the
+//! first two on every loaded thread, and no idle clock: Node's hears only the session `emitSessionActivityChange` names.
+//!
 //! Node's other subscribers are not the session's:
 //! - The stored-session catalog's `agent-activity` notice has no production subscriber.
 //! - `heldRowMayBeFree` asks the agent registry's maintenance pass.
@@ -51,7 +54,17 @@ impl SessionDirectory {
     /// `JobBoard`'s `on_change(owner)`: a job of `owner` was added or finished. Only a loaded
     /// thread has a runtime to tell, as in Node; the signal never waits.
     pub fn agent_activity(&self, owner: &str) {
-        let Some(handle) = self.handle(&ThreadId::from(owner)) else { return };
-        let _ = handle.inbox.try_send(Inbox::AgentActivity);
+        self.agent_signal(owner, true);
+    }
+
+    /// The agent tool's `statusMayHaveChanged()` from a source that names no session: a loaded `thread` reads its status again,
+    /// its idle clock left as it is.
+    pub fn status_may_have_changed(&self, thread: &str) {
+        self.agent_signal(thread, false);
+    }
+
+    fn agent_signal(&self, thread: &str, named: bool) {
+        let Some(handle) = self.handle(&ThreadId::from(thread)) else { return };
+        let _ = handle.inbox.try_send(Inbox::AgentActivity { named });
     }
 }

@@ -1,12 +1,12 @@
 //! The durability invariant, over generated sequences on the real store: for every interleaving of accepts (a turn's
 //! rows, a room post, an import, a manual compaction, the recovery at open), failed writes (the log's barrier failing in
 //! the real writer 0, 1, 2 or many times in a row, a draft file's replace or removal failing), new work meanwhile, a
-//! value marked sensitive, closes (the last subscriber leaving, Node's detaching close, a delete) raced by an open of the
-//! same session, and restarts: a close whose write fails does not complete, the session staying open (the racing open
-//! finds it) with nothing it accepted given up; after every close or restart that completes, the log holds exactly the
-//! accepted units in accept order, each once; every run the log starts ends once; and no file under the session's
-//! directory holds a marked value once the session has had its chance to take it out (it is quiet, and the draft writes
-//! it owes have been tried until they succeeded).
+//! value marked sensitive, closes (the last subscriber leaving and its idle delay passing, Node's detaching close, a
+//! delete) raced by an open of the same session, and restarts: a close whose write fails does not complete, the session
+//! staying open (the racing open finds it) with nothing it accepted given up; after every close or restart that
+//! completes, the log holds exactly the accepted units in accept order, each once; every run the log starts ends once;
+//! and no file under the session's directory holds a marked value once the session has had its chance to take it out
+//! (it is quiet, and the draft writes it owes have been tried until they succeeded).
 //!
 //! Each sequence is drawn from its seed, so a failure names the seed and the steps that reproduce it.
 #![allow(clippy::disallowed_methods, reason = "test oracle: reads the session's files on disk")]
@@ -139,7 +139,8 @@ enum Step {
     /// The secret is marked sensitive.
     Mark,
     /// The log's next `fails` writes fail (0, 1, 2 or many), and the session closes while an open of it races the close:
-    /// its last subscriber leaves (`leave`), or Node's close detaches it (`closeSession(id, reason, { tombstone: false })`).
+    /// its last subscriber leaves and its idle delay passes (`leave`), or Node's close detaches it (`closeSession(id, reason,
+    /// { tombstone: false })`).
     Close { leave: bool, fails: usize },
     /// `thread/delete`, its delete mark's write failing.
     Delete,
@@ -403,7 +404,7 @@ impl World {
         }
         let closing = async {
             if leave {
-                old.cell.unsubscribed();
+                super::tests::left_idle(&old).await;
                 // Closed: the session left the directory. Failed: the write it gave what it holds failed, and it is loaded.
                 crate::eventually_on!(&[&old.cell.stepped, directory.left(), &FAILED], || {
                     if !directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell)) {
@@ -420,7 +421,7 @@ impl World {
         let (closed, raced) = tokio::join!(closing, directory.open_handle(&id, &ctx));
         if closed {
             crate::eventually_on!(&[&self.rig.snapshots.1], || (self.stops() > stops).then_some(())).await;
-            self.check_stored(if leave { "the last subscriber left" } else { "a detaching close" });
+            self.check_stored(if leave { "the last subscriber left and its idle delay passed" } else { "a detaching close" });
             self.open_again(&directory).await;
             return;
         }
@@ -575,8 +576,9 @@ impl World {
             if self.gone {
                 return std::mem::take(&mut self.failures);
             }
-            // A session whose subscriber left unloads once quiet (a turn ended): a close that completed, so everything it
-            // accepted is on disk.
+            // A session that unloaded by itself during the step: its idle deadline found it quiet and unwatched (a turn's end
+            // only starts that clock over). A close that completed, so everything it accepted is on disk. A guard: on the real
+            // clock a run seldom lasts the five-minute idle delay, and a leave whose write failed does not restart the clock.
             if self.handle.cell.closed.load(SeqCst) {
                 self.check_stored("an unload once quiet");
                 let directory = self.directory();

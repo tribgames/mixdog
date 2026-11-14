@@ -8,6 +8,7 @@ import {
   normalizeRemoteBrowserTabId,
 } from '../../shared/remote-browser.ts';
 import { normalizeRemoteTabUrl } from '../remote-browser-methods.ts';
+import { withHumanOnlyApproval } from '../human-only-approval.ts';
 import { createComputerPillSource } from './computer-pill.ts';
 import { createDesktopHost } from './index.ts';
 import { toBrowserCommand } from './browser-command.ts';
@@ -17,12 +18,12 @@ function pair() {
   const requests = new Map();
   const notifications = new Map();
   const closers = [];
-  const sent = { requests: [], notifications: [], binary: [] };
+  const sent = { requests: [], notifications: [], binary: [], holds: 0 };
   const connection = {
     request: async (method, params) => {
       sent.requests.push([method, params]);
       if (params?.key === 'visualize' && sent.failVisualize) throw new Error('core refused the state');
-      return {};
+      return method === 'host/humanOnly/begin' ? { holdId: `hold-${++sent.holds}` } : {};
     },
     notify: (method, params) => sent.notifications.push([method, params]),
     sendBinary: (frame) => sent.binary.push(frame),
@@ -276,6 +277,47 @@ test('computer reads answer the host reply as it is, its refusal by message, and
   const unavailable = (error) => error.code === -32000 && error.message.startsWith('computer use is unavailable;');
   await assert.rejects(wire.call('host/computer/capture', { command }), unavailable);
   await assert.rejects(wire.call('host/computer/displays', {}), unavailable);
+});
+
+test('a human-only approval holds the core over the host connection until it ends', async () => {
+  const { wire } = build();
+  const begin = ['host/humanOnly/begin', { label: 'Allow all actions' }];
+  const answered = await withHumanOnlyApproval(
+    async () => {
+      assert.deepEqual(wire.sent.requests, [begin], 'held before the dialog opens');
+      return 'answered';
+    },
+    undefined,
+    'Allow all actions'
+  );
+  assert.equal(answered, 'answered');
+  assert.deepEqual(wire.sent.requests, [begin, ['host/humanOnly/end', { holdId: 'hold-1' }]]);
+});
+
+test('a dialog still open when the connection closes holds the core again at the next claim', async () => {
+  const { wire, host } = build();
+  const begin = ['host/humanOnly/begin', { label: 'Allow all actions' }];
+  const holds = () => wire.sent.requests.filter(([method]) => method.startsWith('host/humanOnly/'));
+  let close;
+  const approval = withHumanOnlyApproval(
+    () => new Promise((resolve) => (close = resolve)),
+    undefined,
+    'Allow all actions'
+  );
+  await flush();
+  assert.deepEqual(holds(), [begin]);
+  // The core ended hold-1 with the connection; the next claim declares the dialog again first.
+  wire.close();
+  await host.claim();
+  assert.deepEqual(wire.sent.requests.slice(0, 2), [begin, begin]);
+  assert.equal(wire.sent.requests[2][0], 'host/claim');
+  close('answered');
+  assert.equal(await approval, 'answered');
+  assert.deepEqual(holds(), [begin, begin, ['host/humanOnly/end', { holdId: 'hold-2' }]], 'only the live hold is ended');
+  // Nothing is open any more: a later claim declares nothing.
+  wire.close();
+  await host.claim();
+  assert.equal(holds().length, 3);
 });
 
 test('a shown notification plays its sound and a click reports the thread', () => {

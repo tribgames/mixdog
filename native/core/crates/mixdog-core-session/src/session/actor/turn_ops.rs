@@ -8,6 +8,9 @@ type FireReply = oneshot::Sender<Result<super::super::quota_resume_scheduler::Fi
 
 use super::super::quota_lane::failure_text as error_text;
 
+/// Node's `HOLD_REFUSAL` (`daemon-work-gate.mjs`): what a session call the work gate does not allow while it holds is refused with.
+const HOLD_REFUSAL: &str = "daemon is holding new work for an update install";
+
 /// A manual compaction's answer to its actor. A session closed, deleted or shut down under the compaction has no actor
 /// left to take it: the compaction's result (Node returns it after the close) goes straight to the request waiting for it.
 fn answer(jobs: &mpsc::UnboundedSender<JobDone>, job: JobDone) {
@@ -72,8 +75,17 @@ impl SessionActor {
                     Ok(params) => params,
                     Err(error) => return Err((error, tx)),
                 };
-                self.retry_failed(req.op.clone(), tx, params.turn_key);
-                return Ok(());
+                // The core holds new turn starts (`hold{on}`): Node's work gate refuses a client's retry (`callRefusal`, which
+                // `HOLD_ALLOWED_CALLS` lets only reads, stops and answers through; `routes.mjs:168-172`, 503), as it starts a model
+                // turn at once. Once the drain commit dropped the hold, the retry is refused as admission refuses a start.
+                match self.core_hold() {
+                    StartHold::Held if matches!(req.ctx.caller, Caller::Connection(_)) => Err(mixdog_core_base::support::failed("session", HOLD_REFUSAL)),
+                    StartHold::Closed(drain_reason) => Err(CoreError::ServerShuttingDown { drain_reason }),
+                    _ => {
+                        self.retry_failed(req.op.clone(), tx, params.turn_key);
+                        return Ok(());
+                    }
+                }
             }
             "thread/clearSessionChangeHistory" => {
                 self.clear_change_history(req.op.clone(), tx);
@@ -299,6 +311,9 @@ impl SessionActor {
     fn finish_resume(&mut self, key: &str, goal_id: &str, generation: Option<u64>) {
         if generation.is_some() {
             self.quota_answered = generation;
+            // `cancelQuotaResumeEntry` publishes as it removes the entry: the state stops showing it now, not when the
+            // store write lands.
+            self.publish_quota_resume();
         }
         let (goals, id, key, goal_id) = (self.deps.quota.goals.clone(), self.id.as_str().to_owned(), key.to_owned(), goal_id.to_owned());
         self.quota.call(async move {
@@ -312,11 +327,13 @@ impl SessionActor {
     /// cancel) takes effect at once, in memory, as Node's synchronous cancel does: the settlement's epoch
     /// rises (a Goal resume that checks it is no longer current) and the queued entry reads as answered
     /// (`quota_entry`), so a fire that comes before the store write lands, or after it failed, finds nothing
-    /// and no auto-resume runs. The store write follows and a failure of it is logged.
+    /// and no auto-resume runs. The store write follows and a failure of it is logged. The state stops showing
+    /// the resume at once too (`cancelQuotaResumeEntry` notifies `publishQuotaResume` synchronously).
     pub(super) fn quota_cancel_now(&mut self) {
         self.quota.settlement.raise_epoch();
         if let Some(entry) = self.deps.quota.goals.entry(self.id.as_str()) {
             self.quota_answered = Some(entry.generation);
+            self.publish_quota_resume();
         }
     }
 
@@ -324,6 +341,31 @@ impl SessionActor {
     /// answered reads as gone, as Node's synchronous cancel leaves it.
     fn quota_entry(&self) -> Option<mixdog_core_base::quota_resume::Entry> {
         self.deps.quota.goals.entry(self.id.as_str()).filter(|entry| Some(entry.generation) != self.quota_answered)
+    }
+
+    /// `publishQuotaResume` (`quota-resume.mjs`): the state's `quotaResume` is the queued entry as it reads now, in
+    /// `publicQuotaResume`'s shape ([`mixdog_core_base::quota_resume::Entry::public`]).
+    pub(super) fn publish_quota_resume(&mut self) {
+        let value = self.quota_entry().and_then(|entry| {
+            let mut public = entry.public();
+            // The wire's `resetAt` is whole milliseconds (`QuotaResume.reset_at`): a fractional reset is cut to its
+            // millisecond rather than leaving the waiting resume unpublished.
+            if entry.reset_at.as_i64().is_none()
+                && let Some(at) = entry.reset_at.as_f64()
+            {
+                public["resetAt"] = json!(at.trunc() as i64);
+            }
+            match serde_json::from_value::<mixdog_protocol::QuotaResume>(public) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    tracing::warn!(thread = self.id.as_str(), "the waiting quota resume is not published: {error}");
+                    None
+                }
+            }
+        });
+        if self.projected.sections.quota_resume != value {
+            self.accept_view(Change::Section(Section::QuotaResume(value)), Vec::new());
+        }
     }
 
     /// `fireQuotaResume`'s decision over the session as it is now.
@@ -484,6 +526,10 @@ impl SessionActor {
             }
         }
         self.replied(op, tx, answer.map(|()| Value::Bool(accepted)));
+        // The resume no longer holds the turns, a busy change (`updateEntryBusy`'s `onBusyChange`): the idle clock starts over.
+        if release {
+            self.try_unload();
+        }
     }
     /// The rest of a manual compaction once its Goal reminder is marked.
     pub(super) fn compacted(&mut self, op: Option<OpId>, tx: Waiter, result: Value, recover: bool) {

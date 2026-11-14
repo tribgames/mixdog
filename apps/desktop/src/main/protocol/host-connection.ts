@@ -5,15 +5,38 @@ import { HostRpcError } from '../host/connection';
 import type { HostConnection } from '../host/connection';
 import type { ProtocolConnection } from './connection';
 
-type Source = Pick<ProtocolConnection, 'call' | 'notify' | 'respond' | 'sendBinary' | 'onEvent'>;
+type Source = Pick<ProtocolConnection, 'call' | 'notify' | 'respond' | 'sendBinary' | 'onEvent' | 'client' | 'onReplaced'>;
 
 export function createHostConnection(source: Source): HostConnection {
   const requestHandlers = new Map<string, (params: unknown, signal: AbortSignal) => Promise<unknown>>();
   const notificationHandlers = new Map<string, (params: unknown) => void>();
   const closeListeners = new Set<() => void>();
+  // The running requests of one connection by id: the client that asked them (`asker`), until its link goes down or a reopen
+  // replaces it. The core numbers its requests per process (`host-1`, ...), so a restarted core asks under the ids of the one
+  // before. A connection's requests end with it, aborted and forgotten here: a `serverRequest/resolved` of the next connection
+  // reaches only that connection's requests, and an old request that settles late neither answers the next connection nor
+  // removes the entry of a new request under its id.
   const inflight = new Map<string, AbortController>();
+  let asker: unknown = null;
+  const endInflight = (): void => {
+    for (const abort of inflight.values()) abort.abort();
+    inflight.clear();
+  };
+  /** The client serving now; the requests of one it replaced end. A reopen drops the old client and its events, its status
+   *  included, so this runs once the reopen has attached the new client and at every event (the new client's first ones may
+   *  come before the reopen settles). */
+  const serving = (): unknown => {
+    const live = source.client();
+    if (live !== asker) {
+      endInflight();
+      asker = live;
+    }
+    return live;
+  };
+  source.onReplaced(() => void serving());
 
   source.onEvent((event) => {
+    const live = serving();
     if (event.type === 'serverRequest') {
       const { id, method, params } = (event as { request: { id: string | number; method: string; params: unknown } }).request;
       const handler = requestHandlers.get(method);
@@ -21,12 +44,14 @@ export function createHostConnection(source: Source): HostConnection {
       const key = JSON.stringify(id);
       const abort = new AbortController();
       inflight.set(key, abort);
+      // Answered only on the connection that asked, while the request still runs there.
+      const answering = (): boolean => !abort.signal.aborted && source.client() === live;
       handler(params, abort.signal).then(
         (result) => {
-          if (!abort.signal.aborted) source.respond(id, { result });
+          if (answering()) source.respond(id, { result });
         },
         (error: unknown) => {
-          if (abort.signal.aborted) return;
+          if (!answering()) return;
           const rpc = error instanceof HostRpcError ? error : null;
           source.respond(id, {
             error: {
@@ -36,7 +61,9 @@ export function createHostConnection(source: Source): HostConnection {
             },
           });
         }
-      ).finally(() => inflight.delete(key));
+      ).finally(() => {
+        if (inflight.get(key) === abort) inflight.delete(key);
+      });
     } else if (event.type === 'serverRequestResolved') {
       const id = (event as { params: { requestId?: string | number } }).params.requestId;
       if (id !== undefined) inflight.get(JSON.stringify(id))?.abort();
@@ -46,7 +73,7 @@ export function createHostConnection(source: Source): HostConnection {
     } else if (event.type === 'status') {
       const state = (event as { status: { state: string } }).status.state;
       if (state === 'ready') return;
-      for (const abort of inflight.values()) abort.abort();
+      endInflight();
       for (const listener of [...closeListeners]) listener();
     }
   });

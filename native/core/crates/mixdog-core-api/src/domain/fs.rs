@@ -94,6 +94,9 @@ pub struct WalkRequest {
     pub include_hidden: bool,
     /// Honour `.gitignore` and friends.
     pub respect_ignore: bool,
+    /// With `respect_ignore`, a `.gitignore` counts only inside a git repository (ripgrep's default); `false` honours
+    /// it anywhere (Node's fuzzy inventory, serve_search/fuzzy.rs `no_require_git`).
+    pub require_git: bool,
     pub include_dirs: bool,
     /// Directories the walk neither lists nor enters.
     pub prune: Vec<AbsPath>,
@@ -128,7 +131,16 @@ pub struct SearchRequest {
     pub exclude_globs: Vec<String>,
     pub include_hidden: bool,
     pub respect_ignore: bool,
-    /// The scan stops after this many matches (Node's search server, `collect_until`); `None` reads every match.
+    /// A match may span lines (Node's `-U --multiline-dotall`): `.` matches a line break too, and each line of a match
+    /// is a [`SearchMatch`] of its own.
+    pub multiline: bool,
+    /// The pattern is compiled by PCRE2 (Node's `-P`), which takes the lookarounds and backreferences the default
+    /// engine refuses.
+    pub pcre2: bool,
+    /// A file holding a NUL byte is searched as text (Node's `--text`); otherwise its search stops at its first NUL.
+    pub binary_as_text: bool,
+    /// The scan stops after this many [`SearchMatch`] items, one per printed line, so a [`SearchRequest::multiline`]
+    /// match spends one per line it spans (Node's search server, `collect_until`, counts output lines); `None` reads every match.
     pub limit: Option<usize>,
     /// Each file's search stops at its first match, as the search server's file list stops a file
     /// (`--files-with-matches`: grep-printer's summary printer, `PathWithMatch`, quits a file at its first match), so
@@ -150,6 +162,10 @@ pub struct SearchMatch {
     pub column: u64,
     /// The line as Node's search server prints it: without its terminator, a long line clipped and marked.
     pub text: String,
+    /// What the line adds to its file's count (Node's `--count`, grep-printer's summary printer): 1 in a line-by-line
+    /// search; in a [`SearchRequest::multiline`] one, the first line of a match counts every match its lines hold and
+    /// the lines after it 0.
+    pub count: u64,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

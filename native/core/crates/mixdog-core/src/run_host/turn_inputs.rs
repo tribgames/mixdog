@@ -1,4 +1,4 @@
-//! Real implementations of three `TurnPath` inputs over process services:
+//! Real implementations of four `TurnPath` inputs over process services:
 //!
 //! - [`BotRouteStore`]: the hop's `bots` (`BotRoutes`), Node's `agent-store.mjs`
 //!   (`readBotRoute`, `readMixyRoute`, `storedBotRoute`). Node reads these through a file-watching
@@ -8,24 +8,27 @@
 //!   (`anthropic-max-tokens.mjs` `resolveAnthropicEscalatedMaxTokens`). Only the two Anthropic
 //!   providers define it; every other provider answers `null`. The turn's `opts` never carry
 //!   `modelMaxOutputTokens` (a gateway adds its own inside the provider), so `model_max` is `None`.
+//! - [`CatalogVision`]: `ModelVision`, Node's `pdfReadModes` `seesImages` (`tool-exec/dispatch.mjs`).
 //! - the usage sink is [`LedgerSink`](super::accounting_scope::LedgerSink), tested below.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use mixdog_agent::env::ModelVision;
 use mixdog_ai::catalog::CatalogService;
-use mixdog_core_config::config::is_store_bot;
+use mixdog_ai::providers::custom::reasoning::is_custom_provider_name;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_config::config::{is_store_bot, Config, AGENT_SECTION};
 use mixdog_rt::{CancellationToken, InLane, InteractiveIo};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
 use mixdog_core_run::run_host::route_chain::{BotRoutes, RouteReadUnavailable};
+use super::model_proxy_pc::takes_images;
 use super::settings::{OutputCeilingSource, OutputCeilings};
 
 const BOTS_DIR: &str = "bots";
 const MIXY_BOT_ID: &str = "mixy";
-/// Mixy's runtime id (`MIXY_AGENT_ID`).
-const MIXY_RUNTIME_ID: &str = "lead";
 
 /// The hop's `bots`: where a bot's own route lives. Every call reads the files afresh on the
 /// interactive IO lane, which is what Node's watcher cache amounts to (it invalidates on every
@@ -74,7 +77,7 @@ impl BotReads {
         if self.data_dir.as_os_str().is_empty() {
             return None;
         }
-        if agent_id == MIXY_RUNTIME_ID { self.route_in(MIXY_BOT_ID) } else { self.bot_route(lane, agent_id).flatten() }
+        if agent_id == MIXY_AGENT_ID { self.route_in(MIXY_BOT_ID) } else { self.bot_route(lane, agent_id).flatten() }
     }
 }
 
@@ -155,6 +158,40 @@ impl OutputCeilingSource for CatalogCeilings {
             .then(|| escalated_from(self.declared(provider, model), env_override()))
             .flatten();
         OutputCeilings { escalated, model_max: None }
+    }
+}
+
+/// `ModelVision` over the config and the catalog (`pdfReadModes`).
+pub struct CatalogVision {
+    catalog: Arc<CatalogService>,
+    config: Config,
+}
+
+impl CatalogVision {
+    pub fn new(catalog: Arc<CatalogService>, config: Config) -> Self {
+        Self { catalog, config }
+    }
+
+    /// `providerModelVisionOverride`: a custom provider's own image-input setting for the model, when it states one.
+    /// Read in place from the loaded document: this is asked on every tool call, and `provider_entry` would copy the
+    /// whole agent section for it.
+    fn vision_override(&self, provider: &str, model: &str) -> Option<bool> {
+        if !is_custom_provider_name(provider) {
+            return None;
+        }
+        let doc = self.config.full();
+        let entry = doc.get(AGENT_SECTION)?.get("providers")?.get(provider)?;
+        entry.get("modelOverrides")?.get(model)?.get("supportsVision")?.as_bool()
+    }
+}
+
+impl ModelVision for CatalogVision {
+    /// `seesImages`: the provider sends image input (`providerReadsImages`) and the model's vision is not off, by its
+    /// custom setting, else by the catalog's `supportsVision` (`getModelMetadataSync`); a route with no model has none
+    /// to be off.
+    fn sees_images(&self, provider: &str, model: &str) -> bool {
+        let vision = || self.vision_override(provider, model).or_else(|| self.catalog.sync_meta(model, provider)?.get("supportsVision")?.as_bool());
+        takes_images(provider) && (model.is_empty() || vision() != Some(false))
     }
 }
 
@@ -279,6 +316,29 @@ mod tests {
         for provider in ["anthropic", "anthropic-oauth", "openai"] {
             assert_eq!(ceilings.ceilings(provider, "claude-opus-5", &header), OutputCeilings::default());
         }
+    }
+
+    /// `pdfReadModes`' `seesImages`: the text-only local runtime sees no images, a custom model's own image-input setting
+    /// decides for it, and a model nothing says is blind sees them.
+    #[tokio::test]
+    async fn a_model_sees_images_unless_its_provider_or_its_own_setting_says_otherwise() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let path = dir.path().join("mixdog-config.json");
+        let overrides = json!({ "blind": { "supportsVision": false }, "sighted": { "supportsVision": true } });
+        write(path.clone(), &json!({ "agent": { "providers": { "custom-box": { "modelOverrides": overrides } } } }).to_string());
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        let vision = CatalogVision::new(catalog, config);
+        assert!(!vision.sees_images("mixdog-local", "local-model-x"));
+        assert!(!vision.sees_images("custom-box", "blind"));
+        assert!(vision.sees_images("custom-box", "sighted"));
+        assert!(vision.sees_images("custom-box", "unstated-model-x"));
+        assert!(vision.sees_images("openai", "undescribed-model-x"));
+        assert!(vision.sees_images("openai", ""));
     }
 
     struct Unpriced;

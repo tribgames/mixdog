@@ -4949,6 +4949,42 @@
       ],
       "type": "object"
     },
+    "HostHumanOnlyBeginParams": {
+      "description": "Params of `host/humanOnly/begin`: the desktop holds Computer Use for one human-only dialog (`withHumanOnlyApproval`); `label` names what for in the refusal, empty names nothing.",
+      "properties": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "HostHumanOnlyBeginResult": {
+      "description": "Result of `host/humanOnly/begin`, answered once the Computer Use operations already running ended; `holdId` ends the hold.",
+      "properties": {
+        "holdId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "holdId"
+      ],
+      "type": "object"
+    },
+    "HostHumanOnlyEndParams": {
+      "description": "Params of `host/humanOnly/end`: the dialog of hold `holdId` closed.",
+      "properties": {
+        "holdId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "holdId"
+      ],
+      "type": "object"
+    },
     "HostRemoteTargetSetParams": {
       "description": "SSH server core the local core bridges phone connections to (R25).",
       "properties": {
@@ -19843,6 +19879,22 @@
     "host/claim": {
       "params": {
         "$ref": "#/definitions/HostClaimParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "host/humanOnly/begin": {
+      "params": {
+        "$ref": "#/definitions/HostHumanOnlyBeginParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostHumanOnlyBeginResult"
+      }
+    },
+    "host/humanOnly/end": {
+      "params": {
+        "$ref": "#/definitions/HostHumanOnlyEndParams"
       },
       "result": {
         "$ref": "#/definitions/EmptyResult"

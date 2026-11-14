@@ -61,15 +61,49 @@ pub trait HostCommands: Send + Sync {
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
 }
 
+/// Where the `browser_timing` row of each `host/browser/command` goes (the run host's agent trace): the arguments of Node's
+/// `browserTimingRow(context, bridgeMs, body, status)`. A sender is given one only while the trace writes these rows
+/// (`MIXDOG_AGENT_TRACE_TIMING` / `_VERBOSE`); without it nothing is timed or built.
+pub type BrowserTimingLog = Arc<dyn Fn(serde_json::Map<String, Value>) + Send + Sync>;
+
+/// The clock of one `host/browser/command` for its `browser_timing` row, as Node's `requestBridge`
+/// (`browser-bridge/client.mjs`) traces in its `finally` each request it sent, whatever came back. The core's browser tools,
+/// handoff and saved-login commands ([`ChannelHostCommands`]) and the secret fill's requests are timed with it.
+pub struct BrowserCommandClock {
+    log: BrowserTimingLog,
+    started: std::time::Instant,
+}
+
+impl BrowserCommandClock {
+    /// Starts as the command is sent; `None`, and nothing timed, without a log.
+    pub fn start(log: Option<&BrowserTimingLog>) -> Option<Self> {
+        log.map(|log| Self { log: Arc::clone(log), started: std::time::Instant::now() })
+    }
+
+    /// The command `action` of `thread`, carrying `turn_id` when its input names one, ended with the channel's `answer`:
+    /// its row goes to the log, unless no host held the role and nothing was sent.
+    pub fn stop(self, thread: &ThreadId, action: &str, turn_id: Option<Value>, answer: Result<&JsonValue, &HostError>) {
+        if let Some(args) = browser_timing_args(thread, action, turn_id, self.started.elapsed().as_secs_f64() * 1000.0, answer) {
+            (self.log)(args);
+        }
+    }
+}
+
 /// The real [`HostCommands`]: `host/browser/command` and `host/visualize/command` over the
 /// host channel to the desktop that declared the matching capability.
 pub struct ChannelHostCommands {
     channel: Arc<dyn HostChannel>,
+    timing: Option<BrowserTimingLog>,
 }
 
 impl ChannelHostCommands {
     pub fn new(channel: Arc<dyn HostChannel>) -> Arc<Self> {
-        Arc::new(Self { channel })
+        Arc::new(Self { channel, timing: None })
+    }
+
+    /// Also hands each browser command's `browser_timing` row to `timing` ([`BrowserCommandClock`]).
+    pub fn with_timing(channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
+        Arc::new(Self { channel, timing: Some(timing) })
     }
 
     async fn command(
@@ -79,39 +113,84 @@ impl ChannelHostCommands {
         params: Value,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, HostCommandError> {
-        match self.channel.request_scoped(capability, method, params, cancel).await {
-            Ok(value) => Ok(value),
-            // The channel answers a cancel as `capabilityUnavailable{cancelled}`; the token says which it was.
-            Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) if cancel.is_cancelled() => Err(HostCommandError::Cancelled),
-            Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc {
-                code,
-                message,
-                timing: data.and_then(|data| data.get("timing").cloned()),
-            }),
-            Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) => {
-                Err(HostCommandError::NoHost)
-            }
-            // Any other core failure reads as a failed command with the generic wording.
-            Err(HostError::Core(_)) => Err(HostCommandError::Rpc {
-                code: HOST_COMMAND_FAILED,
-                message: String::new(),
-                timing: None,
-            }),
+        host_answer(self.channel.request_scoped(capability, method, params, cancel).await, cancel)
+    }
+}
+
+/// The host's answer to a command as the tools read it.
+fn host_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+    match answer {
+        Ok(value) => Ok(value),
+        // The channel answers a cancel as `capabilityUnavailable{cancelled}`; the token says which it was.
+        Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) if cancel.is_cancelled() => Err(HostCommandError::Cancelled),
+        Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc {
+            code,
+            message,
+            timing: data.and_then(|data| data.get("timing").cloned()),
+        }),
+        Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) => {
+            Err(HostCommandError::NoHost)
         }
+        // Any other core failure reads as a failed command with the generic wording.
+        Err(HostError::Core(_)) => Err(HostCommandError::Rpc {
+            code: HOST_COMMAND_FAILED,
+            message: String::new(),
+            timing: None,
+        }),
     }
 }
 
 #[async_trait]
 impl HostCommands for ChannelHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        let turn_id = self.timing.as_ref().and_then(|_| input.get("turn_id").cloned());
         let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
-        self.command(HostCapability::Browser, Method("host/browser/command"), params, cancel).await
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let answer = self.channel.request_scoped(HostCapability::Browser, Method("host/browser/command"), params, cancel).await;
+        if let Some(clock) = clock {
+            clock.stop(thread, action, turn_id, answer.as_ref());
+        }
+        host_answer(answer, cancel)
     }
 
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
         let params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
         self.command(HostCapability::Visualize, Method("host/visualize/command"), params, cancel).await
     }
+}
+
+/// `requestBridge`'s `traceBrowserTiming(context, bridgeMs, body, status)` (`browser-bridge/client.mjs`) for one host
+/// command: the context names the thread, the action and the turn the command carries; `body` is the bridge's reply as
+/// far as the row reads it (`{ok: true, value: {timing}}` from a result, `{ok: false, timing}` from the host's error's
+/// `data.timing`). A command that ended with no answer to read (cancelled, or its host closed or replaced after it was
+/// sent) has no body, as Node's fetch that failed. No HTTP leg remains, so there is no `status`. `None` when no host held
+/// the role (`capabilityUnavailable{noClaimant}`): nothing was sent, as Node sent nothing without a bridge in discovery.
+fn browser_timing_args(
+    thread: &ThreadId,
+    action: &str,
+    turn_id: Option<Value>,
+    elapsed_ms: f64,
+    answer: Result<&JsonValue, &HostError>,
+) -> Option<serde_json::Map<String, Value>> {
+    let body = match answer {
+        Ok(value) => Some(serde_json::json!({ "ok": true, "value": { "timing": value.get("timing") } })),
+        Err(HostError::Rpc { data, .. }) => Some(serde_json::json!({ "ok": false, "timing": data.as_ref().and_then(|data| data.get("timing")) })),
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &**detail == mixdog_core_api::host::NO_CLAIMANT => return None,
+        Err(HostError::Core(_)) => None,
+    };
+    let mut context = serde_json::Map::new();
+    context.insert("sessionId".to_owned(), Value::String(thread.as_str().to_owned()));
+    if let Some(turn_id) = turn_id {
+        context.insert("turnId".to_owned(), turn_id);
+    }
+    context.insert("action".to_owned(), Value::String(action.to_owned()));
+    let mut args = serde_json::Map::new();
+    args.insert("context".to_owned(), Value::Object(context));
+    args.insert("bridgeMs".to_owned(), serde_json::json!(elapsed_ms));
+    if let Some(body) = body {
+        args.insert("body".to_owned(), body);
+    }
+    Some(args)
 }
 
 /// Model text of a host failure: the host's redacted message led by `Error: ` unless it already is,
@@ -237,6 +316,73 @@ mod tests {
             "Error: browser command cancelled; the action may have executed and was not replayed"
         );
         assert_eq!(command_cancelled("visualize", false).message_for_model, "Error: visualize command cancelled");
+    }
+
+    /// `traceBrowserTiming` of each command `requestBridge` sent (its `finally`): the timing the desktop returned with a
+    /// result or in its error's `data`, and the turn the command carries; a cancelled command, and one whose host closed
+    /// after it went out, have no reply to read; without a host nothing was sent.
+    #[tokio::test]
+    async fn each_browser_command_hands_its_timing_to_the_trace() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        /// A host that closed before it answered (`capabilityUnavailable{claimantClosed}`).
+        struct Closing;
+        #[async_trait]
+        impl HostChannel for Closing {
+            async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+                Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "claimantClosed".into() }))
+            }
+            fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+                Ok(())
+            }
+        }
+
+        let channel = Arc::new(MockHostChannel::default());
+        let rows: Arc<std::sync::Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
+        let log: BrowserTimingLog = {
+            let rows = rows.clone();
+            Arc::new(move |args| rows.lock().unwrap().push(args))
+        };
+        let commands = ChannelHostCommands::with_timing(channel.clone(), log.clone());
+        let thread = ThreadId::from("t1");
+        let live = CancellationToken::new();
+        assert_eq!(commands.browser(&thread, "snapshot", json!({}), &live).await, Err(HostCommandError::NoHost));
+        channel.claim(HostCapability::Browser);
+        let method = Method("host/browser/command");
+        channel.reply(method, json!({ "text": "Clicked", "timing": { "queueMs": 1, "commandMs": 9 } }));
+        assert!(commands.browser(&thread, "click", json!({ "ref": "e1" }), &live).await.is_ok());
+        channel.fail(method, HOST_COMMAND_FAILED, "Error: gone", Some(json!({ "timing": { "commandMs": 2 } })));
+        assert!(commands.browser(&thread, "saved_login_admit", json!({ "turn_id": 7 }), &live).await.is_err());
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert_eq!(commands.browser(&thread, "read", json!({}), &cancelled).await, Err(HostCommandError::Cancelled));
+        let closing = ChannelHostCommands::with_timing(Arc::new(Closing), log);
+        assert_eq!(closing.browser(&thread, "type", json!({ "ref": "e2" }), &live).await, Err(HostCommandError::NoHost));
+
+        let seen: Vec<(Value, Option<Value>)> = rows
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
+                (row["context"].clone(), row.get("body").cloned())
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (
+                    json!({ "sessionId": "t1", "action": "click" }),
+                    Some(json!({ "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9 } } })),
+                ),
+                (
+                    json!({ "sessionId": "t1", "turnId": 7, "action": "saved_login_admit" }),
+                    Some(json!({ "ok": false, "timing": { "commandMs": 2 } })),
+                ),
+                (json!({ "sessionId": "t1", "action": "read" }), None),
+                (json!({ "sessionId": "t1", "action": "type" }), None),
+            ]
+        );
     }
 
     #[test]

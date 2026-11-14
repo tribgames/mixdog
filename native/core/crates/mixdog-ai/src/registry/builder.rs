@@ -1235,15 +1235,21 @@ impl DefaultProviderBuilder {
         let object = |key: &str| cfg.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
         let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.message)?;
         let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.message)?;
+        // `createCustomProvider` takes the model overrides from `normalizeCustomProviderConfig(config)`, which makes an
+        // unversioned entry's `models` manual overrides (`migrateLegacy`) and hides the ids discovered beside them. An entry
+        // the normalizer refuses is read as stored.
+        let normalized = custom::config::normalize(cfg).ok();
+        let entry = normalized.as_ref().unwrap_or(cfg);
         let mut model_body = Map::new();
         let mut model_headers = Vec::new();
-        for (model, over) in object("modelOverrides") {
+        for (model, over) in entry.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default() {
             if let Some(body) = over.get("requestBody").and_then(Value::as_object).filter(|b| !b.is_empty()) {
                 let label = format!("modelOverrides[{model}].requestBody");
                 model_body.insert(model.clone(), Value::Object(custom::normalize_request_body(body, &label).map_err(|e| e.message)?));
             }
-            if let Some(h) = over.get("headers").and_then(Value::as_object).filter(|h| !h.is_empty()) {
-                let label = format!("modelOverrides[{model}].headers");
+            // `resolveCustomRequestExtras`: the override's `requestHeaders`.
+            if let Some(h) = over.get("requestHeaders").and_then(Value::as_object).filter(|h| !h.is_empty()) {
+                let label = format!("modelOverrides[{model}].requestHeaders");
                 model_headers.push((model.clone(), custom::normalize_model_headers(h, &label).map_err(|e| e.message)?));
             }
         }
@@ -1275,19 +1281,20 @@ impl DefaultProviderBuilder {
             self.env.http.clone(),
             header,
             keyless,
-            cfg,
+            entry,
             self.env.listing.clone(),
         ));
-        // The Chat wire replays a model's reasoning as its own row says (`getCachedModelInfo`), at the turn's
-        // effort, else the provider's `reasoningEffort`.
+        // Every wire's reasoning follows the model's own row (`getCachedModelInfo`) at the turn's effort, else the
+        // provider's `reasoningEffort`; the Chat wire also replays the model's reasoning as the row says.
+        let reasoning = custom::ReasoningSource {
+            rows: handle.clone(),
+            configured: text(cfg, "reasoningEffort").map(str::to_owned),
+            base_url: base_url.clone(),
+        };
         let replay = {
-            let rows = handle.clone();
-            let configured = text(cfg, "reasoningEffort").map(str::to_owned);
-            let base = base_url.clone();
-            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &mixdog_core_api::domain::provider::ModelRequest| {
-                let row = crate::catalog::CachedModelInfo::cached_row(&*rows, &request.model);
-                let effort = request.options.effort.as_deref().or(configured.as_deref());
-                custom::chat_replays(row.as_deref(), effort, &base)
+            let reasoning = reasoning.clone();
+            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &ModelRequest| {
+                reasoning.resolve(&Protocol::OpenaiChat, request).replay
             }))
         };
         for wire in &served {
@@ -1296,21 +1303,24 @@ impl DefaultProviderBuilder {
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
                     // Node's custom class on the anthropic protocol is an `AnthropicProvider` subclass.
-                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false)).with_input_excludes_cache(protocol == Protocol::Anthropic);
+                    let engine = self
+                        .custom_messages_engine(name, &request, key("x-api-key", false), &reasoning)
+                        .with_input_excludes_cache(protocol == Protocol::Anthropic);
                     Arc::new(match listing {
                         Some(listing) => engine.with_listing(listing),
                         None => engine,
                     })
                 }
                 other => {
-                    let family = if *other == Wire::Chat {
-                        custom::chat_codec(name, &base_url, replay.clone())
+                    let (family, wire_protocol) = if *other == Wire::Chat {
+                        (custom::chat_codec(name, &base_url, replay.clone()), Protocol::OpenaiChat)
                     } else {
-                        custom::responses_codec(name, &base_url)
+                        (custom::responses_codec(name, &base_url), Protocol::OpenaiResponses)
                     };
+                    let rewriter = CustomRewriter { config: request.clone(), wire: wire_protocol, reasoning: reasoning.clone() };
                     let engine = HttpAdapter::new(
                         ProviderId::from(name),
-                        Arc::new(RewriteCodec::new(family, CustomRewriter { config: request.clone() })),
+                        Arc::new(RewriteCodec::new(family, rewriter)),
                         Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &request.headers)),
                         key("authorization", true),
                         retry.clone(),
@@ -1346,7 +1356,13 @@ impl DefaultProviderBuilder {
     /// Anthropic codec under the custom id, with the provider's headers and
     /// request fields layered on. The Anthropic SDK appends `/v1/messages`
     /// itself, so an endpoint's `/v1` base maps to it.
-    fn custom_messages_engine(&self, name: &str, request: &CustomRequestConfig, credential: Arc<dyn Credential>) -> HttpAdapter {
+    fn custom_messages_engine(
+        &self,
+        name: &str,
+        request: &CustomRequestConfig,
+        credential: Arc<dyn Credential>,
+        reasoning: &custom::ReasoningSource,
+    ) -> HttpAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
         let base = request.base_url.as_str();
         config.base_url = match base.len().checked_sub(3).filter(|at| base.is_char_boundary(*at)) {
@@ -1354,6 +1370,9 @@ impl DefaultProviderBuilder {
             _ => base.to_owned(),
         };
         config.custom_endpoint = true;
+        // The model row's thinking and effort, never the catalog's by-id capabilities (`applyRequestReasoning`).
+        let resolver = reasoning.clone();
+        config.custom_reasoning = Some(Arc::new(move |request: &ModelRequest| resolver.resolve(&Protocol::Anthropic, request).fields));
         // The Anthropic SDK's own `accept`.
         config.extra_headers = vec![("accept".to_owned(), "application/json".to_owned())];
         // The Anthropic engine's retry rows, read off an adapter built the same way.
@@ -1366,9 +1385,10 @@ impl DefaultProviderBuilder {
         .retry_policy()
         .clone();
         let codec = AnthropicCodec::new(Flavor::ApiKey, config);
+        let rewriter = CustomRewriter { config: request.clone(), wire: Protocol::Anthropic, reasoning: reasoning.clone() };
         HttpAdapter::new(
             ProviderId::from(name),
-            Arc::new(RewriteCodec::new(Arc::new(codec), CustomRewriter { config: request.clone() })),
+            Arc::new(RewriteCodec::new(Arc::new(codec), rewriter)),
             Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &request.headers)),
             credential,
             policy,

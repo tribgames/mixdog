@@ -1,6 +1,6 @@
 //! The arguments of a service request. `CoreRequest::params` already is the method's params object
 //! (the server took it out of the JSON-RPC envelope), so a service reads its fields from it
-//! directly and never from a nested `params` member.
+//! directly; a nested `params` member is read only where the method's protocol params declare one (`import/*`).
 
 use serde_json::Value;
 

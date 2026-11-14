@@ -2963,7 +2963,7 @@
       "type": "object"
     },
     "ServerRequestResolvedParams": {
-      "description": "To every eligible connection, losers included (P §8.4 step 4).",
+      "description": "To every eligible connection, losers included (P §8.4 step 4); to the claimant alone, with an empty threadId and resolution cancelled, for a `host/*` request the core stopped waiting for without its answer (DS §12).",
       "properties": {
         "requestId": {
           "$ref": "#/definitions/RequestId"

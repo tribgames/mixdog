@@ -178,6 +178,8 @@ pub struct ChatDecoder {
     leaked: Vec<ToolCall>,
     /// The streamed calls of a normally finished turn, whether or not they were dispatched.
     natives: Vec<ToolCall>,
+    /// How many of them were dispatched: fewer when the one-dispatch rule passed one over (an id the turn already used).
+    natives_dispatched: usize,
     /// A normal `finish_reason` arrived.
     normal_finish: bool,
     /// A normal or a cut/filtered `finish_reason` arrived: the turn returns its list.
@@ -213,6 +215,7 @@ impl ChatDecoder {
             leak: LeakGuard::new(HashSet::new(), true),
             leaked: Vec::new(),
             natives: Vec::new(),
+            natives_dispatched: 0,
             normal_finish: false,
             listed_finish: false,
             dedupe: Dedupe::default(),
@@ -272,10 +275,13 @@ impl ChatDecoder {
         self.error(err)
     }
 
-    fn malformed(&self, cause: &serde_json::Error) -> ProviderError {
+    /// `malformedCompatStreamError(label, SyntaxError)`: the provider's name, then V8's `JSON.parse` message of the
+    /// frame's data as the SDK hands it over.
+    fn malformed(&self, data: &str, cause: &serde_json::Error) -> ProviderError {
         let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
         err.code = Some("malformed_stream".into());
-        err.message = format!("malformed stream frame: {cause}");
+        let reason = mixdog_js::v8_json_parse_error(data).unwrap_or_else(|| cause.to_string());
+        err.message = format!("{} malformed stream frame: {reason}", self.owner);
         self.error(err)
     }
 
@@ -472,26 +478,39 @@ impl ChatDecoder {
                 native_type: None,
             })
             .collect();
+        // The list as of this finish: a repeated `finish_reason` lists the same calls again (Node parses its
+        // accumulator once, `toolCallsFromStreamAcc`).
+        self.natives.clone_from(&natives);
         for call in natives {
-            self.natives.push(call.clone());
-            if !incomplete {
-                self.dispatch(call, out);
+            if !incomplete && self.dispatch(call, out) {
+                self.natives_dispatched += 1;
             }
         }
     }
 
-    /// One dispatch per call across the recovered and the streamed path (`emitCompatToolCallOnce`).
-    fn dispatch(&mut self, call: ToolCall, out: &mut Vec<StreamEvent>) {
+    /// One dispatch per call across the recovered and the streamed path (`emitCompatToolCallOnce`); false when the
+    /// call was passed over.
+    fn dispatch(&mut self, call: ToolCall, out: &mut Vec<StreamEvent>) -> bool {
         if self.dedupe.should_dispatch(&call.name, &call.arguments, &call.id) {
             self.tool_dispatched = true;
             out.push(StreamEvent::ToolCallDone(call));
+            return true;
         }
+        false
     }
 
     /// The list the turn returns, `dedupeToolCallList([...native, ...leaked])`: a recovered call that already ran
     /// gives way to the streamed call that repeats it.
     fn return_calls(&mut self, out: &mut Vec<StreamEvent>) {
-        if !self.listed_finish || self.leaked.is_empty() {
+        if !self.listed_finish {
+            return;
+        }
+        if self.leaked.is_empty() {
+            // With nothing recovered Node returns the streamed list as parsed (`settleCompatStream`): a call the
+            // dispatch passed over (a repeated id) still runs, under the id the loop's resolver gives it.
+            if self.natives_dispatched < self.natives.len() {
+                out.push(StreamEvent::ReturnedCalls(self.natives.clone()));
+            }
             return;
         }
         let all = self.natives.iter().chain(&self.leaked).cloned().collect();
@@ -534,15 +553,15 @@ impl ChatDecoder {
         self.error(err)
     }
 
-    fn on_data(&mut self, data: &str, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
-        let data = mixdog_js::js_trim(data);
+    fn on_data(&mut self, raw: &str, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+        let data = mixdog_js::js_trim(raw);
         if data.is_empty() {
             return Ok(());
         }
         if data == "[DONE]" {
             return self.finalize(out);
         }
-        let chunk: JsonValue = serde_json::from_str(data).map_err(|e| self.malformed(&e))?;
+        let chunk: JsonValue = serde_json::from_str(data).map_err(|e| self.malformed(raw, &e))?;
         if chunk.get("error").is_some_and(|e| !e.is_null()) {
             return Err(self.in_band_error(&chunk));
         }

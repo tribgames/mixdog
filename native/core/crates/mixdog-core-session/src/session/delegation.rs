@@ -15,6 +15,7 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use mixdog_core_base::rooms::ids::{agent_id_of_home_session, room_member_of_session};
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
@@ -347,6 +348,49 @@ pub async fn rebind_patch(
     Some(patch)
 }
 
+// ---- where a sub-agent's approval cards show ---------------------------------------------------
+
+/// `LEAD_NAME` (`human-gate/gate.mjs`): the chain token the desktop translates (`approvalChainLabel`).
+const LEAD_NAME: &str = "Lead";
+
+/// `agentDisplayName(agentId)`: the name a bot goes by in the envelope of its messages.
+#[async_trait]
+pub trait AgentNames: Send + Sync {
+    async fn name(&self, agent_id: &str) -> String;
+}
+
+/// What `approvalSurface(sessionId)` answers: the top-level chat a sub-agent's approval cards also show in, and who asks,
+/// from there down to the asker (`['Lead', 'Reviewer']`, `['사무관', 'Worker']`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalSurface {
+    pub session_id: String,
+    pub chain: Vec<String>,
+}
+
+/// `approvalSurface(sessionId)` (`human-gate/gate.mjs:155`) over `delegationOf`: the delegation's root, named by its bot
+/// (a home chat or room seat reached `via: 'bot'`) or `Lead`, then each agent on its path. `None` for a top-level session, one
+/// with no record, or one with a parent link and no derivable root.
+pub async fn approval_surface(session: &str, records: &dyn Records, names: &dyn AgentNames) -> Option<ApprovalSurface> {
+    let id = clean_str(session);
+    let record = records.record(&id).await?;
+    let parent = parent_of(&record);
+    if parent.is_empty() || parent == id {
+        return None;
+    }
+    let delegation = delegation_of_record(&id, &record, 0, records).await?;
+    let root = clean(delegation.get("rootSessionId"));
+    // `ownBoundAgentId(rootSessionId)`: a `bot` root is a room seat or a home chat, which names its agent.
+    let bot = match delegation.get("via").and_then(Value::as_str) {
+        Some("bot") => room_member_of_session(&root).map(|member| member.agent_id).or_else(|| agent_id_of_home_session(&root)).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let mut chain = vec![if bot.is_empty() { LEAD_NAME.to_owned() } else { names.name(&bot).await }];
+    for step in delegation.get("path").and_then(Value::as_array).into_iter().flatten() {
+        chain.push(names.name(&clean(step.get("agent"))).await);
+    }
+    Some(ApprovalSurface { session_id: root, chain })
+}
+
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
@@ -410,5 +454,39 @@ mod tests {
         let run = json!({ "kind": "schedule", "agentId": "bot", "name": "n" });
         assert!(rebind_patch("w1", "other", Some(run.clone()), true, &records).await.is_none(), "never a run mid-turn");
         assert_eq!(rebind_patch("w1", "other", Some(run.clone()), false, &records).await.unwrap()["run"], run);
+    }
+
+    struct Names;
+
+    #[async_trait]
+    impl AgentNames for Names {
+        async fn name(&self, agent_id: &str) -> String {
+            match agent_id {
+                "worker" => "Worker".into(),
+                "reviewer" => "Reviewer".into(),
+                "mailer" => "사무관".into(),
+                other => other.into(),
+            }
+        }
+    }
+
+    /// `approvalSurface` (delegated-approval.test.mjs:230-277): the root, then the names from it down to the asker; a legacy
+    /// record's delegation is derived from its parent; a top-level session has none.
+    #[tokio::test]
+    async fn a_sub_agent_surfaces_in_its_root_with_the_names_down_to_it() {
+        let records = Fixed(json!({
+            "lead": { "sourceType": "lead" },
+            "w1": { "owner": "agent", "agent": "worker", "parentSessionId": "lead", "delegation": { "rootSessionId": "lead", "via": "coding", "path": [{ "kind": "agent", "agent": "worker" }] } },
+            "r1": { "owner": "agent", "agent": "reviewer", "parentSessionId": "w1" },
+            "sess_home_mailer": {},
+            "b1": { "visibility": "agent-only", "agent": "worker", "parentSessionId": "sess_home_mailer" },
+        }));
+        let surface = |session_id: &str, chain: &[&str]| Some(ApprovalSurface { session_id: session_id.into(), chain: strings(chain) });
+        assert_eq!(approval_surface("w1", &records, &Names).await, surface("lead", &["Lead", "Worker"]));
+        assert_eq!(approval_surface("r1", &records, &Names).await, surface("lead", &["Lead", "Worker", "Reviewer"]));
+        assert_eq!(approval_surface("b1", &records, &Names).await, surface("sess_home_mailer", &["사무관", "Worker"]));
+        for top in ["lead", "sess_home_mailer", "unknown"] {
+            assert_eq!(approval_surface(top, &records, &Names).await, None, "{top}");
+        }
     }
 }

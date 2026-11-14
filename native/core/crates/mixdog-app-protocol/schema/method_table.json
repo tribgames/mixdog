@@ -10558,6 +10558,44 @@
     },
     {
       "class": "C2",
+      "method": "host/humanOnly/begin",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::host::HostHumanOnlyBeginParams",
+      "result": "v2::host::HostHumanOnlyBeginResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "host/humanOnly/end",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::host::HostHumanOnlyEndParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/webrtcSignal",
       "mutation": {
         "kind": "none"

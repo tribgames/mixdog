@@ -113,27 +113,29 @@ async fn real_typescript_server_matches_the_recorded_node_behavior() {
     let bad = "import { twice } from \"./util\";\nconst x: number = twice(\"2\");\n";
     let fixed = "import { twice } from \"./util\";\nconst x: number = twice(2);\nconst y: string = x;\n";
 
-    let opened = manager.document(&project_path, &project, doc("open", 1, bad)).await;
+    let opened = manager.document(&project_path, &project, doc("open", 1, bad)).await.unwrap();
     assert_eq!(opened, entry(&golden, "document(open)")["result"], "capabilities after open");
     let after_open = settled(&events, "src/a.ts", |l| !l.is_empty(), Duration::from_millis(1200)).await;
     assert_eq!(brief(after_open), sorted(&entry(&golden, "diagnostics(after open)")["result"]));
 
     let hover = manager
         .request(&project_path, &project, "src/a.ts", "typescript", "textDocument/hover", &json!({"position": {"line": 1, "character": 6}}))
-        .await;
+        .await
+        .unwrap();
     let recorded = &entry(&golden, "request(hover)")["result"];
     assert_eq!((&hover["status"], &hover["server"], &hover["capabilities"]), (&recorded["status"], &recorded["server"], &recorded["capabilities"]));
     assert!(hover["result"]["contents"].is_object() || hover["result"]["contents"].is_string() || hover["result"]["contents"].is_array());
     let definition = manager
         .request(&project_path, &project, "src/a.ts", "typescript", "textDocument/definition", &json!({"position": {"line": 1, "character": 21}}))
-        .await;
+        .await
+        .unwrap();
     assert!(definition["result"].to_string().contains("util.ts"));
-    let unsupported = manager.request(&project_path, &project, "src/a.ts", "typescript", "textDocument/notAMethod", &json!({})).await;
+    let unsupported = manager.request(&project_path, &project, "src/a.ts", "typescript", "textDocument/notAMethod", &json!({})).await.unwrap();
     assert_eq!(unsupported, entry(&golden, "request(unsupported method)")["result"]);
 
-    manager.document(&project_path, &project, doc("change", 2, fixed)).await;
-    assert_eq!(manager.document(&project_path, &project, doc("save", 2, fixed)).await["status"], "ready");
-    manager.document(&project_path, &project, doc("close", 2, "")).await;
+    manager.document(&project_path, &project, doc("change", 2, fixed)).await.unwrap();
+    assert_eq!(manager.document(&project_path, &project, doc("save", 2, fixed)).await.unwrap()["status"], "ready");
+    manager.document(&project_path, &project, doc("close", 2, "")).await.unwrap();
     let closed = settled(&events, "src/a.ts", |l| l.is_empty(), Duration::from_millis(300)).await;
     assert_eq!(brief(closed), sorted(&entry(&golden, "diagnostics(after close)")["result"]));
 
@@ -156,7 +158,7 @@ async fn real_typescript_server_matches_the_recorded_node_behavior() {
     assert!(stopped["detail"].as_str().unwrap().ends_with("Retrying after 1s."));
 
     mixdog_rt::time::sleep(Duration::from_millis(1500)).await;
-    let reopened = manager.document(&project_path, &project, doc("open", 3, bad)).await;
+    let reopened = manager.document(&project_path, &project, doc("open", 3, bad)).await.unwrap();
     assert_eq!(reopened["status"], "ready");
     let after_restart = settled(&events, "src/a.ts", |l| !l.is_empty(), Duration::from_millis(1200)).await;
     assert_eq!(brief(after_restart), sorted(&entry(&golden, "diagnostics(after restart)")["result"]));

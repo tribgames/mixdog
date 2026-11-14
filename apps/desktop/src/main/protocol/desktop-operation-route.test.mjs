@@ -604,6 +604,18 @@ test('termEnsure answers with the id the core gave the terminal', async () => {
   assert.equal('tabId' in calls[0].params, false);
 });
 
+test("termAttach answers a running tab as termEnsure does (the replay's lead unit put back) and null for one that is not", async () => {
+  const { lane } = laneWith({
+    'terminal/attach': ({ tabId }) =>
+      tabId === 't1' ? { id: 't1', replay: 'x', replayLeadUnit: 0xdc00, sizeOwner: null, client: 'c1', subscription: { mode: 'snapshot' } } : null,
+  });
+  const answer = await lane.invoke('termAttach', ['t1']);
+  assert.equal(answer.replay, '\udc00x');
+  assert.equal('sizeOwner' in answer, false);
+  assert.equal('client' in answer, false);
+  assert.equal(await lane.invoke('termAttach', ['t2']), null);
+});
+
 test('githubCliLoginStart answers the flow, read from the status of the started flow', async () => {
   const flow = { flowId: 'f9', state: 'waiting', code: 'ABCD-1234' };
   const { lane, calls } = laneWith({ 'github/login/start': { flowId: 'f9' }, 'github/login/status': flow });

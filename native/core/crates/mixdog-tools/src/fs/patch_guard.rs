@@ -153,7 +153,12 @@ pub(super) enum ReadFail {
     Io(String),
 }
 
+/// Node's `err.code || err.message` of the failed read: the libuv code for an OS error, never the
+/// OS-localized text.
 fn io_code(error: &std::io::Error) -> String {
+    if let Some(code) = super::os_error::io_code_name(error) {
+        return code.to_owned();
+    }
     match error.kind() {
         std::io::ErrorKind::PermissionDenied => "EACCES".to_owned(),
         std::io::ErrorKind::NotFound => "ENOENT".to_owned(),

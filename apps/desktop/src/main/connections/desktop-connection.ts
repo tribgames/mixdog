@@ -516,7 +516,7 @@ export function createDesktopConnection(
       await dialNow(binding);
       await attachCore((core) => core.reopen());
     },
-    terminals: createServiceTerminalHost(client),
+    terminals: createServiceTerminalHost(client, protocol),
     ports: panels?.ports ?? null,
     subscribeNotices(listener) {
       notices.add(listener);

@@ -35,8 +35,8 @@ impl DecodedStream {
         }
     }
 
-    /// The words a body fault is given: this prefix and undici's `terminated`, the error a `fetch` body whose socket failed
-    /// rejects with.
+    /// The words put before a body fault's `terminated` (undici's error for a `fetch` body whose socket failed); without
+    /// them the fault reads `terminated` alone.
     pub fn with_fault_prefix(mut self, prefix: &'static str) -> Self {
         self.fault_prefix = Some(prefix);
         self
@@ -81,9 +81,8 @@ impl ModelStream for DecodedStream {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
                     err.code = self.fault_code.map(str::to_owned);
-                    if let Some(prefix) = self.fault_prefix {
-                        err.message = format!("{prefix}{}", crate::transport::link::TERMINATED);
-                    }
+                    // Node reads these bodies through `fetch`: a socket failure mid-body is undici's `TypeError: terminated`.
+                    err.message = format!("{}{}", self.fault_prefix.unwrap_or_default(), crate::transport::link::TERMINATED);
                     self.fail(err);
                 }
                 None => {
@@ -108,4 +107,52 @@ impl ModelStream for DecodedStream {
 
     /// A leaf: `next` awaits nothing after the wire's terminal event.
     fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use mixdog_core_api::domain::provider::Exposure;
+    use mixdog_core_api::domain::provider::TransportFault;
+
+    use super::*;
+
+    /// A body whose socket fails before its first chunk.
+    struct Cut(Option<TransportFault>);
+
+    #[async_trait]
+    impl BodyStream for Cut {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            self.0.take().map(Err)
+        }
+    }
+
+    struct Silent;
+
+    impl WireDecoder for Silent {
+        fn feed(&mut self, _: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+            Ok(Vec::new())
+        }
+        fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+            Ok(Vec::new())
+        }
+        fn terminal_seen(&self) -> bool {
+            false
+        }
+        fn exposure(&self) -> Exposure {
+            Exposure::default()
+        }
+    }
+
+    /// A body cut mid-stream is undici's `terminated` (a custom provider's, the local runtime's, Grok's), after the
+    /// provider's own words when it has them (Devin's); never an empty message.
+    #[tokio::test]
+    async fn a_body_fault_reads_as_undicis_terminated() {
+        let mut plain = DecodedStream::new(Box::new(Cut(Some(TransportFault::Closed))), Box::new(Silent));
+        let cut = plain.next().await.expect("an item").expect_err("the cut");
+        assert_eq!((cut.message.as_str(), cut.transport), ("terminated", Some(TransportFault::Closed)));
+        assert!(plain.next().await.is_none(), "the stream ends with its fault");
+        let mut devin = DecodedStream::new(Box::new(Cut(Some(TransportFault::Reset))), Box::new(Silent)).with_fault_prefix("Devin connection failed: ");
+        assert_eq!(devin.next().await.expect("an item").expect_err("the cut").message, "Devin connection failed: terminated");
+    }
 }

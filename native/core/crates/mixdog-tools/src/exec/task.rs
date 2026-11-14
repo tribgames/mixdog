@@ -68,11 +68,12 @@ fn not_found(id: &str) -> ToolOutcome {
     refused(ToolErrorCode::NotFound { target: id.into() }, format!("Error: task not found: {id}"))
 }
 
-fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
+fn unavailable(text: String) -> ToolOutcome {
+    refused(ToolErrorCode::Unavailable { capability: "task".into(), reason: text.clone() }, text)
+}
+
+async fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
     let jobs = runtime.list(&ctx.thread_id);
-    if jobs.is_empty() {
-        return ok("background tasks: 0".into());
-    }
     let mut out = vec![format!("background tasks: {}", jobs.len())];
     let quiet: Vec<String> = jobs
         .iter()
@@ -87,7 +88,37 @@ fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
     if !quiet.is_empty() {
         out.push(format!("[output silence]\n{}", quiet.join("\n")));
     }
+    // `listTasks`: the jobs of this thread the runtime does not hold, as their kept records say.
+    let recovered: Vec<String> = runtime
+        .kept_jobs(&ctx.thread_id, &ctx.cancel)
+        .await
+        .iter()
+        .map(|kept| {
+            let status = kept.end().map_or("state-unavailable", |end| end.status.as_str());
+            format!("- {} shell {status} recovered=true command={}", kept.id, serde_json::to_string(&kept.command()).unwrap_or_default())
+        })
+        .collect();
+    if !recovered.is_empty() {
+        out.push(format!("[recovered shell tasks]\n{}", recovered.join("\n")));
+    }
     ok(out.join("\n"))
+}
+
+/// `executeTaskTool` for a task this runtime does not hold (task-tool.mjs:411-444): the record the runtime that ran it kept
+/// answers for it. Nothing can wait on or control a process after a restart, so a wait reads what is kept.
+async fn kept_task(runtime: &ExecRuntime, ctx: &ToolContext, id: &str, cancelling: bool, tail: bool) -> ToolOutcome {
+    let Some(kept) = runtime.kept(&ctx.thread_id, id, &ctx.cancel).await else {
+        return not_found(id);
+    };
+    match (kept.end(), cancelling) {
+        (Some(end), true) => unavailable(format!("Error: task already {}: {id}", end.status.as_str())),
+        (None, true) => unavailable(format!("Error: task process control is unavailable after restart: {id}")),
+        (None, false) => unavailable(format!("Error: task state is unavailable after restart: {id}")),
+        (Some(end), false) => {
+            let job = runtime.recovered_job(&kept, end, &ctx.cancel).await;
+            read_or_wait(runtime, ctx, Arc::new(job), false, None, tail).await
+        }
+    }
 }
 
 /// `resolveTaskWaitTimeoutMs`.
@@ -383,7 +414,7 @@ impl TaskTool {
             return invalid("action", "Error: task action is required".into());
         }
         if action == "list" {
-            return list(&self.runtime, ctx);
+            return list(&self.runtime, ctx).await;
         }
         let id = args.get("task_id").and_then(JsonValue::as_str).map(str::trim).unwrap_or("");
         if id.is_empty() {
@@ -402,13 +433,13 @@ impl TaskTool {
                 format!("Error: task action must be one of list|read|wait|cancel (got {got})"),
             );
         }
+        let tail = args.get("output").and_then(JsonValue::as_str) == Some("tail");
         let Some(job) = self.runtime.get(&ctx.thread_id, id) else {
-            return not_found(id);
+            return kept_task(&self.runtime, ctx, id, action == "cancel", tail).await;
         };
         if action == "cancel" {
             return cancel(&self.runtime, ctx, job).await;
         }
-        let tail = args.get("output").and_then(JsonValue::as_str) == Some("tail");
         let timeout = args.get("timeout_ms").and_then(JsonValue::as_f64);
         read_or_wait(&self.runtime, ctx, job, action == "wait", timeout, tail).await
     }

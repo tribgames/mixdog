@@ -786,3 +786,36 @@ async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_nex
     assert!(cluster.port() > first, "the start used the port that was taken ({first}): {}", cluster.port());
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }
+
+/// A start ended while its `initdb` runs (a quit during the first memory start; a killed core's job ends `initdb` the same way) leaves no `pgdata`, so
+/// the next start makes the cluster instead of starting a half-made one, which has no `postgres` database and never answers. In Node the `initdb`
+/// outlived its daemon and finished the cluster.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_start_ended_during_initdb_leaves_no_cluster_and_the_next_start_makes_one() {
+    use crate::memory::pg::cluster::{PgCluster, PgRuntime, Start};
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("dir");
+    let ensure = |cancel: tokio_util::sync::CancellationToken| {
+        let (runtime, profile) = (PgRuntime::new(&runtime), dir.path().to_owned());
+        async move {
+            let processes = crate::tidy::process::Processes::for_tests();
+            PgCluster::ensure(runtime, &profile, super::support::preferred_port(), mixdog_rt::testing::tokens().durability_io, processes, &cancel, &Start::node(), &|| true).await
+        }
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let ended = tokio::spawn(ensure(cancel.clone()));
+    let begun = dir.path().join("pgdata.init").join("PG_VERSION");
+    awaiting("initdb to begin the cluster", async {
+        while !begun.exists() {
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    cancel.cancel();
+    assert!(awaiting("the ended start", ended).await.expect("the start's task").is_err(), "the start ended with its initdb");
+    assert!(!dir.path().join("pgdata").exists(), "an ended initdb leaves no cluster");
+    let cluster = awaiting("the next start", ensure(tokio_util::sync::CancellationToken::new())).await.expect("the next start makes the cluster");
+    assert!(!dir.path().join("pgdata.init").exists(), "the cluster was renamed into place");
+    cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
+}

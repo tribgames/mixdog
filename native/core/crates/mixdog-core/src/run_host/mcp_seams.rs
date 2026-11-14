@@ -61,7 +61,7 @@ impl BusPostToolDispatch {
 }
 
 fn call_of(event: &PostToolEvent) -> PostCall<'_> {
-    PostCall { session_id: &event.session_id, name: &event.name, args: &event.args, cwd: &event.cwd, result: &event.result }
+    PostCall { session_id: &event.session_id, call_id: &event.call_id, name: &event.name, args: &event.args, cwd: &event.cwd, result: &event.result }
 }
 
 #[async_trait]

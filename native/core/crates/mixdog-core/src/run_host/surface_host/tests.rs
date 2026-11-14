@@ -313,10 +313,13 @@ struct Workflow {
     standalone: Vec<Value>,
     summary: Value,
     orchestration: String,
+    /// The sessions the workflow parts were read for.
+    targeted: Mutex<Vec<Header>>,
 }
 #[async_trait]
 impl WorkflowSurface for Workflow {
-    async fn target(&self, _: &Header, _: &str, _: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
+    async fn target(&self, session: &Header, _: &str, _: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
+        self.targeted.lock().unwrap().push(session.clone());
         Ok(WorkflowTarget {
             summary: self.summary.clone(),
             orchestration_mode: self.orchestration.clone(),
@@ -343,6 +346,7 @@ struct Rig {
     connectors: Arc<Connectors>,
     generation: SurfaceGeneration,
     scopes: Arc<Scopes>,
+    workflow: Arc<Workflow>,
 }
 
 /// What a test varies: the mode, the Lead's route, the gates, and the thread under reconcile.
@@ -415,6 +419,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
+    let workflow = Arc::new(Workflow { denied, standalone, summary, orchestration, targeted: Mutex::default() });
     let host = LeadSurfaceHost::new(SurfaceSources {
         mode,
         tool_host: Arc::new(Bridge(node_bridge())),
@@ -434,11 +439,11 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         threads: threads.clone(),
         messages: Arc::new(Messages(messages)),
         live: Arc::new(Live(running)),
-        workflow: Arc::new(Workflow { denied, standalone, summary, orchestration }),
+        workflow: workflow.clone(),
         config_revision: Arc::new(|| 0),
         surface_generation: generation.clone(),
     })?;
-    Ok(Rig { host, threads, prompts, connectors, generation, scopes })
+    Ok(Rig { host, threads, prompts, connectors, generation, scopes, workflow })
 }
 
 /// Node's pre-session surface (`createToolSurface().activeToolSurface()`) over the real tool
@@ -530,6 +535,63 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
     }
 }
 
+/// A bot's home chat and its room seat are created as `sessionOptions` makes them: they run as their home agent
+/// (`agent: homeAgent || 'lead'`), in the mode their reserved id resolves to (`resolveSessionMode({ sessionId })`). The prompt's
+/// identity is that agent's, and the workflow's parts and denials are read for the record with its id; a Lead's is Mixy's.
+#[tokio::test]
+async fn a_home_or_room_seat_starts_as_its_agent_in_agent_mode() {
+    let g = golden();
+    let cases = [
+        ("sess_home_alpha", Some("alpha"), "agent"),
+        ("sess_rmem_abcdef12_alpha", Some("alpha"), "agent"),
+        ("sess_home_lead", Some("lead"), "agent"),
+        ("t1", None, "coding"),
+    ];
+    for (id, agent, mode) in cases {
+        let rig = rig(&g, Setup { summary: json!({ "id": "chat", "delegatesAgents": false }), ..setup("full") });
+        let mut header = Header::new();
+        header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+        header.insert("cwd".into(), json!("/work"));
+        if let Some(agent) = agent {
+            header.insert("agent".into(), json!(agent));
+        }
+        let seeded = rig.host.seed(&ThreadId::from(id), &header).await.expect("seed");
+        let targeted = rig.workflow.targeted.lock().unwrap().clone();
+        assert_eq!(targeted.iter().map(|session| (session["id"].clone(), session_mode_of(session))).collect::<Vec<_>>(), [(json!(id), mode)], "{id}: the workflow parts");
+        let requests = rig.prompts.0.lock().unwrap();
+        assert_eq!(requests[0].header["promptIdentity"]["agent"], agent.unwrap_or("lead"), "{id}: identity");
+        assert_eq!(seeded["agent"], agent.unwrap_or("lead"), "{id}: record");
+        assert_eq!(seeded["sessionMode"], mode, "{id}: mode");
+        // `workflowDisallowsAgentTool(workflow, { agentMode })`: an agent-mode Lead of a workflow that delegates to no one has no `agent`.
+        assert_eq!(names(&seeded["disallowedTools"]).contains(&"agent".to_owned()), mode == "agent", "{id}: agent denied");
+        assert_eq!(names(&seeded["disallowedTools"]).contains(&"react".to_owned()), id == "t1", "{id}: react denied outside a bot's own chat");
+    }
+}
+
+/// An empty thread is rebuilt for its runtime's live route (`getRoute()`), whatever model its header names: a seated
+/// thread holding a pick for its next turn (the live route is the pick; the header names the model it runs, and the pick
+/// as `pendingRoute`) is composed for the pick, which that turn switches it to.
+#[tokio::test]
+async fn an_empty_thread_is_rebuilt_for_its_live_route_not_its_headers_model() {
+    let g = golden();
+    let pick = json!({ "provider": "openai", "model": "gpt-5" });
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+    header.insert("cwd".into(), json!("/work"));
+    let on_pick = rig(&g, Setup { route: pick.clone(), ..setup("full") });
+    let expected = on_pick.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    let mut seated = expected.clone();
+    let runs = setup("full").route;
+    seated.insert("provider".into(), runs["provider"].clone());
+    seated.insert("model".into(), runs["model"].clone());
+    seated.insert("pendingRoute".into(), pick.clone());
+    let rig = rig(&g, Setup { route: pick, header: seated, ..setup("full") });
+    rig.host.reconcile_empty(&ThreadId::from("t1")).await.expect("reconcile");
+    let request = rig.prompts.0.lock().unwrap().pop().expect("a rebuild");
+    assert_eq!((request.provider.as_str(), request.model.as_str()), ("openai", "gpt-5"), "the rebuild composes for the live route");
+    assert_eq!(SystemBlocks::from_header(&rig.threads.header.lock().unwrap()).env, SystemBlocks::from_header(&expected).env, "the # Session block names the pick");
+}
+
 /// Each new thread has an MCP scope of its own (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`):
 /// the header names it, the thread's servers connect under it before its tools are read, and the
 /// tools it lists are those of that scope; a seed that fails releases it.
@@ -603,6 +665,29 @@ async fn the_control_thread_runs_in_the_runtime_scope_and_opens_none() {
     assert_ne!(ordinary["mcpScopeId"], RUNTIME_SCOPE);
     let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
     assert_eq!(opened, ["runtime".to_owned(), "t1".to_owned()], "the control thread opened no scope");
+}
+
+/// An imported conversation (`createImportedSession`: the manager's `createSession` over Lead options less their
+/// `mcpScopeId`) begins with its tools and prompt, opens no scope, keeps its null scope and lists none of the servers
+/// connected under the scopes the other threads opened.
+#[tokio::test]
+async fn an_imported_session_is_seeded_in_no_scope_of_its_own() {
+    let g = golden();
+    let tool = stub(&json!({ "name": "mcp__alpha__zeta", "description": "zeta of alpha", "inputSchema": { "type": "object" } }));
+    let rig = rig(&g, Setup { mcp_tool: Some(tool), ..setup("full") });
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+    header.insert("disallowedTools".into(), json!([]));
+    header.insert("cwd".into(), json!("/work"));
+    header.insert("mcpScopeId".into(), Value::Null);
+    rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    let imported = rig.host.seed_imported(&ThreadId::from("imported"), &header).await.expect("seed");
+    assert_eq!(imported["mcpScopeId"], Value::Null);
+    assert!(imported["promptIdentity"].is_object(), "the prompt is composed");
+    let listed: Vec<String> = ["tools", "deferredToolCatalog"].iter().flat_map(|key| doc_names(imported.get(*key))).collect();
+    assert!(listed.contains(&"read".to_owned()) && !listed.contains(&"mcp__alpha__zeta".to_owned()), "{listed:?}");
+    let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
+    assert_eq!(opened, ["t1".to_owned()], "the imported session opened no scope");
 }
 
 /// A thread just created is built from the settings as they stand (`noteToolAvailability`): its first
@@ -1202,6 +1287,7 @@ use crate::run_host::assemble::SessionTools;
 use crate::run_host::context_world::snapshot_tools;
 use crate::run_host::resume_tools::McpToolNames;
 use crate::run_host::resume_tools::ResumeTools;
+use crate::run_host::route_surface::resume_header;
 use crate::run_host::route_surface::resumed_surface_change;
 use crate::run_host::rules::RulesPolicy;
 use crate::run_host::session_tools::SessionToolBuilder;
@@ -1413,6 +1499,81 @@ async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     assert_eq!(names_of(&sent), names_of(&node_sent), "the sent tools and their order");
     assert_eq!(sent, node_sent, "the sent definitions");
 }
+
+/// A Lead thread a new process opens again (`resumeSession`, then `restoreResumedToolSurface`): the manager step stores
+/// the whole resolved list (`_refreshResumedTools`) and the restore puts the deferred surface back, so the first request
+/// after a restart carries the tools the thread sent before it, on a bridge route and on a native one, in either mode:
+/// the manager step resolves the spec of the thread's own mode (`toolSpecForMode(getMode())`, [`resume_header`]). Only
+/// the threads whose spec their mode gives: an `mcp` spec Lead resolves the `full` spec on a resume in Node too.
+#[tokio::test]
+async fn a_resumed_lead_sends_the_tools_it_sent_before_the_restart() {
+    use crate::run_host::tool_exposure::TOOL_EXPOSURE_BRIDGE;
+    let r = recording();
+    let (pool, connected) = (recorded_pool(&r), recorded_mcp(&r));
+    let host = Bridge(node_bridge());
+    let surface = ToolSurface { host: &host, clock: &Fixed };
+    let (mut bridged, mut readonly) = (0, 0);
+    for case in r["cases"].as_array().expect("cases") {
+        let input = &case["input"];
+        // The deferred mode the thread's tool mode gives (`deferredSurfaceModeForLead`).
+        let (mode, tool_mode) = if input["mode"] == "readonly" { ("readonly", "readonly") } else { ("lead", "full") };
+        // The Leads of the interactive profile without an allowlist, on the spec of their mode.
+        if input["kind"] == "worker" || input["toolProfile"] != "interactive" || input["schemaAllowedTools"].is_array() || case["toolSpec"] != tool_spec_for_mode(tool_mode) {
+            continue;
+        }
+        let label = case["name"].as_str().expect("name");
+        let mcp = if input["mcpConnected"] == true { connected.clone() } else { Vec::new() };
+        let rig = rig(
+            &Value::Null,
+            Setup {
+                route: json!({ "provider": input["provider"], "model": input["model"] }),
+                feature_denied: names(&input["featureDenied"]),
+                pool: Some(pool.clone()),
+                mcp: mcp.clone(),
+                ..setup(mode)
+            },
+        );
+        let mut header = Header::new();
+        header.insert("toolSpec".into(), case["toolSpec"].clone());
+        header.insert("toolMode".into(), json!(tool_mode));
+        // The record's `preset` as `thread/start` writes it (`create_keys`): `full`, whatever the mode.
+        header.insert("preset".into(), json!("full"));
+        header.insert("disallowedTools".into(), input["callerDisallowed"].clone());
+        header.insert("cwd".into(), json!("/work"));
+        header.insert("provider".into(), input["provider"].clone());
+        header.insert("model".into(), input["model"].clone());
+        let seeded = rig.host.seed(&ThreadId::from(input["sessionId"].as_str().expect("session id")), &header).await.expect(label);
+        let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
+        let prepared = resume.prepare_tools(&resume_header(&seeded)).await.expect("prepared");
+        let change = resumed_surface_change(&surface, &Fixed, &seeded, prepared, false);
+        let mut refreshed = seeded.clone();
+        for key in &change.unset {
+            refreshed.shift_remove(key);
+        }
+        refreshed.extend(change.set);
+        let restored = rig.host.restored(&refreshed).await.expect(label);
+        assert_eq!(doc_names(restored.get("tools")), doc_names(seeded.get("tools")), "{label}: the eager tools");
+        assert_eq!(doc_names(restored.get("deferredToolCatalog")), doc_names(seeded.get("deferredToolCatalog")), "{label}: the deferred catalog");
+        for key in ["toolSpec", "toolExposureMode", "deferredSurfaceMode", "deferredCallableTools"] {
+            assert_eq!(restored.get(key), seeded.get(key), "{label}: {key}");
+        }
+        assert_eq!(restored.get("pendingCacheBreakIntent"), None, "{label}: the same exposure is no migration");
+        assert_eq!(SystemBlocks::from_header(&restored), SystemBlocks::from_header(&seeded), "{label}: the system prompt");
+        let before: Vec<Value> = request_tools(&pool, &mcp, &seeded).await.iter().map(wire).collect();
+        let after: Vec<Value> = request_tools(&pool, &mcp, &restored).await.iter().map(wire).collect();
+        assert_eq!(after, before, "{label}: the request's tools");
+        if seeded.get("toolExposureMode").and_then(Value::as_str) == Some(TOOL_EXPOSURE_BRIDGE) {
+            // What a restart sent before the restore: the whole list, `call_tool` gone.
+            assert_ne!(doc_names(refreshed.get("tools")), doc_names(seeded.get("tools")), "{label}: the manager step alone replaces the bridge surface");
+            bridged += 1;
+        }
+        if tool_mode == "readonly" {
+            readonly += 1;
+        }
+    }
+    assert!(bridged > 0, "a bridge route is among the resumed Leads");
+    assert!(readonly > 0, "a readonly Lead is among the resumed Leads");
+}
 const EXEC_READONLY_CASES: [&str; 6] = [
     include_str!("../../../../../fixtures/exec-readonly/readonly-blocked.json"),
     include_str!("../../../../../fixtures/exec-readonly/readonly-json.json"),
@@ -1543,7 +1704,7 @@ pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn Th
         threads,
         messages,
         live: Arc::new(Live(false)),
-        workflow: Arc::new(Workflow { denied: Vec::new(), standalone, summary: json!({ "id": "default" }), orchestration: "balanced".into() }),
+        workflow: Arc::new(Workflow { denied: Vec::new(), standalone, summary: json!({ "id": "default" }), orchestration: "balanced".into(), targeted: Mutex::default() }),
         config_revision: Arc::new(|| 0),
         surface_generation: SurfaceGeneration::default(),
     })

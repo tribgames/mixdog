@@ -1,7 +1,7 @@
 // Repo-relative path algebra shared by every resolver.
 //
 // Every path in this layer is repo-relative and forward-slash normalized (the
-// same form as `FileRecord.rel`), and the graph root is the empty string "".
+// same form as `ImportRecord::rel`), and the graph root is the empty string "".
 // `std::path` cannot answer here: it works in OS-separator space and has no
 // lexical `..` collapsing, while resolution must answer in the exact string
 // space the fileSet is keyed on.

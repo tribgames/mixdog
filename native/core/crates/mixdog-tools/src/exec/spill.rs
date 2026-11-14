@@ -1,7 +1,10 @@
 //! The files of a shell call: its job's output logs, hoisted scripts, tee files, launchers.
-//! Every filesystem call runs as a lane job, never on an async worker, and never on io-maintenance
-//! (whose two threads serve minutes-long background loops): a call's start on io-spawn, a job's
-//! log appends on its own io-pty thread ([`LogWriter`]), a result's reads on io-interactive.
+//! Every filesystem call runs as a lane job, never on an async worker: a call's start on io-spawn,
+//! a job's log appends on its own io-pty thread ([`LogWriter`]), a result's reads on io-interactive.
+//! No call's path runs on io-maintenance, whose two threads serve minutes-long background loops.
+//! Only the two whole-folder passes beside the calls do, on the lane their caller hands them: the
+//! expired-log sweep ([`sweep_expired`]) and the start-up read of every record
+//! ([`read_records`] from `ExecRuntime::reconcile_lost_jobs`); either may wait behind those loops.
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -28,7 +31,8 @@ use tokio_util::sync::CancellationToken;
 const STDOUT_SUFFIX: &str = ".stdout.log";
 const STDERR_SUFFIX: &str = ".stderr.log";
 /// The ownership record of a job's logs, `<task id>.owner.json` beside them: who wrote them and whether that job has
-/// ended. It is the only thing the sweep goes by, so it is readable by every process sharing the folder.
+/// ended. It is the only thing the sweep goes by, so it is readable by every process sharing the folder. A job moved to
+/// the background also keeps there what a runtime that does not hold it answers for it (`shell-job-records.mjs`).
 const OWNER_SUFFIX: &str = ".owner.json";
 
 /// The ownership record of the logs whose stdout log is `out`.
@@ -37,8 +41,127 @@ fn owner_path(out: &Path) -> Option<PathBuf> {
     Some(out.with_file_name(format!("{name}{OWNER_SUFFIX}")))
 }
 
-fn owner_record(state: &str) -> Vec<u8> {
-    serde_json::json!({"pid": std::process::id(), "state": state}).to_string().into_bytes()
+/// The ownership record as it stands: what the job put in it, this process and whether the job has ended.
+fn record_body(shared: &Shared) -> Vec<u8> {
+    let state = if shared.ended.load(Ordering::Acquire) { "finished" } else { "running" };
+    let mut record = lock(&shared.fields).clone();
+    record.insert("pid".into(), std::process::id().into());
+    record.insert("state".into(), state.into());
+    serde_json::Value::Object(record).to_string().into_bytes()
+}
+
+/// Writes the ownership record again as it stands, once its logs' creation has written it.
+fn rewrite_record(shared: &Shared, owner: &Path) -> std::io::Result<()> {
+    let _record = lock(&shared.record);
+    if std::fs::exists(owner)? {
+        std::fs::write(owner, record_body(shared))?;
+    }
+    Ok(())
+}
+
+/// Whether `id` can name a job's files: a shell task id, nothing that reaches outside the folder (`validJobId`).
+fn job_file_id(id: &str) -> bool {
+    id.strip_prefix("task-")
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
+}
+
+/// The two logs of job `id` in `dir` (stdout, stderr).
+pub fn log_paths(dir: &Path, id: &str) -> [PathBuf; 2] {
+    [dir.join(format!("{id}{STDOUT_SUFFIX}")), dir.join(format!("{id}{STDERR_SUFFIX}"))]
+}
+
+fn parse_record(path: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
+    match serde_json::from_slice(&std::fs::read(path).ok()?).ok()? {
+        serde_json::Value::Object(record) => Some(record),
+        _ => None,
+    }
+}
+
+/// The ownership record of job `id` in `dir`, for a runtime that does not hold the job (`readShellJobRecord`). `None` when
+/// there is none, it cannot be read, or `id` cannot name a job's files.
+pub async fn read_record(
+    lane: impl LaneToken,
+    cancel: &CancellationToken,
+    dir: &Path,
+    id: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    if !job_file_id(id) {
+        return None;
+    }
+    let path = dir.join(format!("{id}{OWNER_SUFFIX}"));
+    let job = lane.submit(cancel, move |_| parse_record(&path)).ok()?;
+    job.await.ok()?
+}
+
+/// The ownership records of `dir` by task id, in name order, those last written more than `within` ago left out
+/// (`listShellJobRecords`). Best effort: a record that cannot be read is left out.
+pub async fn read_records(
+    lane: impl LaneToken,
+    cancel: &CancellationToken,
+    dir: &Path,
+    within: Option<std::time::Duration>,
+) -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
+    let dir = dir.to_owned();
+    let Ok(job) = lane.submit(cancel, move |_| {
+        let since = within.and_then(|within| std::time::SystemTime::now().checked_sub(within));
+        let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+        let mut names: Vec<String> = entries.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
+        names.sort();
+        names
+            .into_iter()
+            .filter_map(|name| {
+                let id = name.strip_suffix(OWNER_SUFFIX).filter(|id| job_file_id(id))?;
+                let path = dir.join(&name);
+                let fresh = since.is_none_or(|since| std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|at| at >= since));
+                if !fresh {
+                    return None;
+                }
+                Some((id.to_owned(), parse_record(&path)?))
+            })
+            .collect()
+    }) else {
+        return Vec::new();
+    };
+    job.await.unwrap_or_default()
+}
+
+/// Writes job `id`'s ownership record in `dir` as `record` (`completeShellJobRecord` of a job a runtime that is gone left
+/// running). Best effort, as Node's.
+pub async fn write_record(
+    lane: impl LaneToken,
+    cancel: &CancellationToken,
+    dir: &Path,
+    id: &str,
+    record: serde_json::Map<String, serde_json::Value>,
+) {
+    if !job_file_id(id) {
+        return;
+    }
+    let path = dir.join(format!("{id}{OWNER_SUFFIX}"));
+    let body = serde_json::Value::Object(record).to_string();
+    if let Ok(job) = lane.submit(cancel, move |_| std::fs::write(&path, body)) {
+        let _ = job.await;
+    }
+}
+
+/// The last `cap` bytes of each of `logs`, with the offset they start at: the output a job read back from its logs shows
+/// (`readShellTaskOutput` over the recorded log paths). A log that cannot be read is empty.
+pub async fn read_log_tails(lane: impl LaneToken, cancel: &CancellationToken, logs: [PathBuf; 2], cap: usize) -> [(u64, Vec<u8>); 2] {
+    let Ok(job) = lane.submit(cancel, move |_| logs.map(|log| log_tail(&log, cap).unwrap_or_default())) else {
+        return Default::default();
+    };
+    job.await.unwrap_or_default()
+}
+
+fn log_tail(path: &Path, cap: usize) -> std::io::Result<(u64, Vec<u8>)> {
+    use std::io::Read;
+    use std::io::Seek;
+    let mut file = std::fs::File::open(path)?;
+    let from = file.metadata()?.len().saturating_sub(cap as u64);
+    file.seek(std::io::SeekFrom::Start(from))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok((from, bytes))
 }
 
 /// How long a job's logs are kept (`SHELL_OUTPUT_RETENTION_MS`): transcripts keep naming them, so
@@ -65,11 +188,9 @@ pub async fn sweep_expired(lane: impl LaneToken, cancel: &CancellationToken, dir
         for name in &names {
             let Some(id) = name.strip_suffix(OWNER_SUFFIX) else { continue };
             let owner = dir.join(name);
-            let finished = std::fs::read(&owner)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .is_some_and(|record| record["state"] == "finished");
-            let logs = [dir.join(format!("{id}{STDOUT_SUFFIX}")), dir.join(format!("{id}{STDERR_SUFFIX}"))];
+            let finished =
+                parse_record(&owner).is_some_and(|record| record.get("state").and_then(serde_json::Value::as_str) == Some("finished"));
+            let logs = log_paths(&dir, id);
             if finished && aged(&owner) && logs.iter().all(|log| aged(log)) {
                 for log in &logs {
                     let _ = std::fs::remove_file(log);
@@ -167,8 +288,7 @@ fn create_logs(shared: &Shared) {
     // job's end records the job as ended: nothing would mark a record written as running after the end's mark.
     if let Some(owner) = owner_path(&logs[0]) {
         let _record = lock(&shared.record);
-        let state = if shared.ended.load(Ordering::Acquire) { "finished" } else { "running" };
-        let _ = std::fs::write(owner, owner_record(state));
+        let _ = std::fs::write(owner, record_body(shared));
     }
     for log in logs {
         let _ = std::fs::File::create(log);
@@ -224,9 +344,11 @@ struct Shared {
     stop: CancellationToken,
     /// The job has ended ([`LogWriter::mark_finished`]).
     ended: AtomicBool,
-    /// Held across each write of the ownership record, so its two writers (the first drain's creation and the end's
-    /// mark) never interleave.
+    /// Held across each write of the ownership record, so its writers (the first drain's creation, the end's mark and
+    /// [`LogWriter::describe`]) never interleave.
     record: Mutex<()>,
+    /// What the job put in its ownership record; held only to copy or extend it, never across a write.
+    fields: Mutex<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Default)]
@@ -298,6 +420,7 @@ impl LogWriter {
             stop: CancellationToken::new(),
             ended: AtomicBool::new(false),
             record: Mutex::new(()),
+            fields: Mutex::new(serde_json::Map::new()),
         };
         Self { lane, shared: Arc::new(shared) }
     }
@@ -405,22 +528,26 @@ impl LogWriter {
         if lock(&self.shared.state).gaps.iter().any(Option::is_some) { LogsClosed::Incomplete } else { LogsClosed::Complete }
     }
 
-    /// Records in the logs' ownership record that the job has ended: nothing writes its logs any more, so the sweep
-    /// may take them once they have aged. A job whose logs were never created has no record and gets none. The
-    /// record is written on the logs' own lane (a stalled disk under the logs holds no lane a session's save waits
-    /// on) and waited for at most `deadline`: a mark still queued or writing then is finished by its lane thread, and
-    /// the job's end does not wait for it.
-    pub async fn mark_finished(&self, deadline: std::time::Duration) {
+    /// Adds `fields` to the job's ownership record (`publishShellJobRecord` of a promoted job): the record is written again
+    /// with them on the logs' lane, not waited for; one the logs' creation has not written yet is written with them.
+    pub fn describe(&self, fields: serde_json::Map<String, serde_json::Value>) {
+        lock(&self.shared.fields).extend(fields);
         let Some(owner) = owner_path(&self.shared.logs[0]) else { return };
+        let shared = self.shared.clone();
+        let _ = self.lane.submit(&CancellationToken::new(), move |_| rewrite_record(&shared, &owner));
+    }
+
+    /// Records in the logs' ownership record that the job has ended, with `end` (how it ended, `completeShellJobRecord`):
+    /// nothing writes its logs any more, so the sweep may take them once they have aged. A job whose logs were never
+    /// created has no record and gets none. The record is written on the logs' own lane (a stalled disk under the logs
+    /// holds no lane a session's save waits on) and waited for at most `deadline`: a mark still queued or writing then is
+    /// finished by its lane thread, and the job's end does not wait for it.
+    pub async fn mark_finished(&self, deadline: std::time::Duration, end: serde_json::Map<String, serde_json::Value>) {
+        let Some(owner) = owner_path(&self.shared.logs[0]) else { return };
+        lock(&self.shared.fields).extend(end);
         self.shared.ended.store(true, Ordering::Release);
         let shared = self.shared.clone();
-        let Ok(marked) = self.lane.submit(&CancellationToken::new(), move |_| {
-            let _record = lock(&shared.record);
-            if std::fs::exists(&owner)? {
-                std::fs::write(&owner, owner_record("finished"))?;
-            }
-            Ok::<(), std::io::Error>(())
-        }) else {
+        let Ok(marked) = self.lane.submit(&CancellationToken::new(), move |_| rewrite_record(&shared, &owner)) else {
             return;
         };
         let _ = mixdog_rt::time::timeout(deadline, marked).await;

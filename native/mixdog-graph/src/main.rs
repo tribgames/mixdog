@@ -7,7 +7,7 @@
 //   - package / namespace names (Java/Kotlin/C#) and the Go package, from
 //     their declaration nodes
 //   - top-level type names (Java/Kotlin/C#/Go) — the one regex survivor,
-//     see `TypePatterns`
+//     see `mixdog_graph::resolve::extract_top_level_types`
 //
 // Output (JSONL on stdout, one object per file):
 //   {"rel": "...", "lang": "...", "fp": "...", "size": N,
@@ -22,9 +22,9 @@
 // MODULES
 // -------
 // This file owns the record shape, the walk/parse/emit pipeline and the CLI
-// dispatch. `resolve` owns the import-resolution layer that turns a record's
-// `rawImports` into `resolvedImports`/`importedBy`; it enters through the
-// single `resolve_and_link` call the two graph modes below make.
+// dispatch. The library's `resolve` owns the import-resolution layer that
+// turns a record's `rawImports` into `resolvedImports`/`importedBy`; it enters
+// through the single `resolve_and_link` call the two graph modes below make.
 
 use std::collections::HashSet;
 use std::env;
@@ -34,21 +34,17 @@ use std::process;
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use mixdog_graph::calls::CallInfo;
 use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::outline::{self, SymbolInfo};
+use mixdog_graph::resolve::{extract_top_level_types, resolve_and_link, ImportRecord};
 use mixdog_graph::scan;
 use mixdog_graph::scan_lang::scan_lang_for_path;
 use mixdog_graph::serve_search;
 use mixdog_graph::{walk_classified_files, write_jsonl};
-
-mod resolve;
-
-use resolve::resolve_and_link;
 
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.
@@ -83,31 +79,31 @@ fn adopt_desktop_app_identity() {
 #[cfg(not(windows))]
 fn adopt_desktop_app_identity() {}
 
-// The emitted record. `pub(crate)` because the `resolve` module reads the
-// declared metadata and writes the two edge lists back.
+// The emitted record. The library's `resolve` reads the declared metadata and
+// writes the two edge lists back through `ImportRecord`.
 #[derive(Serialize)]
-pub(crate) struct FileRecord {
-    pub(crate) rel: String,
-    pub(crate) lang: &'static str,
+struct FileRecord {
+    rel: String,
+    lang: &'static str,
     fp: String,
     size: u64,
     #[serde(rename = "parseError", skip_serializing_if = "String::is_empty")]
     parse_error: String,
     tokens: Vec<String>,
     #[serde(rename = "rawImports", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) raw_imports: Vec<String>,
+    raw_imports: Vec<String>,
     #[serde(rename = "packageName", skip_serializing_if = "String::is_empty")]
-    pub(crate) package_name: String,
+    package_name: String,
     #[serde(rename = "namespaceName", skip_serializing_if = "String::is_empty")]
-    pub(crate) namespace_name: String,
+    namespace_name: String,
     #[serde(rename = "goPackageName", skip_serializing_if = "String::is_empty")]
     go_package_name: String,
     #[serde(rename = "topLevelTypes", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) top_level_types: Vec<String>,
+    top_level_types: Vec<String>,
     #[serde(rename = "resolvedImports", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) resolved_imports: Vec<String>,
+    resolved_imports: Vec<String>,
     #[serde(rename = "importedBy", skip_serializing_if = "Vec::is_empty")]
-    pub(crate) imported_by: Vec<String>,
+    imported_by: Vec<String>,
     #[serde(rename = "symbols", skip_serializing_if = "Vec::is_empty")]
     symbols: Vec<SymbolInfo>,
     // Call sites from the same outline walk (Stage 3-A). Additive, and
@@ -119,6 +115,37 @@ pub(crate) struct FileRecord {
     // parse result must NOT be omitted.
     #[serde(rename = "calls", skip_serializing_if = "Option::is_none")]
     calls: Option<Vec<CallInfo>>,
+}
+
+impl ImportRecord for FileRecord {
+    fn rel(&self) -> &str {
+        &self.rel
+    }
+
+    fn lang(&self) -> &str {
+        self.lang
+    }
+
+    fn raw_imports(&self) -> &[String] {
+        &self.raw_imports
+    }
+
+    fn package_name(&self) -> &str {
+        &self.package_name
+    }
+
+    fn namespace_name(&self) -> &str {
+        &self.namespace_name
+    }
+
+    fn top_level_types(&self) -> &[String] {
+        &self.top_level_types
+    }
+
+    fn set_edges(&mut self, resolved_imports: Vec<String>, imported_by: Vec<String>) {
+        self.resolved_imports = resolved_imports;
+        self.imported_by = imported_by;
+    }
 }
 
 // Reused-node meta arriving on stdin for --files full-graph resolution.
@@ -168,67 +195,6 @@ fn record_from_reused(meta: ReusedMeta) -> FileRecord {
         // Reused nodes are not parsed here; JS already holds their calls.
         calls: None,
     }
-}
-
-// THE ONE REGEX SURVIVOR: `topLevelTypes`.
-//
-// Every other file-level field now comes from the parse tree — tokens and
-// package/namespace/goPackage from the outline walk, imports and symbols from
-// the rules. `topLevelTypes` cannot follow, because its VALUE SET is not the
-// set of declared types: the pattern is a plain word scan, so it also reports
-// * the word after a keyword pair — `enum class Mode` yields `class`;
-// * matches in prose — a doc comment saying "the struct value is …" yields
-//   `value`, and this repo's own C# sources carry `value`, `child`, `raw`,
-//   `is`, `accessible`, … in `topLevelTypes` today.
-// Those strings are not noise the graph can drop: `java`/`kotlin` import
-// resolution indexes `<packageName>.<type>` by exactly these strings
-// (`type_by_fqcn`), and the field is part of the reused-node protocol the JS
-// side sends back on `--files`. An AST rule can only ever report real type
-// declarations, which is a DIFFERENT set, so the scan stays a regex and the
-// `regex` crate stays a dependency.
-struct TypePatterns {
-    type_decl_jks: Regex,
-    go_type: Regex,
-}
-
-impl TypePatterns {
-    fn new() -> Self {
-        let type_decl_jks = Regex::new(
-            r"\b(?:class|interface|enum|record|object|struct)\s+([A-Za-z_][A-Za-z0-9_]*)",
-        )
-        .unwrap();
-        let go_type = Regex::new(r"(?m)^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-        TypePatterns {
-            type_decl_jks,
-            go_type,
-        }
-    }
-}
-
-fn extract_top_level_types(text: &str, lang: &str, p: &TypePatterns) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    let mut keep = |name: &str| {
-        if seen.insert(name.to_string()) {
-            out.push(name.to_string());
-        }
-    };
-    match lang {
-        "java" | "kotlin" | "csharp" => {
-            for line in text.lines() {
-                if let Some(m) = p.type_decl_jks.captures(line).and_then(|cap| cap.get(1)) {
-                    keep(m.as_str());
-                }
-            }
-        }
-        "go" => {
-            for m in p.go_type.captures_iter(text).filter_map(|cap| cap.get(1)) {
-                keep(m.as_str());
-            }
-        }
-        _ => {}
-    }
-    out
 }
 
 fn fingerprint_for(rel: &str, size: u64, mtime_ms: u64) -> String {
@@ -384,7 +350,7 @@ fn src_file_from(path: &Path, root: &Path, lang: &'static str) -> Result<Option<
 // Full parse (tokens/imports/symbols) from an already-collected SrcFile.
 // Unreadable files fail the build; unsupported encodings produce a parse-error
 // record without claiming that call extraction ran.
-fn parse_file_from(src: &SrcFile, patterns: &TypePatterns) -> Result<FileRecord, String> {
+fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     let lang = src.lang;
     let bytes = fs::read(&src.path)
         .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
@@ -414,7 +380,7 @@ fn parse_file_from(src: &SrcFile, patterns: &TypePatterns) -> Result<FileRecord,
     let package_name = outline.package_name;
     let namespace_name = outline.namespace_name;
     let go_package_name = outline.go_package_name;
-    let top_level_types = extract_top_level_types(&text, lang, patterns);
+    let top_level_types = extract_top_level_types(&text, lang);
     Ok(FileRecord {
         rel: src.rel.clone(),
         lang,
@@ -440,18 +406,14 @@ fn decode_source_text(bytes: Vec<u8>) -> Result<String, &'static str> {
 
 // Stat-and-parse a single path (used by --files, where paths come from the
 // caller, not the walk). One metadata read, then parse_file_from.
-fn parse_file(
-    path: &Path,
-    root: &Path,
-    patterns: &TypePatterns,
-) -> Result<Option<FileRecord>, String> {
+fn parse_file(path: &Path, root: &Path) -> Result<Option<FileRecord>, String> {
     let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
         return Ok(None);
     };
     let Some(src) = src_file_from(path, root, lang)? else {
         return Ok(None);
     };
-    parse_file_from(&src, patterns).map(Some)
+    parse_file_from(&src).map(Some)
 }
 
 fn emit_records(records: &[FileRecord]) -> Result<(), String> {
@@ -486,15 +448,11 @@ fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
 }
 
 fn run_walk(root: &Path) -> Result<(), String> {
-    let patterns = TypePatterns::new();
     let mut files = collect_source_files(root)?;
     // Cap cold parse work at MAX_FILES so large repos never pay the full
     // native parse cost just to be truncated afterwards.
     files.truncate(MAX_FILES);
-    let parsed: Vec<Result<FileRecord, String>> = files
-        .par_iter()
-        .map(|s| parse_file_from(s, &patterns))
-        .collect();
+    let parsed: Vec<Result<FileRecord, String>> = files.par_iter().map(parse_file_from).collect();
     let mut records: Vec<FileRecord> = parsed.into_iter().collect::<Result<_, _>>()?;
     // fileSet = every parsed record's rel; resolve imports + dependents.
     let file_set: HashSet<String> = records.iter().map(|r| r.rel.clone()).collect();
@@ -503,13 +461,12 @@ fn run_walk(root: &Path) -> Result<(), String> {
 }
 
 fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
-    let patterns = TypePatterns::new();
     // Path::join replaces the root when a path is absolute.
     let paths: Vec<PathBuf> = files.iter().map(|f| root.join(f)).collect();
     // Full-parse the fresh subset (tokens/symbols/imports/package/types).
     let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths
         .par_iter()
-        .map(|p| parse_file(p.as_path(), root, &patterns))
+        .map(|p| parse_file(p.as_path(), root))
         .collect();
     let mut fresh = Vec::with_capacity(fresh_results.len());
     for result in fresh_results {

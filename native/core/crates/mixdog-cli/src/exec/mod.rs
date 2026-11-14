@@ -17,10 +17,16 @@ pub mod usage;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::Args;
+use mixdog_core::run_host::tool_pool::session_create::worktree_name_error;
+use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
+use mixdog_js::json_stringify;
+use serde_json::Value;
 
 /// Where the exec writes: the answer (or the JSON events) and its errors.
 pub trait Sink: Send + Sync {
@@ -75,95 +81,168 @@ pub struct ExecOptions {
 }
 
 /// `mixdogd exec [options] <message...>`.
+// clap only collects the words, as the OS gave them (a path need not be Unicode); they are read as Node reads
+// `mixdog exec`'s (`parseTokens` and `classifyCliInvocation`, `headless-command.mjs`), `--help` included.
 #[derive(Args, Debug)]
+#[command(disable_help_flag = true)]
 pub struct ExecArgs {
-    #[arg(long)]
-    provider: Option<String>,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long)]
-    effort: Option<String>,
-    #[arg(long)]
-    fast: bool,
-    /// Web research stays off unless asked for.
-    #[arg(long)]
-    web_search: bool,
-    /// Stream the lifecycle events as JSON lines.
-    #[arg(long)]
-    json: bool,
-    /// The working directory of the run (default: the current one).
-    #[arg(long)]
-    cwd: Option<PathBuf>,
-    /// Where the usage document is rewritten (default: `$MIXDOG_USAGE_LOG`).
-    #[arg(long)]
-    usage_log: Option<PathBuf>,
-    /// `full` (default) or `readonly`: the read-only tool surface. Node's exec has no such option: its runtime is always
-    /// created `full`, and the one caller that wants a read-only run (the pptx `review-deck.mjs`) passes a `runtimeFactory`
-    /// that re-creates the runtime with `toolMode: 'readonly'`; `mixdog exec --readonly` is refused (below). This is the
-    /// daemon-side spelling of that factory.
-    #[arg(long)]
-    tool_mode: Option<String>,
-    // The interactive CLI's options an exec refuses, kept so the refusal reads as Node's.
-    #[arg(long, hide = true)]
-    workflow: Option<String>,
-    #[arg(long, hide = true)]
-    readonly: bool,
-    #[arg(long, hide = true)]
-    remote: bool,
-    #[arg(long, hide = true)]
-    onboarding: bool,
-    #[arg(long, hide = true)]
-    memory: bool,
-    #[arg(long, hide = true)]
-    no_worktree: bool,
-    #[arg(long, hide = true, num_args = 0..=1, default_missing_value = "")]
-    worktree: Option<String>,
-    #[arg(trailing_var_arg = true)]
-    message: Vec<String>,
+    /// The options and the message, in any order; `--` ends the options. --provider <name>, --model <name>, --effort
+    /// <level>, --fast, --web-search (web research stays off unless asked for), --json (the lifecycle events as JSON
+    /// lines), --cwd <dir> (default: the current one), --usage-log <file> (default: $MIXDOG_USAGE_LOG), --tool-mode
+    /// full|readonly.
+    #[arg(allow_hyphen_values = true, value_name = "ARGS")]
+    argv: Vec<OsString>,
+    /// The message after a `--` that comes first, which clap takes for itself.
+    #[arg(last = true, value_name = "MESSAGE")]
+    escaped: Vec<OsString>,
+}
+
+/// What an exec's command line asks for: Node's `help` and `exec` kinds (`classifyCliInvocation`).
+#[derive(Debug)]
+pub enum Invocation {
+    /// `--help` or `-h` anywhere on the line: the exec's usage.
+    Help,
+    Run(ExecOptions),
+}
+
+/// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd` and `--usage-log`.
+const VALUE_OPTIONS: [&str; 6] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log"];
+/// `FLAG_OPTIONS` without the interactive CLI's `--plain` and `--react`, which `mixdogd` does not have.
+const FLAG_OPTIONS: [&str; 10] =
+    ["--no-worktree", "--readonly", "--help", "-h", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
+/// The interactive CLI's flags an exec refuses, in Node's order (`EXEC_UNSUPPORTED_FLAGS`).
+const UNSUPPORTED_FLAGS: [&str; 5] = ["--readonly", "--remote", "--onboarding", "--memory", "--no-worktree"];
+const WORKTREE_OPTION: &str = "--worktree";
+const WORKFLOW_REFUSAL: &str = "option --workflow is not supported for mixdog exec";
+
+/// An exec's words as `parseTokens` reads them: the message words, the first value of each value option (the index of
+/// its word), the tool mode and whether `--worktree` was given.
+#[derive(Default)]
+struct Tokens<'a> {
+    positional: Vec<&'a str>,
+    values: BTreeMap<&'static str, usize>,
+    tool_mode: Option<ToolMode>,
+    worktree: bool,
+}
+
+/// `roleKey(value) === 'exec'`.
+fn is_exec(value: &str) -> bool {
+    js_to_lowercase(js_trim(value)) == "exec"
+}
+
+/// `JSON.stringify(word)`, as a refusal quotes it.
+fn quoted(word: &str) -> String {
+    json_stringify(&Value::from(word))
+}
+
+/// `parseTokens`: an option counts wherever it stands, only `--` ends the options. A `strict` line refuses a missing value,
+/// an invalid worktree name and the exec verb as a route value; a line that asks for help (not strict) skips them.
+fn parse_tokens(argv: &[String], strict: bool) -> Result<Tokens<'_>, String> {
+    let mut tokens = Tokens::default();
+    let mut index = 0;
+    while let Some(arg) = argv.get(index).map(String::as_str) {
+        let next = argv.get(index + 1).map(String::as_str);
+        // `isWorktreeOption`: `--worktree`, or `--worktree=<name>`.
+        if let Some(rest) = arg.strip_prefix(WORKTREE_OPTION).filter(|rest| rest.is_empty() || rest.starts_with('=')) {
+            let name = match rest.strip_prefix('=') {
+                Some(name) => Some(name),
+                // `worktreeNameToken`: the next word is the name unless it is an option or the exec verb.
+                None => {
+                    let name = next.filter(|name| !name.is_empty() && !name.starts_with('-') && !is_exec(name));
+                    index += usize::from(name.is_some());
+                    name
+                }
+            };
+            let invalid = name.filter(|_| strict).and_then(|name| worktree_name_error(&Value::from(name)).map(|error| (name, error)));
+            if let Some((name, error)) = invalid {
+                return Err(format!("option --worktree name {} is invalid: {error}", quoted(name)));
+            }
+            tokens.worktree = true;
+        } else if let Some(option) = VALUE_OPTIONS.into_iter().find(|option| *option == arg) {
+            match next.filter(|value| !value.is_empty() && !value.starts_with('-')) {
+                None if strict => return Err(format!("option {option} requires a non-option value")),
+                None => {}
+                Some(value) => {
+                    if strict && is_exec(value) {
+                        if option == "--workflow" {
+                            return Err(WORKFLOW_REFUSAL.into());
+                        }
+                        if matches!(option, "--provider" | "--model" | "--effort") {
+                            return Err(format!("option {option} requires a route value before {}", quoted(value)));
+                        }
+                    }
+                    tokens.values.entry(option).or_insert(index + 1);
+                    index += 1;
+                }
+            }
+        } else if arg == "--tool-mode" {
+            // The core's spelling of the read-only runtime Node's one caller builds (the pptx `review-deck.mjs` passes a
+            // `runtimeFactory` with `toolMode: 'readonly'`). Node's exec has no such option: any other use is its refusal.
+            let mode = next.and_then(ToolMode::parse).ok_or_else(|| "unknown option --tool-mode".to_owned())?;
+            tokens.tool_mode.get_or_insert(mode);
+            index += 1;
+        } else if arg == "--" {
+            tokens.positional.extend(argv[index + 1..].iter().map(String::as_str));
+            break;
+        } else if !arg.starts_with('-') {
+            tokens.positional.push(arg);
+        } else if !FLAG_OPTIONS.contains(&arg) {
+            return Err(format!("unknown option {arg}"));
+        }
+        index += 1;
+    }
+    Ok(tokens)
 }
 
 impl ExecArgs {
-    /// The options of a valid invocation, else the refusal (printed as `mixdog: <text>`).
-    pub fn into_options(self, usage_log_env: Option<String>) -> Result<ExecOptions, String> {
-        let message = js_trim(&self.message.join(" ")).to_owned();
+    /// What the command line asks for (`classifyCliInvocation`, `execFromPositional`), else the refusal (printed as
+    /// `mixdog: <text>`).
+    pub fn into_invocation(self, usage_log_env: Option<String>) -> Result<Invocation, String> {
+        let mut words = self.argv;
+        if !self.escaped.is_empty() {
+            words.push("--".into());
+            words.extend(self.escaped);
+        }
+        // Every word is read as text; a path option's value stays the word the OS gave.
+        let argv: Vec<String> = words.iter().map(|word| word.to_string_lossy().into_owned()).collect();
+        // Node reads a flag with `argv.includes`: anywhere on the line, past a `--` too.
+        let given = |flag: &str| argv.iter().any(|arg| arg == flag);
+        let help = given("--help") || given("-h");
+        let tokens = parse_tokens(&argv, !help)?;
+        if help {
+            return Ok(Invocation::Help);
+        }
+        if tokens.worktree && given("--no-worktree") {
+            return Err("options --worktree and --no-worktree are mutually exclusive".into());
+        }
+        let message = js_trim(&tokens.positional.join(" ")).to_owned();
         if message.is_empty() {
             return Err("usage: mixdog exec [options] <message...>".into());
         }
-        if self.workflow.is_some() {
-            return Err("option --workflow is not supported for mixdog exec".into());
+        if tokens.values.contains_key("--workflow") {
+            return Err(WORKFLOW_REFUSAL.into());
         }
-        let unsupported = [
-            (self.readonly, "--readonly"),
-            (self.remote, "--remote"),
-            (self.onboarding, "--onboarding"),
-            (self.memory, "--memory"),
-            (self.no_worktree, "--no-worktree"),
-            (self.worktree.is_some(), "--worktree"),
-        ];
-        if let Some((_, flag)) = unsupported.iter().find(|(set, _)| *set) {
+        let unsupported = UNSUPPORTED_FLAGS.into_iter().find(|&flag| given(flag)).or(tokens.worktree.then_some(WORKTREE_OPTION));
+        if let Some(flag) = unsupported {
             return Err(format!("option {flag} is not supported for mixdog exec"));
         }
-        let tool_mode = match self.tool_mode.as_deref() {
-            None => ToolMode::Full,
-            // Any other value is an option Node's exec does not know (`unknown option --tool-mode`, `headless-command.mjs`).
-            Some(value) => ToolMode::parse(value).ok_or_else(|| "unknown option --tool-mode".to_owned())?,
-        };
-        let cwd = match self.cwd {
+        let value = |option: &str| tokens.values.get(option).map(|&index| argv[index].clone());
+        let path = |option: &str| tokens.values.get(option).map(|&index| PathBuf::from(&words[index]));
+        let cwd = match path("--cwd") {
             Some(cwd) => cwd,
             None => std::env::current_dir().map_err(|err| format!("the working directory: {err}"))?,
         };
-        let usage_log = self.usage_log.or_else(|| usage_log_env.map(PathBuf::from));
-        Ok(ExecOptions {
+        Ok(Invocation::Run(ExecOptions {
             message,
-            provider: self.provider,
-            model: self.model,
-            effort: self.effort,
-            fast: self.fast,
-            web_search: self.web_search,
-            json: self.json,
+            provider: value("--provider"),
+            model: value("--model"),
+            effort: value("--effort"),
+            fast: given("--fast"),
+            web_search: given("--web-search"),
+            json: given("--json"),
             cwd,
-            usage_log,
-            tool_mode,
-        })
+            usage_log: path("--usage-log").or_else(|| usage_log_env.map(PathBuf::from)),
+            tool_mode: tokens.tool_mode.unwrap_or(ToolMode::Full),
+        }))
     }
 }

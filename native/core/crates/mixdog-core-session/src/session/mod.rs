@@ -94,6 +94,8 @@ mod toast_tests;
 #[cfg(test)]
 mod durability_settled_tests;
 #[cfg(test)]
+mod start_hold_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
@@ -181,6 +183,7 @@ pub mod turn_ops;
 #[cfg(test)]
 mod turn_ops_tests;
 pub mod composer_image;
+pub mod prompt_submission;
 pub mod staged_originals;
 pub mod turn_actions;
 #[cfg(test)]
@@ -341,6 +344,20 @@ impl PromptIntake for AdmitAll {
     }
 }
 
+/// The core's hold on new turn starts as the sessions read it (`hold{on}`, LR §5.1; Node's `daemonWorkGate`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StartHold {
+    #[default]
+    Open,
+    /// Starts are deferred, not refused (step 1): a client's prompt is queued and an in-core start waits before it is admitted
+    /// (Node's `deferring`), until the hold is released.
+    Held,
+    /// The drain commit dropped the hold (step 2, Node's `daemonWorkGate.shutdown()`), or a confirmed abort closed the starts: what
+    /// it held is refused as admission refuses a start once the core drains, and nothing it queued starts unless the drain is
+    /// cancelled, which opens it again.
+    Closed(mixdog_protocol::DrainReason),
+}
+
 /// Everything a session needs from the rest of the core. Built once by the composition root;
 /// every thread shares the same `Arc`.
 pub struct SessionDeps {
@@ -400,6 +417,10 @@ pub struct SessionDeps {
     pub clock: Arc<dyn Clock>,
     /// Told of every turn start (today's `onSessionTurnStart`).
     pub turn_starts: Arc<dyn TurnStarts>,
+    /// The core's hold on new turn starts (the lifecycle's `hold_gate`, [`StartHold`]). A core with no lifecycle never holds.
+    pub start_hold: tokio::sync::watch::Receiver<StartHold>,
+    /// The core lifecycle's count of the busy sessions ([`CoreWork`]).
+    pub core_work: Arc<dyn CoreWork>,
     /// Told when a thread's actor starts and stops (the handed-off question copies follow it).
     pub runtime_hooks: Arc<dyn runtime_hooks::RuntimeHooks>,
     /// The read-only snapshots a settled turn made are removed (`turn_snapshots.rs`).
@@ -446,6 +467,8 @@ pub struct SessionDeps {
     pub shell_strips: Arc<dyn shell_jobs::ShellStrips>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
+    /// `agentDisplayName`: a sub-agent's approval card names who asks by it (`delegation::approval_surface`).
+    pub agent_names: Arc<dyn delegation::AgentNames>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
     /// The quota-resume queue a quota-failed turn queues its resume on.
     pub quota: quota_lane::SessionQuota,
@@ -468,6 +491,35 @@ pub struct SessionDeps {
 /// `onSessionTurnStart`): the worker index clears the owner's release mark.
 pub trait TurnStarts: Send + Sync {
     fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId);
+}
+
+/// The core lifecycle's count of the sessions' running work (Node's `busySessions`, `daemon.mjs:452`, `busy.mjs` `sessionTurnBusy`):
+/// with nobody attached the core does not stop itself while a session is busy (`maybeSelfShutdown` defers it: "A turn in flight
+/// outlives every view"), and a stop that waits for the core to be idle waits for it.
+pub trait CoreWork: Send + Sync {
+    /// `thread` turned busy: it is running work, listed with `title`, until the hold drops.
+    fn busy(&self, thread: &mixdog_core_api::ids::ThreadId, title: &str) -> Box<dyn BusyHold>;
+}
+
+/// A busy session's hold on the core ([`CoreWork::busy`]).
+pub trait BusyHold: Send + Sync {
+    /// The run under way: a confirmed stop's abort cancels it through `cancel`, until the returned registration drops.
+    fn run(&self, cancel: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync>;
+}
+
+/// [`CoreWork`] of a core with no lifecycle: nothing is counted.
+pub struct NoCoreWork;
+
+impl CoreWork for NoCoreWork {
+    fn busy(&self, _: &mixdog_core_api::ids::ThreadId, _: &str) -> Box<dyn BusyHold> {
+        Box::new(NoCoreWork)
+    }
+}
+
+impl BusyHold for NoCoreWork {
+    fn run(&self, _: &mixdog_rt::CancellationToken) -> Box<dyn Send + Sync> {
+        Box::new(())
+    }
 }
 
 /// [`TurnStarts`] bound after the sessions exist: the agent registry reads the session

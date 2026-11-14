@@ -2,7 +2,8 @@
 //! - a loaded thread publishes its status once, one settle beat after it starts;
 //! - Node's agent status listener publishes the lists only when they changed;
 //! - only a loaded thread hears the signal;
-//! - the idle clock counts the thread's background work as work, and restarts on the signal.
+//! - the idle clock counts the thread's background work as work, and restarts on the signal that names the thread, never on
+//!   one that names no session.
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -153,6 +154,27 @@ async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
     tokio::time::advance(Duration::from_millis(10)).await;
     assert!(directory.handle(&handle.id).is_some(), "the clock started over at the signal");
     tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// A source that names no session (`statusMayHaveChanged()` of an approval wait, a stored record, a worker-index write) has
+/// a loaded thread read its status again and leaves its idle clock as it is: Node's clock hears only the session
+/// `emitSessionActivityChange` names, and the Goal decision the read schedules is no busy change.
+#[tokio::test(start_paused = true)]
+async fn a_status_signal_that_names_no_session_leaves_the_idle_clock() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
+
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(2)).await;
+    directory.status_may_have_changed(handle.id.as_str());
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 2).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    super::tests::caught_up(&handle).await;
+    // Past the deadline the open armed, well before a whole delay after the signal.
+    tokio::time::advance(Duration::from_secs(3)).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 

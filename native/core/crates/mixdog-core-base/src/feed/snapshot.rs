@@ -43,7 +43,7 @@ impl SnapshotCache {
         (flight, true)
     }
 
-    /// Drops every flight: called when the seq advances.
+    /// Drops every flight: called when the seq advances, a view is swapped with no frame, or the feed closes.
     pub fn clear(&mut self) {
         if !self.flights.is_empty() {
             self.flights.clear();

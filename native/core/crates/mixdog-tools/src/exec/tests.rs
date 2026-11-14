@@ -79,6 +79,19 @@ fn send(chan: &Chan, seq: &mut u64, make: impl FnOnce(u64) -> ProcessEvent) {
     *seq += 1;
 }
 
+/// `bytes` as stdout, in pipe-sized chunks.
+fn print_chunked(chan: &Chan, seq: &mut u64, bytes: &[u8]) {
+    for chunk in bytes.chunks(64 * 1024) {
+        let bytes = chunk.to_vec();
+        send(chan, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+    }
+}
+
+/// `line <i> xxx…` for each `i` of `lines`: what `node -e "…console.log('line '+i+' '+'x'.repeat(50))"` prints.
+fn numbered_lines(lines: std::ops::Range<usize>) -> Vec<u8> {
+    lines.flat_map(|i| format!("line {i} {}\n", "x".repeat(50)).into_bytes()).collect()
+}
+
 #[async_trait]
 impl ProcessManager for FakeProcesses {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
@@ -201,6 +214,9 @@ impl FakeProcesses {
                 stream: OutputStream::Stdout,
                 bytes: "tick\n".repeat(200).into_bytes(),
             });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "big" {
+            print_chunked(tx, seq, &numbered_lines(0..200_000));
             send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script == "fail" {
             send(tx, seq,|seq| ProcessEvent::Output {
@@ -435,7 +451,7 @@ async fn a_jobs_log_record_shows_it_running_until_it_ends() {
     writer.close(super::spill::LOG_STALL).await;
     let record = || std::fs::read_to_string(rig.dir.path().join("task-r.owner.json")).unwrap();
     assert!(out.exists() && err.exists() && record().contains(r#""state":"running""#), "{}", record());
-    writer.mark_finished(super::spill::LOG_STALL).await;
+    writer.mark_finished(super::spill::LOG_STALL, serde_json::Map::new()).await;
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
 
@@ -455,7 +471,7 @@ async fn a_log_creation_held_past_the_jobs_end_records_the_job_as_ended() {
     let reached = gate.clone();
     tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
     mixdog_rt::time::timeout(minute, writer.close(std::time::Duration::ZERO)).await.expect("closing returns while the creation is held");
-    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the mark ends while the creation is held");
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute, serde_json::Map::new())).await.expect("the mark ends while the creation is held");
     assert!(!owner.exists(), "the held creation has written no record, and the mark creates none");
     gate.open();
     mixdog_rt::time::timeout(minute, writer.idle()).await.expect("the held creation ends");
@@ -491,13 +507,13 @@ async fn marking_a_jobs_end_waits_on_the_logs_lane_and_returns_at_its_deadline()
         .expect("io-pty takes the holder");
     held_started.recv_timeout(minute).expect("the only io-pty thread is held");
     let pty_queue = || executors.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::PtyIo).unwrap().queue_depth;
-    mixdog_rt::time::timeout(minute, writer.mark_finished(std::time::Duration::ZERO)).await.expect("marking returns at its deadline");
+    mixdog_rt::time::timeout(minute, writer.mark_finished(std::time::Duration::ZERO, serde_json::Map::new())).await.expect("marking returns at its deadline");
     assert_eq!(pty_queue(), 1, "the mark waits in io-pty's queue");
     assert!(record().contains(r#""state":"running""#), "{}", record());
     drop(release);
     mixdog_rt::time::timeout(minute, holder).await.expect("the holder ends").unwrap();
     // A second mark queues behind the first: when it has run, so has the first.
-    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the marks run once a thread is free");
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute, serde_json::Map::new())).await.expect("the marks run once a thread is free");
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
 
@@ -682,6 +698,82 @@ async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
     assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap());
     let golden = fixture("task", "task-list-after");
     assert_eq!(normalize(&body(rig.task.call(&c, golden["input"].clone()).await)), golden["text"].as_str().unwrap());
+}
+
+/// Output past what memory holds of a stream (8 MiB) reads as Node reads it from the log: from its first line, with the
+/// omission counts of the whole stream, in the foreground result (`shellLogPiece`), a background task's completion and its
+/// tail replay, and a read resuming where an earlier one stopped (`readShellTaskOutput`). The counts are the ones Node's own
+/// delivery code gives for the same lines.
+#[tokio::test]
+async fn output_past_what_memory_holds_reads_as_its_log_does_in_node() {
+    let rig = rig();
+    let owner = ThreadId::from("t");
+    let omitted = |lines: &str, kb: &str| format!("[… {lines} lines, {kb} KB omitted");
+    let shown = body(rig.shell.call(&ctx(&rig, "f1"), serde_json::json!({"command": "big"})).await);
+    assert!(shown.starts_with("[exit code: 0]\n\nline 0 x") && shown.contains(&omitted("199959", "12193.7")), "{shown:.600}");
+    // `echo done-out` in the background prints what the test sends it.
+    let print = |job: &Job, bytes: &[u8], exit: bool| {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&job.handle).unwrap();
+        print_chunked(tx, seq, bytes);
+        if exit {
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+        }
+    };
+    let background = serde_json::json!({"command": "echo done-out", "background": true});
+
+    rig.shell.call(&ctx(&rig, "b1"), background.clone()).await.unwrap();
+    let job = rig.runtime.get(&owner, "task-b1").unwrap();
+    print(&job, &numbered_lines(0..200_000), true);
+    job.settled().await;
+    let waited = body(rig.task.call(&ctx(&rig, "b2"), serde_json::json!({"action": "wait", "task_id": "task-b1"})).await);
+    assert!(waited.contains("[stdout]\nline 0 x") && waited.contains(&omitted("199959", "12193.7")), "{waited:.600}");
+    let tail = body(rig.task.call(&ctx(&rig, "b3"), serde_json::json!({"action": "read", "task_id": "task-b1", "output": "tail"})).await);
+    assert!(tail.contains(&omitted("198959", "12132.2")) && tail.contains(&omitted("1001", "61.6")), "{tail:.600}");
+
+    rig.shell.call(&ctx(&rig, "r1"), background).await.unwrap();
+    let job = rig.runtime.get(&owner, "task-r1").unwrap();
+    let first = numbered_lines(0..1000);
+    print(&job, &first, false);
+    while job.captured().0.len() < first.len() {
+        tokio::task::yield_now().await;
+    }
+    rig.task.call(&ctx(&rig, "r2"), serde_json::json!({"action": "read", "task_id": "task-r1"})).await.unwrap();
+    print(&job, &numbered_lines(1000..200_000), true);
+    job.settled().await;
+    let resumed = body(rig.task.call(&ctx(&rig, "r3"), serde_json::json!({"action": "read", "task_id": "task-r1"})).await);
+    assert!(resumed.contains("[stdout]\nline 1000 x") && resumed.contains(&omitted("198959", "12135.2")), "{resumed:.600}");
+}
+
+/// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
+/// changes the incremental cursor), so the next `new` read still shows what no earlier one delivered.
+#[tokio::test]
+async fn a_tail_replay_leaves_the_next_read_where_the_last_one_stopped() {
+    let rig = rig();
+    rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    let job = rig.runtime.get(&ThreadId::from("t"), "task-a").unwrap();
+    // `echo done-out` in the background prints what the test sends it.
+    let print = |bytes: &[u8]| {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&job.handle).unwrap();
+        print_chunked(tx, seq, bytes);
+    };
+    let read = |output: &str| serde_json::json!({"action": "read", "task_id": "task-a", "output": output});
+
+    print(b"alpha-out\n".as_slice());
+    while job.captured().0.len() < "alpha-out\n".len() {
+        tokio::task::yield_now().await;
+    }
+    let first = body(rig.task.call(&ctx(&rig, "r1"), read("new")).await);
+    assert!(first.contains("[stdout]\nalpha-out"), "{first}");
+    print(b"beta-out\n".as_slice());
+    while job.captured().0.len() < "alpha-out\nbeta-out\n".len() {
+        tokio::task::yield_now().await;
+    }
+    let tail = body(rig.task.call(&ctx(&rig, "r2"), read("tail")).await);
+    assert!(tail.contains("[stdout]\nalpha-out\nbeta-out"), "{tail}");
+    let next = body(rig.task.call(&ctx(&rig, "r3"), read("new")).await);
+    assert!(next.contains("[stdout]\nbeta-out") && !next.contains("alpha-out"), "{next}");
 }
 
 /// Every finished shell call — failed or refused included — tells the turn review the folder it
@@ -999,6 +1091,26 @@ async fn an_unconfirmed_cancel_keeps_terminating_on_every_pass_until_the_survivo
     tracked.settled().await;
     assert_eq!(watch.kills.load(std::sync::atomic::Ordering::SeqCst), 2);
     assert!(!held(&runtime).termination_unconfirmed, "confirmed gone ends the hold");
+}
+
+/// A survivors task cancelled through `task` ends without a notice to its owner (Node's `cancelBackgroundTask` of a task
+/// registered without `notifyOnCancel`); one whose processes end on their own tells its owner that it completed.
+#[tokio::test]
+async fn only_a_survivors_task_that_ends_on_its_own_notifies_its_owner() {
+    for cancel in [true, false] {
+        let owner = Arc::new(OwnerNotices::default());
+        let rig = rig_full(Arc::new(OsPromptElevation), Some(owner.clone()));
+        let watch = FakeSurvivors::new(true);
+        let (_, task, _, tracked) = survivors_rig(&rig, watch.clone()).await;
+        if cancel {
+            task.call(&ctx(&rig, "c1"), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await.unwrap();
+        } else {
+            watch.gone.notify_one();
+        }
+        tracked.settled().await;
+        let want = if cancel { Vec::new() } else { vec![("t".to_owned(), "shell/task-s1/completed".to_owned())] };
+        assert_eq!(*owner.0.lock().unwrap(), want, "cancelled: {cancel}");
+    }
 }
 
 /// The tracked task started with the command, not when its survivors were observed (`trackSurvivingDescendants` passes
@@ -2567,6 +2679,133 @@ async fn machine_reports_processes_that_miss_its_deadline() {
         machine_shape(&text),
         "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\nprocesses: unavailable (no answer within the deadline)\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB"
     );
+}
+
+/// The ownership record and logs of a job another runtime ran, as it left them in `rig`'s log folder.
+fn kept_job(rig: &Rig, id: &str, record: serde_json::Value, stdout: &str) {
+    let jobs = rig.dir.path().join("l");
+    std::fs::create_dir_all(&jobs).unwrap();
+    std::fs::write(jobs.join(format!("{id}.owner.json")), record.to_string()).unwrap();
+    std::fs::write(jobs.join(format!("{id}.stdout.log")), stdout).unwrap();
+    std::fs::write(jobs.join(format!("{id}.stderr.log")), "").unwrap();
+}
+
+/// A background job this runtime does not hold (another one ran it before a restart) is answered from its kept record
+/// (`task-tool.mjs:411-444`, `stopJobKnownByRecord`): an ended one reads as recovered with its logs' output, one left
+/// running can be neither read nor controlled, a foreground command's record and another thread's job are unknown, and
+/// the list shows the thread's two.
+#[tokio::test]
+async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
+    let rig = rig();
+    let gone = std::process::id().wrapping_add(1);
+    let (started, finished) = (golden_ms(), golden_ms() + 2000);
+    kept_job(
+        &rig,
+        "task-done",
+        serde_json::json!({"pid": gone, "state": "finished", "background": true, "ownerSessionId": "t", "command": "echo DONE", "cwd": "/w",
+            "startedAtMs": started, "status": "completed", "exitCode": 0, "timedOut": false, "signal": null, "error": null, "finishedAtMs": finished}),
+        "DONE\n",
+    );
+    kept_job(
+        &rig,
+        "task-live",
+        serde_json::json!({"pid": gone, "state": "running", "background": true, "ownerSessionId": "t", "command": "sleep 9", "cwd": "/w", "startedAtMs": started}),
+        "",
+    );
+    kept_job(&rig, "task-fg", serde_json::json!({"pid": gone, "state": "finished"}), "FG\n");
+    let c = ctx(&rig, "c1");
+
+    let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-done"})).await);
+    assert!(
+        read.starts_with("background task\ntask_id: task-done\nsurface: shell\nstatus: completed\nexit_code: 0\nstarted: 2026-01-02T03:04:05.678Z\nfinished: 2026-01-02T03:04:07.678Z\nrecovered: true\nlogs: "),
+        "{read}"
+    );
+    assert!(read.contains("task-done.{stdout,stderr}.log\n\n[stdout]\nDONE"), "{read}");
+    assert_eq!(
+        body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-done"})).await),
+        "Error: task already completed: task-done"
+    );
+    for action in ["read", "wait"] {
+        assert_eq!(
+            body(rig.task.call(&c, serde_json::json!({"action": action, "task_id": "task-live"})).await),
+            "Error: task state is unavailable after restart: task-live"
+        );
+    }
+    assert_eq!(
+        body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-live"})).await),
+        "Error: task process control is unavailable after restart: task-live"
+    );
+    assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-fg"})).await), "Error: task not found: task-fg");
+    let mut other = ctx(&rig, "c2");
+    other.thread_id = ThreadId::from("other");
+    assert_eq!(
+        body(rig.task.call(&other, serde_json::json!({"action": "read", "task_id": "task-done"})).await),
+        "Error: task not found: task-done"
+    );
+    assert_eq!(
+        body(rig.task.call(&c, serde_json::json!({"action": "list"})).await),
+        "background tasks: 0\n[recovered shell tasks]\n- task-done shell completed recovered=true command=\"echo DONE\"\n- task-live shell state-unavailable recovered=true command=\"sleep 9\""
+    );
+
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let owner = ThreadId::from("t");
+    assert_eq!(
+        control.stop_job(&owner, "task-done").await,
+        serde_json::json!({ "stopped": false, "finished": true, "error": "task already completed: task-done" })
+    );
+    assert_eq!(
+        control.stop_job(&owner, "task-live").await,
+        serde_json::json!({ "stopped": false, "error": "task process control is unavailable after restart: task-live" })
+    );
+}
+
+/// Every completion the owner's default delivery took, with its text.
+#[derive(Default)]
+struct Told(std::sync::Mutex<Vec<(String, String, String)>>);
+
+#[async_trait]
+impl TaskNotifier for Told {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}"), notification));
+    }
+}
+
+/// `reconcileRecoveredShellJobCompletions`: a background job whose record a process that is gone left running ends as
+/// failed, its record says so, and its owner is told once with the output its log kept; a job a live process runs and
+/// one that ended stay as they are.
+#[tokio::test]
+async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_owner_is_told() {
+    let told = Arc::new(Told::default());
+    let rig = rig_full(Arc::new(OsPromptElevation), Some(told.clone()));
+    let (gone, live) = (std::process::id().wrapping_add(1), std::process::id().wrapping_add(2));
+    let running = |pid: u32, command: &str| {
+        serde_json::json!({"pid": pid, "state": "running", "background": true, "ownerSessionId": "t", "command": command, "cwd": "/w", "startedAtMs": golden_ms()})
+    };
+    kept_job(&rig, "task-lost", running(gone, "ping -n 300 host"), "Reply from host\n");
+    kept_job(&rig, "task-elsewhere", running(live, "sleep 9"), "");
+    kept_job(&rig, "task-fg", serde_json::json!({"pid": gone, "state": "running"}), "");
+    let alive = |pid: u32| pid == live;
+
+    rig.runtime.reconcile_lost_jobs(&alive).await;
+    let notices = told.0.lock().unwrap().clone();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    let (owner, what, text) = &notices[0];
+    assert_eq!((owner.as_str(), what.as_str()), ("t", "shell/task-lost/failed"));
+    assert!(text.starts_with("<task-notification>\n<task-id>task-lost</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit n/a): ping -n 300 host</summary>"), "{text}");
+    assert!(text.contains("[stdout]\nReply from host"), "{text}");
+    assert!(
+        text.ends_with("<error>daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.</error>\n</task-notification>"),
+        "{text}"
+    );
+    let read = body(rig.task.call(&ctx(&rig, "c1"), serde_json::json!({"action": "read", "task_id": "task-lost"})).await);
+    assert!(read.contains("\nstatus: failed\n") && read.contains("\nerror: daemon restarted while this shell task was running;") && read.contains("\nrecovered: true\n"), "{read}");
+    assert_eq!(
+        body(rig.task.call(&ctx(&rig, "c2"), serde_json::json!({"action": "read", "task_id": "task-elsewhere"})).await),
+        "Error: task state is unavailable after restart: task-elsewhere"
+    );
+
+    rig.runtime.reconcile_lost_jobs(&alive).await;
+    assert_eq!(told.0.lock().unwrap().len(), 1, "an ended job is told once");
 }
 
 mod node_cases;

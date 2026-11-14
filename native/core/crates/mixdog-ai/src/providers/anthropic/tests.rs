@@ -525,6 +525,37 @@ fn unknown_model_gets_no_thinking_and_the_floor_max_tokens() {
     assert!(body.get("thinking").is_none());
 }
 
+/// Server-side fallback and fast speed are decided from Claude ids, first-party knowledge a custom endpoint never gets
+/// (`buildAnthropicApiRequest`: `applyAnthropicServerFallback` `enabled: !isCustom`, `!isCustom && opts.fast`): the same
+/// fast request of `claude-opus-5` carries `fallbacks` and `speed` with their betas on the engine's own route, and
+/// neither on a custom endpoint (provider-custom-reasoning `anthropic-custom-vs-first-party-isolated`, case `custom`).
+#[test]
+fn a_custom_endpoint_gets_no_server_fallback_or_fast_speed() {
+    let sent = |custom: bool| {
+        let mut config = AnthropicConfig::new(Arc::new(|_: &str| Some(ModelCaps { fast_mode: true, ..sonnet_caps() })));
+        config.base_url = "http://127.0.0.1:1".to_owned();
+        config.fast_mode = Arc::new(super::fast_mode::FastMode::new());
+        config.custom_endpoint = custom;
+        let mut req = request(base_messages(), RequestOptions { fast: true, ..RequestOptions::default() });
+        req.model = "claude-opus-5".into();
+        let wire = AnthropicCodec::new(Flavor::ApiKey, config).encode(&req).expect("encode");
+        let body: Value = serde_json::from_slice(&wire.body).expect("json");
+        let betas = wire
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default();
+        (body, betas)
+    };
+    let (body, betas) = sent(false);
+    assert_eq!((&body["fallbacks"], &body["speed"]), (&json!("default"), &json!("fast")), "{body}");
+    assert!(betas.contains("server-side-fallback-2026-07-01") && betas.contains("fast-mode-2026-02-01"), "{betas}");
+    let (body, betas) = sent(true);
+    assert!(body.get("fallbacks").is_none() && body.get("speed").is_none(), "{body}");
+    assert!(!betas.contains("server-side-fallback") && !betas.contains("fast-mode"), "{betas}");
+}
+
 #[test]
 fn manual_budget_on_an_adaptive_only_model_is_a_local_error() {
     let options = RequestOptions {

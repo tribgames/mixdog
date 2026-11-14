@@ -513,8 +513,9 @@ impl Inner {
         let mut exited: Vec<(u64, ProcessHandle)> = table
             .iter()
             .filter_map(|(handle, slot)| match slot {
-                // A process whose descendants still run stays: dropping it would end them.
-                Slot::Live(proc) if proc.exit.get().is_some() && !proc.containment.occupied() => {
+                // A process whose descendants still run stays: dropping it would end them. One whose descendants have
+                // gone since its exit lets its job go now.
+                Slot::Live(proc) if proc.exit.get().is_some() && proc.containment.release_if_empty() => {
                     Some((proc.exit_order.load(Ordering::Acquire), handle.clone()))
                 }
                 _ => None,
@@ -991,6 +992,8 @@ fn wait_and_finish(
     let _ = proc.exit.set(exit);
     // The slot is free before the exit is announced, so a caller that saw the exit can spawn.
     inner.live.fetch_sub(1, Ordering::AcqRel);
+    // The record is kept for replay and `list`, its emptied job is not (Node keeps nothing of a child after its exit).
+    proc.containment.release_if_empty();
     proc.feed.push_exit(exit);
 }
 

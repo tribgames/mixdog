@@ -254,6 +254,14 @@ impl ThreadRequests for SessionDirectory {
 
 /// A request to a thread through the directory: the thread's actor answers it, the thread opened for it when it is not loaded.
 pub(super) async fn directory_request(directory: &SessionDirectory, thread: &ThreadId, request: CoreRequest) -> Result<Value, CoreError> {
+    // A transcript page (`service.readSession({ transcriptRange })` of `session action=read`) is the directory's own read
+    // (`reads::serve_read`), answered from the store whether the thread is loaded or not; the thread's actor refuses it.
+    if request.method.as_str() == "thread/items/list" {
+        return match mixdog_core_api::ThreadDirectory::request(directory, request).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(_) => Ok(Value::Null),
+        };
+    }
     let handle = directory.open_handle(thread, &request.ctx).await?;
     match handle.request(request).await? {
         Reply::Value(value) => Ok(value),

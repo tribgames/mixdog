@@ -173,6 +173,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
     // The text of a Computer Use screen capture reply: the model reads it as the tool's result.
     (Kind::Answer, "host/computer/capture", &["/text"]),
+    // What a human-only hold is for: the model reads it in Computer Use's refusal.
+    (Kind::Request, "host/humanOnly/begin", &["/label"]),
     // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
     // labels, titles and other prose, forwarded as Node forwards them (a code action's diagnostic message included). A rename's
     // new name, a symbol query, a command, a URI, a token, a diagnostic's code, a vocabulary word and a server's own `data`
@@ -228,7 +230,7 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     // A patch's text (file content), given to `git apply`.
     (Kind::Request, "git/applyPatch", &["/patch"]),
     // Values a person types into a form: a workflow's inputs (a JSON body), a provider's extra body fields (their size is
-    // measured as Node measures it, mixdog-core-domains ai_account/custom_config.rs `normalize_request_body`) and header
+    // measured as Node measures it, mixdog-ai providers/custom/config.rs `normalize_request_body`) and header
     // values, which the provider check refuses outside Latin-1 with Node's message (`normalize_headers`); a probed server's
     // header values, which the probe never sends (any header is configured authentication). Recorded,
     // native/core/fixtures/lone-surrogate-wire.

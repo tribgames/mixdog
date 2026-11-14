@@ -197,7 +197,7 @@ mod slash_tests {
 }
 
 /// `promptContentText`.
-fn content_text(content: &Value) -> String {
+pub(crate) fn content_text(content: &Value) -> String {
     match content {
         Value::String(text) => text.clone(),
         Value::Array(parts) => parts

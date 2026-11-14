@@ -24,6 +24,11 @@ pub trait RouteCell: LiveRoute {
     fn set_route_state(&self, thread: &ThreadId, route: Route);
     /// Advanced by every [`Self::set_route_state`].
     fn route_generation(&self, thread: &ThreadId) -> u64;
+    /// The route the thread's runtime boots on, `resolveRoute(getConfig(), request)`: the one its creator passed
+    /// (`resolveInitialConfigState`) or its resumed session holds (`setRoute(resumedRoute)`, `resume.mjs`). It is no
+    /// `setRouteState`: the generation stays, and a route set on the thread in this process stands. A request the config
+    /// does not resolve leaves the route as it is.
+    fn boot(&self, thread: &ThreadId, request: &Route);
 }
 
 /// `refreshStatuslineUsageSnapshot(route)`: the usage service's reading for the statusline.
@@ -50,6 +55,8 @@ pub trait RouteWriter: Send + Sync {
         lease: Option<u64>,
     ) -> Result<Option<Route>, PortError>;
     fn refresh_statusline_usage(&self, thread: &ThreadId, route: &Route);
+    /// [`RouteCell::boot`] of the thread's route cell; a writer over no cell boots nothing.
+    fn boot(&self, _thread: &ThreadId, _request: &Route) {}
 }
 
 /// [`RouteWriter`] over the session's route cell, the config, and the catalog.
@@ -70,6 +77,10 @@ impl RouteWriter for LiveRouteWriter {
 
     fn set_route_state(&self, thread: &ThreadId, route: Route) {
         self.cell.set_route_state(thread, route);
+    }
+
+    fn boot(&self, thread: &ThreadId, request: &Route) {
+        self.cell.boot(thread, request);
     }
 
     fn generation(&self, thread: &ThreadId) -> u64 {

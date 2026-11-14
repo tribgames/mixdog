@@ -70,8 +70,8 @@ pub trait AttachmentText {
 }
 
 /// No blob is readable: chips without a stored count show as `[Pasted text #n]` and offloaded
-/// text stays out, as for a blob that is gone. Live Rust-core prompts never need a read: their
-/// pastes name their line count and their text stays in the body.
+/// text stays out, as for a blob that is gone. A queued prompt's row is drawn so: the pastes the
+/// `turn/start` intake stored show without their line count.
 pub struct NoAttachments;
 
 impl AttachmentText for NoAttachments {

@@ -33,6 +33,8 @@ fn env(tools: ToolSet) -> CallEnv {
         guards: Arc::new(crate::env::NoGuards),
         mcp: None,
         prepared: false,
+        native_pdf: false,
+        sees_images: false,
         live_cwd: None,
         clock: Arc::new(Epoch),
         tool_env: ToolEnv {

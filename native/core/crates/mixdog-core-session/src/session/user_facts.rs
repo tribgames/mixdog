@@ -1,18 +1,24 @@
 //! The typed facts of a row as the live writer stores them: the one classification the
 //! migration also writes (`mixdog_protocol::message_class::row_facts`), so a live row and a
-//! migrated row of one message are identical.
-
-use std::path::Path;
-use std::path::PathBuf;
+//! migrated row of one message are identical. One exception: the live writer also lists a Goal
+//! entry's prompt (`start_run_read`), which the migration leaves unlisted.
 
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 
+// `MAX_ATTACHMENT_BLOB_BYTES` (`attachments/limits.mjs`).
+use mixdog_protocol::MAX_BLOB_BYTES;
 pub use mixdog_protocol::message_class::RowFacts;
 use mixdog_protocol::message_class::row_facts;
 use mixdog_protocol::message_class::user_text::Blobs;
-use mixdog_protocol::message_class::user_text::ReadError;
 use mixdog_protocol::message_class::user_text::UserText;
+use mixdog_store::blobs::BlobError as StoreError;
+use mixdog_store::blobs::BlobStore;
+use mixdog_store::blobs::LaneBlobs;
+use mixdog_store::blobs::digest_of;
+use mixdog_store::blobs::digest_of_reference;
+use mixdog_store::blobs::hex;
+use mixdog_store::fsio::Access;
 use serde_json::Value;
 
 /// The facts of a message the writer stores (`meta.taskCard` / `meta.turnEnd` go into
@@ -21,74 +27,73 @@ pub fn user_facts(body: &mut Value, blobs: &dyn Blobs) -> RowFacts {
     row_facts(body, &mut UserText::new(blobs)).unwrap_or(RowFacts { visible: true, prompt: None })
 }
 
-/// The prompt-attachment store (`<data>/prompt-attachments/sha256/<ab>/<hex>`) under the data
-/// dir. Its reads run in an interactive-io lane job: [`Self::facts`] takes the lane.
-#[derive(Clone, Debug)]
-pub struct AttachmentStore(pub PathBuf);
+/// The prompt-attachment store over the process's [`BlobStore`] (`<data>/prompt-attachments/sha256/<ab>/<hex>`): the blob
+/// store's layout, publication and verified reads, with the intake's refusals and Node's error classes. Every call runs in an
+/// interactive-io lane job and takes the lane.
+#[derive(Clone)]
+pub struct AttachmentStore(pub BlobStore);
+
+/// A failed read of the blob store as Node classes it: a system error may pass (the OS's message), anything else (gone, too
+/// large, failed integrity) never becomes readable.
+fn read_failure(error: StoreError) -> BlobError {
+    match error {
+        StoreError::Io(error) => BlobError::Transient(error.source.to_string()),
+        StoreError::ItemTooLarge { .. } | StoreError::Missing { .. } | StoreError::Corrupt { .. } => BlobError::Permanent,
+    }
+}
 
 impl AttachmentStore {
     /// `saveBuffer(bytes)` (`attachments/store.mjs:135-185`): keeps `bytes` at their content address and answers the reference.
     /// Empty bytes and bytes over `MAX_ATTACHMENT_BLOB_BYTES` are refused with Node's sentences (`store.mjs:137,139`), so intake
     /// refuses what restore could never read. An existing blob is reused only when it is these bytes (`store.mjs:146-160`); a
-    /// truncated or foreign one is replaced. The blob is published whole and durable (`writeFileAtomicSync`, `store.mjs:168`).
-    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
-    pub fn write_blob(&self, _lane: &InLane<InteractiveIo>, bytes: &[u8]) -> Result<String, BlobError> {
-        use sha2::Digest;
+    /// truncated, foreign or unreadable one is replaced. The blob is published whole, durable and owner-only (`writeFileAtomicSync`,
+    /// `store.mjs:168`).
+    pub fn write_blob(&self, lane: &InLane<InteractiveIo>, bytes: &[u8]) -> Result<String, BlobError> {
         if bytes.is_empty() {
             return Err(BlobError::Invalid("prompt attachment is empty".into()));
         }
-        if bytes.len() as u64 > MAX_ATTACHMENT_BLOB_BYTES {
+        if bytes.len() as u64 > MAX_BLOB_BYTES {
             return Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into()));
         }
-        let reference = format!("{:x}", sha2::Sha256::digest(bytes));
-        let path = self.0.join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
-        let stored_matches = || std::fs::read(&path).is_ok_and(|current| current.len() == bytes.len() && format!("{:x}", sha2::Sha256::digest(&current)) == reference);
-        if stored_matches() {
-            return Ok(reference);
+        match self.0.put_with(lane, bytes, Access::OwnerOnly) {
+            Ok(pin) => Ok(hex(pin.digest()).to_owned()),
+            // A concurrent writer may have published the same content first (`store.mjs:170`).
+            Err(error) => {
+                let digest = digest_of(bytes);
+                match self.0.read(lane, &digest) {
+                    Ok(_) => Ok(hex(&digest).to_owned()),
+                    Err(_) => Err(BlobError::Transient(error.to_string())),
+                }
+            }
         }
-        // A concurrent writer may have published the same content first (`store.mjs:170`).
-        if let Err(error) = mixdog_store::fsio::publish_file_with(&path, bytes, mixdog_store::fsio::Access::OwnerOnly)
-            && !stored_matches()
-        {
-            return Err(BlobError::Transient(error.to_string()));
-        }
-        Ok(reference)
     }
 
-    /// [`user_facts`] of `body`, reading the store on `lane`.
+    /// `attachmentBlobSize`'s `statSync(attachmentPath(ref)).size` (`attachments/store.mjs:410-417`), read on `lane`: the size
+    /// of the file at the reference's address, `None` when there is none (ENOENT); any other failure may pass.
+    pub fn blob_len(&self, lane: &InLane<InteractiveIo>, reference: &str) -> Result<Option<u64>, BlobError> {
+        let digest = digest_of_reference(reference).ok_or_else(|| BlobError::Invalid("prompt attachment reference is invalid".into()))?;
+        self.0.len(lane, &digest).map_err(read_failure)
+    }
+
+    /// [`user_facts`] of `body`, reading the store on `lane` ([`LaneBlobs`], `readAttachmentTextWithin`).
     pub fn facts(&self, lane: &InLane<InteractiveIo>, body: &mut Value) -> RowFacts {
-        user_facts(body, &LaneBlobs { root: &self.0, _lane: lane })
+        user_facts(body, &LaneBlobs { blobs: &self.0, lane })
     }
 
     /// `readAttachmentBuffer(ref)` (`attachments/store.mjs`): the blob's bytes, read on `lane`. A blob that is
     /// gone, empty, over `MAX_ATTACHMENT_BLOB_BYTES` or whose digest is not its reference will never become
     /// readable ([`BlobError::Permanent`]); any other failure may pass.
-    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
-    pub fn read_blob(&self, _lane: &InLane<InteractiveIo>, reference: &str) -> Result<Vec<u8>, BlobError> {
-        use sha2::Digest;
-        let reference_ok = reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-        if !reference_ok {
-            return Err(BlobError::Invalid("prompt attachment reference is invalid".into()));
+    pub fn read_blob(&self, lane: &InLane<InteractiveIo>, reference: &str) -> Result<Vec<u8>, BlobError> {
+        let digest = digest_of_reference(reference).ok_or_else(|| BlobError::Invalid("prompt attachment reference is invalid".into()))?;
+        // `statSync(path)`: anything but a file of 1 byte to the limit is invalid for good.
+        match mixdog_statefile::metadata(lane, &self.0.path(&digest)) {
+            Ok(info) if info.is_file() && info.len() > 0 && info.len() <= MAX_BLOB_BYTES => self.0.read(lane, &digest).map_err(read_failure),
+            Ok(_) => Err(BlobError::Permanent),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(BlobError::Permanent),
+            Err(error) => Err(BlobError::Transient(error.to_string())),
         }
-        let path = self.0.join("prompt-attachments/sha256").join(&reference[..2]).join(reference);
-        let info = match std::fs::metadata(&path) {
-            Ok(info) => info,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(BlobError::Permanent),
-            Err(e) => return Err(BlobError::Transient(e.to_string())),
-        };
-        if !info.is_file() || info.len() == 0 || info.len() > MAX_ATTACHMENT_BLOB_BYTES {
-            return Err(BlobError::Permanent);
-        }
-        let bytes = std::fs::read(&path).map_err(|e| BlobError::Transient(e.to_string()))?;
-        if format!("{:x}", sha2::Sha256::digest(&bytes)) != reference {
-            return Err(BlobError::Permanent);
-        }
-        Ok(bytes)
     }
 }
-
-/// `MAX_ATTACHMENT_BLOB_BYTES` (`attachments/limits.mjs`).
-const MAX_ATTACHMENT_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Why a blob could not be read.
 #[derive(Debug, PartialEq, Eq)]
@@ -101,32 +106,11 @@ pub enum BlobError {
     Transient(String),
 }
 
-/// The store as read inside a lane job (`_lane` is the proof).
-struct LaneBlobs<'a> {
-    root: &'a Path,
-    _lane: &'a InLane<InteractiveIo>,
-}
-
-impl Blobs for LaneBlobs<'_> {
-    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof field)")]
-    fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
-        let Some(shard) = hex.get(..2) else {
-            return Err(ReadError::Other);
-        };
-        let path = self.root.join("prompt-attachments/sha256").join(shard).join(hex);
-        match std::fs::read(path) {
-            Ok(bytes) if bytes.len() as u64 > max_bytes => Ok(None),
-            Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ReadError::Missing),
-            Err(_) => Err(ReadError::Other),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use mixdog_migrate::session::model::Row;
     use mixdog_migrate::session::restore::convert;
+    use mixdog_protocol::message_class::user_text::ReadError;
     use mixdog_store::schema::record::Form;
 
     use serde_json::json;
@@ -151,10 +135,10 @@ mod tests {
     #[tokio::test]
     async fn a_pasted_text_is_refused_at_intake_as_node_refuses_it_and_a_cut_blob_is_replaced() {
         let dir = tempfile::tempdir().unwrap();
-        let store = AttachmentStore(dir.path().to_path_buf());
+        let store = AttachmentStore(BlobStore::new(dir.path()));
         // store.mjs:137,139: refused when the prompt is taken in, never stored for restore to reject.
         assert_eq!(write(&store, Vec::new()).await, Err(BlobError::Invalid("prompt attachment is empty".into())));
-        let over = vec![b'a'; MAX_ATTACHMENT_BLOB_BYTES as usize + 1];
+        let over = vec![b'a'; MAX_BLOB_BYTES as usize + 1];
         assert_eq!(write(&store, over).await, Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into())));
         assert!(!dir.path().join("prompt-attachments").exists(), "nothing is stored for a refusal");
         // A blob a crash cut short sits at the content address: the next write of the same text replaces it (store.mjs:146-160).
@@ -167,6 +151,25 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), text);
         // Published whole: no tmp is left beside it.
         assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
+
+    /// `saveBuffer` (store.mjs:146-161): a blob at the content address that cannot be read counts as absent; it is written
+    /// again (the publish's rename replaces it), never a failure that may pass.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test setup: the blob is made unreadable, then read back")]
+    async fn an_unreadable_blob_at_the_address_is_written_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let store = AttachmentStore(BlobStore::new(dir.path()));
+        let text = b"pasted text".to_vec();
+        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
+        let path = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &text).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert_eq!(write(&store, text.clone()).await, Ok(reference));
+        assert_eq!(std::fs::read(&path).unwrap(), text);
     }
 
     #[test]

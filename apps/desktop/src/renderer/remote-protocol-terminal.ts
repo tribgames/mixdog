@@ -5,9 +5,17 @@
 // `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { foldsCaseOn, hostPlatformOf, isAbsoluteOn, needsHostDevice, pathText, requiredString, resolveOn } from '../shared/remote-arguments';
-import { terminalActivityRows, terminalEnsureRequest, terminalReply, terminalResizeRequest, terminalRunPush } from '../shared/terminal-protocol';
-import { readTerminalActivityEvent } from '../shared/terminal-activity';
-import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
+import {
+  createTerminalOutputDecoder,
+  terminalActivityChanges,
+  terminalActivityRows,
+  terminalEnsureRequest,
+  terminalReply,
+  terminalResizeRequest,
+  terminalRunPush,
+  terminalSizeOwnerChanges,
+} from '../shared/terminal-protocol';
+import type { TerminalSizeOwner } from '../shared/terminal-size-owner';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 type Client = ProtocolClient<SessionFold>;
@@ -95,41 +103,18 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
 
     // Activity and size owner are read from the held sections; the baselines follow every change, and an event goes out only
     // while the page reads the terminal lane, so the first event after the lane resumes is the one change.
-    let activity = new Map<string, unknown>();
-    let owners = new Map<string, { cols: number; rows: number; owner: string }>();
+    const activity = new Map<string, unknown>();
+    const owners = new Map<string, TerminalSizeOwner>();
     const readActivity = (): void => {
-      const next = new Map(terminalActivityRows(sectionValue(client, 'terminalActivity')).map((row) => [row.id, row.state] as const));
-      const events = [
-        ...[...next].filter(([id, state]) => activity.get(id) !== state).map(([id, state]) => ({ id, state })),
-        ...[...activity.keys()].filter((id) => !next.has(id)).map((id) => ({ id, state: null })),
-      ];
-      activity = next;
+      const events = terminalActivityChanges(activity, sectionValue(client, 'terminalActivity'));
       if (!laneInUse()) return;
-      for (const event of events) {
-        const checked = readTerminalActivityEvent(event);
-        if (checked) ctx.fanOut(ctx.termActivityListeners, checked);
-      }
+      for (const event of events) ctx.fanOut(ctx.termActivityListeners, event);
     };
     // The lane carries every tab's output framed as Node's relay lane sent it (first output at once, then 16 ms), the tabs the desktop or
     // another phone opens included, from their first output (remote-relay-push-lanes.ts:85-100).
     host.declareLane(TERMINAL_LANE, [LANE_FEED]);
     const readTabs = (): void => {
-      const tabs = Array.isArray(sectionValue(client, 'terminalTabs')) ? (sectionValue(client, 'terminalTabs') as Record<string, any>[]) : [];
-      const next = new Map<string, { cols: number; rows: number; owner: string }>();
-      for (const tab of tabs) if (tab.sizeOwner) next.set(String(tab.id), tab.sizeOwner);
-      const listed = new Set(tabs.map((tab) => String(tab.id)));
-      // A released claim on a tab that is still there pushes a zero size; a disposed tab pushes nothing, as Node's dispose clears its
-      // claims and leases without a `termSizeOwner` (forgetSizeClaims).
-      const events: TerminalSizeOwnerEvent[] = [
-        ...[...next]
-          .filter(([id, owner]) => {
-            const before = owners.get(id);
-            return !before || before.cols !== owner.cols || before.rows !== owner.rows || before.owner !== owner.owner;
-          })
-          .map(([id, owner]) => ({ id, cols: owner.cols, rows: owner.rows, own: owner.owner !== '' && owner.owner === connection })),
-        ...[...owners.keys()].filter((id) => !next.has(id) && listed.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
-      ];
-      owners = next;
+      const events = terminalSizeOwnerChanges(owners, sectionValue(client, 'terminalTabs'), connection);
       if (!laneInUse()) return;
       for (const event of events) ctx.fanOut(ctx.termSizeOwnerListeners, event);
     };
@@ -142,25 +127,17 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     readActivity();
     readTabs();
 
-    const decoders = new Map<string, TextDecoder>();
+    const output = createTerminalOutputDecoder();
     const watchDirs = (): Map<string, string> => new Map([...(watches.get(ctx) ?? [])].map(([, watch]) => [watch.watchId, watch.dir]));
     const ranRequests = new Set<string>();
     const offEvents = client.on((event) => {
       if (event.type !== 'notification') return;
       const { method, params, feed } = event.notification as { method: string; params?: any; feed?: { id: string } };
       if (method === 'process/outputDelta' && feed?.id === LANE_FEED) {
-        const id = String(params?.processHandle ?? '');
-        let decoder = decoders.get(id);
-        if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
-        // A frame Node cut inside a surrogate pair carries the lone units at its edges (the core's bytes cannot hold half a character).
-        const unit = (value: unknown): string => (typeof value === 'number' ? String.fromCharCode(value) : '');
-        const data =
-          unit(params?.leadUnit) +
-          decoder.decode(Uint8Array.from(atob(String(params?.bytesB64 ?? '')), (c) => c.charCodeAt(0)), { stream: true }) +
-          unit(params?.tailUnit);
+        const { id, data } = output.text(params);
         if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
       } else if (method === 'process/exited' && feed?.id === LANE_FEED) {
-        decoders.delete(String(params?.processHandle ?? ''));
+        output.end(String(params?.processHandle ?? ''));
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);

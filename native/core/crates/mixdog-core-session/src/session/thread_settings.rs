@@ -815,7 +815,8 @@ impl ThreadSettings {
 
     /// `setToolMode(mode)`: the normalized mode, which the thread keeps (`toolMode`, Node's
     /// `rt.mode`, read by the tool status). An empty, idle session also takes the mode's tool
-    /// spec (`refreshEmptySessionToolPolicy`); a conversation keeps its tool surface.
+    /// spec (`refreshEmptySessionToolPolicy`); a conversation keeps its tool surface, and the `toolMode` it now
+    /// carries refuses its mutation tools when they are called (`SessionSurface::deferred_call_refusal`).
     async fn set_tool_mode(&self, thread: &ThreadId, mode: &str) -> Result<Value, CoreError> {
         let mode = normalize_tool_mode(mode);
         let handle = self.open(thread).await?;

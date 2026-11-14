@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use mixdog_graph::tokens;
+use crate::tokens;
 
 use super::paths::{
     dirname_str, file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir,

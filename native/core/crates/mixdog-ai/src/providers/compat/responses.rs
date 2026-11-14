@@ -42,7 +42,7 @@ use mixdog_js::json_number as js_number;
 
 /// A cache identity as a `prompt_cache_key`: kept up to the 64-unit wire
 /// limit, a bounded hash beyond it (`normalizeCacheKey`).
-fn normalize_cache_key(value: &str) -> String {
+pub(crate) fn normalize_cache_key(value: &str) -> String {
     let text = mixdog_js::js_trim(value);
     if text.encode_utf16().count() <= 64 {
         return text.to_owned();

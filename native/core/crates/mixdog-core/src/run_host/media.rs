@@ -34,7 +34,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 // The kinds of a file and their classification are the provider builders': one function for both sides.
-pub use mixdog_ai::providers::file_text::{base64_byte_length, inline_file_kind, FileKind};
+pub use mixdog_ai::providers::file_text::{base64_byte_length, inline_file_kind, FileKind, MAX_PDF_BYTES};
 
 /// What the attachment store recorded about a stored attachment (Node keeps these on the part).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -56,10 +56,17 @@ pub struct StoredFacts {
 #[async_trait]
 pub trait AttachmentFacts: Send + Sync {
     async fn facts(&self, reference: &str) -> Option<StoredFacts>;
+
+    /// The page and text-layer counts of an inline PDF, which Node's read tool records on the document block it answers
+    /// with (`extractPdfText`: `inspectPdfBuffer` with `measureText`): `data` is its base64 and `key` names it as a
+    /// reference names a blob (the payload's hash). `None` when nothing counts it.
+    async fn inline_pdf_facts(&self, key: &str, data: &str) -> Option<StoredFacts> {
+        let _ = (key, data);
+        None
+    }
 }
 
-/// MAX_PDF_BYTES / MAX_PDF_PAGES of ttachments/limits.mjs.
-pub const MAX_PDF_BYTES: u64 = 20 * 1024 * 1024;
+/// MAX_PDF_PAGES of attachments/limits.mjs (its MAX_PDF_BYTES is the one re-exported above).
 pub const MAX_PDF_PAGES: u64 = 100;
 
 /// PDF intake (preparePromptSubmissionForProvider, ttachments/store.mjs): the text-layer counts
@@ -123,7 +130,8 @@ struct Memo {
     resolved: HashMap<String, Resolved>,
     office: HashMap<String, Option<String>>,
     pdf: HashMap<String, String>,
-    /// What the store recorded of each reference read so far (`None`: nothing recorded).
+    /// What the store recorded of each reference read so far, and the counts of each inline PDF by its payload's hash
+    /// (`None`: nothing recorded).
     facts: HashMap<String, Option<StoredFacts>>,
     /// Each stored text attachment's part as its row holds it: a gone blob prices as the stored part's JSON
     /// (`rawJsonFallbackFromPart` stringifies the part itself, `sizeBytes` and all).
@@ -341,12 +349,16 @@ impl MediaLowering {
         })
     }
 
-    /// Reads the store's facts of `reference` into the memo, once.
-    async fn prime(&self, reference: &str) {
+    /// Reads the store's facts of `reference` into the memo, once; with `inline` (an inline PDF's payload, `reference`
+    /// its hash), the counts of that PDF.
+    async fn prime(&self, reference: &str, inline: Option<&str>) {
         if self.memo().facts.contains_key(reference) {
             return;
         }
-        let facts = self.facts.facts(reference).await;
+        let facts = match inline {
+            Some(data) => self.facts.inline_pdf_facts(reference, data).await,
+            None => self.facts.facts(reference).await,
+        };
         let mut memo = self.memo();
         if memo.facts.len() > OFFICE_CACHE_CAP {
             memo.facts.clear();
@@ -354,7 +366,7 @@ impl MediaLowering {
         memo.facts.insert(reference.to_owned(), facts);
     }
 
-    /// The memoized facts of a primed reference; `None` when nothing is recorded or it was not primed.
+    /// The memoized facts of a primed reference or inline PDF; `None` when nothing is recorded or it was not primed.
     fn stored_facts(&self, reference: &str) -> Option<StoredFacts> {
         self.memo().facts.get(reference).copied().flatten()
     }
@@ -370,7 +382,7 @@ impl MediaLowering {
             let Content::Parts(parts) = &message.content else { continue };
             for part in parts {
                 if let Some(reference) = is_image_ref(part).or_else(|| is_pdf_ref(part)) {
-                    self.prime(reference).await;
+                    self.prime(reference, None).await;
                 }
                 self.resolve(part).await?;
                 if let Lookup::Info(file) = self.lookup(part) {
@@ -529,15 +541,28 @@ fn is_pdf_ref(part: &ContentPart) -> Option<&str> {
     }
 }
 
+/// The base64 payload of an inline PDF: a file or document part that carries the PDF's bytes, which `fileInfo` would
+/// label `application/pdf`. Borrowed, so the meter's prepare copies no payload to find the PDFs it counts.
+fn inline_pdf_payload(part: &ContentPart) -> Option<&str> {
+    let (data, mime_type) = match part {
+        ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, .. } => (data, media_type),
+        ContentPart::File { source: BinarySource::Base64(data), mime_type, text: None, .. } => (data, mime_type),
+        _ => return None,
+    };
+    (!data.is_empty() && inline_file_kind(&mime_of(mime_type), data, "") == FileKind::Pdf).then_some(data.as_str())
+}
+
 #[async_trait]
 impl MediaMeter for MediaLowering {
-    /// Reads the facts of every stored image or PDF the messages carry into the memo.
+    /// Reads the facts of every stored image or PDF the messages carry into the memo, and the counts of every inline PDF.
     async fn prepare(&self, messages: &[AgentMessage]) -> Result<(), String> {
         let mut references: Vec<String> = Vec::new();
+        let mut inline: Vec<&str> = Vec::new();
         let mut texts: Vec<&ContentPart> = Vec::new();
         for message in messages {
             if let Content::Parts(parts) = &message.message.content {
                 references.extend(parts.iter().filter_map(|part| is_image_ref(part).or_else(|| is_pdf_ref(part))).map(str::to_owned));
+                inline.extend(parts.iter().filter_map(inline_pdf_payload));
                 texts.extend(parts.iter().filter(|part| stored_text_ref(part).is_some()));
                 // The row's parts, one per typed part (`message_of` reads them in order), envelope or not.
                 let content = message.stored.as_ref().and_then(|row| row.get("content"));
@@ -550,7 +575,11 @@ impl MediaMeter for MediaLowering {
             }
         }
         for reference in references {
-            self.prime(&reference).await;
+            self.prime(&reference, None).await;
+        }
+        // One payload hashed at a time, under the key `lookup` gives the part.
+        for data in inline {
+            self.prime(&sha256_hex(data), Some(data)).await;
         }
         for reference in texts.into_iter().filter_map(stored_text_ref) {
             self.resolve_ref(reference).await?;
@@ -591,7 +620,11 @@ impl MediaMeter for MediaLowering {
                     Lookup::Info(file) => {
                         let kind = inline_file_kind(&file.mime, &file.data, &file.filename);
                         match kind {
-                            FileKind::Pdf => PartMeter { text: String::new(), tokens: pdf_allowance(base64_byte_length(&file.data), None, None, true) },
+                            // `pdfDescriptor`: an inline PDF's counts ride on Node's part; here they are its payload's, primed.
+                            FileKind::Pdf => {
+                                let f = self.stored_facts(&file.key).unwrap_or_default();
+                                PartMeter { text: String::new(), tokens: pdf_allowance(base64_byte_length(&file.data), f.page_count, f.text_chars, true) }
+                            }
                             _ => PartMeter { text: self.text_form(part).ok().flatten().unwrap_or_default(), tokens: 0 },
                         }
                     }
@@ -736,6 +769,11 @@ mod tests {
                 _ => None,
             }
         }
+
+        /// The read tool's short PDF counts 3 pages and 4 001 characters of text layer; any other payload is not counted.
+        async fn inline_pdf_facts(&self, _: &str, data: &str) -> Option<StoredFacts> {
+            (data == b64("%PDF-1.7 read")).then(|| StoredFacts { size_bytes: 13, page_count: Some(3), text_pages: Some(2), text_chars: Some(4_001), ..Default::default() })
+        }
     }
 
     /// An inline image is priced by the size its tool reported (`imageDescriptorAllowance`), the flat allowance when it reported none.
@@ -821,6 +859,20 @@ mod tests {
         assert_eq!(l.count(&content(reference("scan", "application/pdf", None)), true), 1);
         assert_eq!(pdf_allowance(5_000_000, Some(500), None, true), 300_000);
         assert_eq!(pdf_allowance(5_000_000, Some(500), None, false), 65_536);
+    }
+
+    /// An inline PDF (the read tool's document) is priced with its payload's page and text-layer counts once the meter
+    /// is prepared, as `pdfDescriptor` prices Node's part with the counts the read recorded on it; before that, or when
+    /// nothing counts the payload, by its size.
+    #[tokio::test]
+    async fn an_inline_pdf_is_priced_from_its_counts() {
+        let l = lowering(false);
+        let (read, other) = (file("%PDF-1.7 read", "application/pdf", None), file("%PDF-1.7 other", "application/pdf", None));
+        assert_eq!(l.part(&read).tokens, 1_500);
+        l.prepare(&[AgentMessage::new(Message::new(Role::Tool, Content::Parts(vec![read.clone(), other.clone()])))]).await.unwrap();
+        // 3 pages with 4 001 chars: 3*1568 + 2001; the payload nothing counts keeps the size floor.
+        assert_eq!(l.part(&read).tokens, 3 * 1_568 + 2_001);
+        assert_eq!(l.part(&other).tokens, 1_500);
     }
 
     #[tokio::test]

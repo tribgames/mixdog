@@ -18,6 +18,7 @@ use mixdog_core_api::domain::approval::ApprovalGate;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ImageSource;
@@ -615,6 +616,10 @@ pub(crate) struct CallEnv {
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
     /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
     pub(crate) prepared: bool,
+    /// The run's provider takes a PDF as a native document block (`providerNativePdf`), which a call carries to `read`.
+    pub(crate) native_pdf: bool,
+    /// The run's model sees images (`pdfReadModes`' `seesImages`), which a call carries to `read`.
+    pub(crate) sees_images: bool,
 }
 
 impl CallEnv {
@@ -643,6 +648,17 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
                     ImageData::Blob(digest) => ImageSource::FileId(digest.as_str().to_owned()),
                 };
                 rendered.push(ContentPart::Image(source));
+            }
+            // The inline file part Node's `fileInfo` reads as it reads a document block: lowered to the same provider
+            // block, and stored with its bytes.
+            ToolPart::Document { mime, data } => {
+                text_only = false;
+                rendered.push(ContentPart::File {
+                    source: BinarySource::Base64(base64::engine::general_purpose::STANDARD.encode(data)),
+                    mime_type: mime,
+                    filename: None,
+                    text: None,
+                });
             }
         }
     }
@@ -728,6 +744,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
         hooked(
             &env.cancel,
             hooks.after_failure(
+                &call.id,
                 &GateCall::new(call.name.clone(), call.arguments.clone()).at(cwd.as_path()),
                 &executed.message.text(),
             ),
@@ -897,7 +914,7 @@ pub async fn run_nested(
     match outcome {
         Ok(mut output) => {
             if let (Some(hooks), Content::Text(visible)) = (&pipeline.hooks, render_output(output.parts.clone()))
-                && let Some(Some(updated)) = hooked(&ctx.cancel, hooks.after_tool(&hook_call, &visible)).await
+                && let Some(Some(updated)) = hooked(&ctx.cancel, hooks.after_tool(ctx.call_id.as_str(), &hook_call, &visible)).await
             {
                 output.parts = vec![ToolPart::Text(updated)];
             }
@@ -905,7 +922,7 @@ pub async fn run_nested(
         }
         Err(error) => {
             if let Some(hooks) = &pipeline.hooks {
-                hooked(&ctx.cancel, hooks.after_failure(&hook_call, &error.message_for_model)).await;
+                hooked(&ctx.cancel, hooks.after_failure(ctx.call_id.as_str(), &hook_call, &error.message_for_model)).await;
             }
             Err(error)
         }
@@ -966,15 +983,15 @@ fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
 }
 
 /// What a read-only I/O call that settled inside the grace after its deadline gives back (`read-only-deadline.mjs:99-107`): a result
-/// with text, that text and the deadline notice (`withReadOnlyIoDeadlineNotice`); a structured result (one with an image) as it is;
-/// an empty result or a failure, the timeout.
+/// with text, that text and the deadline notice (`withReadOnlyIoDeadlineNotice`); a structured result (one with an image or a
+/// document) as it is; an empty result or a failure, the timeout.
 fn graced(outcome: ToolOutcome, name: &str, timeout: Option<Duration>) -> ToolOutcome {
     let mut output = outcome.map_err(|_| read_only_io_timeout(name, timeout))?;
-    if output.parts.iter().any(|part| matches!(part, ToolPart::Image { .. })) {
+    if output.parts.iter().any(|part| matches!(part, ToolPart::Image { .. } | ToolPart::Document { .. })) {
         return Ok(output);
     }
     let Content::Text(text) = render_output(std::mem::take(&mut output.parts)) else {
-        unreachable!("a result without images renders as text");
+        unreachable!("a result without images or documents renders as text");
     };
     if text.is_empty() {
         return Err(read_only_io_timeout(name, timeout));
@@ -1080,7 +1097,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         let text = crate::text::unknown_tool_message(&target.name, &names);
         // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
         let updated = match &env.hooks {
-            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() }, &text)).await.flatten(),
+            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&call.id, &GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() }, &text)).await.flatten(),
             None => None,
         };
         return Executed::returned(&call.id, updated.unwrap_or(text));
@@ -1109,6 +1126,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             offered_tools: (spec.name == "shell").then(|| {
                 Arc::new(mixdog_tools::exec::COVERING_TOOLS.iter().filter(|name| env.tools.resolve(name).is_some()).map(|name| (*name).to_owned()).collect())
             }),
+            pdf_native_document: env.native_pdf,
+            pdf_page_images: env.sees_images,
         },
         review: env.tool_env.review.clone(),
     };
@@ -1182,6 +1201,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                 && let Some(Some(updated)) = hooked(
                     &env.cancel,
                     hooks.after_tool(
+                        &call.id,
                         &GateCall {
                             name: target.name.clone(),
                             args: target_args_for_hook,
@@ -1345,7 +1365,9 @@ impl Run {
             self.push(notice).await?;
         }
         self.settle_turn_limits(overrun).await?;
-        let elapsed_ms = u64::try_from(self.env.clock.now_ms() - tools_started_ms).unwrap_or(0);
+        let tools_ended_ms = self.env.clock.now_ms();
+        let elapsed_ms = u64::try_from(tools_ended_ms - tools_started_ms).unwrap_or(0);
+        self.last_tool_batch_ended_ms = Some(tools_ended_ms);
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));
@@ -1552,6 +1574,8 @@ mod tests {
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
             prepared: false,
+            native_pdf: false,
+            sees_images: false,
             live_cwd: None,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
@@ -1612,7 +1636,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::env::ToolHooks for Witness {
-        async fn after_tool(&self, call: &GateCall, _: &str) -> Option<String> {
+        async fn after_tool(&self, _: &str, call: &GateCall, _: &str) -> Option<String> {
             self.seen.lock().unwrap().push(("report", call.cwd.clone()));
             None
         }

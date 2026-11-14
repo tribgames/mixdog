@@ -731,3 +731,23 @@ async fn the_goal_route_serves_goal_control() {
     let cleared = value(ask("thread/goal/clear", json!({ "threadId": handle.id, "opId": "g-5" }), "g-5").await);
     assert_eq!((cleared["action"].clone(), cleared["message"].clone()), (json!("clear"), json!("Goal cleared")), "{cleared}");
 }
+
+/// The end of `createLocalSessionRuntime` (`local-session-runtime.mjs`: `refreshGoalState`, then
+/// `scheduleGoalContinuation`): a thread opened on its stored active Goal, as Goal recovery
+/// materializes it after a restart, shows the Goal and continues it with no client attached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_thread_opened_on_an_active_goal_continues_it() {
+    let rig = Rig::new();
+    let (gate, seen) = recording(&rig);
+    gate.notify_one();
+    let first = SessionDirectory::new(rig.deps());
+    let id = start_thread(&first).await.id.clone();
+    first.shutdown().await;
+    rig.goals.goal_control(&id, json!({ "action": "create", "objective": "Ship the feature" })).await.expect("create");
+
+    let second = SessionDirectory::new(rig.deps());
+    let handle = second.open_handle(&id, &CallContext::internal("goal-recovery")).await.expect("open");
+    eventually_on!(&[&handle.cell.stepped], || sources(&seen).iter().any(|source| source == "goal-continuation").then_some(())).await;
+    let goal = handle.cell.view.load_full().state.goal.clone();
+    assert_eq!(goal.as_ref().and_then(|goal| goal.get("objective")).and_then(Value::as_str), Some("Ship the feature"), "the lane shows the stored Goal: {goal:?}");
+}

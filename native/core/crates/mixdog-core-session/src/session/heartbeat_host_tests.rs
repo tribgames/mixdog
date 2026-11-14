@@ -189,8 +189,9 @@ async fn the_lead_route_is_mains_route_fields_and_none_without_a_model() {
     assert_eq!(unchosen.lead_route().await.unwrap(), None);
 }
 
-/// The hidden session is Mixy's agent-mode exec run on the Lead route; its close writes the
-/// tombstone, unloads it, and a second close or an unknown id still answers closed.
+/// The hidden session is Mixy's agent-mode exec run on the Lead route, fenced to the heartbeat
+/// tools; its close writes the tombstone, unloads it, and a second close or an unknown id still
+/// answers closed.
 #[tokio::test(start_paused = true)]
 async fn a_hidden_session_is_created_as_mixys_exec_run_and_closed_with_a_tombstone() {
     let rig = Rig::new();
@@ -213,6 +214,8 @@ async fn a_hidden_session_is_created_as_mixys_exec_run_and_closed_with_a_tombsto
         ("fast", json!(false)),
         ("autoEffort", json!(true)),
         ("modelParameters", json!({})),
+        ("toolProfile", json!("heartbeat")),
+        ("schemaAllowedTools", json!(["session", "setup", "load_tool"])),
     ] {
         assert_eq!(header.get(key), Some(&want), "{key}");
     }

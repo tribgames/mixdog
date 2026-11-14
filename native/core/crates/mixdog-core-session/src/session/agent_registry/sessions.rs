@@ -293,6 +293,7 @@ impl Sessions for AgentSessions {
         covered.push(session_id.to_owned());
         let _cancelling = self.registry.begin_cancellation(&covered);
         let thread = ThreadId::from(session_id);
+        let was_running = self.turn_in_flight(session_id);
         // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
         // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
         // forget the row and the tag can start a fresh session.
@@ -300,6 +301,10 @@ impl Sessions for AgentSessions {
             return Err(format!("agent session {session_id} could not be durably closed"));
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
+        // Only a close that stopped a running turn is a cancellation; closing a finished agent keeps its status.
+        if was_running {
+            self.registry.set_cancelled(session_id, true);
+        }
         Ok(true)
     }
 

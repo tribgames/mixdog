@@ -1,12 +1,13 @@
 //! The one listener of the agent status signals (`agent-tool.mjs` `stopStatusSources`):
 //! every source that may change what `getStatus` answers asks the owner's thread to re-read its
-//! agents (`SessionDirectory::agent_activity`, wp-session-29), which publishes `thread/agents/updated`
+//! agents (`SessionDirectory::agent_activity` for a named owner, `status_may_have_changed` for the
+//! others, wp-session-29), which publishes `thread/agents/updated`
 //! only when the lists differ. Nothing polls.
 //!
 //! Node re-reads every status scope on each signal. A background task added or finished names its
 //! owner, and only that owner re-reads; every other source (an approval wait changing, a
 //! worker-index write, a session record reloaded, a role's watchdog policy resolved) reaches every
-//! loaded owner.
+//! loaded owner. Only a named owner's idle clock starts over (`emitSessionActivityChange(id)`).
 
 use std::sync::Arc;
 
@@ -19,7 +20,10 @@ use super::compose_parts::LateDirectory;
 /// Where the signal lands: the loaded threads and their re-read.
 pub trait ActivitySink: Send + Sync {
     fn loaded(&self) -> Vec<ThreadId>;
+    /// A job of `owner` was added or finished: it re-reads, and its idle clock starts over.
     fn agent_activity(&self, owner: &str);
+    /// A source that names no session reached `thread`: it re-reads, its idle clock left as it is.
+    fn status_may_have_changed(&self, thread: &str);
 }
 
 impl ActivitySink for LateDirectory {
@@ -32,6 +36,12 @@ impl ActivitySink for LateDirectory {
     fn agent_activity(&self, owner: &str) {
         if let Some(directory) = self.directory() {
             directory.agent_activity(owner);
+        }
+    }
+
+    fn status_may_have_changed(&self, thread: &str) {
+        if let Some(directory) = self.directory() {
+            directory.status_may_have_changed(thread);
         }
     }
 }
@@ -63,7 +73,7 @@ impl AgentActivity {
     /// `onSessionApprovalWaitChange`, `onRolePolicyResolved`.
     pub fn everyone(&self) {
         for thread in self.sink.loaded() {
-            self.sink.agent_activity(thread.as_str());
+            self.sink.status_may_have_changed(thread.as_str());
         }
         self.changed.notify_one();
     }
@@ -116,15 +126,21 @@ mod tests {
         fn agent_activity(&self, owner: &str) {
             self.1.lock().unwrap().push(owner.to_owned());
         }
+
+        fn status_may_have_changed(&self, thread: &str) {
+            self.1.lock().unwrap().push(format!("{thread}?"));
+        }
     }
 
+    /// The named owner hears a job's signal (and its idle clock starts over); every loaded thread hears an unnamed one as
+    /// a status re-read alone (`x?`).
     #[test]
     fn a_named_source_reaches_its_owner_and_an_unnamed_one_every_loaded_thread() {
         let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
         let activity = AgentActivity::new(sink.clone());
         (activity.name_listener())("b");
         activity.everyone();
-        assert_eq!(*sink.1.lock().unwrap(), ["b", "a", "b"]);
+        assert_eq!(*sink.1.lock().unwrap(), ["b", "a?", "b?"]);
     }
 
     /// The session actor's sources name no owner to Node's listener: all loaded threads re-read.
@@ -135,7 +151,7 @@ mod tests {
         let activity = AgentActivity::new(sink.clone());
         activity.approval_wait("w");
         activity.session_record("w");
-        assert_eq!(*sink.1.lock().unwrap(), ["a", "b", "a", "b"]);
+        assert_eq!(*sink.1.lock().unwrap(), ["a?", "b?", "a?", "b?"]);
     }
 
     /// A worker-index write names no owner: all loaded threads re-read.
@@ -144,7 +160,7 @@ mod tests {
         let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
         let signals = AgentActivity::new(sink.clone()).signals();
         signals.worker_rows("w");
-        assert_eq!(*sink.1.lock().unwrap(), ["a", "b"]);
+        assert_eq!(*sink.1.lock().unwrap(), ["a?", "b?"]);
     }
 
     /// The pool section's wake: every kind of signal sets it, a burst is one permit, and with no signal it is not set.

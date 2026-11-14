@@ -58,6 +58,7 @@ pub use jobs::JobStatus;
 pub use jobs::WaitedSilence;
 pub use jobs::TaskNotifier;
 pub use jobs::most_significant_duration;
+pub use jobs::signal_name;
 pub use shell::ShellTool;
 pub use shell_control::ShellControl;
 pub use shell_control::StoppableJob;

@@ -139,6 +139,7 @@ mod tests {
     use mixdog_rt::LaneToken;
 
     use super::*;
+    use crate::session::worktree::worktree_tests::link_dir;
 
     /// Lays `text` at `path` (its directories made) the way the daemon writes: on the lane.
     async fn put(path: &Path, text: &str) {
@@ -183,15 +184,6 @@ mod tests {
         assert!(sight.sees(&path(&main), &path(&linked)).await.unwrap(), "a linked worktree of the repository");
         assert!(!sight.sees(&path(&main), &path(&other)).await.unwrap(), "another repository");
         assert!(!sight.sees(&path(&main), "").await.unwrap(), "no viewer folder");
-    }
-
-    /// A directory link: a junction on Windows (it needs no privilege), a symlink elsewhere.
-    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: no lane function makes a directory link")]
-    fn link_dir(target: &Path, link: &Path) {
-        #[cfg(windows)]
-        assert!(std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap().status.success());
-        #[cfg(not(windows))]
-        std::os::unix::fs::symlink(target, link).unwrap();
     }
 
     /// `workspaceSees` over spellings of one folder, with the answers Node gave for this tree

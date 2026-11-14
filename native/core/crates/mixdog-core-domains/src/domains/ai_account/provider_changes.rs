@@ -15,12 +15,16 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use mixdog_ai::admission::Admission;
 use mixdog_ai::catalog::ProviderReadiness;
+use mixdog_ai::registry::effective::EffectiveProviders;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::SecretChanges;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
 use tokio::task::JoinHandle;
+
+use crate::domains::ai_admin::provider_sync::LoadedConfig;
+use crate::domains::ai_admin::provider_sync::reload;
 
 /// `effectRetryDelaysMs`: the last delay repeats.
 pub const RETRY_DELAYS: [Duration; 4] =
@@ -67,6 +71,14 @@ pub fn failure_notice(warned: &mut Option<String>, message: &str) -> Option<Stri
     Some(format!("[config] applying the providers change failed: {message}"))
 }
 
+/// `getStoredProviders()`: the stored provider decisions (disable, logout, deleted custom providers); `None` while no
+/// stored agent section reads, so a sync removes nothing.
+fn stored_providers(config: &Config) -> Option<serde_json::Map<String, Value>> {
+    let doc = config.full();
+    let agent = doc.get("agent")?.as_object()?;
+    Some(agent.get("providers").and_then(Value::as_object).cloned().unwrap_or_default())
+}
+
 /// The live services behind [`ProviderChangeEffects`].
 pub struct LiveProviderEffects {
     pub admission: Arc<Admission>,
@@ -74,6 +86,11 @@ pub struct LiveProviderEffects {
     /// Where `console.warn` goes: in the daemon, `DaemonLog::console_warn_sink` (its redirect writes
     /// `[console.warn] <line>` to daemon.log; there is no stderr to see).
     pub warn: Arc<dyn Fn(&str) + Send + Sync>,
+    /// What the record is rebuilt from (`provider_sync::reload`), and the runtime's loaded config it is stored in, the
+    /// one the provider sync rebuilds.
+    pub config: Config,
+    pub effective: Arc<EffectiveProviders>,
+    pub loaded: Arc<LoadedConfig>,
 }
 
 impl ProviderChangeEffects for LiveProviderEffects {
@@ -86,8 +103,17 @@ impl ProviderChangeEffects for LiveProviderEffects {
     }
 
     fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
-        let readiness = self.readiness.clone();
-        Box::pin(async move { readiness.reinit_providers().await.map_err(|error| error.message) })
+        let (readiness, config, effective, loaded) = (self.readiness.clone(), self.config.clone(), self.effective.clone(), self.loaded.clone());
+        Box::pin(async move {
+            // `applyConfigChange` reloads the runtime's config before this effect, so `providerRecord()` is the reloaded
+            // one. The provider sync follows the same change on its own task and may not have rebuilt it yet: it is rebuilt
+            // here, after the signature was read, and is the runtime's providers before the sync. Rebuilds hand on in the
+            // order they loaded, so no later one puts back a record read before this one, and a ready call after the sync
+            // initializes from this record or a newer one. An initialization already running on an older record when the
+            // sync runs is not covered: the registry orders it by when it reaches the apply chain, not by when it was asked.
+            reload(&config, &effective, &readiness, &loaded).await?;
+            readiness.reinit_providers(stored_providers(&config)).await.map_err(|error| error.message)
+        })
     }
 }
 

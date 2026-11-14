@@ -288,8 +288,13 @@ pub enum ConnectionStatus {
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
     Status(ConnectionStatus),
-    /// Delivered in order. Removed when `serverRequest/resolved` arrives or the socket closes (the core re-delivers).
+    /// Delivered in order. One offered to every eligible connection (an approval, P §8.3) is held in
+    /// `pending_server_requests` until `serverRequest/resolved` arrives or the socket closes (the core re-delivers). One
+    /// addressed to a capability this client declared (`ServerRequest::requires`) is not held: its handler's answer ends it. A
+    /// method this client's protocol does not know (a newer core's) does not parse: it is a `ProtocolViolation`, never held.
     ServerRequest(ServerRequest),
+    /// The core resolved a held request, or stopped waiting for a `host/*` one it got no answer to (its handler stops; a
+    /// `model/proxy/execute` one is given up with the `model/proxy/cancel` notification instead).
     ServerRequestResolved(ServerRequestResolvedParams),
     /// Connection-scoped notifications (no `feed`) other than `serverRequest/resolved`, and app-feed notifications that are
     /// not sections.
@@ -349,8 +354,11 @@ pub trait ProtocolClient: Send + Sync {
     /// `app/subscribe`, restored on reconnect with `resumeFrom`.
     async fn subscribe_app(&self) -> Result<(), ClientError>;
 
+    /// The held requests (see [`ClientEvent::ServerRequest`]): the ones offered to every eligible connection that the core
+    /// has not resolved.
     fn pending_server_requests(&self) -> Vec<ServerRequest>;
-    /// Validity is the core's decision (`serverRequest/resolved` follows). `ConnectionLost` when not ready.
+    /// A held request's validity is the core's decision (`serverRequest/resolved` follows); an addressed one is ended by the
+    /// answer. `ConnectionLost` when not ready.
     async fn respond(&self, id: RequestId, answer: ServerRequestAnswer) -> Result<(), ClientError>;
 
     /// Reads all pages of a blob (`blob/read`, page ≤ `server().limits.max_blob_page_bytes`). `BlobNotFound`/`BlobCorrupt`

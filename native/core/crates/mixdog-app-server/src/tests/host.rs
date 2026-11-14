@@ -497,15 +497,77 @@ async fn a_cancelled_caller_releases_a_host_request_the_claimant_never_answers()
         let cancel = cancel.clone();
         async move { outgoing.request_scoped(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }), &cancel).await }
     });
-    host.frames(1).await;
+    let request = host.frames(1).await.remove(0).body;
     cancel.cancel();
     assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
+}
+
+/// The claimant was told that `request` ended without its answer: `serverRequest/resolved` for the request's id.
+fn assert_abandoned(told: &serde_json::Value, request: &serde_json::Value) {
+    assert_eq!((&told["method"], &told["params"]["requestId"]), (&json!("serverRequest/resolved"), &request["id"]));
+}
+
+/// The claimant runs a browser command until it answers or is told its asker is gone: a cancelled call (a stopped turn) and a
+/// dropped one (an ended run) each end it with `serverRequest/resolved`; an answer, result or error, ends it with nothing more.
+#[tokio::test(start_paused = true)]
+async fn a_browser_command_given_up_is_ended_on_the_claimant_and_an_answered_one_is_not() {
+    let rig = Rig::new();
+    let host = claimed_as(&rig, 1, "pc", json!({ "browser": true })).await;
+    let cancel = mixdog_rt::CancellationToken::new();
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn({
+        let cancel = cancel.clone();
+        async move { outgoing.request_scoped(HostCapability::Browser, BROWSER, json!({ "action": "wait" }), &cancel).await }
+    });
+    let request = host.frames(1).await.remove(0).body;
+    cancel.cancel();
+    assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({ "action": "wait" })).await });
+    let request = host.frames(1).await.remove(0).body;
+    call.abort();
+    let _ = call.await;
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
+
+    // A word to the claimant is written before the call's task ends, so an empty wire right after the answer is exact.
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({ "action": "snapshot" })).await });
+    let request = host.frames(1).await.remove(0).body;
+    host.send(json!({ "id": request["id"], "result": { "text": "ok" } }));
+    assert_eq!(call.await.unwrap(), Ok(json!({ "text": "ok" })));
+    assert!(host.drain().is_empty(), "a command answered with a result is told nothing");
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({ "action": "boom" })).await });
+    let request = host.frames(1).await.remove(0).body;
+    assert_eq!(request["method"], json!("host/browser/command"));
+    host.send(json!({ "id": request["id"], "error": { "code": -32000, "message": "no" } }));
+    assert_eq!(call.await.unwrap(), Err(HostError::Rpc { code: -32000, message: "no".into(), data: None }));
+    assert!(host.drain().is_empty(), "nor is one answered with an error");
+}
+
+/// A model proxy call is given up in its own word whichever wait asked it: a plain `request` (no stream) that is dropped ends
+/// with `model/proxy/cancel`, as a streamed one does, never with `serverRequest/resolved`, which the model proxy relay ignores.
+#[tokio::test(start_paused = true)]
+async fn a_model_proxy_call_asked_without_a_stream_is_cancelled_in_its_own_word() {
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 })).await });
+    let request = pc.frames(1).await.remove(0).body;
+    assert_eq!(request["method"], json!("model/proxy/execute"));
+    call.abort();
+    let _ = call.await;
+    let told: Vec<serde_json::Value> = pc.frames(1).await.into_iter().map(|wire| wire.body).collect();
+    assert_eq!(told.len(), 1, "one word: {told:?}");
+    assert_eq!((&told[0]["method"], &told[0]["params"]), (&json!("model/proxy/cancel"), &json!({ "requestId": request["id"] })));
 }
 
 const CAPTURE: Method = Method("host/computer/capture");
 
-/// The claimant runs a capture until told its asker is gone: a cancelled call and one past the 150 s deadline each end it with
-/// `serverRequest/resolved` for the request's id; an answered one sends nothing.
+/// A computer capture past its 150 s deadline is ended on the claimant as a cancelled one is; an answered one sends nothing.
 #[tokio::test(start_paused = true)]
 async fn a_computer_capture_given_up_is_ended_on_the_claimant_and_an_answered_one_is_not() {
     use std::time::Duration;
@@ -520,17 +582,14 @@ async fn a_computer_capture_given_up_is_ended_on_the_claimant_and_an_answered_on
     let request = host.frames(1).await.remove(0).body;
     cancel.cancel();
     assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
-    let ended = host.frames(1).await.remove(0).body;
-    assert_eq!(ended["method"], json!("serverRequest/resolved"));
-    assert_eq!(ended["params"]["requestId"], request["id"]);
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
 
     let outgoing = rig.outgoing.clone();
     let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
     let request = host.frames(1).await.remove(0).body;
     tokio::time::advance(Duration::from_secs(151)).await;
     assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
-    let ended = host.frames(1).await.remove(0).body;
-    assert_eq!((&ended["method"], &ended["params"]["requestId"]), (&json!("serverRequest/resolved"), &request["id"]));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
 
     let outgoing = rig.outgoing.clone();
     let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
@@ -546,11 +605,12 @@ async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadli
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
     let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
-    host.frames(1).await;
+    let request = host.frames(1).await.remove(0).body;
     assert!(!call.is_finished(), "still inside its deadline");
     let limit = HostCapability::SystemProxy.deadline().expect("Node bounds the system proxy read");
     tokio::time::advance(limit + std::time::Duration::from_secs(1)).await;
     assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
+    assert_abandoned(&host.frames(1).await.remove(0).body, &request);
 }
 /// Counts what a [`ClaimHook`] attached and detached.
 struct Attach(std::sync::Arc<std::sync::atomic::AtomicUsize>);

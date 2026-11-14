@@ -79,7 +79,6 @@ pub use self::files::ArchivedIdentity;
 pub use self::files::DELETED_MARKER;
 use self::files::FIXED_SLOTS;
 use self::files::Folders;
-use self::files::LEAD_ID;
 use self::files::STARTERS;
 use self::files::Lane;
 use mixdog_core_config::config::AgentRoutes;
@@ -87,6 +86,7 @@ use mixdog_core_config::config::ConfigError;
 use mixdog_core_config::config::RouteHome;
 use mixdog_core_config::config::agent_routes::agent_editor_id;
 use mixdog_core_config::config::hidden_agents::hidden_agents;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::support::on_lane;
 use mixdog_core_rooms::rooms::RoomError;
 use mixdog_core_rooms::rooms::home::Presence;
@@ -446,7 +446,7 @@ impl AgentDefinitions {
         let file = self
             .job(move |folders, lane| -> Result<PathBuf, String> {
                 let id = edit::view_id(folders, &wanted)?;
-                if id == LEAD_ID {
+                if id == MIXY_AGENT_ID {
                     return Ok(folders.identity_dir(lane).join("agent.json"));
                 }
                 if folders.load(lane, &id).is_none() {
@@ -496,12 +496,12 @@ impl AgentDefinitions {
         let wanted = id.clone();
         let file = self
             .job(move |folders, lane| {
-                let dir = if wanted == LEAD_ID { folders.identity_dir(lane) } else { folders.user_dir(lane, &wanted) };
+                let dir = if wanted == MIXY_AGENT_ID { folders.identity_dir(lane) } else { folders.user_dir(lane, &wanted) };
                 dir.join("agent.json")
             })
             .await?;
         edit::assert_writable(&file).map_err(AgentsError::Refused)?;
-        if id == LEAD_ID {
+        if id == MIXY_AGENT_ID {
             let dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
             let (done, _turn) = self.write_job(&writes, turn, move |_, lane| edit::set_lead_connectors(lane, &dir, next)).await?;
             done.map_err(AgentsError::Refused)?;
@@ -590,9 +590,9 @@ impl AgentDefinitions {
     async fn own_route(&self, id: &str) -> Result<Option<Value>, AgentsError> {
         // The editor's `ownRoute`: a store bot's own route, else the config's. Mixy's id `lead`
         // is no store bot there, so it reads the config.
-        let route = if id == LEAD_ID {
+        let route = if id == MIXY_AGENT_ID {
             // A store bot of that id keeps its route in its folder, as any other bot.
-            let bot = self.job(|folders, lane| files::store_bot_route(folders, lane, LEAD_ID)).await?;
+            let bot = self.job(|folders, lane| files::store_bot_route(folders, lane, MIXY_AGENT_ID)).await?;
             match bot {
                 Some(route) => route.unwrap_or_else(|| json!({})),
                 None => self.routes.config_route(id).unwrap_or_else(|| json!({})),
@@ -608,7 +608,7 @@ impl AgentDefinitions {
             return Ok(None);
         }
         // A config route passes `normalizeWorkflowRoute`; a bot's own route is read as stored.
-        if id == LEAD_ID || self.routes.home(id).await? == RouteHome::Config {
+        if id == MIXY_AGENT_ID || self.routes.home(id).await? == RouteHome::Config {
             return Ok(normalize_workflow_route(&route, &json!({}), false).ok().flatten());
         }
         Ok(Some(route))
@@ -689,7 +689,7 @@ impl AgentDefinitions {
 
     /// Mixy's own route (`readMixyRoute`), `None` when she has none.
     pub async fn mixy_route(&self) -> Result<Option<Value>, AgentsError> {
-        let route = self.routes.own_route(LEAD_ID).await?;
+        let route = self.routes.own_route(MIXY_AGENT_ID).await?;
         Ok(route.as_object().is_some_and(|map| !map.is_empty()).then_some(route))
     }
 
@@ -703,12 +703,12 @@ impl AgentDefinitions {
         let (created, name, avatar) = self
             .job(|folders, lane| {
                 let manifest = files::manifest_of(&folders.identity_dir(lane));
-                let legacy = files::manifest_of(&folders.data.join("agents").join(LEAD_ID));
+                let legacy = files::manifest_of(&folders.data.join("agents").join(MIXY_AGENT_ID));
                 let created = manifest.get("created").and_then(Value::as_bool).or_else(|| legacy.get("created").and_then(Value::as_bool));
                 (created, mixdog_core_config::workflow::ids::one_line(manifest.get("name")), manifest.get("avatar").and_then(avatar::normalize_agent_avatar).unwrap_or(Value::Null))
             })
             .await?;
-        Ok(LeadStatus { created, name, avatar, home_chatted: self.evidence.home_chatted(LEAD_ID).await, route: self.mixy_route().await? })
+        Ok(LeadStatus { created, name, avatar, home_chatted: self.evidence.home_chatted(MIXY_AGENT_ID).await, route: self.mixy_route().await? })
     }
 
     /// Whether Mixy exists (`mixyExists`, the one rule): `created: false` is no; a name or a
@@ -758,7 +758,7 @@ pub fn is_contact(id: &str, kind: Option<&str>) -> bool {
     let id = mixdog_js::js_trim(id).to_lowercase();
     let roster: HashSet<&str> = STARTERS.iter().copied().chain(FIXED_SLOTS.iter().map(|slot| slot.0)).collect();
     !id.is_empty()
-        && id != LEAD_ID
+        && id != MIXY_AGENT_ID
         && !roster.contains(id.as_str())
         && kind.is_some_and(|kind| mixdog_js::js_trim(kind).to_lowercase() == "bot")
 }

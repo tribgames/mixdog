@@ -361,9 +361,12 @@ const OTHER_OWNERS: &[(&str, &str)] = &[("host/claim", "wp-compaction-world: the
 
 /// Methods of an owned namespace that the real composition (`compose_flip::real_core`) serves with a service it builds itself, after
 /// `compose_domains`, each with that service's whole method list: the phone's live view (`live_view::LiveViewService`, SPEC R36) needs
-/// the remote runtime and device registry `real_core` builds. The test asks the core composed above which service serves each one.
-const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] =
-    &[("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"])];
+/// the remote runtime and device registry `real_core` builds, and the desktop's human-only holds (`secret_input::HumanOnlyService`)
+/// need the one lock `real_core` builds the computer helpers over. The test asks the core composed above which service serves each one.
+const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] = &[
+    ("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"]),
+    ("secret_input::HumanOnlyService", &["host/humanOnly/begin", "host/humanOnly/end"]),
+];
 
 impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {
     fn route_provider(&self, _: Option<&ThreadId>) -> Option<String> {

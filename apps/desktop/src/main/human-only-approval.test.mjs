@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { beginComputerOperation, withHumanOnlyApproval } from './human-only-approval';
+import { beginComputerOperation, setCoreHumanOnlyHolds, withHumanOnlyApproval } from './human-only-approval';
 
 test('human-only approval waits for active Computer Use and blocks new Computer Use', async () => {
   const releaseComputer = beginComputerOperation();
@@ -58,4 +58,95 @@ test('an approval waiting its turn for the lock gives it up when stopped, withou
     /already stopped/
   );
   beginComputerOperation()();
+});
+
+test('an approval holds the core too: it opens once the core answered and ends the hold after it', async () => {
+  const calls = [];
+  let answer;
+  setCoreHumanOnlyHolds({
+    begin: (label) => {
+      calls.push(['begin', label]);
+      return new Promise((resolve) => {
+        answer = resolve;
+      });
+    },
+    end: (holdId) => calls.push(['end', holdId]),
+  });
+  try {
+    const approval = withHumanOnlyApproval(
+      async () => {
+        calls.push(['run']);
+        return 'approved';
+      },
+      undefined,
+      'the browser approval card'
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(calls, [['begin', 'the browser approval card']], 'the dialog waits for the core');
+    assert.throws(() => beginComputerOperation(), /pending: the browser approval card/);
+    answer('7');
+    assert.equal(await approval, 'approved');
+    assert.deepEqual(calls, [['begin', 'the browser approval card'], ['run'], ['end', '7']]);
+    beginComputerOperation()();
+  } finally {
+    setCoreHumanOnlyHolds(null);
+  }
+});
+
+test('an approval waiting its turn already holds the core, and one stopped while waiting ends that hold', async () => {
+  const calls = [];
+  setCoreHumanOnlyHolds({
+    begin: async (label) => {
+      calls.push(['begin', label]);
+      return `hold:${label}`;
+    },
+    end: (holdId) => calls.push(['end', holdId]),
+  });
+  try {
+    const releaseComputer = beginComputerOperation();
+    const controller = new AbortController();
+    const stopped = withHumanOnlyApproval(async () => 'never', controller.signal, 'the browser approval card');
+    const rejected = assert.rejects(stopped, /stopped waiting/);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(calls, [['begin', 'the browser approval card']], 'the core is held while the approval waits');
+    controller.abort(new Error('stopped waiting'));
+    await rejected;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(calls, [
+      ['begin', 'the browser approval card'],
+      ['end', 'hold:the browser approval card'],
+    ]);
+    releaseComputer();
+
+    // Already stopped: the core is not held at all.
+    const early = new AbortController();
+    early.abort(new Error('already stopped'));
+    await assert.rejects(withHumanOnlyApproval(async () => 'never', early.signal, 'late'), /already stopped/);
+    assert.equal(calls.length, 2);
+    beginComputerOperation()();
+  } finally {
+    setCoreHumanOnlyHolds(null);
+  }
+});
+
+test('a hold the core refuses keeps the dialog closed and frees the lock', async () => {
+  let ran = false;
+  setCoreHumanOnlyHolds({
+    begin: async () => {
+      throw new Error('core connection closed');
+    },
+    end: () => assert.fail('no hold to end'),
+  });
+  try {
+    await assert.rejects(
+      withHumanOnlyApproval(async () => {
+        ran = true;
+      }),
+      /core connection closed/
+    );
+    assert.equal(ran, false);
+    beginComputerOperation()();
+  } finally {
+    setCoreHumanOnlyHolds(null);
+  }
 });

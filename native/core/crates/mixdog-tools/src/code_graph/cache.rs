@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use super::graph::Node;
 use super::roots::path_key;
 
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 /// `CODE_GRAPH_DISK_MAX_ENTRIES`.
 const MAX_ENTRIES: usize = 24;
 const DEFAULT_MAX_MB: f64 = 80.0;
@@ -147,6 +147,10 @@ pub(super) struct CachedFile {
     pub(super) parse_error: String,
     pub(super) symbols: Vec<CachedSymbol>,
     pub(super) raw_imports: Vec<String>,
+    pub(super) package_name: String,
+    pub(super) namespace_name: String,
+    pub(super) go_package_name: String,
+    pub(super) top_level_types: Vec<String>,
     pub(super) tokens: Vec<String>,
     pub(super) calls: Option<Vec<CachedCall>>,
 }
@@ -163,6 +167,10 @@ impl CachedFile {
             parse_error: node.parse_error.clone(),
             symbols: node.symbols.iter().map(CachedSymbol::of).collect(),
             raw_imports: node.raw_imports.clone(),
+            package_name: node.package_name.clone(),
+            namespace_name: node.namespace_name.clone(),
+            go_package_name: node.go_package_name.clone(),
+            top_level_types: node.top_level_types.clone(),
             tokens: node.tokens.clone(),
             calls: node.calls.as_ref().map(|calls| calls.iter().map(CachedCall::of).collect()),
         })
@@ -590,6 +598,10 @@ mod tests {
             parse_error: String::new(),
             symbols: Vec::new(),
             raw_imports: vec!["./x".to_owned()],
+            package_name: String::new(),
+            namespace_name: String::new(),
+            go_package_name: String::new(),
+            top_level_types: Vec::new(),
             tokens: vec!["a".to_owned()],
             calls: None,
         }

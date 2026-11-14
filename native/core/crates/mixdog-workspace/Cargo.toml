@@ -25,7 +25,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 flate2 = { workspace = true }
-grep = { workspace = true }
+grep = { workspace = true, features = ["pcre2"] }
 ignore = { workspace = true }
 trash = { workspace = true }
 notify = { workspace = true }

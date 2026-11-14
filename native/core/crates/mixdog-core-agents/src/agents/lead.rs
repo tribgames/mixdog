@@ -7,6 +7,7 @@
 //! `getLeadAppearance`/`setLeadAppearance` of `settings-builtin-tools-api.mjs`.
 
 use mixdog_core_api::CoreError;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::io_failure;
 use mixdog_core_base::support::remove_file_forced;
@@ -25,7 +26,6 @@ use super::avatar::AvatarUpdate;
 use super::avatar::avatar_update;
 use super::avatar::normalize_agent_avatar;
 use super::edit;
-use super::files::LEAD_ID;
 use super::lifecycle;
 
 pub const PERSONA_FILE: &str = "PERSONA.md";
@@ -62,7 +62,7 @@ impl AgentDefinitions {
             return Err(AgentsError::Refused(format!("{file} is larger than 256 KB")));
         }
         let dir = self.job(|folders, lane| folders.identity_dir(lane)).await?;
-        let turn = lifecycle(&self.folders.data, LEAD_ID).await;
+        let turn = lifecycle(&self.folders.data, MIXY_AGENT_ID).await;
         let (done, _turn) = self
             .write_job(&writes, turn, move |_, lane| -> Result<(), CoreError> {
                 let target = dir.join(file);
@@ -87,7 +87,7 @@ impl AgentDefinitions {
     pub async fn save_lead_identity(&self, payload: &Value) -> Result<Value, AgentsError> {
         let writes = self.writes()?;
         let dir = self.job(|folders, lane| folders.identity_dir(lane)).await?;
-        let turn = lifecycle(&self.folders.data, LEAD_ID).await;
+        let turn = lifecycle(&self.folders.data, MIXY_AGENT_ID).await;
         let payload = payload.clone();
         let named = payload.as_object().is_some_and(|keys| keys.contains_key("name"));
         let (done, _turn) = self
@@ -137,7 +137,7 @@ impl AgentDefinitions {
         };
         let writes = self.writes()?;
         let dir = self.job(|folders, lane| folders.identity_dir(lane)).await?;
-        let turn = lifecycle(&self.folders.data, LEAD_ID).await;
+        let turn = lifecycle(&self.folders.data, MIXY_AGENT_ID).await;
         let job = one_line(Some(description));
         let (done, _turn) = self
             .write_job(&writes, turn, move |_, lane| -> Result<(), CoreError> {

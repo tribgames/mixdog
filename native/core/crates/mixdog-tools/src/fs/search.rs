@@ -97,7 +97,7 @@ pub(super) async fn walk_entries_pruned(
     cap: Option<usize>,
     server: Option<SearchClass>,
 ) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, descent: Default::default(), server };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, require_git: true, include_dirs: false, prune, descent: Default::default(), server };
     walk_kept(ctx, request, keep, cap).await
 }
 
@@ -110,7 +110,7 @@ pub(super) async fn walk_inventory(
     cap: usize,
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, descent: Default::default(), server: None };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None };
     walk_kept(ctx, request, keep, Some(cap)).await
 }
 
@@ -120,7 +120,7 @@ pub(super) async fn walk_inventory(
 /// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
 /// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
 pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
     broad_search(ctx, BROAD_REFUSALS[1], |_| walk_kept(ctx, request, keep, Some(cap))).await
 }
 
@@ -397,6 +397,11 @@ fn is_absolute_pattern(pattern: &str) -> bool {
     pattern.starts_with('/') || Path::new(pattern).is_absolute()
 }
 
+/// path-utils.mjs `canonicalizeGlobSlashes`: rg reads `/` only, so on Windows a glob's `\` is a separator.
+fn canonical_glob_slashes(glob: &str) -> String {
+    if cfg!(windows) { glob.replace('\\', "/") } else { glob.to_owned() }
+}
+
 /// Node `isUncOrSmbPath`: a `\\` or `//` spelling, the device namespaces (`//./`, `//?/`) included.
 fn is_unc_or_smb(path: &str) -> bool {
     path.starts_with("\\\\") || path.starts_with("//")
@@ -641,11 +646,7 @@ impl Tool for GlobTool {
         // blank one is absent and the search runs from the cwd.
         let path = super::common::optional_path_arg(&args, "path", |got| format!("Error: glob arg \"path\" must be string (got {got})"))?;
         super::common::optional_path_arg(&args, "root", |got| format!("Error: glob arg \"root\" must be string (got {got})"))?;
-        // rg reads `/` only; Node turns a Windows `\` into one (`canonicalizeGlobSlashes`).
-        let patterns: Vec<String> = arg_strings(&args, "pattern")
-            .into_iter()
-            .map(|p| if cfg!(windows) { p.replace('\\', "/") } else { p })
-            .collect();
+        let patterns: Vec<String> = arg_strings(&args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
         let raw = path.unwrap_or(".");
         let natural = arg_str(&args, "sort") == Some("natural");
         let limit = match arg_u64(&args, "limit") {
@@ -1045,10 +1046,24 @@ impl Tool for FindTool {
             return Ok(text_output(missing));
         }
         let root_path = root.as_path().to_path_buf();
-        // Every file is scored, as Node's native inventory ranks the whole scope.
-        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |_| walk_entries(ctx, &root, false, |e| {
-            include_noise || !in_noise_dir(e.path.as_path(), &root_path)
-        }, None, Some(SearchClass::Fuzzy)))
+        // Every file and folder is scored, as Node's native inventory ranks the whole scope (serve_search/fuzzy.rs
+        // `fuzzy_scope`: `directories`, the ignore files honoured in a repository or not unless `include_noise`). A noise
+        // folder is listed, nothing in it (`DEFAULT_IGNORE_GLOBS`, `!**/<name>/**`), and the walk does not enter it.
+        let bare = if include_noise { Vec::new() } else { noise_bare() };
+        let request = WalkRequest {
+            root: root.clone(),
+            recursive: true,
+            include_hidden: true,
+            respect_ignore: !include_noise,
+            require_git: false,
+            include_dirs: true,
+            prune: root_scan_prunes(&root, cfg!(not(windows))),
+            descent: Descent { max_depth: None, bare, bare_dotted: false },
+            server: Some(SearchClass::Fuzzy),
+        };
+        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |_| {
+            walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None)
+        })
         .await?;
         let tokens: Vec<&str> = query.split_whitespace().collect();
         let mut scored: Vec<(i64, String)> = entries
@@ -1130,6 +1145,8 @@ struct Hit {
     path: AbsPath,
     line: u64,
     text: String,
+    /// What the line adds to its file's count ([`SearchMatch::count`]).
+    count: u64,
 }
 
 /// grep-pattern-fanout.mjs `candidateMatchTexts`: the text after every `:<digits>:` of an output line, each a
@@ -1269,10 +1286,11 @@ impl GrepTool {
             (abs.clone(), Vec::new())
         };
         let mut exclude_globs = Vec::new();
-        for g in globs {
+        // grep-request.mjs `resolveGrepScope`: a caller's glob with each Windows `\` a `/` (`canonicalizeGlobSlashes`).
+        for g in globs.iter().map(|g| canonical_glob_slashes(g)) {
             match g.strip_prefix('!') {
                 Some(neg) => exclude_globs.push(neg.to_owned()),
-                None => include_globs.push(g.clone()),
+                None => include_globs.push(g),
             }
         }
         if !include_noise {
@@ -1296,6 +1314,10 @@ impl GrepTool {
                 exclude_globs,
                 include_hidden: true,
                 respect_ignore: !include_noise,
+                // grep-request.mjs `multilineMode` (`-U --multiline-dotall`) and `pcre2Mode` (`-P`), and `text` (`--text`).
+                multiline: multiline_mode(args, pattern),
+                pcre2: UNSUPPORTED_REGEX.is_match(pattern),
+                binary_as_text: arg_bool(args, "text"),
                 // The scan itself ends at the window (a file list or counts read every match), as Node's server's
                 // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
                 // hit before it checks a spent bound, so a bound of 0 still reads one.
@@ -1315,7 +1337,7 @@ impl GrepTool {
         // report after its last match belongs to the answer (Node's server checks it once more after its scan).
         let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()),|item| {
             match item {
-                Ok(SearchMatch { path, line, text, .. }) => {
+                Ok(SearchMatch { path, line, text, count, .. }) => {
                     if mode == Mode::Content && hits.len() >= CONTENT_MATCH_CAP {
                         return false;
                     }
@@ -1324,7 +1346,7 @@ impl GrepTool {
                         return true;
                     }
                     if !bound.is_some_and(|n| hits.len() >= n.max(1)) {
-                        hits.push(Hit { path, line, text });
+                        hits.push(Hit { path, line, text, count });
                     }
                 }
                 Err(FsError { kind: FsErrorKind::TimedOut, path, .. }) => {
@@ -1625,8 +1647,8 @@ impl GrepTool {
         };
         let window = Window::of(args, Mode::Content);
         // `combinedFanoutEligible`: the automatic context travels as `-B`/`-A` (grep-request.mjs
-        // `resolveGrepContextFlags`), which the combined pass declines.
-        if window.context.is_none() {
+        // `resolveGrepContextFlags`), which the combined pass declines, as it declines a multi-line search.
+        if window.context.is_none() || patterns.iter().any(|p| multiline_mode(args, p)) {
             return Ok(None);
         }
         let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
@@ -1737,10 +1759,10 @@ impl GrepTool {
     ) -> Result<Option<Vec<String>>, ToolError> {
         let mode = mode_of(args);
         let single: Vec<&String> = patterns.iter().filter(|p| !p.is_empty()).collect();
-        // `combinedPathRequest`: one pattern, no literal `\n`, nothing ripgrep's default engine refuses (arg-guard.mjs
-        // `hasUnsupportedRipgrepRegex`).
+        // `combinedPathRequest`: no `multiline: true`, one pattern, no literal `\n`, nothing ripgrep's default engine
+        // refuses (arg-guard.mjs `hasUnsupportedRipgrepRegex`).
         let [pattern] = single.as_slice() else { return Ok(None) };
-        if mode == Mode::Count || pattern.contains("\\n") || UNSUPPORTED_REGEX.is_match(pattern) {
+        if mode == Mode::Count || arg_bool(args, "multiline") || pattern.contains("\\n") || UNSUPPORTED_REGEX.is_match(pattern) {
             return Ok(None);
         }
         let window = Window::of(args, mode);
@@ -1963,6 +1985,14 @@ fn mode_of(args: &JsonValue) -> Mode {
 static UNSUPPORTED_REGEX: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"\(\?(?:[=!]|<[=!])|\\[1-9]").expect("a fixed pattern"));
 
+/// grep-request.mjs `multilineMode`: `multiline: true`, or a pattern with a `\n` escape (`hasRegexNewlineEscape`: an `n`
+/// after an odd run of backslashes; `\\n` is a backslash and an `n` on one line).
+fn multiline_mode(args: &JsonValue, pattern: &str) -> bool {
+    let bytes = pattern.as_bytes();
+    arg_bool(args, "multiline")
+        || bytes.iter().enumerate().any(|(at, &b)| b == b'n' && bytes[..at].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1)
+}
+
 /// A root's hits under the names grep shows: a file's path from the cwd, a folder's hits under the folder as given.
 fn label_hits(ctx: &ToolContext, raw: &str, is_file: bool, hits: Vec<Hit>) -> Result<Vec<(String, Hit)>, ToolError> {
     let abs = resolve_path(&ctx.cwd, raw)?;
@@ -2148,19 +2178,23 @@ fn empty_page(out: String, known: bool, totals: Totals) -> String {
 }
 
 /// A file list: one row per file; on its own, newest first with the path breaking ties and files whose stat failed
-/// last in path order (`orderFileListLines`); in a combined scan, in scan order.
+/// last in path order (`orderFileListLines`); in a combined scan, in scan order. A file whose count comes to 0 is not
+/// listed: grep-printer's summary printer (`PathWithMatch`) writes a path only when its first match counts (see
+/// [`count_body`]).
 async fn files_body(ctx: &ToolContext, all: &[(String, Hit)], window: &Window, shape: Shape) -> String {
-    let mut files: Vec<(&str, &AbsPath)> = Vec::new();
+    let mut files: Vec<(&str, &AbsPath, u64)> = Vec::new();
     for (label, h) in all {
-        if files.last().map(|f| f.0) != Some(label.as_str()) {
-            files.push((label, &h.path));
+        match files.last_mut() {
+            Some(f) if f.0 == label.as_str() => f.2 += h.count,
+            _ => files.push((label, &h.path, h.count)),
         }
     }
+    files.retain(|f| f.2 > 0);
     let code_units = |a: &str, b: &str| a.encode_utf16().cmp(b.encode_utf16());
     let rows: Vec<String> = if shape.totals == Totals::Streamed && files.len() > 1 {
         let mut statted = Vec::new();
         let mut unstatted = Vec::new();
-        for (label, path) in files {
+        for (label, path, _) in files {
             match mtime_millis(ctx, path).await {
                 Some(ms) => statted.push((label, ms)),
                 None => unstatted.push(label),
@@ -2170,22 +2204,25 @@ async fn files_body(ctx: &ToolContext, all: &[(String, Hit)], window: &Window, s
         unstatted.sort_by(|a, b| code_units(a, b));
         statted.into_iter().map(|(l, _)| l.to_owned()).chain(unstatted.into_iter().map(str::to_owned)).collect()
     } else {
-        files.into_iter().map(|(l, _)| l.to_owned()).collect()
+        files.into_iter().map(|(l, _, _)| l.to_owned()).collect()
     };
     let (page, notice) = page_rows(&rows, window, shape.complete);
     empty_page(format!("{}{notice}", page.join("\n")), shape.complete, shape.totals)
 }
 
-/// `path:count` rows in path order (code units), the summary counting the rows shown (`grepCountSummary`); with no row
-/// the summary alone.
+/// `path:count` rows in path order (code units), each file's count its lines' ([`Hit::count`]), the summary counting
+/// the rows shown (`grepCountSummary`); with no row the summary alone. A file whose count comes to 0 has no row, as
+/// grep-printer's summary printer leaves it out (serve_search/matching.rs `exclude_zero(true)`): a multi-line match
+/// whose recount, at most 128 bytes past it, finds nothing.
 fn count_body(all: &[(String, Hit)], window: &Window, complete: bool) -> String {
-    let mut rows: Vec<(String, usize)> = Vec::new();
-    for (label, _) in all {
+    let mut rows: Vec<(String, u64)> = Vec::new();
+    for (label, h) in all {
         match rows.last_mut() {
-            Some((l, n)) if l == label => *n += 1,
-            _ => rows.push((label.clone(), 1)),
+            Some((l, n)) if l == label => *n += h.count,
+            _ => rows.push((label.clone(), h.count)),
         }
     }
+    rows.retain(|(_, n)| *n > 0);
     rows.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
     let rows: Vec<String> = rows.into_iter().map(|(p, n)| format!("{p}:{n}")).collect();
     let (page, notice) = page_rows(&rows, window, complete);
@@ -2222,3 +2259,19 @@ fn bare_content(page: &[(String, Hit)], single: bool) -> String {
 
 #[allow(dead_code)]
 fn _unused(_: ToolError, _: ToolErrorCode) {}
+
+#[cfg(test)]
+mod count_rows {
+    use super::*;
+
+    /// A file whose lines count 0 in all (multi-line matches whose recount found nothing) has no row, as grep-printer's
+    /// summary printer leaves it out (`exclude_zero(true)`); the summary counts the rows shown.
+    #[test]
+    fn a_file_counting_zero_has_no_row() {
+        let path = AbsPath::new(if cfg!(windows) { "C:\\a" } else { "/a" }).expect("an absolute path");
+        let hit = |count| Hit { path: path.clone(), line: 1, text: String::new(), count };
+        let all = vec![("./a.ts".to_owned(), hit(2)), ("./a.ts".to_owned(), hit(0)), ("./b.ts".to_owned(), hit(0))];
+        let window = Window { limit: usize::MAX, offset: 0, context: None };
+        assert_eq!(count_body(&all, &window, true), "./a.ts:2\n[total 2 matches across 1 file]");
+    }
+}

@@ -510,7 +510,7 @@ pub async fn run_all<Fut: std::future::Future<Output = Arc<dyn Net>>>(
         })
         .collect();
     files.sort();
-    assert!(files.len() >= 16, "scenarios missing in {dir:?}");
+    assert!(files.len() >= 17, "scenarios missing in {dir:?}");
     let mut failures = Vec::new();
     for f in files {
         let sc: Json = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();

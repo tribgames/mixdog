@@ -30,6 +30,7 @@ use super::ConfigEdit;
 use super::ConfigError;
 use super::PUBLISHED_SUBTREES;
 use super::Settings;
+use super::save_and_adopt;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::wrong_method;
 use crate::tool_modules::ToolModules;
@@ -276,20 +277,17 @@ async fn write(config: &Config, edits: Vec<ConfigEdit>, announce: Option<&'stati
     Ok(json!({ "revision": config.revision(), "values": values, "config": saved }))
 }
 
-/// `setWorktreeSettings(patch)`: the patch is applied strictly to the stored section and the
-/// whole effective section is stored; answers the effective settings.
+/// `setWorktreeSettings(patch)` (settings-worktree-api.mjs): the patch is applied strictly to the stored section and the
+/// effective section is saved through `saveConfigAndAdopt`, which stores only the values that differ from the defaults;
+/// answers the effective settings.
 pub async fn set_worktree_settings(config: &Config, patch: &Value) -> Result<Value, CoreError> {
-    let current = config.agent().get("worktree").cloned().unwrap_or(Value::Null);
+    let before = config.agent();
+    let current = before.get("worktree").cloned().unwrap_or(Value::Null);
     let next = apply_patch(&current, patch)
         .map_err(|error| invalid("params.patch", &error.to_string()))?;
-    let stored = serde_json::to_value(&next).expect("settings serialize");
-    config
-        .update_agent(move |doc| {
-            doc.insert("worktree".into(), stored);
-            Ok(())
-        })
-        .await
-        .map_err(core_error)?;
+    let mut after = before.clone();
+    after.insert("worktree".into(), serde_json::to_value(&next).expect("settings serialize"));
+    save_and_adopt(config, &before, &after).await.map_err(core_error)?;
     Ok(worktree_view(config))
 }
 
@@ -400,17 +398,11 @@ pub(super) fn core_error(error: ConfigError) -> CoreError {
     }
 }
 
-/// The setters throw `TypeError` for a bad argument and `Error` for a failed step. A `TypeError`
-/// reaches the window as its message, which `invalidParams` would not carry.
+/// The setters throw `TypeError` for a bad argument and `Error` for a failed step. Either reaches the
+/// window as its message alone (`call-route.mjs` answers `{ error: err.message }`), which `invalidParams` would not carry.
 fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
     result.map_err(|error| match error {
-        ToolModulesError::InvalidArgument(message) => failed("config", message),
-        ToolModulesError::Failed(_) => CoreError::DomainError {
-            domain: "config".into(),
-            code: Some("settingFailed".into()),
-            message: None,
-            detail: None,
-        },
+        ToolModulesError::InvalidArgument(message) | ToolModulesError::Failed(message) => failed("config", message),
         ToolModulesError::Config(error) => core_error(error),
     })
 }

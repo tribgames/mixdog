@@ -1,6 +1,7 @@
 //! The `import/` namespace: `getConversationImportJobs`, `listImportableConversations`,
 //! `startConversationImport`, `cancelConversationImport`, `registerConversationImportFile`.
-//! Every method carries its arguments in the request's `params` member.
+//! Every method carries its arguments in the `params` member of its protocol params
+//! (`ImportStartConversationImportParams.params`, …): the one object Node's `createConversationImportApi` methods take.
 
 use std::sync::Arc;
 
@@ -118,25 +119,25 @@ impl ImportService {
     }
 
     async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, Failure> {
+        // `requireParams(params)`; only `getConversationImportJobs(params = {})` may leave the member out.
+        let args = match request.get("params") {
+            None | Some(Value::Null) if method == "import/getConversationImportJobs" => &Value::Null,
+            params => object(params.unwrap_or(&Value::Null))?,
+        };
         match method {
-            "import/getConversationImportJobs" => {
-                let job_id = request.get("jobId").and_then(Value::as_str);
-                Ok(self.jobs.get_jobs(job_id))
-            }
+            "import/getConversationImportJobs" => Ok(self.jobs.get_jobs(args.get("jobId"))),
             "import/listImportableConversations" => {
-                let params = list_params(object(request)?)?;
+                let params = list_params(args)?;
                 let imported = self.jobs.imported_lookup().await;
                 Ok(self.discovery.list_conversations(&params, &imported).await?)
             }
             "import/registerConversationImportFile" => {
-                let args = object(request)?;
                 let source = source_of(args.get("source"))?;
                 let path = args.get("path").and_then(Value::as_str).unwrap_or("");
                 let imported = self.jobs.imported_lookup().await;
                 Ok(self.discovery.register_file(source, path, &imported, self.limits).await?)
             }
             "import/startConversationImport" => {
-                let args = object(request)?;
                 let request_id = args
                     .get("requestId")
                     .and_then(Value::as_str)
@@ -148,10 +149,7 @@ impl ImportService {
                 let ids = self.selection_ids(args.get("selection")).await?;
                 Ok(self.jobs.start(request_id, ids))
             }
-            "import/cancelConversationImport" => {
-                let job_id = object(request)?.get("jobId").and_then(Value::as_str);
-                Ok(self.jobs.cancel(job_id.unwrap_or(""))?)
-            }
+            "import/cancelConversationImport" => Ok(self.jobs.cancel(args.get("jobId").and_then(Value::as_str).unwrap_or(""))?),
             _ => Err(Invalid("method", "import/*").into()),
         }
     }
@@ -211,23 +209,44 @@ mod tests {
         }
     }
 
-    /// The request's `params` are the arguments: `cancelConversationImport` of an unknown job
-    /// answers the `jobNotFound` code (`conversation-import/service.mjs` `importError('jobNotFound')`),
-    /// and a start with no `requestId` is refused for that field, not for a missing params object.
+    /// The protocol params' `params` member is the arguments: a start, the jobs filter and a cancel reach the job they name (a
+    /// null filter lists every job, one that is not text none); `cancelConversationImport` of an unknown job answers the
+    /// `jobNotFound` code (`conversation-import/service.mjs` `importError('jobNotFound')`), a start with no `requestId` is refused
+    /// for that field, and arguments left at the top level are refused as a missing params object (`requireParams`).
     #[tokio::test]
-    async fn the_wire_params_reach_the_method() {
-        let discovery = Discovery::new(super::super::candidate::Env::from_process(), mixdog_rt::testing::tokens().maintenance_io);
+    async fn the_params_member_reaches_the_method() {
+        let home = tempfile::tempdir().unwrap();
+        let env = super::super::candidate::Env { home: home.path().to_path_buf(), ..Default::default() };
+        let discovery = Discovery::new(env, mixdog_rt::testing::tokens().maintenance_io);
         let jobs = ImportJobs::new(discovery.clone(), Arc::new(Quiet), Limits::default());
         let service = ImportService::new(discovery, jobs, Limits::default());
         let call = |method: &'static str, params: Value| {
             service.call(CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") })
         };
-        match call("import/cancelConversationImport", json!({"opId": "o", "jobId": "no-such-job"})).await.err().unwrap() {
+        let value = |reply: Result<Reply, CoreError>| match reply.unwrap() {
+            Reply::Value(v) => v,
+            _ => panic!("not a value"),
+        };
+        let started = value(call("import/startConversationImport", json!({"opId": "o", "params": {"requestId": "r", "selection": {"ids": []}}})).await);
+        let job_id = started["jobId"].as_str().unwrap().to_owned();
+        let named = value(call("import/getConversationImportJobs", json!({"params": {"jobId": job_id}})).await);
+        assert_eq!(named["jobs"][0]["jobId"], started["jobId"]);
+        assert_eq!(value(call("import/getConversationImportJobs", json!({"params": {"jobId": "no-such-job"}})).await), json!({"jobs": []}));
+        assert_eq!(value(call("import/getConversationImportJobs", json!({})).await)["jobs"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value(call("import/getConversationImportJobs", json!({"params": {"jobId": null}})).await)["jobs"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value(call("import/getConversationImportJobs", json!({"params": {"jobId": 5}})).await), json!({"jobs": []}));
+        let cancelled = value(call("import/cancelConversationImport", json!({"opId": "o", "params": {"jobId": job_id}})).await);
+        assert_eq!(cancelled["jobId"], started["jobId"]);
+        match call("import/cancelConversationImport", json!({"opId": "o", "params": {"jobId": "no-such-job"}})).await.err().unwrap() {
             CoreError::DomainError { code, .. } => assert_eq!(code.as_deref(), Some("jobNotFound")),
             other => panic!("{other:?}"),
         }
-        match call("import/startConversationImport", json!({"opId": "o", "selection": {"ids": []}})).await.err().unwrap() {
+        match call("import/startConversationImport", json!({"opId": "o", "params": {"selection": {"ids": []}}})).await.err().unwrap() {
             CoreError::InvalidParams { path, .. } => assert_eq!(&*path, "params.requestId"),
+            other => panic!("{other:?}"),
+        }
+        match call("import/listImportableConversations", json!({"source": "claude"})).await.err().unwrap() {
+            CoreError::InvalidParams { path, .. } => assert_eq!(&*path, "params"),
             other => panic!("{other:?}"),
         }
     }

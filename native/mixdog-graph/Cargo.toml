@@ -18,7 +18,8 @@ ignore = "0.4"
 notify = "8.2"
 grep = { version = "0.3.2", features = ["pcre2"] }
 # Stage 3-D removed every extraction regex (tokens, package/namespace, the
-# comment strippers). What is left is `TypePatterns` in src/main.rs — the
+# comment strippers). What is left is `TypePatterns` in
+# src/resolve/top_level_types.rs — the
 # `topLevelTypes` word scan, whose reported value set includes matches no AST
 # rule can express (`enum class Mode` → `class`, type words in prose) and
 # which the java/kotlin FQCN import index keys on verbatim. `--serve-search`

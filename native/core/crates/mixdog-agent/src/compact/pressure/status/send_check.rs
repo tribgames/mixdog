@@ -8,15 +8,13 @@ use super::*;
 use crate::compact::pressure::HeaderPatch;
 use crate::compact::pressure::UsageSnapshotArgs;
 use crate::compact::pressure::record_context_usage_snapshot;
+use crate::compact::summary_run::HANDOFF_TIMEOUT_MAX_MS;
 
 /// `COMPACTION_TRANSIENT_KEYS`: legacy fields that no longer describe the live policy.
 const TRANSIENT_KEYS: [&str; 11] = [
     "type", "compactType", "semantic", "recallFastTrack", "semanticModel", "semanticTimeoutMs", "tailTurns", "lastSemantic", "lastSemanticError", "lastRecallFastTrack",
     "lastRecallFastTrackError",
 ];
-
-/// `HANDOFF_TIMEOUT_MAX_MS` (`session/compact/constants.mjs`).
-const HANDOFF_TIMEOUT_MAX_MS: f64 = 300_000.0;
 
 /// `recentCompactChecks` keeps `.slice(-8)`.
 const RECENT_CHECKS: usize = 8;
@@ -63,6 +61,15 @@ pub fn pre_send_check(input: &StatusInput<'_>, now: f64, reactive: bool) -> Opti
     compact_telemetry(input, now, reactive, "pre_send_check", &StageMeta::default())
 }
 
+/// The pressure of the send about to go out when the provider's reading prices it, the figure its check records
+/// (`resolveContextTokensWithSource`): the reading that still describes its prefix plus the growth after it (`provider`),
+/// else an unanchored session's last actual reading (`provider_resume`). `None` when the session has no worker policy
+/// that compacts or the estimate prices it.
+pub fn provider_pressure(input: &StatusInput<'_>) -> Option<f64> {
+    let Some(Worker::Policy(policy)) = worker_policy(input.session, &input.request_tools, input.agent_mode) else { return None };
+    baseline_pressure_tokens(input.session, input.messages, &policy, input).or_else(|| resume_tokens(input.session))
+}
+
 /// The header change of `rememberCompactTelemetry(session, policy, { stage, .. })`
 /// for the send about to go out: `input` is the session header with the transcript and the tools of
 /// that request. `None` when the session has no worker policy that compacts (Node records nothing
@@ -93,7 +100,7 @@ pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stag
     let raw_context_window = positive_int(nullish(get(session, "rawContextWindow"), get(cfg, "rawContextWindow"))).or(context_window);
     let effective_percent = Some(number(nullish(get(session, "effectiveContextWindowPercent"), get(cfg, "effectiveContextWindowPercent")))).filter(|v| finite(*v));
     let auto_limit = session_compact_policy(session, policy.boundary_tokens).auto_compact_token_limit;
-    let handoff_timeout = positive_int(get(cfg, "timeoutMs")).or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_TIMEOUT_MS")).unwrap_or(HANDOFF_TIMEOUT_MAX_MS);
+    let handoff_timeout = positive_int(get(cfg, "timeoutMs")).or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_TIMEOUT_MS")).unwrap_or(HANDOFF_TIMEOUT_MAX_MS as f64);
     let last_api = positive_int(get(session, "lastContextTokens")).map_or_else(|| or_null(prev.get("lastApiRequestTokens")), num);
     // The last compaction's wall time is replaced only by a stage that reports a finished one.
     let last_duration = match meta.duration_ms.filter(|ms| ms.is_finite()) {

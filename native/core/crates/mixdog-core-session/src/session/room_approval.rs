@@ -14,6 +14,7 @@
 
 use mixdog_app_protocol::v2::thread::ThreadRoomView;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::domain::approval::ApprovalRequest;
 use mixdog_core_api::ids::ConnectionId;
@@ -30,6 +31,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
+use super::delegation::ApprovalSurface;
 
 type Obj = Map<String, Value>;
 
@@ -319,6 +321,37 @@ pub fn normalize_tool_approval_request(input: &Obj, id: &str, now: i64) -> Value
     out
 }
 
+/// Which hook request [`hook_request`] makes of an ask; it names the card's `kind`.
+enum Hook<'a> {
+    Question,
+    Secret,
+    Takeover,
+    /// A gate's own request (its payload), of the payload's `kind` (`''` without one).
+    Gate(&'a str),
+}
+
+impl<'a> Hook<'a> {
+    fn of(ask: &'a ApprovalAsk) -> Self {
+        let kind = ask.payload.get("kind").and_then(Value::as_str);
+        match (ask.kind, ask.tool.as_deref().unwrap_or_default(), kind) {
+            (ApprovalKind::UserInput, "ask_user", _) => Self::Question,
+            (_, "handoff_user", Some("secret")) => Self::Secret,
+            (_, "handoff_user", Some("takeover")) => Self::Takeover,
+            _ => Self::Gate(kind.unwrap_or_default()),
+        }
+    }
+
+    /// The card's `kind` (`kindOf(input)` of the hook request).
+    fn kind(&self) -> &'a str {
+        match self {
+            Self::Question => "question",
+            Self::Secret => "secret",
+            Self::Takeover => "takeover",
+            Self::Gate(kind) => *kind,
+        }
+    }
+}
+
 /// The hook request Node's caller puts to the queue for the request the approval book holds:
 /// - `ask_user` (`ask-user-tool.mjs:248`): `{ name, kind: 'question', args: { questions }, reason: '', timeoutMs: null }`;
 /// - `handoff_user` secret (`:137`): `{ name, kind: 'secret', secret, reason: '', timeoutMs }`, the
@@ -333,21 +366,20 @@ pub fn normalize_tool_approval_request(input: &Obj, id: &str, now: i64) -> Value
 pub fn hook_request(request: &ApprovalRequest) -> Obj {
     let ask = &request.ask;
     let payload = ask.payload.as_object().cloned().unwrap_or_default();
-    let tool = ask.tool.as_deref().unwrap_or_default();
-    let mut input = match (ask.kind, tool, payload.get("kind").and_then(Value::as_str)) {
-        (ApprovalKind::UserInput, "ask_user", _) => {
+    let mut input = match Hook::of(ask) {
+        Hook::Question => {
             json!({ "name": "ask_user", "kind": "question", "args": Value::Object(payload), "reason": "", "timeoutMs": null })
         }
-        (_, "handoff_user", Some("secret")) => {
+        Hook::Secret => {
             let timeout = ask.expires_after.map_or(Value::Null, |after| json!(after.as_millis() as u64));
             json!({ "name": "handoff_user", "kind": "secret", "secret": payload.get("secret").cloned().unwrap_or(Value::Null), "reason": "", "timeoutMs": timeout })
         }
-        (_, "handoff_user", Some("takeover")) => {
+        Hook::Takeover => {
             let takeover = payload.get("takeover").cloned().unwrap_or(Value::Null);
             let args = json!({ "surface": takeover.get("surface").cloned().unwrap_or(Value::Null), "instructions": takeover.get("instructions").cloned().unwrap_or(Value::Null) });
             json!({ "name": "handoff_user", "kind": "takeover", "takeover": takeover, "args": args, "reason": "", "timeoutMs": null })
         }
-        _ => Value::Object(payload),
+        Hook::Gate(_) => Value::Object(payload),
     };
     if let Value::Object(map) = &mut input {
         map.insert("sessionId".into(), json!(request.thread_id.as_str()));
@@ -377,6 +409,28 @@ pub fn card_id(aid: &str) -> String {
 pub fn tool_approval(request: &ApprovalRequest) -> Value {
     let requested_at = request.requested_at.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
     normalize_tool_approval_request(&hook_request(request), &request.id.0.to_string(), requested_at)
+}
+
+/// `DELEGATED_KINDS` (`tool-approval-delegation.mjs`): the requests of a sub-agent its top-level chat shows too; a question
+/// stays in the sub-agent's own session.
+const DELEGATED_KINDS: [&str; 6] = ["", "approval", "outbound", "permission", "secret", "takeover"];
+
+/// Whether the card of `ask` is of a delegated kind: only such a request of a sub-agent takes its surface, so a question
+/// never waits on the surface's lookup.
+pub fn is_delegated(ask: &ApprovalAsk) -> bool {
+    DELEGATED_KINDS.contains(&Hook::of(ask).kind())
+}
+
+/// `requestToolApproval`'s delegation step (`tool-approval.mjs:225-230`, `delegationSurface`): the card of a sub-agent's
+/// request of a delegated kind names who asks, from the top-level chat down (`chain`), and that chat (`surfaceSessionId`).
+pub fn delegate_card(card: &mut Value, surface: &ApprovalSurface) {
+    let own = card.get("sessionId").and_then(Value::as_str).unwrap_or_default();
+    let kind = card.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if !DELEGATED_KINDS.contains(&kind) || surface.session_id.is_empty() || surface.session_id == own {
+        return;
+    }
+    card["chain"] = json!(surface.chain);
+    card["surfaceSessionId"] = json!(surface.session_id);
 }
 
 /// What the room runner keeps of an exchange for the view (`RunState`'s `speaking`,

@@ -54,6 +54,7 @@ pub struct AgentTrace {
     failures: Option<Spool>,
     sink: Option<std::sync::Arc<dyn RowSink>>,
     slow_tool: SlowTool,
+    timing_rows: bool,
 }
 
 impl AgentTrace {
@@ -65,6 +66,7 @@ impl AgentTrace {
         Self {
             sink,
             slow_tool: config.slow_tool.clone(),
+            timing_rows: config.loop_rows,
             disabled: config.agent_trace_disable,
             local: config.local.as_ref().map(|local| {
                 Spool::new(
@@ -88,6 +90,14 @@ impl AgentTrace {
                 )
             }),
         }
+    }
+
+    /// The gate of the timing rows, `traceAgentLoop` (`loop`) and `traceBrowserTiming` (`browser_timing`):
+    /// `MIXDOG_AGENT_TRACE_VERBOSE=1` or `MIXDOG_AGENT_TRACE_TIMING=1` (`TraceConfig::loop_rows`), and a trace that takes
+    /// rows (`append` keeps them). The caller checks it before it builds their rows (`loop_record`, `browser_timing_record`)
+    /// or anything they are built from.
+    pub fn timing_rows(&self) -> bool {
+        self.timing_rows && !self.disabled && (self.local.is_some() || self.sink.is_some())
     }
 
     /// `appendAgentTrace(record)`. Returns true when the trace spool is due for `flush`.

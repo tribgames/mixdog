@@ -112,16 +112,16 @@ pub(crate) fn retained_failed_turn_input(messages: &[Value], message_id: &str, a
 
 /// The context a retry turn starts from: the stale copy of the failed prompt is dropped
 /// (`prepareAskTurn`: a retry that names its message resolves it, a bare retry rewinds the
-/// unanswered prompt). True when the context shrank.
-pub(crate) fn rewound(stored: &mut Vec<(ItemId, Value)>, options: Option<&SubmitOptions>, prompt: &str) -> Result<bool, &'static str> {
-    let Some(options) = options else { return Ok(false) };
+/// unanswered prompt). The rows dropped, none when the context stays as read.
+pub(crate) fn rewound(stored: &mut Vec<(ItemId, Value)>, options: Option<&SubmitOptions>, prompt: &str) -> Result<Vec<(ItemId, Value)>, &'static str> {
+    let Some(options) = options else { return Ok(Vec::new()) };
     let bodies: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
     let index = match options.retry_turn_id.as_deref().filter(|id| !id.is_empty()) {
         Some(id) => retained_failed_turn_input(&bodies, id, options.retry_attempt_id.as_deref())?,
         None if options.retry_failed_turn == Some(true) => trailing_unanswered_prompt_index(&bodies, prompt),
         None => None,
     };
-    Ok(index.map(|index| stored.truncate(index)).is_some())
+    Ok(index.map(|index| stored.split_off(index)).unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -159,19 +159,20 @@ mod tests {
     fn a_retry_turn_starts_from_the_context_without_the_stale_prompt() {
         let history = || vec![row("a", json!({ "role": "user", "content": "first" })), row("b", json!({ "role": "assistant", "content": "ok" })), row("c", json!({ "role": "user", "content": "go", "meta": { "transcript": { "messageId": "m1", "completion": { "status": "failed" } } } }))];
         let bare = SubmitOptions { retry_failed_turn: Some(true), ..Default::default() };
+        let dropped = |rows: Vec<(ItemId, Value)>| rows.into_iter().map(|(iid, _)| iid.0).collect::<Vec<_>>();
         let mut stored = history();
-        assert_eq!(rewound(&mut stored, Some(&bare), "go"), Ok(true));
+        assert_eq!(rewound(&mut stored, Some(&bare), "go").map(dropped), Ok(vec!["c".to_owned()]));
         assert_eq!(stored.len(), 2);
         let mut stored = history();
-        assert_eq!(rewound(&mut stored, Some(&bare), "other"), Ok(false));
+        assert_eq!(rewound(&mut stored, Some(&bare), "other").map(dropped), Ok(Vec::new()));
         assert_eq!(stored.len(), 3);
         let named = SubmitOptions { retry_failed_turn: Some(true), retry_turn_id: Some("m1".into()), ..Default::default() };
         let mut stored = history();
-        assert_eq!(rewound(&mut stored, Some(&named), "go"), Ok(true));
+        assert_eq!(rewound(&mut stored, Some(&named), "go").map(dropped), Ok(vec!["c".to_owned()]));
         assert_eq!(stored.len(), 2);
         let stale = SubmitOptions { retry_turn_id: Some("m2".into()), ..Default::default() };
-        assert_eq!(rewound(&mut history(), Some(&stale), "go"), Err(NOT_LATEST_EXECUTION));
-        assert_eq!(rewound(&mut history(), None, "go"), Ok(false));
-        assert_eq!(rewound(&mut history(), Some(&SubmitOptions::default()), "go"), Ok(false));
+        assert_eq!(rewound(&mut history(), Some(&stale), "go").map(dropped), Err(NOT_LATEST_EXECUTION));
+        assert_eq!(rewound(&mut history(), None, "go").map(dropped), Ok(Vec::new()));
+        assert_eq!(rewound(&mut history(), Some(&SubmitOptions::default()), "go").map(dropped), Ok(Vec::new()));
     }
 }

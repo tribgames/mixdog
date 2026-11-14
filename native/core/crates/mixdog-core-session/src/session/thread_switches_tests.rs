@@ -252,6 +252,12 @@ impl World {
             })
             .collect()
     }
+
+    /// The thread's workflow state as it published it last (`thread/workflow/updated`), once it is `want`.
+    async fn shows_workflow(&self, id: &str, want: Value) {
+        let newest = || self.rig.feeds.frames(id).into_iter().rev().find(|(_, method, _)| method == "thread/workflow/updated").map(|(_, _, params)| params["value"].clone());
+        eventually_on!(&[&self.rig.feeds.published], || (newest().as_ref() == Some(&want)).then_some(())).await;
+    }
 }
 
 /// The recorded step `n` of a scenario: its answer and the session keys it left.
@@ -322,6 +328,10 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     let stored = world.stored("sess_a").await;
     assert_eq!(stored["orchestrationModeOverlay"]["prompt"], "balanced");
     assert_eq!(world.anchor("sess_a").await["meta"]["orchestrationModeSwitches"][0]["to"], "none");
+
+    // Each switch republishes the thread's workflow state (`publishRoute()`): the session's workflow and mode, none pending.
+    let shown = json!({ "workflow": stored["workflow"], "orchestrationMode": "none", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false });
+    world.shows_workflow("sess_a", shown).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -344,6 +354,19 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     world.switches.switch_workflow("sess_b", "alpha").await.expect("staged");
     assert!(!world.stored("sess_b").await.contains_key("pendingWorkflowId"));
     world.switches.switch_workflow("sess_b", "beta").await.expect("staged");
+    // The held choices show at once, marked pending (`routeState`: the staged workflow's meta, `pendingOrchestrationMode`).
+    let held = json!({ "workflow": deferred["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": true, "pendingOrchestrationModeSwitch": true });
+    world.shows_workflow("sess_b", held).await;
+    // A held workflow is never shown as the old one marked pending: Node's one `publishRoute()` shows the staged summary.
+    let pending_shown: Vec<Value> = world
+        .rig
+        .feeds
+        .frames("sess_b")
+        .into_iter()
+        .filter(|(_, method, params)| method == "thread/workflow/updated" && params["value"]["pendingWorkflowSwitch"] == json!(true))
+        .map(|(_, _, params)| params["value"]["workflow"]["id"].clone())
+        .collect();
+    assert!(!pending_shown.is_empty() && pending_shown.iter().all(|id| id == "beta"), "{pending_shown:?}");
 
     // The turn ends; the next turn start applies what was held, the mode first.
     assert!(world.directory.abort_session_turn(&ThreadId::from("sess_b"), "test"));
@@ -354,6 +377,8 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     let stored = world.stored("sess_b").await;
     assert_eq!((stored["workflow"]["id"].clone(), stored["orchestrationMode"].clone()), (json!("beta"), json!("swarm")));
     assert!(!stored.contains_key("pendingWorkflowId") && !stored.contains_key("pendingOrchestrationMode"));
+    let applied_state = json!({ "workflow": stored["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false });
+    world.shows_workflow("sess_b", applied_state).await;
     assert_eq!(world.switches.apply_pending_switches(&ThreadId::from("sess_b")).await, Ok(None));
 }
 

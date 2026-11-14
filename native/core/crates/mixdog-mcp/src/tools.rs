@@ -1,27 +1,24 @@
-//! MCP tools as [`Tool`]s: one per server tool (`mcp__<server>__<tool>`) plus the five feature
-//! tools for resources and prompts. Failures are typed [`ToolError`]s; no text is classified.
+//! MCP tools as [`Tool`]s: one per catalog entry of a server, its own tools (`mcp__<server>__<tool>`) and the
+//! resources and prompts requests it advertises ([`Feature`]). Failures are typed [`ToolError`]s; no text is classified.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::tool::Tool;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
-use mixdog_core_api::domain::tool::ToolOutput;
-use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_js::value_to_string;
 use mixdog_protocol::JsonValue;
 use serde_json::json;
 
 use crate::admission::AdmissionError;
-use crate::hub::McpHub;
-use crate::hub::normalize_scope;
 use crate::outbound;
 use crate::outbound::Hints;
+use crate::plugin_admin::truthy;
 use crate::rpc::RpcError;
 use crate::server::CallError;
 use crate::server::McpServer;
@@ -96,9 +93,18 @@ pub struct McpTool {
     server: Arc<McpServer>,
     entry: Arc<ToolEntry>,
     spec: ToolSpec,
+    /// The scope the tool was listed in, whose admission gate its calls take ([`McpServer::gate_in`]); none: the
+    /// server's own gate.
+    scope: Option<String>,
 }
 
 impl McpTool {
+    /// [`McpTool::new`] listed in `scope`: its calls are admitted by that scope's gate, as Node's are by the gate of the
+    /// scope's registered server (`callAdmissionFor`).
+    pub fn in_scope(server: Arc<McpServer>, entry: Arc<ToolEntry>, scope: &str) -> Self {
+        Self { scope: Some(scope.to_owned()), ..Self::new(server, entry) }
+    }
+
     pub fn new(server: Arc<McpServer>, entry: Arc<ToolEntry>) -> Self {
         let spec = ToolSpec {
             name: entry.qualified.clone(),
@@ -114,7 +120,7 @@ impl McpTool {
             parallel_safe: true,
             exclusive_with: Vec::new(),
         };
-        Self { server, entry, spec }
+        Self { server, entry, spec, scope: None }
     }
 }
 
@@ -140,19 +146,22 @@ impl Tool for McpTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let output = self
-            .server
-            .call_tool(&ctx.thread_id.to_string(), &self.entry.tool, args, &ctx.cancel, ctx.deadline)
-            .await
-            .map_err(|error| tool_error(&self.server, error))?;
+        let owner = ctx.thread_id.to_string();
+        let called = match &self.scope {
+            Some(scope) => self.server.call_tool_in(scope, &owner, &self.entry.tool, args, &ctx.cancel, ctx.deadline).await,
+            None => self.server.call_tool(&owner, &self.entry.tool, args, &ctx.cancel, ctx.deadline).await,
+        };
+        let output = called.map_err(|error| tool_error(&self.server, error))?;
         // The links of a mail the core's own Gmail connector read, for the session that read it: Browser Use may open them.
         crate::mail_reads::record(self.server.config(), &self.entry.tool, ctx.thread_id.as_str(), &output, mixdog_tools::desktop::mail_links::now_ms());
         Ok(output)
     }
 }
 
+/// A resources or prompts request a server advertises, offered as one of its tools (`mcpFeatureTools`,
+/// mcp/client.mjs): `mcp__<server>__mixdog_<request>`, dispatched by its operation (`mcpOperation`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Feature {
+pub enum Feature {
     ListResources,
     ListResourceTemplates,
     ReadResource,
@@ -161,7 +170,7 @@ enum Feature {
 }
 
 impl Feature {
-    const ALL: [Feature; 5] = [
+    pub(crate) const ALL: [Feature; 5] = [
         Self::ListResources,
         Self::ListResourceTemplates,
         Self::ReadResource,
@@ -169,7 +178,16 @@ impl Feature {
         Self::GetPrompt,
     ];
 
-    fn name(self) -> &'static str {
+    /// The capability that offers it (`capabilities.resources`, `capabilities.prompts`).
+    pub(crate) fn capability(self) -> &'static str {
+        match self {
+            Self::ListResources | Self::ListResourceTemplates | Self::ReadResource => "resources",
+            Self::ListPrompts | Self::GetPrompt => "prompts",
+        }
+    }
+
+    /// The tool name's leaf, after `mcp__<server>__`.
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::ListResources => "mixdog_list_resources",
             Self::ListResourceTemplates => "mixdog_list_resource_templates",
@@ -179,7 +197,7 @@ impl Feature {
         }
     }
 
-    fn method(self) -> &'static str {
+    pub(crate) fn method(self) -> &'static str {
         match self {
             Self::ListResources => "resources/list",
             Self::ListResourceTemplates => "resources/templates/list",
@@ -189,106 +207,56 @@ impl Feature {
         }
     }
 
-    fn description(self) -> &'static str {
+    pub(crate) fn description(self) -> &'static str {
         match self {
-            Self::ListResources => "List the resources an MCP server exposes.",
-            Self::ListResourceTemplates => "List the resource templates an MCP server exposes.",
-            Self::ReadResource => "Read one resource of an MCP server by URI.",
-            Self::ListPrompts => "List the prompts an MCP server exposes.",
-            Self::GetPrompt => "Get one prompt of an MCP server, with arguments.",
+            Self::ListResources => "List resources exposed by this MCP server.",
+            Self::ListResourceTemplates => "List resource URI templates exposed by this MCP server.",
+            Self::ReadResource => "Read one resource exposed by this MCP server.",
+            Self::ListPrompts => "List reusable prompts exposed by this MCP server.",
+            Self::GetPrompt => "Render one reusable prompt exposed by this MCP server.",
         }
     }
 
-    fn schema(self) -> JsonValue {
-        let mut properties = json!({"server": {"type": "string", "description": "MCP server name"}});
-        let mut required = vec!["server"];
-        let map = properties.as_object_mut().expect("object literal");
-        match self {
-            Self::ReadResource => {
-                map.insert("uri".to_owned(), json!({"type": "string"}));
-                required.push("uri");
+    pub(crate) fn schema(self) -> JsonValue {
+        let (properties, required) = match self {
+            Self::ListResources | Self::ListResourceTemplates | Self::ListPrompts => {
+                (json!({"cursor": {"type": "string", "description": "Pagination cursor from a previous result."}}), None)
             }
+            Self::ReadResource => (json!({"uri": {"type": "string", "description": "Resource URI returned by the server."}}), Some("uri")),
+            Self::GetPrompt => (
+                json!({
+                    "name": {"type": "string", "description": "Prompt name returned by the server."},
+                    "arguments": {"type": "object", "description": "Prompt argument values.", "additionalProperties": {"type": "string"}},
+                }),
+                Some("name"),
+            ),
+        };
+        let mut schema = serde_json::Map::new();
+        schema.insert("type".to_owned(), json!("object"));
+        schema.insert("properties".to_owned(), properties);
+        if let Some(required) = required {
+            schema.insert("required".to_owned(), json!([required]));
+        }
+        schema.insert("additionalProperties".to_owned(), json!(false));
+        JsonValue::Object(schema)
+    }
+
+    /// The request's params from the call's arguments (`MCP_FEATURE_REQUESTS`, `mcpCursorParams`).
+    pub(crate) fn params(self, args: &JsonValue) -> JsonValue {
+        let text = |key: &str| args.get(key).filter(|value| truthy(value)).map_or_else(String::new, value_to_string);
+        match self {
+            Self::ReadResource => json!({"uri": text("uri")}),
             Self::GetPrompt => {
-                map.insert("name".to_owned(), json!({"type": "string"}));
-                map.insert("arguments".to_owned(), json!({"type": "object"}));
-                required.push("name");
+                let arguments = args.get("arguments").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({}));
+                json!({"name": text("name"), "arguments": arguments})
             }
-            _ => {
-                map.insert("cursor".to_owned(), json!({"type": "string"}));
-            }
-        }
-        json!({"type": "object", "properties": properties, "required": required})
-    }
-
-    fn params(self, args: &JsonValue) -> JsonValue {
-        let pick = |keys: &[&str]| {
-            let mut out = serde_json::Map::new();
-            for key in keys {
-                if let Some(value) = args.get(*key) {
-                    out.insert((*key).to_owned(), value.clone());
+            Self::ListResources | Self::ListResourceTemplates | Self::ListPrompts => {
+                match args.get("cursor").and_then(JsonValue::as_str).filter(|cursor| !cursor.is_empty()) {
+                    Some(cursor) => json!({"cursor": cursor}),
+                    None => json!({}),
                 }
             }
-            JsonValue::Object(out)
-        };
-        match self {
-            Self::ReadResource => pick(&["uri"]),
-            Self::GetPrompt => pick(&["name", "arguments"]),
-            _ => pick(&["cursor"]),
         }
-    }
-}
-
-/// `mixdog_list_resources`, `mixdog_read_resource`, … over the servers of one scope of the hub (Node
-/// registers them with the tools of `getMcpTools(scopeId)`, `mcp/client.mjs:261`).
-pub struct McpFeatureTool {
-    hub: Arc<McpHub>,
-    scope: String,
-    feature: Feature,
-    spec: ToolSpec,
-}
-
-/// The five feature tools of `hub` for the servers of `scope` (the session's `mcpScopeId`).
-pub fn feature_tools(hub: &Arc<McpHub>, scope: Option<&str>) -> Vec<Arc<dyn Tool>> {
-    let scope = normalize_scope(scope);
-    Feature::ALL
-        .into_iter()
-        .map(|feature| {
-            let spec = ToolSpec {
-                name: feature.name().to_owned(),
-                title: None,
-                trigger: None,
-                public: true,
-                aliases: Vec::new(),
-                description: feature.description().to_owned(),
-                input_schema: feature.schema(),
-                annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() },
-                parallel_safe: true,
-                exclusive_with: Vec::new(),
-            };
-            Arc::new(McpFeatureTool { hub: Arc::clone(hub), scope: scope.clone(), feature, spec }) as Arc<dyn Tool>
-        })
-        .collect()
-}
-
-#[async_trait]
-impl Tool for McpFeatureTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let name = args.get("server").and_then(JsonValue::as_str).unwrap_or_default();
-        let Some(server) = self.hub.server_in(&self.scope, name) else {
-            return Err(ToolError::new(
-                ToolErrorCode::NotFound { target: name.to_owned() },
-                format!("no MCP server named {name:?}"),
-            ));
-        };
-        let value = server
-            .request(self.feature.method(), self.feature.params(&args), &ctx.cancel)
-            .await
-            .map_err(|error| tool_error(&server, error))?;
-        Ok(ToolOutput { parts: vec![ToolPart::Json(value)], ..ToolOutput::default() })
     }
 }
 

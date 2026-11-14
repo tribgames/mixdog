@@ -101,6 +101,18 @@ mod tests {
         assert!(names_equal(OsStr::new("foo"), OsStr::new("foo")));
         assert!(!names_equal(OsStr::new("a"), OsStr::new("b")));
     }
+
+    /// A file another handle holds open without sharing is still stat'ed, as libuv's `fs.stat` stats it.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_held_without_sharing_is_stated() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("held.txt");
+        std::fs::write(&path, b"body").unwrap();
+        let _hold = std::fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+        assert_eq!(stat_with_version(&path).unwrap().1.size, 4);
+    }
 }
 
 pub fn file_version(file: &File) -> io::Result<FileVersion> {
@@ -145,14 +157,15 @@ pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
 pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO;
+    use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
     use windows_sys::Win32::Storage::FileSystem::FileBasicInfo;
     use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandleEx;
     let mut options = std::fs::OpenOptions::new();
-    options.read(true);
     {
         use std::os::windows::fs::OpenOptionsExt;
-        // FILE_FLAG_BACKUP_SEMANTICS, as in `path_id`; the default share mode lets a writer coexist.
-        options.custom_flags(0x0200_0000);
+        // Attributes only, with FILE_FLAG_BACKUP_SEMANTICS, as libuv's `fs.stat` opens: no share mode
+        // refuses that, so a file another process holds open without sharing is still stat'ed.
+        options.access_mode(FILE_READ_ATTRIBUTES).custom_flags(0x0200_0000);
     }
     let file = options.open(path)?;
     let id = file_id(&file)?;

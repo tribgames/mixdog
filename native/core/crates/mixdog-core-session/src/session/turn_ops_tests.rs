@@ -786,13 +786,99 @@ async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     retry_when_settled(&handle, &key, "r-1a").await;
-    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == 2).then_some(())).await;
+    // The failed Goal turn's prompt carries its transcript metadata, so the failed message is retained and the revived Goal's
+    // retry resends it (`resumeGoal`: `retryFailedTurn(key)` when `retainedRetryInput()` finds it), as Node does for every turn;
+    // the Goal then continues after that turn, so a poll may see a later run than the second.
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) >= 2).then_some(())).await;
     let goal = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal");
     assert_eq!(goal["status"], "active", "the Goal was revived");
     eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty()).then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(false));
 }
+
+/// `publishQuotaResume`: while a resume waits for the thread, its state shows it (`quotaResume`, `publicQuotaResume`'s
+/// shape), and a change of the queue that removes the entry takes it away.
+#[tokio::test(start_paused = true)]
+async fn the_waiting_quota_resume_is_in_the_threads_state() {
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Failed(super::testing::quota_error(5000))
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    let id = handle.id.as_str().to_owned();
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    let shown = eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.clone()).await;
+    assert_eq!((shown.state.as_str(), shown.turn_key.as_str(), shown.provider.as_str()), ("waiting", entry.turn_key.as_str(), entry.provider.as_str()));
+    assert!(rig.quota.cancel(&id, None).await.expect("the store writes"), "the entry is removed");
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.is_none().then_some(())).await;
+}
+
+/// `restoreTranscriptRange` runs `restoredFailedTurnItems` for every message: an automatic Goal turn a usage limit stops
+/// before any output records its failed end on its prompt, which history pages list though it shows no row of its own, so
+/// a reload restores that end under the key the queued resume waits on.
+#[tokio::test(start_paused = true)]
+async fn a_goal_turns_failed_end_on_its_prompt_is_restored_under_the_resumes_key() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Failed(super::testing::quota_error(5000))
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    rig.goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
+    let key = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
+    let attempt = key.strip_prefix("attempt:").expect("the failure is keyed by its attempt").to_owned();
+    let (prompt, body) = eventually_on!(&[&handle.cell.stepped], || {
+        let records = rig.store.records(&handle.id);
+        let body = records.iter().find_map(|(_, record)| match record {
+            Record::Amend(amend) => match &amend.body {
+                Slot::Inline(body) if body.pointer("/meta/transcript/completion/attemptId").and_then(Value::as_str) == Some(attempt.as_str()) => Some((amend.iid.as_str().to_owned(), body.clone())),
+                _ => None,
+            },
+            _ => None,
+        })?;
+        let prompt = records.iter().find_map(|(_, record)| match record {
+            Record::Item(item) if item.iid.as_str() == body.0 => Some(item.clone()),
+            _ => None,
+        })?;
+        Some((prompt, body.1))
+    })
+    .await;
+    assert!(super::goal_lane::is_goal_prompt(&body), "the end is recorded on the Goal turn's prompt: {body}");
+    assert!(prompt.visible && prompt.prompt.is_none(), "history pages list the prompt, which shows no row of its own");
+    let ends: Vec<Value> = super::transcript::restore(&prompt, &body)
+        .into_iter()
+        .filter_map(|restored| match restored {
+            super::transcript::Restored::Row { row, .. } => Some(Value::Object(row)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert_eq!((&ends[0]["kind"], &ends[0]["status"], &ends[0]["attemptId"]), (&json!("turndone"), &json!("failed"), &json!(attempt)), "{ends:?}");
+    assert!(ends[0]["quota"].is_object(), "the restored end carries the quota stop the resume reads: {ends:?}");
+
+    // A reload reads the history pages through the stored records (`RecordTranscript`, which shows nothing for a record history
+    // pages do not list), over the same store: the latest failed turn they show is the one the queued resume waits on, which is
+    // what `fireQuotaResume` checks after a restart before it fires rather than supersedes the resume.
+    let mut restoring = rig.deps_parts(rig.store.clone());
+    restoring.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let history = SessionDirectory::new(Arc::new(restoring)).history_items(&handle.id).await.expect("history");
+    let rows = super::quota_lane::transcript_rows(history.iter());
+    assert_eq!(super::quota_lane::latest_failed_turn_key(&rows), key, "the reloaded history ends on the failure the resume waits on: {rows:?}");
+}
+
 /// `commitSessionCompaction`: a manual compaction's result is applied when no turn runs and the
 /// context still starts with what it was planned on; the rows a finished turn appended meanwhile
 /// follow the compacted ones; a running turn, or a context that moved, leave the conversation as
@@ -1106,6 +1192,34 @@ async fn a_failure_without_an_end_item_records_its_end_and_the_history_shows_it_
         })
         .collect();
     assert_eq!(ends, [(mixdog_protocol::TurnEndStatus::Failed, Some("boom".to_owned()))], "one turn end, from the row's completion");
+}
+
+/// A failed turn's run record holds its error with the message masked as the failure record's `errorDetails` is
+/// (`safeErrorDetails`): neither the session log nor the `turn/completed` built from the record carries a credential
+/// the provider's message echoed.
+#[tokio::test(start_paused = true)]
+async fn a_failed_turns_run_record_masks_the_credentials_its_error_names() {
+    const RAW: &str = "400 Incorrect API key provided: sk-proj-ABCDEFGHIJKLMNOP1234. Authorization: Bearer tokABCDEF123456XYZ at https://bob:hunter2pass@api.example.com/v1?api_key=qsecretVAL77";
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: RAW.into(), data: json!({}), provider_error: None })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let completed = eventually_on!(&[&rig.feeds.published], || {
+        rig.feeds.frames(handle.id.as_str()).into_iter().find(|(_, method, _)| method == "turn/completed")
+    })
+    .await;
+    assert_eq!(completed.2["turn"]["error"]["message"], mixdog_ai::service::error_text::safe_error_details(RAW).as_str());
+    let (stored, sent) = (format!("{:?}", rig.store.records(&handle.id)), completed.2.to_string());
+    for secret in ["sk-proj-ABCDEFGHIJKLMNOP1234", "tokABCDEF123456XYZ", "hunter2pass", "qsecretVAL77"] {
+        assert!(!stored.contains(secret), "the session log holds {secret}: {stored}");
+        assert!(!sent.contains(secret), "turn/completed carries {secret}: {sent}");
+    }
 }
 
 /// The failed `TurnEnd` of the newest `item/completed` frame of `thread` that carries one, as the feed sent it.

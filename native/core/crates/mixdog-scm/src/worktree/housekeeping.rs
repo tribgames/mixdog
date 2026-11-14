@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use mixdog_protocol::RemovalRemnant;
+use mixdog_workspace::pathguard::canonical_path;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
@@ -75,8 +76,10 @@ pub(crate) fn prune_registration(common_dir: &Path, worktree_path: &Path, allow_
         return false;
     }
     let mut pruned = false;
+    // `samePath`: git records the real path, the record may spell it through a link or junction.
+    let wanted = path_key(&canonical_path(worktree_path));
     for registration in admin_registrations(common_dir) {
-        if path_key(&registration.worktree_path) != path_key(worktree_path) {
+        if path_key(&canonical_path(&registration.worktree_path)) != wanted {
             continue;
         }
         if !allow_locked && !is_gone(&registration.admin.join("locked")) {
@@ -245,9 +248,10 @@ fn unrecorded_links(record: &WorktreeRecord) -> Result<Vec<String>, (&'static st
 }
 
 impl Worktrees {
-    /// git's registration of the record's checkout, if any.
+    /// git's registration of the record's checkout, if any: the listed paths are canonical, so
+    /// the record's is compared canonical too (`samePath`).
     pub(crate) async fn registration_for(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<GitWorktree>, ScmFailure> {
-        let wanted = path_key(Path::new(&record.path));
+        let wanted = path_key(&self.canonical_paths(vec![PathBuf::from(&record.path)], cancel).await?[0]);
         Ok(self
             .list_git_worktrees(&repo_cwd(record), cancel)
             .await?
