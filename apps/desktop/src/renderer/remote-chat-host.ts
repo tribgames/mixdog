@@ -16,6 +16,7 @@ import type {
 } from '../shared/contract';
 import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from '../shared/blank-snapshot.ts';
 import type { StartCall } from '../shared/blank-snapshot.ts';
+import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
 // Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
@@ -33,9 +34,6 @@ const HISTORY_ROW_ID_MAX_CHARS = 512;
 const HISTORY_POSITION = /^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/;
 /** session-service transcript-window.mjs: the newest rows read to judge what the connection has not been shown. */
 const LATEST_ROWS = HISTORY_PAGE_ITEMS;
-/** secret-requests.ts */
-const SECRET_REQUEST_ID = /^secret_[A-Za-z0-9-]{8,80}$/;
-const MAX_SECRET_LENGTH = 4_096;
 /** session-host.ts agentRoomAction */
 const ROOM_ACTIONS: ReadonlySet<string> = new Set(['create', 'update', 'continue', 'leave', 'reset', 'remove']);
 
