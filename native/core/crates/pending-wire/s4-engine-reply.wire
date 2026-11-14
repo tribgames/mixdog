@@ -1,0 +1,22 @@
+# s4-engine-reply core wiring
+
+## 1. Cargo dependency of the engine crate
+File: native/core/crates/mixdog-browser-engine/Cargo.toml, section [dependencies], after the `bytes = { workspace = true }` line add:
+
+    base64 = { workspace = true }
+
+(`base64 = "0.22.1"` is already in [workspace.dependencies] and in Cargo.lock; reply/screenshot.rs decodes the inline base64 picture of
+`host/browser/screenshot`. If the workspace-hack crate is kept in step by hand, `base64` with the features mixdog-tools already uses is the same entry.)
+
+## 2. Protocol type edit this crate needs
+pending-rows/s4-engine-reply.rows adds `reason: Option<String>` to `BrowserDismissedDialog`; reply/dialog_text.rs reads it, so the rows must be applied
+before the crate is compiled.
+
+## 3. What the engine runner (s4-engine-runner) takes from this module
+reply::reply::{build_reply, page_report_text, format_evaluation_value, PageReplyState, ReplyContext, ReplyRequest, ReplyEffect, EffectBaseline,
+ReplyPage, SnapshotCapture, ToolReply, ReplyOutcome, ReplyError}; reply::dialog_text::{blocking_dialog_reply, status_text};
+reply::screenshot::{read_capture, attach_frame, ScreenshotInput, ImageOutput, CapturedScreenshot}; reply::downloads_text::{DownloadReports, list_text, ...};
+reply::tabs_text::list_tabs_text. The runner keeps one `PageReplyState` per page and one `DownloadReports` per session, and stores `ToolReply::grounding`
+with the page (the visual grounding a coordinate action checks).
+
+No registration, no SERVICE_PENDING change.

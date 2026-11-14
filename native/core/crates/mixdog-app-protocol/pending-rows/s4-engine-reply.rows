@@ -1,0 +1,33 @@
+# s4-engine-reply: the reason a dialog was dismissed unseen, which the page report of the engine says ("its request never reached the browser" or "it opened before
+# the browser was intercepting dialogs"). The old engine kept it on the dismissed record (`DismissedBrowserDialog.reason`); the facts dropped it. Optional, so an old host
+# and an old core keep parsing; the engine reads an absent or unknown value as `unreachable`.
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# none (a fixed word, not free text)
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# struct BrowserDismissedDialog: add after `at`:
+    /// Why nobody saw it: `unreachable` (its bridge request never reached the host) or `early` (it fired before the bridge was installed). Absent from an older host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+# After the change the generated schema files and packages/protocol/src/index.ts carry `reason?: string` on `BrowserDismissedDialog`. The Rust engine reads it in
+# mixdog-browser-engine reply/dialog_text.rs (`DismissedNotice::from_facts`: `dialog.reason.as_deref()`), so this edit must land with the engine crate.
+
+[remove]
+# none
+
+[window]
+# none
