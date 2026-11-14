@@ -276,6 +276,7 @@ webrtc = "=0.21.1" # not in Codex
 rtc = "=0.21.1" # not in Codex; protocol core under `webrtc`
 shiguredo_libvpx = "=2026.2.0-canary.3" # not in Codex
 jpeg-decoder = { version = "0.3", default-features = false } # not in Codex
+image = { version = "0.25", default-features = false, features = ["jpeg"] } # s3-04: JPEG encoder (image::codecs::jpeg::JpegEncoder) for the set-of-marks burn-in; jpeg-encoder 0.6 is not cached
 
 [patch.crates-io]
 # The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps

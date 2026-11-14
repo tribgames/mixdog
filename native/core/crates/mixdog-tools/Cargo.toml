@@ -58,6 +58,9 @@ shlex = { workspace = true }
 # fs tools (WP-TOOLS-FS)
 globset = { workspace = true }
 nucleo-matcher = { workspace = true }
+flate2 = { workspace = true }
+jpeg-decoder = { workspace = true }
+image = { workspace = true }
 # policy (WP-SANDBOX)
 sha2 = { workspace = true }
 tracing = { workspace = true }

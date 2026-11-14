@@ -26,6 +26,7 @@ pub mod computer_lane;
 pub mod computer_launch_policy;
 mod computer_lease;
 pub mod computer_linux;
+pub mod computer_marks_draw;
 mod computer_ocr;
 pub mod computer_pixels;
 pub mod computer_pointer;
