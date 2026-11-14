@@ -4,6 +4,7 @@
 //! through the Rust port and must give the same answer.
 
 use std::collections::BTreeMap;
+#[allow(clippy::disallowed_types, reason = "test: the ignored live check runs the Node recorder as a child process")]
 use std::process::Command;
 
 use mixdog_js::{to_number, to_number_of};
@@ -436,6 +437,7 @@ fn a_colour_equals_its_css_text() {
 /// is `C:/Project/mixdog` unless `MIXDOG_STYLE_TREE` names another checkout of the Node code.
 #[test]
 #[ignore = "runs node over the Node tree (see the recorder)"]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test: runs the Node recorder as a child process")]
 fn live_style() {
     let crate_dir = env!("CARGO_MANIFEST_DIR");
     let tree = std::env::var("MIXDOG_STYLE_TREE").unwrap_or_else(|_| "C:/Project/mixdog".to_owned());
