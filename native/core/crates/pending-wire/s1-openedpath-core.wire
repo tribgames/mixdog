@@ -1,0 +1,5 @@
+# mixdog-workspace: module line
+file: native/core/crates/mixdog-workspace/src/lib.rs
+place: next to `pub mod inplace;`
+add:   pub mod openedpath;
+# no Cargo change: windows-sys Win32_Storage_FileSystem and libc are already dependencies, and the locator reuses ident::handle_path.
