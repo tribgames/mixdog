@@ -83,7 +83,7 @@ test('requests equal what the IPC handlers sent', async () => {
   const cases = [
     ['markSessionRead', [S1, 4, undefined], [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: false }]]],
     ['markSessionRead', [S1, 4, true], [['thread/readState/update', { threadId: S1, messageCount: 4, consumedUnread: true }]]],
-    ['searchSessionContent', ['needle'], [['thread/search', { query: 'needle' }]]],
+    ['searchSessionContent', [' needle '], [['thread/search', { query: 'needle' }]]],
     ['listAgentPool', [], [['agent/pool/list', {}]]],
     ['renameSession', [S1, 'Title'], [['thread/name/set', { threadId: S1, title: 'Title' }]]],
     ['setSessionArchived', [S1, true], [['thread/archive', { threadId: S1 }]]],

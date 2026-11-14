@@ -152,7 +152,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
         const rows = connection.client()?.store.section('agentPool')?.value;
         listener(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []);
       }),
-    searchSessionContent: (query) => svc('searchSessionContent', [query]),
+    searchSessionContent: (query) => svc('searchSessionContent', [trimmed(query)]),
     markSessionRead: (sessionId, messageCount, consumedUnread) =>
       svc('markSessionRead', [trimmed(sessionId), messageCount, consumedUnread === true]),
 
