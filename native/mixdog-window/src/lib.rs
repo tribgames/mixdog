@@ -16,17 +16,23 @@
 //! The window procedure is native on purpose: a window procedure that calls
 //! into JavaScript runs Windows' modal move and size loops, and the browser's
 //! tasks inside them, on the FFI callback stack, where a V8 garbage collection
-//! aborts the process. The module's three functions are plain calls that
+//! aborts the process. The three window functions are plain calls that
 //! register no callback.
+//!
+//! The module also owns the foreground-lock lease thread of the Computer Use
+//! bridge host (foreground_lease.rs). That thread reports to JavaScript only
+//! through a queued Node-API threadsafe call, never from a window procedure.
 //!
 //! The library is a Node-API module (mixdog_window.node): Node-API is
 //! ABI-stable across Electron versions, and the loader needs no FFI library.
-//! The Windows imports (comctl32, user32) are raw-dylib, so there are no
+//! The Windows imports (comctl32, user32, kernel32) are raw-dylib, so there are no
 //! import libraries and the build needs no Windows SDK.
 #![cfg(windows)]
 
 use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
+
+mod foreground_lease;
 
 type Hwnd = isize;
 type SubclassProc = unsafe extern "system" fn(Hwnd, u32, usize, isize, usize, usize) -> isize;
