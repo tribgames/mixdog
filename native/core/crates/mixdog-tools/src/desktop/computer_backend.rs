@@ -94,6 +94,7 @@ use super::computer_frames::FrameStore;
 use super::computer_history::FailureBundles;
 use super::computer_history::RunLog;
 use super::computer_history::RunReply;
+use super::computer_history::capture_attempts;
 use super::computer_history::history_limit;
 use super::computer_history::log_error;
 use super::computer_history::run_record;
@@ -480,6 +481,9 @@ pub struct ProcessComputerBackend {
     pub(super) arrivals: computer_settle::Arrivals,
     /// The run history, failure bundles and frame files under the data directory; `None` without one.
     pub(super) files: Option<DataFiles>,
+    /// The `capture_attempts` a failed capture's helper reply carried, kept for the run record of the command that failed
+    /// (`attachCaptureAttempts`, `captureAttemptsFromError`); taken by `keep_record`.
+    failed_capture_attempts: Mutex<Option<Value>>,
 }
 
 /// What a backend keeps of its commands under the data directory: the run history, the failure bundles and the frames
@@ -593,6 +597,14 @@ impl ProcessComputerBackend {
             unresponsive: AtomicU32::new(0),
             cleaning: Arc::default(),
             arrivals: computer_settle::Arrivals::default(),
+            failed_capture_attempts: Mutex::new(None),
+        }
+    }
+
+    /// Keeps the attempts a failed capture reported for the run record of the command that fails with it.
+    pub(super) fn note_failed_capture(&self, failure: &HelperFailure) {
+        if let Some(attempts) = failure.result.as_ref().and_then(|result| result.get("capture_attempts")) {
+            *locked(&self.failed_capture_attempts) = Some(attempts.clone());
         }
     }
 
@@ -611,6 +623,16 @@ impl ProcessComputerBackend {
                 let Some(backend) = backend.upgrade() else { break };
                 let confirmed = backend.recover_dead_host().await;
                 backend.pause_unless(confirmed);
+            }
+        });
+        // The short watch for the windows that open after an action runs between its commands (`windowArrivals.watch`); ends with the backend.
+        let backend = Arc::downgrade(self);
+        let wake = self.arrivals.wake.clone();
+        runtime.spawn(async move {
+            loop {
+                wake.notified().await;
+                let Some(backend) = backend.upgrade() else { break };
+                computer_settle::watch_once(&backend).await;
             }
         });
     }
@@ -1157,8 +1179,9 @@ impl ProcessComputerBackend {
 
 impl Drop for ProcessComputerBackend {
     fn drop(&mut self) {
-        // Ends watch_for_death's task.
+        // Ends watch_for_death's tasks.
         self.gone.notify_one();
+        self.arrivals.wake.notify_one();
         let held = locked(&self.host).take();
         let Some(host) = held else { return };
         let manager = self.manager.clone();
@@ -1361,6 +1384,7 @@ impl ComputerBackend for ProcessComputerBackend {
         // Every command that reaches the host leaves its line in the run history, and a failed one its bundle (`command-attempt.ts`).
         let logged = command.clone();
         let started = Instant::now();
+        *locked(&self.failed_capture_attempts) = None;
         let outcome = self.run_command(command, asked_mode, note, &cancel).await;
         self.keep_record(&logged, started, &outcome);
         outcome
@@ -1463,6 +1487,7 @@ impl ProcessComputerBackend {
         // The fallback's note follows a result that is not an error.
         let mut parts = result?;
         computer_settle::report_arrived(self, &name, arrived, &mut parts, cancel).await?;
+        computer_settle::watch_after(self, &name);
         if let Some(note) = note {
             parts.push(ToolPart::Text(note.into()));
         }
@@ -1493,6 +1518,12 @@ impl ProcessComputerBackend {
                 let mut record = run_record(command, elapsed_ms, None);
                 record.insert("ok".into(), json!(false));
                 record.insert("error".into(), json!(log_error(&error_text(error))));
+                if let Some(attempts) = locked(&self.failed_capture_attempts).take() {
+                    let attempts = capture_attempts(Some(&attempts));
+                    if !attempts.is_empty() {
+                        record.insert("capture_attempts".into(), Value::Array(attempts));
+                    }
+                }
                 (record, "execution")
             }
         };
@@ -2264,6 +2295,25 @@ mod tests {
 
     fn list_history(limit: u64) -> ComputerRequest {
         ComputerRequest { action: ComputerAction::List, input: json!({"kind": "history", "limit": limit}) }
+    }
+
+    /// A capture that failed leaves the attempts its reply carried in the run record of the command.
+    #[test]
+    fn a_failed_capture_keeps_its_attempts_in_the_run_record() {
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "attempts-1") };
+        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
+        let rows = json!([
+            {"backend": "print_window", "scope": "target", "status": "failed", "elapsed_ms": 12, "code": "capture_timeout"},
+            {"backend": "wgc", "scope": "owner", "status": "failed", "elapsed_ms": 30, "code": "capture_denied"},
+        ]);
+        let result = input(json!({"capture_attempts": rows}));
+        backend.note_failed_capture(&HelperFailure { text: "capture_denied: x".into(), result: Some(result) });
+        let failure = ComputerError::Failed { code: "capture_denied".into(), message: "capture_denied: x".into() };
+        backend.keep_record(&input(json!({"action": "capture", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
+        let kept = backend.files.as_ref().unwrap().runs.history("attempts-1", 5);
+        let attempts = &kept["history"][0]["capture_attempts"];
+        assert_eq!((attempts.as_array().map(Vec::len), attempts[1]["scope"].clone()), (Some(2), json!("owner")));
     }
 
     /// Every command that reaches the host leaves its line in the run history; `list kind="history"` reads the session's lines back,

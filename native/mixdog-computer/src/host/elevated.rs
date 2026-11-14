@@ -42,11 +42,22 @@ enum Decision {
     Elevate,
 }
 
-/// The routing rule of host/input-dispatch.ts:139-188: only a target known
-/// to run higher goes to the worker, and only with the policy's consent and
-/// no element ref (a ref cannot be resolved across the boundary).
+/// The routing rule of host/input-dispatch.ts:93-188: a foreground input
+/// whose target integrity cannot be read is refused (readForegroundIntegrity;
+/// `None` is a system with no such boundary), only a target known to run
+/// higher goes to the worker, and only with the policy's consent and no
+/// element ref (a ref cannot be resolved across the boundary).
 fn decide(level: Option<&Integrity>, req: &Req) -> Decision {
-    if !level.is_some_and(|level| level.known() && level.higher()) {
+    let Some(level) = level else {
+        return Decision::Normal;
+    };
+    if !level.known() {
+        return Decision::Refuse(
+            "target_integrity_unknown: foreground input was not sent because the target integrity could not be verified"
+                .into(),
+        );
+    }
+    if !level.higher() {
         return Decision::Normal;
     }
     if req.bool_false("allow_elevated_input") {
@@ -260,9 +271,18 @@ mod tests {
         assert_eq!(decide(Some(&level(0x2000, 0x3000)), &request), Decision::Elevate);
         assert_eq!(decide(Some(&level(0x2000, 0x2000)), &request), Decision::Normal);
         assert_eq!(decide(Some(&level(0x3000, 0x2000)), &request), Decision::Normal);
-        assert_eq!(decide(Some(&level(0x2000, 0)), &request), Decision::Normal);
-        assert_eq!(decide(Some(&level(0, 0x3000)), &request), Decision::Normal);
         assert_eq!(decide(None, &request), Decision::Normal);
+    }
+
+    #[test]
+    fn a_target_whose_integrity_cannot_be_read_is_refused() {
+        let refusal = Decision::Refuse(
+            "target_integrity_unknown: foreground input was not sent because the target integrity could not be verified"
+                .into(),
+        );
+        let request = click(json!({}));
+        assert_eq!(decide(Some(&level(0x2000, 0)), &request), refusal);
+        assert_eq!(decide(Some(&level(0, 0x3000)), &request), refusal);
     }
 
     #[test]
