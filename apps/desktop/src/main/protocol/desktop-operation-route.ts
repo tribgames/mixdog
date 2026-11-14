@@ -101,6 +101,25 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   listHostDirectories: positional('projectFs/browseDirs', ['path']),
   listServerDirectories: positional('projectFs/browseDirs', ['path', 'includeHidden']),
 
+  // grants (a minted access token is the default, as the rooted service route's callers expect)
+  grantDescribe: ([paths, mint]) => ({ method: 'projectFs/grant/describe', params: { paths, mint: mint !== false } }),
+  grantRedeem: positional('projectFs/grant/redeem', ['accessToken', 'projectPath', 'relPath']),
+
+  // a standalone folder (one that is no project) and the file operations on it, rooted at the folder
+  standaloneRoot: ([path]) => ({ method: 'project/directory', params: { path, standalone: true } }),
+  listProjectDirIn: positional('projectFs/listDir', ['root', 'rel']),
+  createProjectEntryIn: positional('projectFs/create', ['root', 'relDir', 'name', 'directory']),
+  renameProjectEntryIn: positional('projectFs/rename', ['root', 'rel', 'newName']),
+  moveProjectEntryIn: positional('projectFs/move', ['root', 'rel', 'targetDirRel']),
+  copyProjectEntryIn: positional('projectFs/copy', ['root', 'rel', 'targetDirRel']),
+  trashProjectEntryIn: ([root, rel]) => ({ method: 'projectFs/trash', params: { root, rel, viaHost: true } }),
+  projectEntryPathIn: positional('projectFs/entryPath', ['root', 'rel']),
+
+  // local pages served by the core page server
+  localPageUrlIn: positional('projectFs/localPageUrl', ['root', 'rel', 'accessToken', 'ownerId']),
+  localPageRevokeOwner: positional('projectFs/localPage/revokeOwner', ['ownerId']),
+  localPageOrigin: positional('projectFs/localPage/origin', []),
+
   // desktop settings are keys of the Config actor (desktop-services.md §3)
   writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
   updateActivityRailPins: ([pins, initializeIfMissing]) => {
@@ -131,7 +150,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   // terminals; the size owner is the calling connection, so Node's force flag and client id have no param
   // With no id the core spawns a new terminal and answers the id it made.
   termEnsure: ([tabId, cwd, profile]) => terminalEnsureRequest(tabId, cwd, profile),
-  termAttach: positional('terminal/attach', ['tabId']),
+  // `resumeFrom` ({ epoch, seq }) asks the core to continue the replay after that point; left out when not given.
+  termAttach: ([tabId, resumeFrom]) => ({ method: 'terminal/attach', params: defined({ tabId, resumeFrom }) }),
   termProfiles: positional('terminal/profiles', []),
   // Node: focus(id, focused, client): a view shows (true) or leaves (false) the tab; the client is the connection.
   termFocus: ([tabId, focused]) => ({ method: 'terminal/focus', params: { tabId, focused: focused === true } }),
@@ -310,6 +330,8 @@ const SAME_REPLY: readonly string[] = [
   'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
   'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
   'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
+  'grantDescribe', 'grantRedeem', 'listProjectDirIn', 'createProjectEntryIn', 'renameProjectEntryIn',
+  'moveProjectEntryIn', 'copyProjectEntryIn', 'localPageUrlIn', 'localPageOrigin',
 ];
 /** Node returned nothing. */
 const VOID_REPLY: readonly string[] = [
@@ -319,9 +341,14 @@ const VOID_REPLY: readonly string[] = [
 const NULL_REPLY: readonly string[] = [
   'termFocus', 'termPause', 'termResume', 'termDispose', 'remoteAccessSetClientAlias',
   'remoteAccessSettleOwedControllerKeys', 'browserRemoteTabs', 'browserRemoteImportProgress', 'visualizeRemotePublish',
+  'trashProjectEntryIn', 'localPageRevokeOwner',
 ];
 
 const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
+  // The folder's path when the core classified it standalone; null for a registered Project (Node's `standaloneFolder`).
+  standaloneRoot: (reply) => (record(reply).standalone === true ? record(reply).path : null),
+  // The path of an entry, as the rooted service route answers `projectEntryPath`.
+  projectEntryPathIn: (reply) => record(reply).path,
   // The core stats a list; Node answered the one entry, or threw the stat's error: a slot { error } is that error.
   statLocalEntryAbs: (reply) => {
     if (!Array.isArray(reply)) throw new TypeError('projectFs/statLocal did not answer a list.');
