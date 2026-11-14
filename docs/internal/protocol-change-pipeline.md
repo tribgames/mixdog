@@ -152,3 +152,16 @@ Rules learned in G7:
 - `node scripts/collect-client-inputs.mjs --check` re-derives the clients' senders: a desktop change merged in the wave can
   make it fail with no protocol edit; `--write` regenerates the fixture.
 - A struct with `ts(optional_fields)` needs no field-level `ts(optional)` for a new `Option` field.
+
+PROTO-WIRE-G11 applied s1-del-proto and s1-del-grants-page (removal only): the server request `host/localPage/url`
+(`HostLocalPageUrlParams`, `LocalPageScope`) is gone; `projectFs/localPageUrl` is answered by the core page server only.
+No `[window]` lines; no `SERVICE_PENDING` change.
+
+Rules learned in G11:
+
+- A deletion wave that removes desktop sender files (ipc-notifications.ts, ipc-terminal.ts, model-proxy-relay.ts, ...) makes
+  `collect-client-inputs.mjs --check` fail on source rows with no protocol edit; `--write` moves the rows to the senders that
+  now hold the call (renderer `core-direct/*`) and drops rows no desktop sender sends any more. Read the diff: a dropped
+  method must be one whose deletion task says what replaces it.
+- With `MIXDOG_UPDATE_PROTOCOL_GOLDEN=1` the `free_text_fields` check can fail in the same run (it reads the schema before the
+  rewrite); run `cargo test -p mixdog-app-protocol` again without the variable.
