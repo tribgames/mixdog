@@ -1,7 +1,7 @@
 //! Address suggestions: the Host aliases of the user's ~/.ssh/config, with `Include` expanded.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -135,17 +135,37 @@ fn name_pattern(name: &str) -> Option<Regex> {
     Regex::new(&source).ok()
 }
 
+/// Node's `path.join` normalisation of a joined path: `.` and `..` segments collapse and the separators are the platform's, so the
+/// same file reached by two spellings is one entry of the loop guard.
+fn normalized(path: &Path) -> PathBuf {
+    let mut parts: Vec<Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match parts.last() {
+                Some(Component::Normal(_)) => {
+                    parts.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => parts.push(component),
+            },
+            other => parts.push(other),
+        }
+    }
+    if parts.is_empty() { PathBuf::from(".") } else { parts.into_iter().collect() }
+}
+
 fn include_targets(argument: &str, user_dir: &Path, home: &Path, files: &dyn ConfigFiles) -> Vec<PathBuf> {
     let mut targets = Vec::new();
     let Some(arguments) = INCLUDE_ARGUMENT.as_ref() else { return targets };
     for captures in arguments.captures_iter(argument) {
         let raw = captures.get(1).or_else(|| captures.get(2)).map_or("", |part| part.as_str());
         let expanded: PathBuf = if raw == "~" || (raw.starts_with('~') && raw[1..].starts_with(is_separator)) {
-            home.join(raw[1..].trim_start_matches(is_separator))
+            normalized(&home.join(raw[1..].trim_start_matches(is_separator)))
         } else if is_absolute(raw) {
             PathBuf::from(raw)
         } else {
-            user_dir.join(raw)
+            normalized(&user_dir.join(raw))
         };
         let text = expanded.to_string_lossy().into_owned();
         let split = text.rfind(is_separator);

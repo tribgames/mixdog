@@ -237,6 +237,27 @@ async fn ensure_for_target_answers_the_saved_server_or_an_unsaved_record() {
 }
 
 #[tokio::test]
+async fn reservations_share_one_id_per_first_time_target_while_any_attempt_holds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SshHostStore::load(&paths(dir.path()), io()).await;
+    store.save(host("a", "vps", "root@vps.example.com", 1)).await.unwrap();
+    // A saved server is answered as it is.
+    assert_eq!(store.reserve_for_target("root@VPS.example.com").unwrap().record.id, "a");
+    let first = store.reserve_for_target("root@new.example.com:2202").unwrap();
+    let second = store.reserve_for_target("root@NEW.example.com:2202").unwrap();
+    assert_eq!(first.record.id, second.record.id);
+    assert_eq!((first.record.name.as_str(), first.record.last_connected_at.is_none()), ("new.example.com", true));
+    let id = first.record.id.clone();
+    drop(first);
+    // One attempt still holds it.
+    assert_eq!(store.reserve_for_target("root@new.example.com:2202").unwrap().record.id, id);
+    drop(second);
+    // Every attempt let go: the next first connect starts over with its own id.
+    assert_ne!(store.reserve_for_target("root@new.example.com:2202").unwrap().record.id, id);
+    assert!(store.reserve_for_target("-oProxyCommand=x").is_err());
+}
+
+#[tokio::test]
 async fn damaged_file_kept_aside() {
     let dir = tempfile::tempdir().unwrap();
     let store = SshHostStore::load(&paths(dir.path()), io()).await;
@@ -527,4 +548,16 @@ async fn presence_reports_online_and_offline_hosts_and_skips_an_unreachable_rela
     let request = seen.recv().await.unwrap();
     assert!(request.starts_with("POST /pair-code/presence "));
     assert!(request.contains(&format!("\"ids\":[\"{DEVICE}\",\"{other}\"]")));
+}
+
+#[test]
+fn pair_redeem_messages_are_translated_by_the_caller() {
+    let upper = |key: &str| key.to_uppercase().replace("{{SECONDS}}", "{{seconds}}");
+    assert_eq!(PairRedeemError::WrongOrExpired.message(&upper), "THE CODE IS WRONG OR HAS EXPIRED.");
+    assert_eq!(
+        PairRedeemError::TooManyAttempts { retry_after_seconds: "7".into() }.message(&upper),
+        "TOO MANY ATTEMPTS. TRY AGAIN IN 7 SECONDS."
+    );
+    assert_eq!(PairRedeemError::Request("boom".into()).message(&upper), "boom");
+    assert_eq!(PairRedeemError::WrongOrExpired.to_string(), "The code is wrong or has expired.");
 }
