@@ -222,7 +222,7 @@ pub(super) async fn zoom(backend: &ProcessComputerBackend, command: Map<String, 
 /// `captureZoom` over a display frame: the region of the display the frame was cut from, asked of the desktop at full resolution
 /// (`host/computer/pixels` with the region in physical pixels) and cut out there; the crop is the store's new frame, of the same display.
 /// A display whose layout changed since the frame was issued is a stale frame (`assertDisplayUnchanged`). `include_ocr` recognizes the
-/// crop with `ocr` (`recognizeZoomText`); with no recognizer attached the reply says the recognition failed.
+/// crop with `ocr` (`recognizeZoomText`); with no recognizer attached the reply says the display's pixels carry no recognition.
 #[cfg_attr(not(test), expect(dead_code, reason = "the capture of a zoom (the wiring of computer_pixels) routes a display frame here"))]
 pub(super) async fn zoom_display(
     desktop: &dyn HostChannel,
@@ -255,7 +255,15 @@ pub(super) async fn zoom_display(
     // The crop is the session's only frame from here (`framesBySession.clear()`, `rememberFrame`).
     let zoom_id = format!("frame-{}", uuid::Uuid::new_v4().simple());
     let [x0, y0, x1, y1] = region;
-    let recognized = if wants_ocr(&command) { "\nOCR unavailable: the display's pixels carry no text recognition" } else { "" };
+    // `recognizeZoomText`: the crop the desktop delivered is what the recognizer reads, so its boxes are the zoom frame's pixels.
+    let recognized = if !wants_ocr(&command) {
+        String::new()
+    } else if ocr.is_none() {
+        "\nOCR unavailable: the display's pixels carry no text recognition".to_owned()
+    } else {
+        let language = command.get("ocr_language").and_then(Value::as_str);
+        recognized_text(&recognize(ocr, &pixels.bytes, language, DEFAULT_OCR_MAX_WORDS, cancel).await?)
+    };
     let encoding = if pixels.mime == "image/jpeg" { format!("JPEG quality {quality}") } else { "PNG".to_string() };
     let description = format!(
         "Zoom of {} region ({x0},{y0})-({x1},{y1}) ({}x{}, {} bytes, {encoding}); frame_id={zoom_id}; coordinates are pixels in this frame{recognized}",
