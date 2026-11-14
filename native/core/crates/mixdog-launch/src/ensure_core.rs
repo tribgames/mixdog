@@ -195,6 +195,25 @@ impl SystemHost {
     }
 }
 
+/// The discovery document `bytes` read from `path`. A document this build cannot read (the 1.4.5 daemon wrote `daemon.json`
+/// without its `core` block) whose process no longer runs names no core, as a stale one of this build does; one whose process
+/// still runs is the parse error.
+fn core_view(bytes: &[u8], path: &std::path::Path, runs: &dyn Fn(u32) -> bool) -> Result<Option<CoreView>, DiscoveryError> {
+    let document = serde_json::from_slice::<Value>(bytes).ok();
+    let discovery = match Discovery::parse(bytes, path) {
+        Ok(discovery) => discovery,
+        Err(error) => {
+            let named = document.as_ref().and_then(|document| document.get("pid")).and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok());
+            return match named {
+                Some(pid) if !runs(pid) => Ok(None),
+                _ => Err(error),
+            };
+        }
+    };
+    let blocked = document.and_then(|document| document.pointer("/core/blocked").filter(|blocked| !blocked.is_null()).cloned());
+    Ok(Some(CoreView { discovery, blocked }))
+}
+
 impl CoreHost for SystemHost {
     fn read_discovery(&self) -> Result<Option<CoreView>, DiscoveryError> {
         let bytes = match std::fs::read(&self.discovery_path) {
@@ -202,9 +221,7 @@ impl CoreHost for SystemHost {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => return Err(DiscoveryError::Read { path: self.discovery_path.clone(), source }),
         };
-        let discovery = Discovery::parse(&bytes, &self.discovery_path)?;
-        let blocked = serde_json::from_slice::<Value>(&bytes).ok().and_then(|document| document.pointer("/core/blocked").filter(|blocked| !blocked.is_null()).cloned());
-        Ok(Some(CoreView { discovery, blocked }))
+        core_view(&bytes, &self.discovery_path, &|pid| self.runs(pid))
     }
 
     fn runs(&self, pid: u32) -> bool {
@@ -221,7 +238,7 @@ impl CoreHost for SystemHost {
         capture_options.data_dir = self.data_dir.clone();
         let capture = SpawnCapture::begin(capture_options);
         let mut command = Command::new(&self.bin);
-        command.arg("serve").envs(self.env.iter().map(|(name, value)| (name, value))).stdin(Stdio::null()).stdout(Stdio::null()).stderr(capture.stderr_stdio());
+        command.arg("serve").envs(self.env.iter().map(|pair| (&pair.0, &pair.1))).stdin(Stdio::null()).stdout(Stdio::null()).stderr(capture.stderr_stdio());
         detach(&mut command, self.detached);
         match command.spawn() {
             Ok(child) => {
@@ -434,6 +451,18 @@ mod tests {
         let host = Script::new(vec![Some(view(7, "draining", false, None))]);
         let error = wait_for_core(&host, Duration::from_millis(60), FAST).await.unwrap_err();
         assert_eq!(error.to_string(), "core is not ready: the core is draining");
+    }
+
+    #[test]
+    fn a_document_of_another_build_names_no_core_once_its_process_is_gone() {
+        let path = std::path::Path::new("daemon.json");
+        let old = br#"{"pid":31,"port":4000,"token":"t"}"#;
+        assert!(core_view(old, path, &|_| false).unwrap().is_none());
+        assert!(matches!(core_view(old, path, &|_| true), Err(DiscoveryError::Malformed { .. })));
+        assert!(matches!(core_view(b"not json", path, &|_| false), Err(DiscoveryError::Malformed { .. })));
+        let blocked = br#"{"pid":7,"endpoints":{"session":{"port":1,"token":"t"}},"core":{"version":"1","build":"b","instanceId":"i","processStartTime":"p","state":"blocked","control":{"port":3},"blocked":{"reason":"newer data"}}}"#;
+        let view = core_view(blocked, path, &|_| true).unwrap().unwrap();
+        assert_eq!((view.discovery.pid, view.blocked), (7, Some(serde_json::json!({ "reason": "newer data" }))));
     }
 
     #[test]
