@@ -12,6 +12,7 @@ import { createSettingsApi } from './api-settings.ts';
 import { createTerminalApi } from './api-terminal.ts';
 import { openDirectClient } from './client.ts';
 import { createDirectContext } from './context.ts';
+import { withApiFileGrantRefresh } from '../remote-file-grant-refresh.ts';
 import type { CorePortBridge } from './port-connector.ts';
 import { createRendererConnection, type RendererConnection } from './renderer-connection.ts';
 import { createSectionsApi } from './sections.ts';
@@ -61,6 +62,17 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     ...createCapabilitiesApi(ctx, { host }),
     ...createSectionsApi(ctx),
   };
-  const composed = { ...host, ...direct } as unknown as DesktopApi;
+  // A terminal reveal comes from the core (ui/openRequested) or from main's own agent `terminal` bridge.
+  const onTerminalRunRequested: DesktopApi['onTerminalRunRequested'] = (listener) => {
+    const fromCore = direct.onTerminalRunRequested?.(listener);
+    const fromMain = host.onHostTerminalRunRequested?.(listener);
+    return () => {
+      fromCore?.();
+      fromMain?.();
+    };
+  };
+  // A held token for a file outside every Project can lose its grant (the oldest of the capped grants is dropped): such a
+  // refusal re-grants the file through `resolveLocalPaths` and retries once, so a held link keeps opening.
+  const composed = withApiFileGrantRefresh({ ...host, ...direct, onTerminalRunRequested } as unknown as DesktopApi);
   target.mixdogDesktop = Object.freeze(host.connection?.kind === 'ssh' ? withServerGates(composed) : composed);
 }

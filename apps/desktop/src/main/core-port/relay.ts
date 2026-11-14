@@ -17,6 +17,8 @@ export interface CoreEndpoint {
 }
 
 export const CORE_PORT_CHANNEL = 'mixdog:core-port';
+/** The window's request for a port (preload/core-port.ts `mixdogCorePort.open`). */
+export const CORE_PORT_OPEN_CHANNEL = 'mixdog:core-port:open';
 /** Close code of every socket `closeAll` ends. */
 export const CLOSE_ALL_CODE = 4000;
 const MAX_INBOUND_BYTES = 16 * 1024 * 1024;

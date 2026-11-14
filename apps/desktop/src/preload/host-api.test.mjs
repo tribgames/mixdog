@@ -4,7 +4,13 @@ import { HOST_KEYS } from '../shared/desktop-api-split.ts';
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
 import { createHostApi } from './host-api.ts';
 
-const EXTRAS = ['enableAllowAllActions', 'observeSignIn', 'invokePcQuotaCapability', 'readPcQuotaCapabilities'];
+const EXTRAS = [
+  'enableAllowAllActions',
+  'observeSignIn',
+  'invokePcQuotaCapability',
+  'readPcQuotaCapabilities',
+  'onHostTerminalRunRequested',
+];
 
 function makeDeps() {
   const calls = [];

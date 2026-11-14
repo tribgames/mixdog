@@ -39,6 +39,7 @@ import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { registerWindowSettingsIpc, type PcQuotaHost } from './ipc-window-settings';
 import { createAllowAllActionsConfirm } from './developer-risk-confirm';
 import { registerHostExtrasIpc } from './ipc-host-extras';
+import { CORE_PORT_OPEN_CHANNEL, type CorePortRelay, type CoreSlot } from './core-port/relay';
 import { raiseDesktopWindow } from './notification-window';
 import { createSignInFocus } from './sign-in-focus';
 import { createCoreFileGrants } from './core-file-grants';
@@ -216,6 +217,8 @@ interface DesktopIpcDependencies {
   protocol?: ProtocolConnection | null;
   /** This PC's own core connection (what reads this computer, e.g. its installed fonts); the window's own when absent. */
   pcCore?: ProtocolConnection | null;
+  /** Hands the window its own MessagePort to its core (and, for a server window, to this PC's): the renderer's direct lane. */
+  corePort?: Pick<CorePortRelay, 'open'>;
 }
 
 export function registerDesktopIpc(
@@ -247,6 +250,7 @@ export function registerDesktopIpc(
     paneLayoutFile,
     protocol,
     pcCore,
+    corePort,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -438,6 +442,13 @@ export function registerDesktopIpc(
         removeHandler: (channel) => ipcMain.removeHandler(channel),
       })
     : registerNoProtocolWindowIpc({ handle, removeHandler: (channel) => ipcMain.removeHandler(channel) });
+  // The renderer's direct lane: `window.mixdogCorePort.open({slot})` (preload/core-port.ts) asks for the port.
+  if (corePort) {
+    handle(CORE_PORT_OPEN_CHANNEL, (event, options) => {
+      const slot: CoreSlot = (options as { slot?: unknown } | null | undefined)?.slot === 'pc' ? 'pc' : 'primary';
+      return corePort.open(event.sender as unknown as Parameters<CorePortRelay['open']>[0], slot);
+    });
+  }
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
@@ -504,5 +515,6 @@ export function registerDesktopIpc(
     disposeScreenSessions();
     disposePaneLayoutIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);
+    if (corePort) ipcMain.removeHandler(CORE_PORT_OPEN_CHANNEL);
   };
 }
