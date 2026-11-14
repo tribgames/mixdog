@@ -477,3 +477,25 @@ fn the_report_holds_only_the_last_n_lines() {
     assert!(!report.contains("entry 144"));
     assert!(report.contains("ssh: unknown"));
 }
+
+#[test]
+fn tool_paths_are_joined_as_node_joins_them() {
+    // Forward slashes become the platform's, `.` and `..` collapse, doubled separators are one.
+    let env = env_with(
+        Platform::Windows,
+        &[("Path", r"C:/Tools/./extra/..//bin"), ("SystemRoot", r"C:\Windows")],
+        &[r"C:\Tools\bin\ssh.exe"],
+    );
+    assert_eq!(resolve_ssh_tool("ssh", &env), Some(PathBuf::from(r"C:\Tools\bin\ssh.exe")));
+    let linux = env_with(Platform::Linux, &[("PATH", "/opt/x/../bin/:/usr//bin")], &["/usr/bin/ssh", "/opt/bin/ssh"]);
+    assert_eq!(resolve_ssh_tool("ssh", &linux), Some(PathBuf::from("/opt/bin/ssh")));
+}
+
+#[test]
+fn an_include_that_reaches_a_file_by_another_spelling_is_still_a_loop() {
+    let home = PathBuf::from("/home/tester");
+    let ssh = home.join(".ssh");
+    let files = MemFiles::with(&[(ssh.join("a"), "Host a\nInclude ../.ssh/./b\n"), (ssh.join("b"), "Host b\nInclude sub/../a\n")]);
+    let found = aliases(&expand_includes("Include a\n", &home, &files, 0, &BTreeSet::new()));
+    assert_eq!(found, ["a", "b"]);
+}

@@ -110,14 +110,24 @@ pub enum PairRedeemError {
     Request(String),
 }
 
+impl PairRedeemError {
+    /// The message with its English text passed through `translate` first (the key of each is its text, as the desktop's locale
+    /// files key it); the wait of a rate limit replaces `{{seconds}}` after the translation. A relay's own error text is not translated.
+    pub fn message(&self, translate: &dyn Fn(&str) -> String) -> String {
+        match self {
+            Self::TooManyAttempts { retry_after_seconds } => {
+                translate("Too many attempts. Try again in {{seconds}} seconds.").replace("{{seconds}}", retry_after_seconds)
+            }
+            Self::WrongOrExpired => translate("The code is wrong or has expired."),
+            Self::NotAvailable => translate("Codes are not available on this connection server yet. Use the QR code."),
+            Self::Request(message) => message.clone(),
+        }
+    }
+}
+
 impl std::fmt::Display for PairRedeemError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TooManyAttempts { retry_after_seconds } => write!(f, "Too many attempts. Try again in {retry_after_seconds} seconds."),
-            Self::WrongOrExpired => f.write_str("The code is wrong or has expired."),
-            Self::NotAvailable => f.write_str("Codes are not available on this connection server yet. Use the QR code."),
-            Self::Request(message) => f.write_str(message),
-        }
+        f.write_str(&self.message(&|key| key.to_owned()))
     }
 }
 

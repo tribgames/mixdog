@@ -6,7 +6,8 @@
 //! - sessions: `thread/list` pages, then the app feed's `thread/started`, `thread/summary/updated`, `thread/deleted`,
 //!   `thread/archived` and `thread/unarchived`, laid over the listing as the roster feed of the phone laid them (an edge outranks
 //!   the listing it overlaps); listed again after every reconnect.
-//! - session states: the client store's thread folds, one change per fold, in fold order.
+//! - session states: the client store's thread folds, one change per fold, in fold order, with the host's shell jobs and remote
+//!   channel laid over each (and said again when either changes).
 //! - agent pool: the `agentPool` section, or `agent/pool/list` while the section is stubbed or absent.
 //! - approvals: the requests the client holds (`pending_server_requests`).
 //! - final answer: `thread/finalAnswer/read`.
@@ -14,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mixdog_app_server_client::api::{
     CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, Json, ProtocolClient, RequestId, RpcNotification,
@@ -28,6 +29,10 @@ use tokio::task::JoinHandle;
 
 /// The largest `thread/list` page the core answers.
 const LIST_PAGE_LIMIT: u64 = 1000;
+/// The catalog clock of the phone's roster feed: an edge republishes the list after this debounce, no sooner than `REFRESH_MIN_GAP`
+/// after the last such refresh; edges meanwhile join the one pending refresh.
+const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
+const REFRESH_MIN_GAP: Duration = Duration::from_secs(2);
 /// Room for the state changes a slow reader may lag behind.
 const STATE_CHANNEL_CAPACITY: usize = 256;
 
@@ -246,11 +251,18 @@ struct RunMark {
     started_at: Option<i64>,
 }
 
+#[derive(Default)]
+struct RefreshClock {
+    pending: bool,
+    refreshed_at: Option<Instant>,
+}
+
 struct Shared {
     client: Arc<dyn ProtocolClient>,
     store: Arc<dyn FoldStore>,
     roster: Mutex<Roster>,
     runs: Mutex<HashMap<String, RunMark>>,
+    refresh: Mutex<RefreshClock>,
     pool_generation: AtomicU64,
     sessions: watch::Sender<Vec<SessionSummaryLite>>,
     pool: watch::Sender<Vec<AgentRowLite>>,
@@ -260,6 +272,13 @@ struct Shared {
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// The one session the remote channel serves (`remoteSessionIdOf`): an id of at most 256 characters of letters, digits, `_` and `-`.
+fn remote_session_id(state: &Json) -> Option<String> {
+    let id = state.get("sessionId").and_then(Json::as_str)?;
+    let valid = !id.is_empty() && id.len() <= 256 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    valid.then(|| id.to_owned())
 }
 
 fn set_if_changed<T: PartialEq>(sender: &watch::Sender<T>, next: T) {
@@ -349,7 +368,7 @@ impl Shared {
         self.publish_sessions(&roster.held, true);
     }
 
-    fn on_edge(&self, method: &str, params: &Json) {
+    fn on_edge(self: &Arc<Self>, method: &str, params: &Json) {
         let archive_flag = match method {
             "thread/archived" => Some(true),
             "thread/unarchived" => Some(false),
@@ -396,10 +415,64 @@ impl Shared {
                 None => return,
             },
         }
+        drop(guard);
+        self.schedule_refresh();
+    }
+
+    /// Publishes the rows held now (nothing is heard when they equal the last list).
+    fn publish_held(&self) {
+        let roster = self.roster.lock().unwrap();
         self.publish_sessions(&roster.held, false);
     }
 
+    /// An edge reaches the list after `REFRESH_DEBOUNCE`, no sooner than `REFRESH_MIN_GAP` after the last refresh; one timer serves
+    /// every edge that arrives while it runs.
+    fn schedule_refresh(self: &Arc<Self>) {
+        let delay = {
+            let mut clock = self.refresh.lock().unwrap();
+            if clock.pending {
+                return;
+            }
+            clock.pending = true;
+            let since = clock.refreshed_at.map(|at| at.elapsed()).unwrap_or(REFRESH_MIN_GAP);
+            REFRESH_DEBOUNCE.max(REFRESH_MIN_GAP.saturating_sub(since))
+        };
+        let shared = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            {
+                let mut clock = shared.refresh.lock().unwrap();
+                clock.pending = false;
+                clock.refreshed_at = Some(Instant::now());
+            }
+            shared.publish_held();
+        });
+    }
+
     // ── session states ──
+
+    /// The folded thread state with what the host adds to a session's state: the shell jobs of the host (`hostShellJobs`) and
+    /// whether the remote channel is on for this session (`hostState` key `remoteSession`: `{ enabled, sessionId, cwd }`). A held
+    /// approval is not laid over it: approvals are their own watch.
+    fn snapshot_of(&self, mut state: Json) -> Json {
+        let Some(fields) = state.as_object_mut() else { return state };
+        if let Some(jobs) = self.store.section(SectionName::HostShellJobs, None).map(|entry| entry.value).filter(|v| !v.is_null()) {
+            fields.insert("hostShellJobs".to_owned(), jobs);
+        }
+        // Every state says it (`withRemoteSession`): off, with a null id, while the host holds no remote channel.
+        let id = self.store.section(SectionName::HostState, Some("remoteSession")).and_then(|remote| remote_session_id(&remote.value));
+        fields.insert("remoteEnabled".to_owned(), json!(id.is_some()));
+        fields.insert("remoteSessionId".to_owned(), id.map_or(Json::Null, Json::from));
+        state
+    }
+
+    /// The host's shell jobs or remote channel changed: every followed thread's state is said again.
+    fn republish_states(&self) {
+        let followed: Vec<String> = self.runs.lock().unwrap().keys().cloned().collect();
+        for id in followed {
+            self.on_thread_change(&id);
+        }
+    }
 
     fn on_thread_change(&self, thread_id: &str) {
         let Some(fold) = self.store.thread(thread_id) else { return };
@@ -422,7 +495,7 @@ impl Shared {
             session_id: thread_id.to_owned(),
             state: if busy { SessionRunState::Running } else { SessionRunState::Idle },
             started_at,
-            snapshot: fold.state,
+            snapshot: self.snapshot_of(fold.state),
         });
     }
 
@@ -484,7 +557,7 @@ impl Shared {
         self.refresh_approvals(None, None);
     }
 
-    fn on_notification(&self, notification: &RpcNotification) {
+    fn on_notification(self: &Arc<Self>, notification: &RpcNotification) {
         let method = notification.method.as_str();
         let params = notification.params.clone().unwrap_or(Json::Null);
         match method {
@@ -539,6 +612,10 @@ async fn run(shared: Arc<Shared>, mut events: broadcast::Receiver<ClientEvent>, 
                     let shared = shared.clone();
                     tokio::spawn(async move { shared.refresh_pool().await });
                 }
+                Ok(StoreChange::Section { section: SectionName::HostShellJobs, .. }) => shared.republish_states(),
+                Ok(StoreChange::Section { section: SectionName::HostState, key }) if key.as_deref() == Some("remoteSession") => {
+                    shared.republish_states()
+                }
                 Ok(StoreChange::Section { .. }) => {}
                 Err(broadcast::error::RecvError::Lagged(_)) => {}
                 Err(broadcast::error::RecvError::Closed) => return,
@@ -565,6 +642,7 @@ impl ServerFeed {
             store,
             roster: Mutex::new(Roster::default()),
             runs: Mutex::new(HashMap::new()),
+            refresh: Mutex::new(RefreshClock::default()),
             pool_generation: AtomicU64::new(0),
             sessions: watch::channel(Vec::new()).0,
             pool: watch::channel(Vec::new()).0,
@@ -580,6 +658,11 @@ impl ServerFeed {
     /// The complete session list, newest activity first; each value replaces the last.
     pub fn sessions(&self) -> watch::Receiver<Vec<SessionSummaryLite>> {
         self.shared.sessions.subscribe()
+    }
+
+    /// Publishes the rows held now, without waiting for the pending refresh (for a caller that has just changed the catalog itself).
+    pub fn flush(&self) {
+        self.shared.publish_held();
     }
 
     /// Every state change of a followed thread from now on, in the order the client folded them.
