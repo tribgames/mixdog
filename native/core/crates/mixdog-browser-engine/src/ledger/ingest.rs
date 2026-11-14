@@ -71,7 +71,8 @@ pub struct PageLedgers {
     pub failures: Vec<String>,
     /// The failures a reply already said, so each is said once.
     pub reported_failures: HashSet<String>,
-    document_id: Option<String>,
+    /// The load the log and the failures belong to (`PageFacts::load_id`, else the document id).
+    load_id: Option<String>,
     main_frame_loading: bool,
 }
 
@@ -82,7 +83,7 @@ impl PageLedgers {
             network: NetworkLedger::default(),
             failures: Vec::new(),
             reported_failures: HashSet::new(),
-            document_id: None,
+            load_id: None,
             main_frame_loading: false,
         }
     }
@@ -107,12 +108,12 @@ impl PageLedgers {
     /// The document changed under the page, or its main frame finished loading.
     fn apply_facts(&mut self, facts: &PageFacts, now: i64) {
         let load = facts.load_id.as_ref().unwrap_or(&facts.document_id);
-        if let Some(previous) = &self.document_id
+        if let Some(previous) = &self.load_id
             && previous != load
         {
             self.begin_document();
         }
-        self.document_id = Some(load.clone());
+        self.load_id = Some(load.clone());
         if self.main_frame_loading && !facts.main_frame_loading {
             self.network.finish_document(&facts.url, now);
         }
