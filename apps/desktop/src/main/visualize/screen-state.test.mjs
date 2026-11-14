@@ -15,14 +15,14 @@ import { JSDOM } from 'jsdom';
 import { clearScreenSessions, reportScreenSessions } from '../screen-sessions.ts';
 import { desktopScreenState } from './host-frames.ts';
 import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
-import { localPageUrl, pageAssetType } from '../local-page-server.ts';
+import { localPageUrl, pageAssetType } from './test-fixtures/page-server-stand-in.ts';
 import { createDesktopVisualize } from './host.ts';
 import { createVisualizeService } from './service.ts';
 
-// The core page server stands behind coreLocalPages(); here the in-process page server answers the same call.
+// The core page server stands behind coreLocalPages(); here the visualize tests' stand-in answers the same calls.
 setCoreLocalPages(
-  createCoreLocalPages(async (name, [root, rel, third, ownerId]) => {
-    if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+  createCoreLocalPages(async (name, [root, rel, third]) => {
+    if (name === 'localPageUrlIn') return localPageUrl(root, rel);
     if (name === 'localPageAssetType') return pageAssetType(root, rel, third);
     if (name === 'localPageVirtualIn') return 'http://127.0.0.1:1/__virtual/index.html';
     throw new Error(`unexpected core call ${name}`);

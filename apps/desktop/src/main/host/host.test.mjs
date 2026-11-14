@@ -133,7 +133,6 @@ function build(overrides = {}) {
     }),
     files: () => ({
       captureFileSnapshot: async (root, rel, grant) => ({ root, rel, grant }),
-      localPageUrl: async (root, rel, scope) => `http://127.0.0.1:1/t/${scope}/${rel}`,
     }),
     resolveProxy: async (url) => (url.includes('bad') ? Promise.reject(new Error('PAC http://u:p@pac/x')) : `PROXY ${url}`),
     computer: {
@@ -472,8 +471,6 @@ test('visualize state is sent on a claim and on each change, and its commands an
     rel: 'a.html',
     grant: true,
   });
-  assert.equal(await wire.call('host/localPage/url', { root: '/p', rel: 'a.html', scope: 'file' }), 'http://127.0.0.1:1/t/file/a.html');
-  await assert.rejects(wire.call('host/localPage/url', 7), (error) => error.code === -32602);
 });
 
 test('a device export draws through the service\'s exportForDevice and answers its path', async () => {

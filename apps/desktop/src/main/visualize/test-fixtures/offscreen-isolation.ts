@@ -1,20 +1,20 @@
 /**
  * Real off-screen renders and snapshots in one Electron run: what a later or
  * an overlapping render of another artifact finds in origin-scoped storage,
- * and how many connections repeated renders open to the page server. Prints
- * one OFFSCREEN_ISOLATION_RESULT line.
+ * and how many connections repeated renders open to the page server (here a
+ * loopback stand-in for the core's page server: one origin, a token per page
+ * folder). Prints one OFFSCREEN_ISOLATION_RESULT line.
  */
 import { subscribe } from 'node:diagnostics_channel';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo, Socket } from 'node:net';
-import { join } from 'node:path';
+import { extname, join, normalize } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, session } from 'electron';
 
 import { renderFileSnapshot } from '../../file-snapshot';
-import { localPageOrigin, localPageUrl } from '../../local-page-server';
 import { actPageOffscreen, inspectPageOffscreen, renderPageThumbnail } from '../export-render';
 
 const directory = process.env.OFFSCREEN_ISOLATION_DIRECTORY as string;
@@ -141,7 +141,37 @@ async function project(name: string): Promise<string> {
   return root;
 }
 
-const pageOf = (root: string) => localPageUrl(root, 'page.html', { scope: 'project', authorize: async () => {} });
+const PAGE_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+};
+const folders = new Map<string, string>();
+let pageServer: ReturnType<typeof createHttpServer> | undefined;
+
+/** The page server's stand-in: `/<token>/<file>` answers the file of the folder the token names. */
+async function servePage(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const [, token = '', ...rest] = decodeURIComponent(new URL(request.url ?? '/', 'http://x').pathname).split('/');
+  const folder = folders.get(token);
+  const file = normalize(rest.join('/'));
+  if (!folder || file.startsWith('..')) {
+    response.writeHead(404).end();
+    return;
+  }
+  try {
+    const body = await readFile(join(folder, file));
+    response.writeHead(200, { 'Content-Type': PAGE_TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+    response.end(body);
+  } catch {
+    response.writeHead(404).end();
+  }
+}
+
+const pageOf = (root: string) => {
+  const token = `t${folders.size}`;
+  folders.set(token, root);
+  return `http://127.0.0.1:${(pageServer?.address() as AddressInfo).port}/${token}/page.html`;
+};
 const READ = 'storageState()';
 
 /** A page's visit to the external site, as render `tag`: credentialed fetches
@@ -191,9 +221,11 @@ async function run() {
   await Promise.all([plain, secure].map((server) => new Promise<void>((done) => server.listen(0, '127.0.0.1', done))));
   const [httpPort, httpsPort] = [plain, secure].map((server) => (server.address() as AddressInfo).port);
 
+  pageServer = createHttpServer((request, response) => void servePage(request, response));
+  await new Promise<void>((done) => pageServer?.listen(0, '127.0.0.1', done));
   const [first, second] = await Promise.all([project('artifact-a'), project('artifact-b')]);
-  const [pageA, pageB] = await Promise.all([pageOf(first), pageOf(second)]);
-  const port = Number(new URL(await localPageOrigin()).port);
+  const [pageA, pageB] = [pageOf(first), pageOf(second)];
+  const port = (pageServer.address() as AddressInfo).port;
   let accepted = 0;
   subscribe('net.server.socket', (message) => {
     if ((message as { socket: Socket }).socket.localPort === port) accepted += 1;

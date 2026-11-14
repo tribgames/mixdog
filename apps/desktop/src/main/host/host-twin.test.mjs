@@ -14,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { createFileSnapshotService } from '../file-snapshot.ts';
-import { localPageUrl } from '../local-page-server.ts';
 import { VisualizeBridgeServer } from '../visualize/bridge-server.ts';
 import { createVisualizeService } from '../visualize/service.ts';
 import { registerFilesHost } from './files.ts';
@@ -146,7 +145,7 @@ test('host/visualize/command equals the loopback bridge on every step', async ()
   verifyCorpus('visualize', recorded);
 });
 
-test('host/capture/fileSnapshot and host/localPage/url equal the window-process handlers', async () => {
+test('host/capture/fileSnapshot equals the window-process handler', async () => {
   const { root, cwd } = workspace();
   const renders = [];
   // The window process's own service; only the offscreen render is replaced.
@@ -157,14 +156,10 @@ test('host/capture/fileSnapshot and host/localPage/url equal the window-process 
       return 'data:image/png;base64,UE5H';
     },
   });
-  const owner = {};
-  const todayLocalPageUrl = (a0, a1, a2) =>
-    localPageUrl(String(a0 || ''), String(a1 || ''), { scope: a2 === 'file' ? 'file' : 'project', owner, authorize: async () => {} });
   const todaySnapshot = (a0, a1, a2) => snapshots.capture(String(a0 || ''), String(a1 || ''), a2 === true);
   const wire = handlers();
   registerFilesHost(wire.connection, () => ({
     captureFileSnapshot: (r, rel, grant) => snapshots.capture(r, rel, grant),
-    localPageUrl: (r, rel, scope) => localPageUrl(r, rel, { scope, owner, authorize: async () => {} }),
   }));
   const outcome = async (run) => {
     try {
@@ -196,28 +191,6 @@ test('host/capture/fileSnapshot and host/localPage/url equal the window-process 
         request: strip({ root: r, rel, grant }, cwd),
         result: strip(fromNode.ok ? { ok: true, value: { dataUrl: fromNode.value.dataUrl, size: fromNode.value.size } } : fromNode, cwd),
       });
-    }
-    const pageSteps = [
-      ['page-project', [cwd, 'site/index.html', 'project']],
-      ['page-file', [cwd, 'site/index.html', 'file']],
-      ['page-outside-root', [cwd, '../secret.html', 'project']],
-      ['page-missing', [cwd, 'site/none.html', 'project']],
-    ];
-    for (const [name, [r, rel, scope]] of pageSteps) {
-      const fromNode = await outcome(() => todayLocalPageUrl(r, rel, scope));
-      const fromHost = await outcome(() => wire.call('host/localPage/url', { root: r, rel, scope }));
-      assert.equal(fromHost.ok, fromNode.ok, `${name}: outcome differs`);
-      if (fromNode.ok) {
-        // A lease URL carries a random token and the server's port; its shape and the
-        // bytes it serves are what must be equal.
-        const shape = (url) => new URL(url).pathname.replace(/^\/[^/]+\//, '/<TOKEN>/');
-        assert.equal(shape(fromHost.value), shape(fromNode.value), `${name}: lease path differs`);
-        assert.equal(await (await fetch(fromHost.value)).text(), await (await fetch(fromNode.value)).text());
-        recorded.push({ name, request: strip({ root: r, rel, scope }, cwd), result: { ok: true, path: shape(fromNode.value) } });
-      } else {
-        assert.equal(fromHost.error, fromNode.error, `${name}: host message differs`);
-        recorded.push({ name, request: strip({ root: r, rel, scope }, cwd), result: strip(fromNode, cwd) });
-      }
     }
     assert.ok(renders.length >= 2, 'the renderer ran for supported files');
   } finally {

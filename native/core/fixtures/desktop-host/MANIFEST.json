@@ -8,9 +8,9 @@
       "sha256": "9ecca27e9e729edd4a510b7780b1e41c7ab5937b5cd4a1bcbd908bd1f97fa2ab"
     },
     {
-      "bytes": 4707,
+      "bytes": 3647,
       "path": "visualize-files-golden.json",
-      "sha256": "ba7da13cf7018da9c079c9e171c864761df0bc5943019a0a21e78128976217c9"
+      "sha256": "fe521d9214cc39a8df89f9a0b22feca325a92e095bd46a6bf2b4755cc4ef6c56"
     }
   ],
   "product": {
