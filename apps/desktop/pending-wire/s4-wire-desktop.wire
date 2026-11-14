@@ -1,0 +1,51 @@
+# s4-wire-desktop: desktop wiring lines for DESKTOP-WIRE-G7 (the wave's wiring task applies them, then deletes this file)
+
+What exists (s4-wire-desktop): host/browser-engine/index.ts exports serveBrowserEngine / createBrowserEngine /
+registerBrowserEngine / BrowserEnginePorts; browser/host.ts hostRole() returns `engine: BrowserEnginePorts`;
+browser/host-foundation.ts owns the browser's side of the lane (createEngineLane, the engine intercept table read by
+the CDP fetch router beside the old one); host/browser-command.ts takes an `engineMode` function.
+Nothing is selected by an environment variable: the lane is on for a connection from the first engine method the core
+calls on it (a core that does not compose the engine never calls one and keeps using host/browser/command).
+
+## 1. host/connection.ts, HOST_CAPABILITIES (add beside `windows: true`)
+
+  // `host/browser/*` engine methods (host/browser-engine/index.ts). A core that does not compose the engine ignores it.
+  browserEngine: { version: 1, features: ['inputBatch', 'snapshot', 'lease', 'blob'] },
+
+(type: HostCapabilities.browserEngine?: BrowserEngineCapability, packages/protocol/src/index.ts; `as const satisfies` stays.)
+
+## 2. host/index.ts
+
+  import { serveBrowserEngine } from './browser-engine';
+  import type { TranscriptTap } from './browser-engine/transcript';
+  import type { BrowserEnginePorts } from './browser-engine';
+
+  DesktopHostOptions.browser: () => { ...existing fields..., engine: BrowserEnginePorts }   // hostRole() already returns it
+  DesktopHostOptions: add   browserEngineTranscript?: TranscriptTap;   // index.ts: createTranscriptTap({ dir: process.env.MIXDOG_BROWSER_TRANSCRIPT, devBuild: !app.isPackaged })
+
+  In createDesktopHost, before `const commands = createBrowserCommandHost(...)` (it must run at construction: the
+  connection's method table is fixed and `serves` is read at claim, while the browser is built later):
+
+    const engine = serveBrowserEngine(connection, () => options.browser().engine, { transcript: options.browserEngineTranscript });
+
+  and pass the mode to the command host as its fourth argument:
+
+    const commands = createBrowserCommandHost(connection, runner, { ...unchanged... }, engine.engineMode);
+
+  No other call: the engine lane ends and restarts with the connection's close (serveBrowserEngine registers
+  connection.onClose itself), the lane's lease release is a notification it already serves.
+
+## 3. main/index.ts
+
+  The createDesktopHost call gains `browserEngineTranscript` (above). The createBrowserHost call needs nothing: the
+  guest appearance, the page lease for the pane's input, the fill guard and the intercept tables are bound inside
+  browser/host.ts and browser/host-foundation.ts through the lane.
+
+## 4. Core side (CORE-WIRE-G7, not this task)
+
+  SERVICE_PENDING is not touched: every `host/browser/*` engine method is served by the desktop (a host method).
+
+## 5. Tests the wiring touches
+
+  host-coverage.test.mjs / host-twin.test.mjs list the host's served methods: the 25 request methods of
+  ENGINE_REQUEST_METHODS and host/browser/lease/release are now served at construction.
