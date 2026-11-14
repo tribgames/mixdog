@@ -20,6 +20,8 @@ import test from 'node:test';
 
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
 import { panePreviewUrl } from './host-pane-preview.ts';
+import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
+import { localPageUrl } from '../local-page-server.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';
 import { createDesktopVisualize, REMOTE_ONLY_ANNOTATE } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -39,6 +41,14 @@ import {
 } from './targets.ts';
 import { visualizeOverlayScript } from './overlay-script.ts';
 import { remoteLabelOf } from './tab-state.ts';
+
+// The core page server stands behind coreLocalPages(); here the in-process page server answers the same call.
+setCoreLocalPages(
+  createCoreLocalPages(async (name, [root, rel, , ownerId]) => {
+    if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+    throw new Error(`unexpected core call ${name}`);
+  })
+);
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-'));
@@ -1425,6 +1435,7 @@ test('annotate needs the tab on screen, like capture', async () => {
     webContents: {
       id: 7,
       isDestroyed: () => false,
+      once() {},
       on(name, listener) {
         if (name === 'will-frame-navigate') network.navigate = listener;
       },
@@ -2197,6 +2208,7 @@ test('inspect lays the pane frames out at the requested viewport, reads only the
     webContents: {
       id: 7,
       isDestroyed: () => false,
+      once() {},
       on() {},
       session: { webRequest: { onBeforeRequest() {}, onCompleted() {}, onErrorOccurred() {} } },
       send(_channel, event) {
