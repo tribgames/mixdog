@@ -18,6 +18,8 @@ mod helper_client;
 #[cfg(any(windows, test))]
 mod installer;
 #[cfg(any(windows, test))]
+mod installer_port;
+#[cfg(any(windows, test))]
 mod lease;
 #[cfg(any(windows, test))]
 mod router;
@@ -51,6 +53,17 @@ mod switch_tests;
 mod testing;
 #[cfg(test)]
 mod video_tests;
+
+/// PC access's handle on the one secure-desktop installer, with the types its calls take and answer.
+#[cfg(windows)]
+pub mod pc_access_helper {
+    pub use super::installer::Credential;
+    pub use super::installer::InstallState;
+    pub use super::installer::KeyChangeOptions;
+    pub use super::installer::KeyChangeOutcome;
+    pub use super::installer::KeyChangeResult;
+    pub use super::installer_port::PcAccessHelper;
+}
 
 #[cfg(windows)]
 pub(super) use win::Screen;
