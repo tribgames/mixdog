@@ -73,7 +73,7 @@ async fn refusal_reason(origin: ListenerOrigin, headers: &[(&str, &str)]) -> Str
         Err(WsError::Http(response)) => {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{headers:?}");
             let body = response.body().clone().unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
             json["reason"].as_str().unwrap().to_owned()
         }
         other => panic!("expected a refusal for {headers:?}, got {:?}", other.map(|_| "connected")),
