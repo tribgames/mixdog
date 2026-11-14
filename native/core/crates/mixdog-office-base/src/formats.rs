@@ -61,7 +61,7 @@ fn unsupported_format_error(kind: &str) -> String {
 /// `path.extname(path)` of the host's path flavour (Node's own algorithm: a leading dot alone is no extension).
 fn extname(path: &str) -> &str {
     let bytes = path.as_bytes();
-    let separator = |byte: u8| byte == b'/' || (cfg!(windows) && byte == b'\');
+    let separator = |byte: u8| byte == b'/' || (cfg!(windows) && byte == b'\\');
     let mut start = 0;
     if cfg!(windows) && bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         start = 2;
