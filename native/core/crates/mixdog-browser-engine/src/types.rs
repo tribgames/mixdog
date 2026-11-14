@@ -1,6 +1,9 @@
 //! The engine-side types the ports share: what an approval asks and is answered, a takeover guard, and file facts.
 //! The wire types of the host lane themselves are `mixdog_app_protocol::v2::browser_engine`.
 
+use std::path::PathBuf;
+use std::time::SystemTime;
+
 use mixdog_app_protocol::v2::browser_engine::BrowserApprovalFile;
 use mixdog_app_protocol::v2::browser_engine::BrowserApprovalRememberKind;
 use mixdog_protocol::ThreadId;
@@ -83,12 +86,17 @@ impl std::fmt::Debug for TakeoverGuard {
     }
 }
 
-/// What a path is, as the file port reads it.
+/// What a path is, as the file port reads it (`realpath` then `stat`, as `action-approval.ts` binds an upload's files: the
+/// approved file is the canonical one, and it must still have the size and modification time it had when the person was asked).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileFacts {
     pub exists: bool,
     pub is_file: bool,
     pub size: u64,
+    /// The path with every link resolved; `None` when it could not be resolved.
+    pub canonical: Option<PathBuf>,
+    /// The last modification time; `None` when the platform does not report one.
+    pub modified: Option<SystemTime>,
 }
 
 #[cfg(test)]
