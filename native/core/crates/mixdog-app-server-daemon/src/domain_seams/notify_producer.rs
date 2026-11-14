@@ -489,14 +489,6 @@ impl Ctx {
         self.tell(Some(&toast), push, Due::Unread(completion.session_id)).await;
     }
 
-    /// The name a wait is told under: the bot of a home chat, else the chat's title.
-    async fn wait_name(&self, tell: &WaitTell) -> String {
-        match self.bot_name(tell.agent_home.as_deref()).await {
-            Some(name) => name,
-            None => self.toast_title(&tell.row_title),
-        }
-    }
-
     async fn wait(&self, tell: WaitTell, name: String) {
         if !self.enabled() {
             return;
@@ -876,6 +868,21 @@ impl Notifier {
         let (ctx, session_id, key) = (self.ctx.clone(), session_id.to_owned(), key.to_owned());
         drop(tokio::spawn(async move { ctx.goal(session_id, key, row).await }));
     }
+}
+
+/// The identity of the wait a session's goal puts on the user (push-notifier.ts `pendingInputKey`): `<goal id>:blocked:<blocker>`
+/// for a blocked goal (`goal.id` absent: `goal`), `None` for no goal or one that is not blocked. The wiring sets
+/// [`SessionWait::blocked_goal`] from the state snapshot's `goal` with it.
+pub fn blocked_goal_key(goal: Option<&Value>) -> Option<String> {
+    let goal = goal.filter(|goal| !goal.is_null())?;
+    if goal.get("status").and_then(Value::as_str) != Some("blocked") {
+        return None;
+    }
+    let text = |value: Option<&Value>, absent: &str| match value {
+        None | Some(Value::Null) => absent.to_owned(),
+        Some(other) => mixdog_js::value_to_string(other),
+    };
+    Some(format!("{}:blocked:{}", text(goal.get("id"), "goal"), text(goal.get("blocker"), "")))
 }
 
 /// `String(approval.id ?? 'pending')`.

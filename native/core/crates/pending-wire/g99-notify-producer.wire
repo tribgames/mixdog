@@ -21,7 +21,7 @@ domain_seams/notify_sources.rs). `NotificationEngine::on_event` is replaced by `
    - `.row(ThreadSummary)` for every row the catalog publishes (the point that emits `thread/started` / `thread/summary/updated`, near the
      "index writer's row writes reach the app feed" comment), `.row_gone(id)` for `thread/deleted`;
    - `.agent_pool(Vec<Value>)` with the whole agent pool each time it is published (the rows `agent/list` serves);
-   - `.session_state(SessionWait { session_id, approval: toolApproval, blocked_goal, replay })` from the session state lane (the one the
+   - `.session_state(SessionWait { session_id, approval: toolApproval, blocked_goal: notify_producer::blocked_goal_key(snapshot.get("goal")), replay })` from the session state lane (the one the
      desktop's `subscribeSessionStates` read: `thread/state` frames; `replay` is true for a retained re-emit);
    - `.host_attached()` when a desktop host claims the daemon (host/claim accepted), where `NotificationEngine::host_attached` was meant to be called.
 4. Remove from SERVICE_PENDING: nothing (no protocol method is added; `host/notification/show` is already a host method).
@@ -29,4 +29,9 @@ domain_seams/notify_sources.rs). `NotificationEngine::on_event` is replaced by `
 ## Cargo (mixdog-app-server-daemon/Cargo.toml)
 5. The producer uses mixdog-connections (notifier::FinalAnswers, server_feed), mixdog-core-session, mixdog-services (bots::routine, task_reports::chain),
    mixdog-core-domains, mixdog-js, mixdog-protocol, async-trait, tokio (time, sync, test-util in dev): add any of these the daemon does not
-   have yet (each is a workspace crate or a crate already in Cargo.lock).
+   have yet (each is a workspace crate or a crate already in Cargo.lock). Review: all of them, tracing included, are already daemon dependencies (tokio dev has test-util): nothing to add.
+
+## native/core/crates/mixdog-app-server-daemon/src/compose_connections_language.rs (symbol: `ASKED` in mod tests)
+6. The producer asks the catalogs for two more phrases (`CatalogProducerTexts::waiting`): add `"Waiting for your answer."` and
+   `"Waiting for your approval."` to `ASKED` (sorted, the array length 14 -> 16), in the same step as the desktop .wire adds them to
+   apps/desktop/scripts/i18n/core-native-keys.json.
