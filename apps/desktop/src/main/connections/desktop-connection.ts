@@ -74,7 +74,7 @@ function createServiceClient({
   });
   // The core's announcements (`ui/settings/changed`, `ui/providerModels/changed`) are the events Node's service raised for
   // this process's windows; they last as long as the connection.
-  if (protocol) watchAnnouncements(protocol, (name, value) => client.emitDesktopEvent(name, value));
+  watchAnnouncements(protocol, (name, value) => client.emitDesktopEvent(name, value));
   return client;
 }
 
