@@ -1,0 +1,28 @@
+# s2b-delete-ts -> DELETE-HOT-G11 (apps/desktop/src/main/index.ts, apps/desktop/package.json)
+
+The TypeScript ssh/connections path is deleted (apps/desktop/src/main/ssh except server-manifest.* and ssh-command.ts, which the Add server dialog uses to
+check an address; connections/{connection-link,manager,reattach-report,server-port-forwards,port-forward-store,window-restore}.ts; protocol/model-proxy-relay.ts).
+desktop-connection.ts is now one connection of this PC's core or of a server window's core: no ssh session, link, ports, reattach or model proxy.
+Until these hot-file lines are applied `tsc -p tsconfig.node.json` reports exactly these three errors.
+
+## apps/desktop/src/main/index.ts
+1. Delete `import { remoteSessionConfigFromEnv } from './ssh/remote-session';` (symbol: the import above `import { ConnectionPool, ... } from './connections'`).
+2. In `connectionDependencies` delete the property `remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',`
+   (DesktopConnectionDependencies no longer has it; the grace is the core's).
+3. In `serverConnections = createServerConnections<DesktopConnection>({ ... create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name, throughPcCore: true }, connectionDependencies) })`
+   delete `throughPcCore: true` (every server connection is carried by this PC's core; DesktopConnectionSpec is the identity).
+4. Replace `const envSshConfig = remoteSessionConfigFromEnv(process.env);` by
+   `const envSshTarget = process.env.MIXDOG_SSH_TARGET?.trim() ? process.env.MIXDOG_SSH_TARGET : null;`
+   and in the primary-window start block change `if (envSshConfig) {` / `openEnvSshTarget(localProtocol, envSshConfig.target)` to
+   `if (envSshTarget) {` / `openEnvSshTarget(localProtocol, envSshTarget)`. (MIXDOG_SSH_REMOTE_CWD was read by the deleted RemoteSession only; the
+   server window's folder is the core's.)
+
+## apps/desktop/package.json
+5. Delete the script `"test:ssh:e2e"` (its test, ssh-remote-docker.e2e.live.test.mjs, was a live test of the deleted TypeScript path).
+
+## Not changed here, stays live
+- shared/contract-ssh.ts, contract-connection-link.ts, contract-server-ports.ts: the renderer API's types (the ssh dialogs, ConnectionStatusBanner,
+  ServerPortsPanel, connections-core-api); replacing them by re-exports of the generated protocol types is a renderer task.
+- connections/{pool,ipc-router,routing,contract,index}.ts and host-lists-changed.ts: this PC's window routing and the host-lists feed; they go with the
+  local connection kind (2a).
+- connections/server-notifier.ts is now only boundedNotification (index.ts clips the Browser Use approval notification with it).
