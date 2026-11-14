@@ -209,7 +209,7 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let store = Arc::new(MediaStore::new(data_dir, tokens.durability_io));
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
     let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
-    services.push(Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions)));
+    services.push(Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions.clone())));
     // The `mediaJobs` section, keyed by job id, on the scoped feed `media:<jobId>` (SPEC R14).
     mixdog_services::media::section::spawn_media_section(&jobs, inputs.state.publisher.clone(), inputs.state.scoped_sections(inputs.scoped_feeds.clone()), inputs.cancel.clone());
     let media_status = Arc::new(MediaStatus::new(store.clone()));
@@ -217,6 +217,9 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
 
 
     let manifest = voice_manifest(inputs)?;
+    // A video's poster is ffmpeg's frame: `MIXDOG_FFMPEG_PATH`, else the ffmpeg of the managed voice runtime.
+    let (poster_dir, poster_manifest, poster_env) = (data_dir.to_owned(), manifest.clone(), inputs.env.clone());
+    renditions.enable_video_posters(processes.clone(), move || mixdog_services::media::managed_ffmpeg(poster_env("MIXDOG_FFMPEG_PATH").as_deref(), &poster_dir, &poster_manifest));
     let pipeline = Arc::new(VoicePipeline::new(
         data_dir.to_owned(),
         manifest,

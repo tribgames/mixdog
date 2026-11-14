@@ -283,3 +283,58 @@ async fn an_aborted_fire_releases_its_name() {
     assert!(fire.await.unwrap_err().is_cancelled());
     assert!(!f.sched.status()[0].running);
 }
+
+#[derive(Default)]
+struct PromptLog(Mutex<Vec<String>>);
+
+#[async_trait]
+impl ScheduleRunner for PromptLog {
+    async fn run(&self, _s: &Schedule, prompt: &str) -> Result<RunOutcome, String> {
+        self.0.lock().unwrap().push(prompt.to_owned());
+        Ok(RunOutcome::Done)
+    }
+}
+
+async fn prompt_run(row: Schedule, dir: &std::path::Path) -> Vec<String> {
+    let name = row.name.clone();
+    let store = Arc::new(MemoryScheduleStore::with(vec![row.clone()]));
+    let runner = Arc::new(PromptLog::default());
+    let clock = Arc::new(FixedClock(Mutex::new(at("2025-01-01T09:00:00Z"))));
+    let sched = Scheduler::new(store, runner.clone(), clock, RunningWork::new(), Tz::UTC, vec![row]);
+    sched.set_prompts_dir(dir.to_path_buf());
+    sched.fire_cron_slot(&name, at("2025-01-01T09:00:00Z")).await;
+    // The cron fire is fire-and-forget: wait for the spawned run.
+    for _ in 0..200 {
+        if !runner.0.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    runner.0.lock().unwrap().clone()
+}
+
+#[tokio::test]
+async fn empty_prompt_reads_the_named_file_in_the_prompts_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("daily.md"), "  from the file \n").unwrap();
+    let mut row = cron_row("daily");
+    row.prompt = String::new();
+    assert_eq!(prompt_run(row, dir.path()).await, vec!["from the file".to_string()]);
+}
+
+#[tokio::test]
+async fn prompt_naming_a_file_or_an_absolute_path_is_read_and_plain_text_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "relative body").unwrap();
+    let abs = dir.path().join("elsewhere.txt");
+    std::fs::write(&abs, "absolute body").unwrap();
+    let mut row = cron_row("daily");
+    row.prompt = "a.md".into();
+    assert_eq!(prompt_run(row, dir.path()).await, vec!["relative body".to_string()]);
+    let mut row = cron_row("daily");
+    row.prompt = abs.to_string_lossy().into_owned();
+    assert_eq!(prompt_run(row, dir.path()).await, vec!["absolute body".to_string()]);
+    let mut row = cron_row("daily");
+    row.prompt = "do it".into();
+    assert_eq!(prompt_run(row, dir.path()).await, vec!["do it".to_string()]);
+}

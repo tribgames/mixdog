@@ -295,6 +295,7 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
         },
         tick.clone(),
         )
+        .with_idle_timeout(EmbedEnv::idle_timeout())
         .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
         OrtRuntime::NoBinding => None,
     };

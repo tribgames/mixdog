@@ -75,7 +75,7 @@ pub mod public_fetch;
 
 pub use transfer_source::MediaAssetSource;
 pub use jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, MediaJobs, Reference, ResolvedMedia};
-pub use renditions::{Rendition, RenditionError, StillRenditions};
+pub use renditions::{Rendition, RenditionError, StillRenditions, managed_ffmpeg};
 pub use service::MediaService;
 pub use catalog_fetch::{Auth, CatalogHttp, FetchError, FileCatalogCache, HttpFailure, HttpReply, fetch_media_model_rows, media_catalog_timeout};
 pub use catalog_http::RoutedCatalogHttp;
