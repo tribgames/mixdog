@@ -4,8 +4,10 @@ import type { Shell } from 'electron';
 import { isAbsolute as pathIsAbsolute } from 'node:path';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
-import { openLocalFileLink } from './local-file-links';
-import { submitFeedback } from './feedback-client';
+import type { FileLaunchConfirmation, LocalLinkOpened } from '../shared/local-files';
+import { putBlobRef } from './core-blob-ref';
+import { coreErrorForWindow } from './protocol/core-error';
+import type { ProtocolConnection } from './protocol/connection';
 import {
   projectDisplayName,
   requiredExternalUrl,
@@ -24,6 +26,25 @@ interface ProjectIpcOptions {
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder'>;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   operations: Record<'githubStarStatus' | 'starGithub' | 'libreOfficeStatus' | 'installLibreOffice', ServiceOperation>;
+  /** This PC's core connection: feedback and a chat file link are answered by its `feedback/upload` and `desktop/localLink/open`; without one they fail. */
+  core?: Pick<ProtocolConnection, 'call'> | null;
+}
+
+/** A feedback attachment is an image, larger than one frame: its data travels as a blob (the field `blob_fields.json` lists). Data that is
+ *  not canonical base64 stays as it is, and the core refuses it. */
+async function feedbackWithBlobAttachments(core: Pick<ProtocolConnection, 'call'>, value: unknown): Promise<unknown> {
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  if (!input || !Array.isArray(input.attachments)) return value;
+  const attachments = await Promise.all(
+    input.attachments.map(async (attachment: unknown) => {
+      const data = (attachment as { data?: unknown } | null)?.data;
+      if (typeof data !== 'string') return attachment;
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.toString('base64') !== data) return attachment;
+      return { ...(attachment as object), data: await putBlobRef(core, bytes, 'base64') };
+    })
+  );
+  return { ...input, attachments };
 }
 
 export function registerProjectIpc({
@@ -32,6 +53,7 @@ export function registerProjectIpc({
   shell,
   invokeDesktopOperation,
   operations,
+  core,
 }: ProjectIpcOptions): void {
   handle(DESKTOP_IPC.startProject, (_event, projectPath) =>
     host.startProject(requiredString(projectPath, 'projectPath'))
@@ -74,9 +96,37 @@ export function registerProjectIpc({
     shell.showItemInFolder(await resolvedMediaAssetPath(assetId));
   });
   handle(DESKTOP_IPC.openExternal, (_event, url) => shell.openExternal(requiredExternalUrl(url)));
-  handle(DESKTOP_IPC.submitFeedback, (_event, input) => submitFeedback(input));
-  handle(DESKTOP_IPC.openLocalFileLink, (_event, projectPath, href, confirmedPath) =>
-    openLocalFileLink(projectPath, href, (file) => shell.openPath(file), confirmedPath)
+  handle(DESKTOP_IPC.submitFeedback, async (_event, input) => {
+    if (!core) throw new Error('The core connection is not available.');
+    try {
+      // The renderer cannot select a recipient, URL or credentials: the core validates the fields and posts them to its relay.
+      return await core.call('feedback/upload', { input: await feedbackWithBlobAttachments(core, input) });
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
+  });
+  // The core decides the link (validated, inside the project by path and by real path, an executable target asks for confirmation);
+  // handing a file or folder to the operating system is Electron's `shell.openPath`.
+  handle(
+    DESKTOP_IPC.openLocalFileLink,
+    async (_event, projectPath, href, confirmedPath): Promise<LocalLinkOpened | FileLaunchConfirmation> => {
+      if (!core) throw new Error('The core connection is not available.');
+      let answer: { result?: LocalLinkOpened; path?: string; confirmationPath?: string };
+      try {
+        answer = (await core.call('desktop/localLink/open', {
+          projectPath,
+          href,
+          ...(confirmedPath === undefined ? {} : { confirmedPath }),
+        })) as typeof answer;
+      } catch (error) {
+        throw coreErrorForWindow(error);
+      }
+      if (typeof answer.confirmationPath === 'string') return { confirmationPath: answer.confirmationPath };
+      if (answer.result === 'editor') return 'editor';
+      const failure = await shell.openPath(answer.path as string);
+      if (failure) throw new Error(`Unable to open file: ${failure}`);
+      return answer.result as 'file' | 'folder';
+    }
   );
   handle(DESKTOP_IPC.githubStarStatus, () => operations.githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => operations.starGithub());
