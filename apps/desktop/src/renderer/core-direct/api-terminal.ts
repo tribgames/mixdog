@@ -196,7 +196,7 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
     }
   });
 
-  const api = {
+  const api: Pick<DesktopApi, DirectKey<'terminal'>> = {
     async termEnsure(id: unknown, cwd: unknown, profile: unknown): Promise<TerminalSession> {
       const { method, params } = routeDesktopOperation('termEnsure', [
         typeof id === 'string' && id ? id : null,
@@ -217,9 +217,10 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
       return (await pending.catch(() => null)) ?? ensured;
     },
     termAttach: (id: unknown): Promise<TerminalSession | null> => attach(id as string),
-    termProfiles: async (): Promise<unknown> => {
+    termProfiles: async () => {
       const { method, params } = routeDesktopOperation('termProfiles', []);
-      return ctx.call(method, params);
+      // The profile list is the core's answer as Node gave it.
+      return (await ctx.call(method, params)) as Awaited<ReturnType<NonNullable<DesktopApi['termProfiles']>>>;
     },
     termWrite(id: unknown, data: unknown): void {
       // Keystrokes take the fire-and-forget lane, and one sent while the link is down is dropped.
@@ -273,5 +274,5 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
     subscribeTermActivity: (listener: (event: TerminalActivityEvent) => void) => listen(activityListeners, listener),
     onTerminalRunRequested: (listener: (request: DesktopTerminalRunRequest) => void) => listen(runListeners, listener),
   };
-  return api as unknown as Pick<DesktopApi, DirectKey<'terminal'>>;
+  return api;
 }
