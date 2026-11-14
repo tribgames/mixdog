@@ -11,7 +11,7 @@
 //!   `capabilities.modelProxy`, as the broker's [`ModelProxyTransport`].
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -24,13 +24,17 @@ use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, Domain
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::model_proxy::{ProxyEvents, ProxyRunner, busy, request_too_large};
+use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError};
+
+use super::model_proxy::{ProxyEvents, ProxyRunner, busy, failure_out, request_too_large};
 
 const RUN: &str = "modelProxy/run";
 const EVENT: &str = "model/proxy/event";
 const HEARTBEAT: &str = "model/proxy/heartbeat";
 const CANCEL: &str = "modelProxy/cancel";
 const EXECUTE: Method = Method("model/proxy/execute");
+/// The connection id of the runs `run_local` tracks: connection ids count up from 0, so none ever reaches it.
+const LOCAL: ConnectionId = ConnectionId(u64::MAX);
 const RUN_EVENT: Method = Method("modelProxy/run/event");
 
 /// `model/proxy/execute` over the host channel.
@@ -92,6 +96,8 @@ pub struct ModelProxyService {
     settled: tokio::sync::Notify,
     /// Set by `close`: a run it aborts answers that the app is closing.
     closing: AtomicBool,
+    /// Numbers the runs of `run_local` (their ids in `runs`).
+    local_runs: AtomicU64,
 }
 
 /// `appClosingError()` (model-proxy-host.ts `dispose`): what a run aborted by the closing app answers.
@@ -160,6 +166,7 @@ impl ModelProxyService {
             held: Mutex::new(0),
             settled: tokio::sync::Notify::new(),
             closing: AtomicBool::new(false),
+            local_runs: AtomicU64::new(0),
         }
     }
 
@@ -187,6 +194,45 @@ impl ModelProxyService {
         }
         *held += chars;
         Ok(Held { service: self, chars })
+    }
+
+    /// One admitted run, as `modelProxy/run` and `run_local` share it: the payload is admitted (a refusal is the answer `Failed`),
+    /// the run is tracked under `key` so `modelProxy/cancel` and `close` can stop it, and a failure is the answer `Failed`.
+    async fn run_admitted(&self, chars: usize, call: w::ProxyCall, allowed: Option<&[String]>, events: &dyn ProxyEvents, cancel: CancellationToken, key: (ConnectionId, String)) -> w::ProxyAnswer {
+        let _held = match self.admit(chars) {
+            Ok(held) => held,
+            Err(failure) => return w::ProxyAnswer::Failed { failure },
+        };
+        self.runs.lock().unwrap_or_else(PoisonError::into_inner).insert(key.clone(), cancel.clone());
+        let ran = self.runner.run(call, allowed, events, &cancel).await;
+        self.runs.lock().unwrap_or_else(PoisonError::into_inner).remove(&key);
+        self.settled.notify_waiters();
+        match ran {
+            Ok(answer) => answer,
+            Err(mut failure) => {
+                if cancel.is_cancelled() && self.closing.load(Ordering::SeqCst) {
+                    failure.message = APP_CLOSING.into();
+                }
+                w::ProxyAnswer::Failed { failure }
+            }
+        }
+    }
+
+    /// `modelProxy/run` for a caller inside this core (the in-core relay): the same admission, the same run and the same answer,
+    /// without a connection. The events go to `events`; the run is tracked under a key of its own, so `close` waits for it and
+    /// aborts it like any other. A call that does not decode is the answer `Failed`, as a plain error.
+    pub async fn run_local(&self, call: Value, allowed: Option<Vec<String>>, events: Arc<dyn ProxyEvents + Send + Sync>, cancel: CancellationToken) -> w::ProxyAnswer {
+        let chars = claimed_chars(&call);
+        let call = match serde_json::from_value::<w::ProxyCall>(call) {
+            Ok(call) => call,
+            Err(error) => {
+                let mut failed = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                failed.message = format!("invalid model call: {error}");
+                return w::ProxyAnswer::Failed { failure: failure_out(&failed, w::ProxyOutcome::Provider) };
+            }
+        };
+        let key = (LOCAL, format!("local-{}", self.local_runs.fetch_add(1, Ordering::Relaxed)));
+        self.run_admitted(chars, call, allowed.as_deref(), events.as_ref(), cancel.child_token(), key).await
     }
 
     /// `modelProxyBridge.close` (daemon.mjs:302), the first step of Node's shutdown: every relayed model call is aborted, then this waits for the calls to settle, before
@@ -227,25 +273,9 @@ impl DomainService for ModelProxyService {
         // what the type does not read; before the run is registered or any provider is looked up.
         let chars = req.params.get("call").map_or(0, claimed_chars);
         let ModelProxyRunParams { run_id, call, allowed_providers } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
-        let _held = match self.admit(chars) {
-            Ok(held) => held,
-            Err(failure) => return Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result: w::ProxyAnswer::Failed { failure } }).expect("a typed result serializes"))),
-        };
-        let cancel = req.ctx.cancel.child_token();
-        self.runs.lock().unwrap_or_else(PoisonError::into_inner).insert((to, run_id.clone()), cancel.clone());
-        let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id: run_id.clone() };
-        let ran = self.runner.run(call, allowed_providers.as_deref(), &events, &cancel).await;
-        self.runs.lock().unwrap_or_else(PoisonError::into_inner).remove(&(to, run_id));
-        self.settled.notify_waiters();
-        let result = match ran {
-            Ok(answer) => answer,
-            Err(mut failure) => {
-                if cancel.is_cancelled() && self.closing.load(Ordering::SeqCst) {
-                    failure.message = APP_CLOSING.into();
-                }
-                w::ProxyAnswer::Failed { failure }
-            }
-        };
+        let key = (to, run_id.clone());
+        let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id };
+        let result = self.run_admitted(chars, call, allowed_providers.as_deref(), &events, req.ctx.cancel.child_token(), key).await;
         Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result }).expect("a typed result serializes")))
     }
 
