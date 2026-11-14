@@ -51,6 +51,13 @@ const SERVICE_PENDING: &[&str] = &[
     "host/browser/userInput",
     // s2b-service (wave 9): the connections service (window host notification included).
     "host/window/closed",
+    // x-migrate-adopt-core / CORE-WIRE-G2 (wave 2): MigrateProfileService.
+    "migrate/profile/status",
+    "migrate/profile/adopt",
+    // s3-08 / s3-19 (wave 3): ComputerPointerService over the pool's pointer hold.
+    "computer/pointerReleased",
+    // s3-13 / s3-19 (wave 3): DevComputerRun, registered only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1.
+    "dev/computer/run",
 ];
 
 /// Namespaces whose every method the connections service (s2b-service, wave 9) answers.

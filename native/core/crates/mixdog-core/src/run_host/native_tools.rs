@@ -294,11 +294,17 @@ impl ComputerPresence {
                 .map(|(session, observe_only)| ComputerSessionSection {
                     session_thread_id: ThreadId::from(session.as_str()),
                     observe_only: *observe_only,
+                    window_ids: Vec::new(),
+                    mode: None,
+                    phase: None,
                 })
                 .collect(),
             session_thread_id: latest.map(|(session, _)| ThreadId::from(session.as_str())),
             user_control: self.control.section(),
             lane: None,
+            backend: mixdog_protocol::ComputerBackendSection::Helper,
+            cleanup_state: mixdog_protocol::ComputerCleanupState::Ready,
+            idle_resume_seconds: 5,
         };
         self.publisher.publish(SectionName::Computer, None, change_of(&section));
     }
@@ -817,11 +823,14 @@ mod tests {
             controller: None,
             sessions: open
                 .iter()
-                .map(|session| ComputerSessionSection { session_thread_id: ThreadId::from(*session), observe_only: false })
+                .map(|session| ComputerSessionSection { session_thread_id: ThreadId::from(*session), observe_only: false, window_ids: Vec::new(), mode: None, phase: None })
                 .collect(),
             session_thread_id: open.last().map(|session| ThreadId::from(*session)),
             user_control: None,
             lane: None,
+            backend: mixdog_protocol::ComputerBackendSection::Helper,
+            cleanup_state: mixdog_protocol::ComputerCleanupState::Ready,
+            idle_resume_seconds: 5,
         };
 
         assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
