@@ -1,0 +1,84 @@
+{
+ "docs": [
+  {
+   "id": "CHANGELOG.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/remote-screen.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/remote-transport.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/backend-node-rust-inventory.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/desktop-shell-options.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/wincu-manual-checks.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/computer-use-scenario-dashboard.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/place-plan.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/remote-webrtc.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/js-runtime-refcheck.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/desktop-rust-migration-plan.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/ssh-remote.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/migration-open-audit.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/effort-judge-experiment-report.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/cua-codex-comparison.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/runtime-test-spec-browser-latency.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/code-tidy.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/context-efficiency.md",
+   "limit": 1000
+  },
+  {
+   "id": "docs/internal/computer-use-delivery-audit.md",
+   "limit": 1000
+  },
+  {
+   "id": "NOTICE.md",
+   "limit": 1000
+  }
+ ]
+}
