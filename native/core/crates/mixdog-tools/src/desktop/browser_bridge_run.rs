@@ -472,7 +472,7 @@ impl BrowserBridgeRun {
         }
         self.wait_idle(session, except, cancel).await;
         if self.engine_serves() {
-            let closed = self.engine.finish_turn(&thread, turn, aborted).await;
+            let closed = self.engine.finish_turn(&thread, aborted).await;
             return Ok(json!({ "text": format!("Browser task cleanup complete: {closed} temporary page(s) closed.") }));
         }
         let mut input = json!({ "turn_id": turn });

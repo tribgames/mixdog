@@ -112,7 +112,8 @@ impl HostCommands for EngineHostCommands {
             Err(failure) => Err(command_failure(failure, cancel)),
         };
         if let Some(clock) = clock {
-            clock.stop(thread, action, turn_id, row_answer(&answer));
+            let row = row_answer(&answer);
+            clock.stop(thread, action, turn_id, row.as_ref().map(|value| *value));
         }
         answer
     }
