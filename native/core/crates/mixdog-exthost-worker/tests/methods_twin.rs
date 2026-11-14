@@ -310,5 +310,8 @@ async fn image_calls_refuse_a_malformed_call_with_the_messages_of_the_node_handl
     // A whole number written with a fraction is an integer, as in JavaScript.
     let answer = ask(&pool, "image.jpeg", jpeg(json!({"width": 10.0})), &[]).await.unwrap();
     assert!(answer.get("ok").is_some(), "{answer}");
+    // An integer too large for a side is an integer to JavaScript: sharp, not the parameter check, rejects it.
+    let answer = ask(&pool, "image.jpeg", jpeg(json!({"width": 1.0e16})), &[]).await.unwrap();
+    assert_eq!(answer, json!({"error": "invalid"}));
     pool.close().await;
 }

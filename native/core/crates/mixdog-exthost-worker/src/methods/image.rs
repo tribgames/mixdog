@@ -43,12 +43,11 @@ fn probe(ctx: CallCtx) -> HandlerResult {
     }
 }
 
-/// `Number.isInteger` of a parameter.
+/// `Number.isInteger` of a parameter. A whole number beyond `i64` saturates; the encoder's range check then answers it
+/// `invalid`, as sharp rejects it in Node.
 fn integer(params: &Value, name: &str) -> Result<i64, CodedError> {
     let whole = params.get(name).and_then(Value::as_number).and_then(|number| {
-        number
-            .as_i64()
-            .or_else(|| number.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15).map(|f| f as i64))
+        number.as_i64().or_else(|| number.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
     });
     whole.ok_or_else(|| invalid_params(format!("{name} must be an integer")))
 }
