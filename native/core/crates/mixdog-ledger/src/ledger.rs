@@ -2,10 +2,9 @@
 //! before it (a send's record is in the statistics requested after it), and a statistics read
 //! also refreshes the prices of unpriced records.
 //!
-//! The history import of `getUsageStats` (`importUsageHistory`) is not here by decision: the
-//! core never reimplements the importer. A ledger the 1.4.5 daemon already imported
-//! (`metadata.importedThrough`) is read as it is, and one it did not import is held by the
-//! migration (`ledger_import_incomplete`, store-migration §4).
+//! The history import of `getUsageStats` (`importUsageHistory`, in [`crate::history`]) runs
+//! before the first statistics read, when the refresher has history enabled: the legacy usage
+//! files and the earlier daemon's trace rows that the ledger does not hold yet are imported once.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +27,8 @@ pub struct UsageLedger {
 }
 
 impl UsageLedger {
-    /// `getUsageStats`: settle the queued writes, refresh unpriced records, then read.
+    /// `getUsageStats`: settle the queued writes, import the legacy history that is not in the
+    /// ledger yet, refresh unpriced records, then read.
     /// `clock` is `Date.now()`: read before the refresh and again for the statistics, so
     /// records the refresh touched are not beyond the read's clock.
     pub async fn get_usage_stats(
@@ -37,6 +37,7 @@ impl UsageLedger {
         clock: impl Fn() -> i64,
     ) -> Result<Value> {
         self.writer.settle_writes().await?;
+        self.refresher.import_history(&self.writer, clock()).await;
         self.refresher
             .refresh(&self.writer, &self.reader, clock())
             .await?;

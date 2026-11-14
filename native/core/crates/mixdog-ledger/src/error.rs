@@ -41,4 +41,7 @@ pub enum LedgerError {
     /// Stored rows contradict each other (a route read without the day it belongs to).
     #[error("the usage ledger is inconsistent: {0}")]
     Inconsistent(&'static str),
+    /// The history the earlier daemon left could not be read or imported.
+    #[error("the usage history could not be imported: {0}")]
+    History(String),
 }

@@ -35,6 +35,10 @@ use crate::db::Connection;
 use crate::db::TransactionBehavior;
 use crate::error::LedgerError;
 use crate::error::Result;
+use crate::history::HistoryOutcome;
+use crate::history::HistoryState;
+use crate::history::HistoryWrite;
+use crate::history::read_state;
 use crate::maintenance::maintain_usage;
 use crate::quota::QuotaReading;
 use crate::quota::record_quota_samples;
@@ -88,6 +92,15 @@ enum Command {
     },
     Settle {
         reply: ReplyTx<()>,
+    },
+    /// `liveSince` and `importedThrough`.
+    HistoryState {
+        reply: ReplyTx<Result<HistoryState>>,
+    },
+    /// The usage history of the earlier daemon, committed once it is read and priced.
+    History {
+        write: Box<HistoryWrite>,
+        reply: ReplyTx<Result<HistoryOutcome>>,
     },
     /// Resolves once the day sums are complete.
     SumsBuilt {
@@ -388,6 +401,19 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 reply.send(applied);
             }
             Command::Settle { reply } => reply.send(()),
+            Command::HistoryState { reply } => reply.send(read_state(&conn)),
+            Command::History { write, reply } => {
+                let applied = write.apply(&mut conn);
+                // Records came in behind a day-sum batch's snapshot: it is summed again.
+                if let Some(flight) = build.flight.as_mut() {
+                    flight.stale = true;
+                }
+                if context.changed.is_some() && applied.as_ref().is_ok_and(|outcome| outcome.changed) {
+                    stale = true;
+                    moved = true;
+                }
+                reply.send(applied);
+            }
             Command::SumsBuilt { reply } => {
                 if build.complete {
                     reply.send(());
@@ -536,6 +562,25 @@ impl UsageWriter {
     pub fn settle_writes(&self) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
         let queued = self.enqueue(|reply| Command::Settle { reply });
         async move { queued?.await }
+    }
+
+    /// `liveSince` and `importedThrough`, read behind every write queued before.
+    pub(crate) fn history_state(&self) -> impl Future<Output = Result<HistoryState>> + Send + 'static + use<> {
+        let queued = self.enqueue(|reply| Command::HistoryState { reply });
+        async move { queued?.await? }
+    }
+
+    /// Commits an import of the earlier daemon's history; it runs on the writer thread, in order
+    /// with the records queued around it.
+    pub(crate) fn import_history(
+        &self,
+        write: HistoryWrite,
+    ) -> impl Future<Output = Result<HistoryOutcome>> + Send + 'static + use<> {
+        let queued = self.enqueue(|reply| Command::History {
+            write: Box::new(write),
+            reply,
+        });
+        async move { queued?.await? }
     }
 
     /// Resolves once the per-session day sums are complete (until then the session reads answer
