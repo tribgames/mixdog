@@ -8,6 +8,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
+use mixdog_js::js_to_lowercase;
+use mixdog_js::js_trim;
 use url::Url;
 
 use crate::redaction::{redact_browser_text, url_contains_secret};
@@ -88,15 +90,6 @@ static LINK_LOCAL_V6: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r
 static MAPPED_V4: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$", "i"));
 static SENDER_DOMAIN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[\p{L}\p{N}.-]+$", "u"));
 
-/// JavaScript's WhiteSpace and LineTerminator set (`String.prototype.trim`): U+FEFF is in, U+0085 is out.
-fn is_js_space(c: char) -> bool {
-    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
-}
-
-fn js_trim(text: &str) -> &str {
-    text.trim_matches(is_js_space)
-}
-
 /// Whether agent URL `raw` is exactly the https link `link` names, read within the window, on the registrable domain of the
 /// mail's sender: the one agent URL that may carry a token. Where the page redirects afterwards is its own.
 fn mail_link_admits(raw: &str, link: Option<&MailLink>, now_ms: i64) -> bool {
@@ -123,7 +116,7 @@ fn mail_link_admits(raw: &str, link: Option<&MailLink>, now_ms: i64) -> bool {
 }
 
 fn normalized_hostname(value: &str) -> String {
-    let lowered = js_trim(value).to_lowercase();
+    let lowered = js_to_lowercase(js_trim(value));
     let without_open = lowered.strip_prefix('[').unwrap_or(&lowered);
     let without_close = without_open.strip_suffix(']').unwrap_or(without_open);
     without_close.strip_suffix('.').unwrap_or(without_close).to_owned()

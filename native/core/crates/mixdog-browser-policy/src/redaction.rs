@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
+use mixdog_js::utf16_len;
 use url::Url;
 
 const SECRET_KEYS: &str = r"access[_-]?token|api[_-]?key|apikey|authorization|id[_-]?token|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token";
@@ -89,11 +90,6 @@ fn decoded_url_candidates(raw: &str) -> Vec<String> {
     values
 }
 
-/// A string's length in UTF-16 code units, as JavaScript's `length`.
-fn js_length(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
 /// Whether an agent-supplied URL carries a credential: a token shape in the URL or in its decoded forms, a secret-named query
 /// parameter with a value, or a `code` parameter of eight or more characters.
 pub fn url_contains_secret(raw: &str) -> bool {
@@ -103,7 +99,7 @@ pub fn url_contains_secret(raw: &str) -> bool {
     // The caller owns URL syntax validation; the raw token detection above still applies to what does not parse.
     let Ok(parsed) = Url::parse(raw) else { return false };
     parsed.query_pairs().any(|(key, value)| {
-        !value.is_empty() && (SECRET_PARAMETER.is_match(&key) || (key.to_lowercase() == "code" && js_length(&value) >= 8))
+        !value.is_empty() && (SECRET_PARAMETER.is_match(&key) || (key.to_lowercase() == "code" && utf16_len(&value) >= 8))
     })
 }
 
@@ -129,10 +125,10 @@ pub fn redact_browser_text(value: &str) -> String {
 /// own length, a long one the marker).
 pub fn redact_known_secrets(value: &str, secrets: &[String]) -> String {
     const MARKER: &str = "[REDACTED STORED CREDENTIAL]";
-    let marker_length = js_length(MARKER);
+    let marker_length = utf16_len(MARKER);
     let mut redacted = value.to_owned();
     for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
-        let length = js_length(secret);
+        let length = utf16_len(secret);
         let mask = "*".repeat(length);
         let mut replacement = if mask == *secret { "\u{2022}".repeat(length) } else { mask };
         if length >= marker_length && secret != MARKER {
@@ -195,7 +191,7 @@ mod tests {
         let known = ["a".to_owned(), "*".to_owned()];
         let source = "a password can be short: a";
         let out = redact_known_secrets(source, &known);
-        assert!(!out.contains('a') && js_length(&out) <= js_length(source));
+        assert!(!out.contains('a') && utf16_len(&out) <= utf16_len(source));
         let once = redact_browser_text("Authorization: Bearer MIXDOG_SYNTHETIC_ONLY_0123456789");
         assert_eq!(once, "Authorization: [REDACTED]");
         assert_eq!(redact_browser_text(&once), once);
