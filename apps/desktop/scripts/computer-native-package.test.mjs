@@ -5,13 +5,16 @@
 // was prepared (npm run prepare:runtime) and starts the helper with --version alone, which touches no desktop.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { posix, win32 } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, posix, win32 } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
+import { verifyStagedResources } from './verify-staged-package.mjs';
 
 const execFileAsync = promisify(execFile);
 const text = (path) => readFile(new URL(path, import.meta.url), 'utf8');
@@ -145,4 +148,30 @@ test('a prepared Windows runtime ships the helper for its architecture, which an
   const version = /^version\s*=\s*"([^"]+)"/m.exec(await text('../../../native/mixdog-computer/Cargo.toml'))?.[1];
   const { stdout } = await execFileAsync(helper, ['--version'], { timeout: 10_000, windowsHide: true });
   assert.equal(stdout.trim(), `mixdog-computer ${version}`);
+});
+
+/** The smallest PE image header native-binary-arch reads: MZ, e_lfanew = 64, PE signature, COFF machine. */
+function peImage(machine) {
+  const image = Buffer.alloc(88);
+  image.writeUInt16LE(0x5a4d, 0);
+  image.writeUInt32LE(64, 60);
+  image.writeUInt32LE(0x00004550, 64);
+  image.writeUInt16LE(machine, 68);
+  return image;
+}
+
+test('a staged Windows package without the helper for its architecture is refused by name', (t) => {
+  const resources = mkdtempSync(join(tmpdir(), 'mixdog-helper-verify-'));
+  t.after(() => rmSync(resources, { recursive: true, force: true }));
+  mkdirSync(join(resources, 'core'));
+  writeFileSync(join(resources, 'core', 'mixdogd.exe'), peImage(0x8664));
+  const verify = () => verifyStagedResources({ resources, platform: 'win32', arch: 'x64', deleted: new Set() });
+  assert.throws(verify, /the Computer Use helper .*mixdog-computer\.exe is not in the package/);
+
+  mkdirSync(join(resources, 'native-tools'));
+  writeFileSync(join(resources, 'native-tools', 'mixdog-computer.exe'), peImage(0xaa64));
+  assert.throws(verify, /the Computer Use helper .*mixdog-computer\.exe does not run on win32-x64/);
+
+  writeFileSync(join(resources, 'native-tools', 'mixdog-computer.exe'), peImage(0x8664));
+  assert.throws(verify, (error) => !/Computer Use helper/.test(error.message), 'a matching helper passes its check');
 });
