@@ -13,6 +13,9 @@ use mixdog_agent::env::SkillSelector;
 use mixdog_agent::env::ToolGate;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
+use mixdog_agent::message::ToolKind;
+use mixdog_agent::native_search::parse_native_tool_search;
+use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -195,6 +198,23 @@ fn summary_of(parts: &[ToolPart]) -> String {
         .join("\n")
 }
 
+/// `nativeDefinitionsPresent`: every tool the payload references is already defined by an earlier native
+/// tool-search result of the same provider, with the same OpenAI definition where the payload carries one.
+fn native_definitions_present(native: &JsonValue, transcript: &[AgentMessage]) -> bool {
+    let provider = native.get("provider");
+    let definitions = native.get("openaiTools").and_then(JsonValue::as_array).map_or(&[][..], Vec::as_slice);
+    native.get("toolReferences").and_then(JsonValue::as_array).map_or(&[][..], Vec::as_slice).iter().all(|name| {
+        transcript.iter().filter_map(|entry| entry.message.native_tool_search.as_ref()).any(|previous| {
+            previous.get("provider") == provider
+                && previous.get("toolReferences").and_then(JsonValue::as_array).is_some_and(|names| names.contains(name))
+                && definitions.iter().all(|tool| {
+                    tool.get("name") != Some(name)
+                        || previous.get("openaiTools").and_then(JsonValue::as_array).is_some_and(|tools| tools.contains(tool))
+                })
+        })
+    })
+}
+
 /// `LOADED_SKILL_RE`: the skill loaded.
 pub fn loaded_skill(summary: &str) -> bool {
     summary.starts_with("Loaded skill: ") || summary.starts_with("Loaded built-in skill: ")
@@ -222,24 +242,50 @@ impl SkillSelector for ExplicitSkillSelector {
                 return applied;
             }
         };
-        for (index, name) in selection.resolve(&available).into_iter().enumerate() {
+        for name in selection.resolve(&available) {
             if self.cancel.is_cancelled() {
                 return applied;
             }
-            let id = format!("skill-selection-{index}");
+            // A fresh id per selection: the paired call below reaches the wire, where a later turn's
+            // selection must not reuse an earlier one's call id.
+            let id = format!("skill-selection-{}", uuid::Uuid::new_v4());
             let outcome = self.skill_tool.call(&self.context(&id), json!({ "name": name })).await;
             let (summary, follow_ups) = match outcome {
                 Ok(output) => (summary_of(&output.parts), output.follow_up_messages),
                 Err(error) => (error.message_for_model, Vec::new()),
             };
+            // A native tool-search provider's Skill result is the payload that loads the skill's deferred
+            // tools (`parseNativeToolSearchPayload`): its summary is the result, and unless the history already
+            // carries those definitions it rides a paired call and result (`prepareExplicitSkills`).
+            let native = parse_native_tool_search("Skill", &summary);
+            let summary = native
+                .as_ref()
+                .and_then(|native| native.get("summary"))
+                .and_then(JsonValue::as_str)
+                .filter(|text| !text.is_empty())
+                .map_or(summary, str::to_owned);
+            match native.filter(|native| !native_definitions_present(native, transcript)) {
+                Some(native) => {
+                    let call = ToolCall { id: id.clone(), name: "Skill".to_owned(), arguments: json!({ "name": name }), native_type: None };
+                    let mut call_turn = AgentMessage::assistant(String::new(), vec![call]);
+                    call_turn.source = Some(Source::SkillSelection);
+                    transcript.push(call_turn);
+                    let mut result = AgentMessage::tool_text(id, summary.clone(), ToolKind::Normal);
+                    result.message.native_tool_search = Some(native);
+                    transcript.push(result);
+                }
+                None => transcript.push(AgentMessage::sourced(
+                    Source::SkillContext,
+                    format!("<system-reminder>
+Explicit skill selection result:
+{summary}
+</system-reminder>"),
+                )),
+            }
+            transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
             if loaded_skill(&summary) {
                 applied.push(name);
             }
-            transcript.push(AgentMessage::sourced(
-                Source::SkillContext,
-                format!("<system-reminder>\nExplicit skill selection result:\n{summary}\n</system-reminder>"),
-            ));
-            transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
         }
         applied
     }
