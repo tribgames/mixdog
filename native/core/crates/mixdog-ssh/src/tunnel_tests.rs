@@ -344,7 +344,14 @@ async fn a_companion_forward_rides_the_same_child() {
     let forwards: Vec<&String> = args.windows(2).filter(|pair| pair[0] == "-L").map(|pair| &pair[1]).collect();
     assert_eq!(forwards.len(), 2);
     assert_eq!(forwards[0], &format!("127.0.0.1:{port}:127.0.0.1:41001"));
-    assert!(forwards[1].ends_with(":127.0.0.1:41002"));
+    let companion = tunnel.companion_port();
+    assert!(companion != 0 && companion != port);
+    assert_eq!(forwards[1], &format!("127.0.0.1:{companion}:127.0.0.1:41002"));
+    // A transient exit keeps both local ends.
+    spawner.probe(0).finish(255, "client_loop: send disconnect\n").await;
+    until(|| spawner.count() == 2).await;
+    assert!(spawner.probe(1).args.contains(&format!("127.0.0.1:{companion}:127.0.0.1:41002")));
+    assert_eq!(tunnel.companion_port(), companion);
     tunnel.stop().await;
 }
 
@@ -405,6 +412,42 @@ async fn callback_a_port_something_on_this_pc_holds_is_refused_by_the_bind_itsel
     let refused = open_callback_forward(env_of(spawner.clone()), None, target, port).await;
     assert!(matches!(refused, Err(CallbackForwardError::PortInUse(held)) if held == port));
     assert_eq!(spawner.count(), 0);
+}
+
+#[tokio::test]
+async fn callback_a_clean_ssh_exit_still_delivers_the_whole_answer() {
+    let (listener, port) = open_port().await;
+    drop(listener);
+    let spawner = Spawner::new(true);
+    let target = parse_ssh_target("dev@build-box").unwrap();
+    let forward = open_callback_forward(env_of(spawner.clone()), None, target, port).await.unwrap();
+    let mut socket = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    socket.write_all(b"GET /done").await.unwrap();
+    until(|| spawner.count() == 1).await;
+    // ssh ends cleanly before the answer is read out; the socket still gets all of it, then its end.
+    spawner.probe(0).finish(0, "").await;
+    socket.shutdown().await.unwrap();
+    let mut answer = Vec::new();
+    timeout(Duration::from_secs(5), socket.read_to_end(&mut answer)).await.expect("the answer did not end").unwrap();
+    assert_eq!(answer, b"server:GET /done");
+    forward.close().await;
+}
+
+#[tokio::test]
+async fn callback_a_failed_ssh_drops_the_browser_connection_at_once() {
+    let (listener, port) = open_port().await;
+    drop(listener);
+    let spawner = Spawner::new(true);
+    let target = parse_ssh_target("dev@build-box").unwrap();
+    let forward = open_callback_forward(env_of(spawner.clone()), None, target, port).await.unwrap();
+    let mut socket = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    until(|| spawner.count() == 1).await;
+    spawner.probe(0).finish(255, "channel 0: open failed: connect failed: Connection refused\n").await;
+    let mut answer = [0_u8; 16];
+    let outcome = timeout(Duration::from_secs(5), socket.read(&mut answer)).await.expect("the connection was kept");
+    assert!(matches!(outcome, Ok(0) | Err(_)));
+    assert!(spawner.probe(0).killed());
+    forward.close().await;
 }
 
 #[tokio::test]
