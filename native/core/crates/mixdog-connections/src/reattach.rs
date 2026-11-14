@@ -57,6 +57,26 @@ impl Drop for ReattachReport {
     }
 }
 
+/// JavaScript's `Number(value)`: NaN for what is no number (`undefined` is a missing key, passed as `None`).
+fn js_number(value: Option<&Value>) -> f64 {
+    match value {
+        None => f64::NAN,
+        Some(Value::Null) => 0.0,
+        Some(Value::Bool(flag)) => f64::from(u8::from(*flag)),
+        Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
+        Some(Value::String(text)) => {
+            let text = text.trim();
+            match text {
+                "" => 0.0,
+                "Infinity" | "+Infinity" => f64::INFINITY,
+                "-Infinity" => f64::NEG_INFINITY,
+                _ => text.parse::<f64>().ok().filter(|parsed| parsed.is_finite()).unwrap_or(f64::NAN),
+            }
+        }
+        Some(_) => f64::NAN,
+    }
+}
+
 /// A tool call that has neither a result nor a completion mark.
 fn tool_call_unanswered(item: &Value) -> bool {
     let Some(row) = item.as_object() else { return false };
@@ -67,10 +87,10 @@ fn tool_call_unanswered(item: &Value) -> bool {
     match row.get("completedCount") {
         None => !present("result") && !present("rawResult"),
         Some(done) => {
-            let number = |value: &Value| value.as_f64().or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()));
-            let done = number(done).unwrap_or(0.0);
-            let count = row.get("count").and_then(number).filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(1.0);
-            done < count
+            // As `Number(completedCount) < (Number(count) || 1)`: a completed count that is no number is never below the count, so
+            // the call counts as answered.
+            let count = Some(js_number(row.get("count"))).filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(1.0);
+            js_number(Some(done)) < count
         }
     }
 }
@@ -300,6 +320,20 @@ mod tests {
     use crate::link_machine::ModelLogin;
     use mixdog_protocol::ThreadSummary;
     use serde_json::json;
+
+    #[test]
+    fn a_completed_count_that_is_no_number_counts_the_call_as_answered_as_javascript_did() {
+        let call = |done: Value, count: Value| json!({ "kind": "tool", "id": "t", "completedCount": done, "count": count });
+        // Number("x") is NaN and NaN < 1 is false; Number("") and Number(null) are 0.
+        assert!(!tool_call_unanswered(&call(json!("x"), json!(2))));
+        assert!(!tool_call_unanswered(&call(json!({}), json!(null))));
+        assert!(tool_call_unanswered(&call(json!(""), json!(2))));
+        assert!(tool_call_unanswered(&call(json!(null), json!(null))));
+        assert!(tool_call_unanswered(&call(json!(" 1 "), json!(2))));
+        assert!(!tool_call_unanswered(&call(json!(2), json!(2))));
+        assert!(tool_call_unanswered(&call(json!(false), json!("abc"))));
+        assert!(!tool_call_unanswered(&call(json!(true), json!(0))));
+    }
 
     struct Rig {
         notices: broadcast::Receiver<ConnectionNotice>,
