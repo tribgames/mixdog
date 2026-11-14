@@ -7868,6 +7868,24 @@
     },
     {
       "class": "C1",
+      "method": "projectFs/localPage/virtual",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsLocalPageVirtualParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "projectFs/grant/describe",
       "mutation": {
         "kind": "none"
@@ -11276,6 +11294,160 @@
       }
     },
     {
+      "class": "C1",
+      "method": "desktop/link/resolve",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "DesktopLinkResolveParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/link/resolvePath",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "DesktopLinkResolvePathParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/attachment/resolve",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "DesktopAttachmentParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/attachment/stage",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "DesktopAttachmentParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/workflowConfig/read",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "DesktopWorkflowConfigReadParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/fonts/list",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "DesktopFontsListParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktopPet/state/read",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_pet::DesktopPetStateReadParams",
+      "result": "v2::desktop_pet::DesktopPetPrefs",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktopPet/state/write",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_pet::DesktopPetStateWriteParams",
+      "result": "v2::desktop_pet::DesktopPetPrefs",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
       "class": "C2",
       "method": "browser/command",
       "mutation": {
@@ -11527,6 +11699,25 @@
       ],
       "params": "v2::host::HostHumanOnlyEndParams",
       "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "takeover/ready",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::takeover::TakeoverReadyParams",
+      "result": "v2::takeover::TakeoverReadyResult",
       "scope": {
         "kind": "none"
       }
@@ -12065,6 +12256,11 @@
       "delivery": "app",
       "method": "ui/providerModels/changed",
       "params": "UiProviderModelsChangedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "desktopPet/state/changed",
+      "params": "crate::v2::desktop_pet::DesktopPetStateChangedParams"
     },
     {
       "delivery": "app",

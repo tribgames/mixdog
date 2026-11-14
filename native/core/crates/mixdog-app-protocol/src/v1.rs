@@ -137,6 +137,9 @@ pub struct ServerCapabilities {
     /// Absent from a core that predates it; read that as every flag off.
     #[serde(default)]
     pub remote: RemoteCapabilities,
+    /// The version of the window method table the server holds a window-scoped connection to (`boundary::window_scope`); 0 from a core that has none.
+    #[serde(default)]
+    pub window_scope: u32,
 }
 
 /// The features Node's relay announced to a phone in its challenge, each true when this core serves it. Node offered every flag
@@ -185,6 +188,10 @@ pub struct ConnectionInfo {
     pub origin: Origin,
     /// Host-stamped device name used on submits, aborts and decisions (today's `viewerDevice`).
     pub device: String,
+    /// The id of the desktop window this connection is the socket of (`Mixdog-Window`); absent for any other connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub window: Option<String>,
 }
 
 /// How this core start's one-time `desktop` defaults separation ended (Node's app-ready `separateDefaults`). A

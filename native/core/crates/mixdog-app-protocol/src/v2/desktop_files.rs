@@ -47,6 +47,35 @@ pub struct ProjectFsLocalPageRevokeOwnerParams {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsLocalPageOriginParams {}
 
+/// Params of `projectFs/localPage/virtual` (Node's `localVirtualPageUrl`, local-page-server.ts): the files of an in-memory page; `index.html` is required.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsLocalPageVirtualParams {
+    pub files: Vec<VirtualPageFile>,
+    /// The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+}
+
+/// One file of a virtual page: its content is `data_base64` (bytes) or `text` (UTF-8), exactly one of them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct VirtualPageFile {
+    /// `/`-separated name the page requests, e.g. `index.html`, `app.js`.
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// The `Content-Type` it is served with, e.g. `text/html; charset=utf-8`.
+    #[serde(rename = "type")]
+    pub content_type: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

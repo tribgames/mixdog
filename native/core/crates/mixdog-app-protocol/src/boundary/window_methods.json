@@ -1,7 +1,10 @@
 {
   "version": 2,
   "methods": [
+    "computer/userControl",
     "connections/endpoint",
+    "connections/ssh/openEphemeral",
+    "desktop/workflowConfig/read",
     "dev/computer/run",
     "host/claim",
     "host/humanOnly/begin",
@@ -9,12 +12,14 @@
     "host/remoteTarget/set",
     "host/state/set",
     "migrate/profile/adopt",
+    "migrate/profile/status",
     "modelProxy/run",
     "process/kill",
     "process/resizePty",
     "process/spawn",
     "process/writeStdin",
     "projectFs/localPage/revokeOwner",
+    "projectFs/localPage/virtual",
     "test/browserEngine/run"
   ]
 }

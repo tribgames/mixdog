@@ -40,6 +40,8 @@ const SERVICE_PENDING: &[&str] = &[
     "projectFs/grant/redeem",
     "projectFs/localPage/revokeOwner",
     "projectFs/localPage/origin",
+    // s1-page-virtual (wave 3): the visualize page lease; s1-ws-wire registers its handler in WorkspaceService.
+    "projectFs/localPage/virtual",
     // s4-core-events-service (wave 5) / CORE-WIRE-G7: the browser engine composed into mixdogd.
     "test/browserEngine/run",
     "host/browser/events",
@@ -52,6 +54,19 @@ const SERVICE_PENDING: &[&str] = &[
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
+    // SINGLETONS-CORE (wave 3, CORE-WIRE-G3): TakeoverReadyService over the core's takeover owner.
+    "takeover/ready",
+    // x-rs-desktop-pet (wave 3, CORE-WIRE-G3): DesktopPetService.
+    "desktopPet/state/read",
+    "desktopPet/state/write",
+    // x-residual-moves (registered once an AttachmentHost implementation lands: x-residual-moves-client, wave 4):
+    // DesktopResidualService.
+    "desktop/link/resolve",
+    "desktop/link/resolvePath",
+    "desktop/attachment/resolve",
+    "desktop/attachment/stage",
+    "desktop/workflowConfig/read",
+    "desktop/fonts/list",
 ];
 
 /// Namespaces whose every method the connections service (s2b-service, wave 9) answers.

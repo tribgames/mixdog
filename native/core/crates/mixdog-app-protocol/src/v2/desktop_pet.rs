@@ -1,47 +1,3 @@
-# x-rs-desktop-pet: desktopPet/state/read, desktopPet/state/write and the notification desktopPet/state/changed.
-# Header: add `pub mod desktop_pet;` to src/v2/mod.rs (alphabetical) and create src/v2/desktop_pet.rs with the text under [type_edits].
-
-[methods]
-# Paste after the row `MigrateProfileAdopt => "migrate/profile/adopt"` (or at the end of client_request_definitions!).
-    /// The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.
-    DesktopPetStateRead => "desktopPet/state/read" {
-        params: v2::desktop_pet::DesktopPetStateReadParams,
-        result: v2::desktop_pet::DesktopPetPrefs,
-        scope: none,
-        class: C2,
-        mutation: none,
-        origins: [Local],
-    },
-    /// Stores the pet's settings (`writeDesktopPetPrefs`): the given document is normalized as a read does, written atomically and announced to every client as `desktopPet/state/changed`. Answers what was stored.
-    DesktopPetStateWrite => "desktopPet/state/write" {
-        params: v2::desktop_pet::DesktopPetStateWriteParams,
-        result: v2::desktop_pet::DesktopPetPrefs,
-        scope: none,
-        class: C2,
-        mutation: none,
-        origins: [Local],
-    },
-
-[server_requests]
-none
-
-[notifications]
-# notifications.rs has no `use crate::v2;`: the type is named by its crate path.
-# Paste after the row `UiProviderModelsChanged => "ui/providerModels/changed" ...` in the server notification table.
-    /// The pet's stored settings after a `desktopPet/state/write`.
-    DesktopPetStateChanged => "desktopPet/state/changed" (crate::v2::desktop_pet::DesktopPetStateChangedParams) @app,
-
-[inventory]
-none: the inventory is the frozen 1.4.5 list; these are new methods.
-
-[free_text]
-# No FREE_TEXT row. The generated schema has no free-text string field of its own: the keys of `positions` are display ids
-# (digits only; the core drops any other key) and are not schema string fields. The `prefs` member of desktopPet/state/write
-# is an opaque JsonValue the core normalizes: class it in tests/it/free_text_fields.json the way the other JsonValue params
-# (for example the `config` of config/value/write) are classed, by that class's reason text.
-
-[type_edits]
-# New file native/core/crates/mixdog-app-protocol/src/v2/desktop_pet.rs:
 //! Params and results of the desktop pet's settings methods (desktop-pet-store.ts `DesktopPetPrefs`).
 
 use std::collections::BTreeMap;
@@ -115,9 +71,3 @@ pub struct DesktopPetPrefs {
 pub struct DesktopPetStateChangedParams {
     pub prefs: DesktopPetPrefs,
 }
-
-[remove]
-none
-
-[window]
-none: the pet window controller in the main process is the only caller; no deny row, nothing a window could do before is refused.

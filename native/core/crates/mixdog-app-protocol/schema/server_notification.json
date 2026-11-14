@@ -459,6 +459,83 @@
       ],
       "type": "string"
     },
+    "DesktopPetPrefs": {
+      "description": "The pet's per-device settings, as `desktop-pet.json` stores them.",
+      "properties": {
+        "autoAdvance": {
+          "type": "boolean"
+        },
+        "autoClose": {
+          "type": "boolean"
+        },
+        "collapsed": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hereAnchor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PetHereAnchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keepAbove": {
+          "type": "boolean"
+        },
+        "onScreen": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "pinnedHere": {
+          "type": "boolean"
+        },
+        "positions": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PetPoint"
+          },
+          "description": "Saved free-floating window positions by display id.",
+          "type": "object"
+        },
+        "scale": {
+          "description": "One of 50, 60, ... 200.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "autoAdvance",
+        "autoClose",
+        "collapsed",
+        "enabled",
+        "keepAbove",
+        "onScreen",
+        "pinned",
+        "pinnedHere",
+        "positions",
+        "scale"
+      ],
+      "type": "object"
+    },
+    "DesktopPetStateChangedParams": {
+      "description": "Params of `desktopPet/state/changed`: the stored settings.",
+      "properties": {
+        "prefs": {
+          "$ref": "#/definitions/DesktopPetPrefs"
+        }
+      },
+      "required": [
+        "prefs"
+      ],
+      "type": "object"
+    },
     "DrainRunning": {
       "description": "One unit of running work, as listed to the user.",
       "properties": {
@@ -1350,6 +1427,57 @@
         "swarm"
       ],
       "type": "string"
+    },
+    "PetHereAnchor": {
+      "description": "Where a pinned-here window stands relative to the app window's content bounds: its top-left `dx` from the left edge (or, `right`, from the right edge, positive leftward), and `dy` from the top (or, `bottom`, the bottom).",
+      "properties": {
+        "bottom": {
+          "type": "boolean"
+        },
+        "composer": {
+          "description": "Measured against the composer card instead of the content bounds.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "dx": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "dy": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "right": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bottom",
+        "dx",
+        "dy",
+        "right"
+      ],
+      "type": "object"
+    },
+    "PetPoint": {
+      "description": "A saved free-floating window position (screen px).",
+      "properties": {
+        "x": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
     },
     "ProcessExitedParams": {
       "properties": {
@@ -7271,6 +7399,25 @@
         },
         "params": {
           "$ref": "#/definitions/UiProviderModelsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The pet's stored settings after a `desktopPet/state/write`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "desktopPet/state/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopPetStateChangedParams"
         }
       },
       "required": [

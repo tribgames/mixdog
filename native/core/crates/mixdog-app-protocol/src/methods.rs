@@ -8,6 +8,7 @@ use crate::v2;
 use crate::v2::params::*;
 use crate::v2::browser_engine::*;
 use crate::v2::connections::*;
+use crate::v2::desktop_residual::*;
 
 crate::client_request_definitions! {
     /// Handshake and version gate (P §4.4).
@@ -3166,6 +3167,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// Lease a page held in memory (`index.html` and sibling files) from the core page server, for the visualize pane and its exports (Node's `localVirtualPageUrl`, local-page-server.ts).
+    ProjectFsLocalPageVirtual => "projectFs/localPage/virtual" {
+        params: v2::desktop_files::ProjectFsLocalPageVirtualParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
     /// Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).
     ProjectFsGrantDescribe => "projectFs/grant/describe" {
         params: v2::desktop_files::ProjectFsGrantDescribeParams,
@@ -4679,6 +4689,78 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
+    /// The absolute host path a conversation link's href names (decoded as MarkdownLink decodes it, `:line`/`#L` dropped, relative to the session's folder); `path` is null for a web link, a UNC target or a relative link with no folder.
+    DesktopLinkResolve => "desktop/link/resolve" {
+        params: DesktopLinkResolveParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The same resolution for an already decoded path (`resolveLinkedPath`).
+    DesktopLinkResolvePath => "desktop/link/resolvePath" {
+        params: DesktopLinkResolvePathParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// An attachment of a session by content hash: served only when THIS session's transcript (the window, else the whole stored conversation) names the id and the stored bytes hash to it. Refusals carry code `file-download:not-linked`, `file-download:not-found` or `file-download:changed`.
+    DesktopAttachmentResolve => "desktop/attachment/resolve" {
+        params: DesktopAttachmentParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The same check, then the bytes written to `<temp>/mixdog-attachments/<id16>-<name>` on the PC; answers the path.
+    DesktopAttachmentStage => "desktop/attachment/stage" {
+        params: DesktopAttachmentParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The object a JSONC settings file holds; `config` is null when the file is missing, empty or NUL-filled.
+    DesktopWorkflowConfigRead => "desktop/workflowConfig/read" {
+        params: DesktopWorkflowConfigReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The installed font families of the PC (one OS listing per process, cached); an empty list when the OS cannot list them.
+    DesktopFontsList => "desktop/fonts/list" {
+        params: DesktopFontsListParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.
+    DesktopPetStateRead => "desktopPet/state/read" {
+        params: v2::desktop_pet::DesktopPetStateReadParams,
+        result: v2::desktop_pet::DesktopPetPrefs,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Stores the pet's settings (`writeDesktopPetPrefs`): the given document is normalized as a read does, written atomically and announced to every client as `desktopPet/state/changed`. Answers what was stored.
+    DesktopPetStateWrite => "desktopPet/state/write" {
+        params: v2::desktop_pet::DesktopPetStateWriteParams,
+        result: v2::desktop_pet::DesktopPetPrefs,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.
     BrowserCommand => "browser/command" {
         params: BrowserCommandParams,
@@ -4798,6 +4880,15 @@ crate::client_request_definitions! {
     HostHumanOnlyEnd => "host/humanOnly/end" {
         params: v2::host::HostHumanOnlyEndParams,
         result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Whether the person may act on takeover `takeoverId` of session `sessionId`: answered once its commands drained, `false` when it ends first or is never seen (the core's takeover owner, Node's `takeoverReady`).
+    TakeoverReady => "takeover/ready" {
+        params: v2::takeover::TakeoverReadyParams,
+        result: v2::takeover::TakeoverReadyResult,
         scope: none,
         class: C2,
         mutation: none,

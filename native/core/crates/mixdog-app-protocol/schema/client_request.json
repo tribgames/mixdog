@@ -3004,6 +3004,93 @@
       ],
       "type": "object"
     },
+    "DesktopAttachmentParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/resolve` and `desktop/attachment/stage`: an attachment (content hash) of a session. Resolve answers `{attachment: {id, name, mimeType, kind, size}, bytes, viewName, dataUrl}`; stage answers `{path, attachment}`.",
+      "properties": {
+        "attachmentId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attachmentId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "DesktopFontsListParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/fonts/list`: none. Answers `{families: string[]}`.",
+      "type": "object"
+    },
+    "DesktopLinkResolveParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/link/resolve`: a conversation link's href and the session's folder. Answers `{path: string | null}`.",
+      "properties": {
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "href": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "href"
+      ],
+      "type": "object"
+    },
+    "DesktopLinkResolvePathParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/link/resolvePath`: an already decoded path and the session's folder. Answers `{path: string | null}`.",
+      "properties": {
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "DesktopPetStateReadParams": {
+      "description": "Params of `desktopPet/state/read`: none.",
+      "type": "object"
+    },
+    "DesktopPetStateWriteParams": {
+      "description": "Params of `desktopPet/state/write`: the settings document. Anything malformed in it is stored as the default for that field.",
+      "properties": {
+        "prefs": true
+      },
+      "required": [
+        "prefs"
+      ],
+      "type": "object"
+    },
+    "DesktopWorkflowConfigReadParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/workflowConfig/read`: the JSONC settings file. Answers `{config: object | null}`.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "DevComputerRunParams": {
       "description": "Params of `dev/computer/run` (client -> core): one command through the harness, refused with -32601 unless the core was started with `MIXDOG_DEV_COMPUTER_RUN=1`.",
       "properties": {
@@ -7090,6 +7177,28 @@
       ],
       "type": "object"
     },
+    "ProjectFsLocalPageVirtualParams": {
+      "description": "Params of `projectFs/localPage/virtual` (Node's `localVirtualPageUrl`, local-page-server.ts): the files of an in-memory page; `index.html` is required.",
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/definitions/VirtualPageFile"
+          },
+          "type": "array"
+        },
+        "ownerId": {
+          "description": "The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "files"
+      ],
+      "type": "object"
+    },
     "ProjectFsMoveParams": {
       "description": "Params of `projectFs/move`.",
       "properties": {
@@ -10232,6 +10341,22 @@
       "description": "Params of `system/ports/unsubscribe`.",
       "type": "object"
     },
+    "TakeoverReadyParams": {
+      "description": "Params of `takeover/ready`: takeover `takeover_id` of session `session_id`.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "takeoverId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "takeoverId"
+      ],
+      "type": "object"
+    },
     "TerminalAttachParams": {
       "description": "Params of `terminal/attach`.",
       "properties": {
@@ -12474,6 +12599,36 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "VirtualPageFile": {
+      "description": "One file of a virtual page: its content is `data_base64` (bytes) or `text` (UTF-8), exactly one of them.",
+      "properties": {
+        "dataBase64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "`/`-separated name the page requests, e.g. `index.html`, `app.js`.",
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "description": "The `Content-Type` it is served with, e.g. `text/html; charset=utf-8`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "type"
+      ],
       "type": "object"
     },
     "VisualizeAnnotation": {
@@ -21218,6 +21373,29 @@
       "type": "object"
     },
     {
+      "description": "Lease a page held in memory (`index.html` and sibling files) from the core page server, for the visualize pane and its exports (Node's `localVirtualPageUrl`, local-page-server.ts).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/localPage/virtual"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsLocalPageVirtualParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).",
       "properties": {
         "id": {
@@ -25082,6 +25260,190 @@
       "type": "object"
     },
     {
+      "description": "The absolute host path a conversation link's href names (decoded as MarkdownLink decodes it, `:line`/`#L` dropped, relative to the session's folder); `path` is null for a web link, a UNC target or a relative link with no folder.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/link/resolve"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopLinkResolveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The same resolution for an already decoded path (`resolveLinkedPath`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/link/resolvePath"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopLinkResolvePathParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "An attachment of a session by content hash: served only when THIS session's transcript (the window, else the whole stored conversation) names the id and the stored bytes hash to it. Refusals carry code `file-download:not-linked`, `file-download:not-found` or `file-download:changed`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/attachment/resolve"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopAttachmentParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The same check, then the bytes written to `<temp>/mixdog-attachments/<id16>-<name>` on the PC; answers the path.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/attachment/stage"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopAttachmentParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The object a JSONC settings file holds; `config` is null when the file is missing, empty or NUL-filled.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/workflowConfig/read"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopWorkflowConfigReadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The installed font families of the PC (one OS listing per process, cached); an empty list when the OS cannot list them.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/fonts/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopFontsListParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktopPet/state/read"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopPetStateReadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Stores the pet's settings (`writeDesktopPetPrefs`): the given document is normalized as a read does, written atomically and announced to every client as `desktopPet/state/changed`. Answers what was stored.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktopPet/state/write"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopPetStateWriteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "UI-originated in-app browser control; forwarded as `host/browser/command`.",
       "properties": {
         "id": {
@@ -25371,6 +25733,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostHumanOnlyEndParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Whether the person may act on takeover `takeoverId` of session `sessionId`: answered once its commands drained, `false` when it ends first or is never seen (the core's takeover owner, Node's `takeoverReady`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "takeover/ready"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TakeoverReadyParams"
         }
       },
       "required": [

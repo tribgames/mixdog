@@ -75,7 +75,9 @@ mod tests {
         for method in table_methods() {
             assert!(allows(method).is_err(), "{method} is host-role");
             assert!(method.starts_with("host/") || ["modelProxy/run", "process/kill", "process/resizePty", "process/spawn", "process/writeStdin",
-                "connections/endpoint", "projectFs/localPage/revokeOwner", "test/browserEngine/run", "migrate/profile/adopt", "dev/computer/run"].contains(&method), "{method} is not a host-role method");
+                "connections/endpoint", "projectFs/localPage/revokeOwner", "test/browserEngine/run", "migrate/profile/adopt", "dev/computer/run",
+                "connections/ssh/openEphemeral", "computer/userControl", "desktop/workflowConfig/read", "migrate/profile/status",
+                "projectFs/localPage/virtual"].contains(&method), "{method} is not a host-role method");
         }
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"host":{}}}"#)).is_err());
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"modelProxy":true}}"#)).is_err());
@@ -93,7 +95,13 @@ mod tests {
             }
         }
         for method in ["projectFs/listDir", "projectFs/readText", "projectFs/writeText", "projectFs/localPageUrl", "projectFs/localPage/origin",
-            "connections/ssh/connect", "connections/subscribe", "initialize", "app/subscribe", "blob/read"] {
+            "connections/ssh/connect", "connections/subscribe", "initialize", "app/subscribe", "blob/read",
+            // The renderer reaches these through main today (Connection settings, the PC access row, the remote host list,
+            // the takeover card and the link, attachment and font lanes): a window keeps them.
+            "connections/ssh/open", "connections/link/get", "connections/ports/forward", "remoteHosts/list", "remoteHosts/redeemCode",
+            "remoteHosts/rename", "remoteHosts/forget", "remoteHosts/presence", "pcAccess/readiness", "pcAccess/approve", "takeover/ready",
+            "desktop/link/resolve", "desktop/attachment/resolve", "desktop/attachment/stage", "desktop/fonts/list", "projectFs/grant/describe",
+            "projectFs/grant/redeem"] {
             assert!(allows(method).is_ok(), "{method}");
         }
     }

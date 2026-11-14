@@ -81,6 +81,10 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "account/discoverCustomProviderModels", &["/input/name"]),
     (Kind::Request, "account/updateCustomProviderModel", &["/patch/name"]),
     (Kind::Request, "projectFs/workspaceFile/write", &["/folders/*/name"]),
+    // A link copied from a conversation (a model's markdown link) and the session's folder: resolved to a host path as the
+    // desktop's transcript-file-links.ts resolved it, which never refused a lone unit.
+    (Kind::Request, "desktop/link/resolve", &["/href", "/cwd"]),
+    (Kind::Request, "desktop/link/resolvePath", &["/path", "/cwd"]),
     // Text stored as written: notes, personas, definitions, instructions, prompts, descriptions.
     (Kind::Request, "thread/pushNotice", &["/text"]),
     (Kind::Request, "agent/saveLeadPersona", &["/text"]),
@@ -113,6 +117,7 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "projectFs/writeText", &["/content", "/expectedContent"]),
     (Kind::Request, "projectFs/writeTextBatch", &["/files/*/content", "/files/*/expectedContent"]),
     (Kind::Request, "projectFs/backup/write", &["/content"]),
+    (Kind::Request, "projectFs/localPage/virtual", &["/files/*/text"]),
     (Kind::Request, "projectFs/replaceText", &["/replacement", "/options/query"]),
     (Kind::Request, "lsp/document", &["/document/content"]),
     // Search queries: a plain-text workspace one matches nothing, as Node's matched nothing (mixdog-workspace textsearch.rs,

@@ -1946,6 +1946,14 @@
       }
      }
     }
+   },
+   "desktopPet/state/write": {
+    "/prefs": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/desktop_pet.rs normalize (desktop-pet-store.ts normalizeDesktopPetPrefs): booleans, numbers and the here-anchor read by fixed field; the only strings are the keys of positions (display ids, digits only; any other key is dropped)",
+     "fields": [
+      "/positions/{}"
+     ]
+    }
    }
   },
   "notification": {
@@ -2385,6 +2393,7 @@
    "fields": [
     "request lsp/document /document/content",
     "request projectFs/backup/write /content",
+    "request projectFs/localPage/virtual /files/*/text",
     "request projectFs/replaceText /options/query",
     "request projectFs/replaceText /replacement",
     "request projectFs/writeText /content",
@@ -2550,6 +2559,16 @@
     "request host/state/set /value/*/title",
     "request host/state/set /value/error",
     "request host/state/set /value/tabs/*/title"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A link copied from a conversation (a model's markdown link: its href or decoded path) and the session's folder it is resolved against: resolved to a host path as the desktop's transcript-file-links.ts resolved it, which never refused a lone unit (one resolves as U+FFFD and names no file).",
+   "fields": [
+    "request desktop/link/resolve /cwd",
+    "request desktop/link/resolve /href",
+    "request desktop/link/resolvePath /cwd",
+    "request desktop/link/resolvePath /path"
    ]
   },
   {
@@ -3032,6 +3051,7 @@
     "request agent/saveAgentDefinition /payload/route/modelParameters/{}",
     "request agent/saveLeadIdentity /payload/avatar/states/{}",
     "request agent/setLeadAppearance /avatar/states/{}",
+    "request desktopPet/state/write /prefs/positions/{}",
     "request github/request /input/inputs/{}",
     "request mcp/addMcpServer /input/env/{}",
     "request mcp/addMcpServer /input/env_http_headers/{}",
@@ -3219,6 +3239,7 @@
     "request connections/ssh/serverLog /ref",
     "request connections/ssh/updateSettings /settings/identityFile",
     "request connections/ssh/updateSettings /settings/remoteCwd",
+    "request desktop/workflowConfig/read /path",
     "request document/preview /rel",
     "request document/preview /root",
     "request document/previewPages /rel",
@@ -3343,6 +3364,7 @@
     "request projectFs/grant/redeem /relPath",
     "request projectFs/listDir /rel",
     "request projectFs/listDir /root",
+    "request projectFs/localPage/virtual /files/*/path",
     "request projectFs/localPageUrl /rel",
     "request projectFs/localPageUrl /root",
     "request projectFs/move /rel",
@@ -4025,6 +4047,10 @@
     "request connector/addConnectorAccount /threadId",
     "request connector/listConnectorTools /connectorId",
     "request connector/listConnectorTools /threadId",
+    "request desktop/attachment/resolve /attachmentId",
+    "request desktop/attachment/resolve /sessionId",
+    "request desktop/attachment/stage /attachmentId",
+    "request desktop/attachment/stage /sessionId",
     "request dev/computer/run /sessionThreadId",
     "request diagnostics/runDoctor /opId",
     "request diagnostics/runDoctor /threadId",
@@ -4322,6 +4348,7 @@
     "request projectFs/create /opId",
     "request projectFs/grant/describe /sessionId",
     "request projectFs/localPage/revokeOwner /ownerId",
+    "request projectFs/localPage/virtual /ownerId",
     "request projectFs/localPageUrl /ownerId",
     "request projectFs/move /opId",
     "request projectFs/readText /readId",
@@ -4404,6 +4431,8 @@
     "request skills/setDisabledSkills /threadId",
     "request skills/skillContent /threadId",
     "request skills/skillsStatus /threadId",
+    "request takeover/ready /sessionId",
+    "request takeover/ready /takeoverId",
     "request terminal/attach /tabId",
     "request terminal/dispose /opId",
     "request terminal/dispose /tabId",
@@ -4681,6 +4710,8 @@
     "request modelProxy/run /call/request/messages/*/content/*/source/mediaType",
     "request modelProxy/run /call/request/messages/*/content/*/source/mimeType",
     "request process/writeStdin /bytesB64",
+    "request projectFs/localPage/virtual /files/*/dataBase64",
+    "request projectFs/localPage/virtual /files/*/type",
     "request projectFs/writeText /encoding",
     "request room/send /input/options/pastedImages/*/mediaType",
     "request room/send /input/options/pastedImages/*/originalMediaType",

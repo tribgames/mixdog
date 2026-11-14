@@ -45,6 +45,7 @@ fn server_config() -> ServerConfig {
             computer: available(),
             voice: available(),
             remote: Default::default(),
+            window_scope: 1,
         },
         native_push: Arc::new(|| false),
         limits: Limits::default(),
