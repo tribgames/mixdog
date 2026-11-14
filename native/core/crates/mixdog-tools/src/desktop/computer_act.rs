@@ -446,7 +446,7 @@ impl ProcessComputerBackend {
     async fn send_step(&self, mut step: Map<String, Value>, window_id: &str, delivery: &str, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
         // Node admits each step again right before its input transport (`input-dispatch.ts`): observation-only mode turned on
         // mid-sequence refuses the step in the host's words, a failed row that stops the steps left.
-        computer_policy::admit(&step, self.observe_only())?;
+        computer_policy::admit(&step, self.observe_only(), &self.frames)?;
         computer_frames::map_step(&self.frames, &mut step)?;
         if delivery != "background" {
             let action = text(&step, "action").to_owned();

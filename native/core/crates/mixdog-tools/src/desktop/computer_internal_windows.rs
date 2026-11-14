@@ -104,7 +104,7 @@ fn drop_windows(internal: &HashSet<String>, result: &mut Map<String, Value>) {
 }
 
 /// `filterComputerUseWindowListText`: a `Windows:` text keeps the lines of the visible windows; none left is `No windows found.`.
-fn list_text(text: &str, visible: &HashSet<String>) -> String {
+pub(super) fn list_text(text: &str, visible: &HashSet<String>) -> String {
     let mut lines = text.split('\n');
     if lines.next().map(|first| first.trim_end_matches('\r')) != Some("Windows:") {
         return text.to_string();

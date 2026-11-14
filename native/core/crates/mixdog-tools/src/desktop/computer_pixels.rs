@@ -22,12 +22,16 @@ use tokio_util::sync::CancellationToken;
 use super::computer_backend::REPORTED_CODE;
 use super::computer_capture::DEFAULT_MAX_WIDTH;
 use super::computer_capture::DEFAULT_QUALITY;
+use super::computer_capture::MAX_ELEMENTS;
 use super::computer_capture::MAX_MAX_WIDTH;
+use super::computer_capture::OTHER_MAX_ELEMENTS;
+use super::computer_capture::STATE_MAX_ELEMENTS;
 use super::computer_capture::MIN_MAX_WIDTH;
 use super::computer_capture::bounded_integer;
 use super::computer_frames::DisplaySource;
 use super::computer_frames::Frame;
 use super::computer_frames::FrameStore;
+use super::computer_ocr;
 
 const PIXELS: &str = "host/computer/pixels";
 const DISPLAYS: &str = "host/computer/displays";
@@ -42,6 +46,34 @@ const SHAPE_TOLERANCE: f64 = 0.05;
 #[async_trait]
 pub trait ComputerBlobs: Send + Sync {
     async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError>;
+}
+
+/// The text recognizer a capture of pixels asks (the helper's `ocr_image`): the pixels carry no recognition of their own. Implemented
+/// by the caller over its helper pool; its answer is the helper's result (`language`, `words`, `lines`, `total_words`,
+/// `truncated_words`, boxes in the pixels of the image it was given), and its failure is the reason the recognition could not be made.
+#[async_trait]
+pub trait DisplayOcr: Send + Sync {
+    async fn recognize(&self, image: &[u8], language: Option<&str>, limit: i64, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError>;
+}
+
+/// `recognizeCaptureOcr` over one display capture: the recognizer's answer shaped as a window capture's `ocr` member, which
+/// `computer_ocr::augment` and the zoom's text read. A cancelled capture stays cancelled; any other failure is the reply's `error`.
+pub(super) async fn recognize(
+    ocr: Option<&dyn DisplayOcr>,
+    image: &[u8],
+    language: Option<&str>,
+    limit: i64,
+    cancel: &CancellationToken,
+) -> Result<Map<String, Value>, ComputerError> {
+    let Some(ocr) = ocr else { return Ok(Map::new()) };
+    let reply = match ocr.recognize(image, language, limit, cancel).await {
+        Ok(reply) => Value::Object(reply),
+        Err(ComputerError::Cancelled) => return Err(ComputerError::Cancelled),
+        Err(ComputerError::Failed { message, .. }) => json!({ "ok": false, "error": message }),
+        Err(ComputerError::InvalidInput { reason } | ComputerError::Unavailable { reason }) => json!({ "ok": false, "error": reason }),
+        Err(other) => json!({ "ok": false, "error": format!("{other:?}") }),
+    };
+    Ok(Map::from_iter([("ocr".to_owned(), reply)]))
 }
 
 /// What `host/computer/pixels` answers (`result`): the uploaded image, its size, and the surface it shows.
@@ -192,6 +224,7 @@ pub(super) async fn capture_display(
     desktop: &dyn HostChannel,
     blobs: &dyn ComputerBlobs,
     frames: &FrameStore,
+    ocr: Option<&dyn DisplayOcr>,
     command: &Map<String, Value>,
     cancel: &CancellationToken,
 ) -> Result<(Vec<ToolPart>, Frame), ComputerError> {
@@ -222,16 +255,20 @@ pub(super) async fn capture_display(
     let title = if displays.len() > 1 { format!("screen {}/{}", index + 1, displays.len()) } else { "primary screen".to_owned() };
     let encoding = if pixels.mime == "image/jpeg" { format!("JPEG quality {quality}") } else { "PNG".to_owned() };
     let mode = command.get("mode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("state");
-    let text = json!({
+    let mut text = json!({
         "action": "capture",
         "mode": mode,
         "ok": true,
         "source": "screen",
+        "coordinate_space": "frame",
         "screen": index,
         "display_id": display.id,
         "width": frame.capture_width,
         "height": frame.capture_height,
         "frame_id": frame.id,
+        // A display has no accessibility tree to read: `accessibilityStatus` of a mode that reads none, or of an empty read.
+        "accessibility_status": if mode == "vision" { "not_requested" } else { "empty" },
+        "pixel_status": if mode == "ax" { "not_requested" } else { "available" },
         "description": format!(
             "Screenshot of {title} ({}x{}, {} bytes, {encoding}); frame_id={}; coordinates are pixels in this frame",
             frame.capture_width,
@@ -240,14 +277,43 @@ pub(super) async fn capture_display(
             frame.id
         ),
     });
+    // The text a recognition found (`include_ocr`, or a state or som capture that lists elements: a display has no accessibility
+    // content): its words are the elements of the capture, marked after none.
+    // With no recognizer attached an automatic recognition is not made (it would only report itself missing); an asked one reports it.
+    let asked = computer_ocr::ask(command, mode, false)?.filter(|_| ocr.is_some() || command.get("include_ocr") == Some(&Value::Bool(true)));
+    let mut parts = Vec::new();
+    let mut listed = 0;
+    if let Some(asked) = &asked {
+        let result = recognize(ocr, &pixels.bytes, asked.language.as_deref(), asked.limit, cancel).await?;
+        let default_budget = if mode == "state" { STATE_MAX_ELEMENTS } else { OTHER_MAX_ELEMENTS };
+        let budget = bounded_integer(command, "max_elements", default_budget, 1, MAX_ELEMENTS, "max_elements")?;
+        // The marks the words get belong to the frame, which is remembered before they are.
+        frames.remember_display(frame.clone(), pixels.source.clone());
+        let capture = computer_ocr::Capture { command, mode, ask: Some(asked), accessibility: None, budget };
+        listed = computer_ocr::augment(frames, &capture, &result, Some(&frame), &mut parts);
+    }
+    let fields = text.as_object_mut().expect("the capture text is an object");
+    fields.insert("total_elements".into(), listed.into());
+    fields.insert("returned_elements".into(), listed.into());
+    if mode != "vision" {
+        fields.insert("total_accessibility_elements".into(), 0.into());
+        fields.insert("elements".into(), json!([]));
+    }
+    if listed > 0 {
+        fields.insert("ocr_elements".into(), listed.into());
+    }
     let image = ToolPart::Image {
         mime: pixels.mime,
         data: ImageData::Bytes(pixels.bytes),
         width: u32::try_from(frame.capture_width).ok(),
         height: u32::try_from(frame.capture_height).ok(),
     };
-    frames.remember_display(frame.clone(), pixels.source);
-    Ok((vec![ToolPart::Text(text.to_string()), image], frame))
+    if asked.is_none() {
+        frames.remember_display(frame.clone(), pixels.source);
+    }
+    let mut reply = vec![ToolPart::Text(text.to_string()), image];
+    reply.append(&mut parts);
+    Ok((reply, frame))
 }
 
 /// A desktop and a blob store that keep what they are asked and answer from what they are given.
@@ -349,7 +415,7 @@ mod tests {
     fn a_display_capture_issues_a_frame_a_click_can_name() {
         let desktop = Desktop::new(displays(), reply());
         let frames = FrameStore::default();
-        let (parts, frame) = run(capture_display(&desktop, &blobs(), &frames, &command(json!({"screen": 1, "mode": "state"})), &CancellationToken::new())).unwrap();
+        let (parts, frame) = run(capture_display(&desktop, &blobs(), &frames, None, &command(json!({"screen": 1, "mode": "state"})), &CancellationToken::new())).unwrap();
         assert_eq!((frame.window_id.clone(), frame.origin_x, frame.origin_y, frame.physical_width, frame.capture_width), (None, -1920, -200, 1920, 960));
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         let text: Value = serde_json::from_str(text).unwrap();
@@ -368,6 +434,45 @@ mod tests {
         assert_eq!(frames.display_of(&frame.id).map(|source| source.display_id), Some("12".to_owned()));
     }
 
+    /// The recognizer the capture asks: one answer, and the language and limit it was asked with.
+    struct Recognizer(Result<Map<String, Value>, ComputerError>, std::sync::Mutex<Vec<(Option<String>, i64)>>);
+
+    #[async_trait]
+    impl DisplayOcr for Recognizer {
+        async fn recognize(&self, _: &[u8], language: Option<&str>, limit: i64, _: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+            self.1.lock().unwrap().push((language.map(str::to_owned), limit));
+            self.0.clone()
+        }
+    }
+
+    /// A display capture answers the fields of a capture (the coordinate space, the pixel and accessibility status, the element
+    /// counts), and recognizes the pixels when asked: its words are the elements of a state capture, marked for a click.
+    #[test]
+    fn a_display_capture_answers_its_statuses_and_its_recognized_text() {
+        let word = json!({"text": "Save", "line": 0, "x": 10, "y": 20, "width": 40, "height": 12, "center_x": 30, "center_y": 26});
+        let found = json!({"language": "en-US", "words": [word], "lines": [], "total_words": 1, "truncated_words": 0}).as_object().cloned().unwrap();
+        let recognizer = Recognizer(Ok(found), Default::default());
+        let frames = FrameStore::default();
+        let (parts, frame) = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &frames, Some(&recognizer), &command(json!({"screen": 1, "include_ocr": true, "ocr_language": "en-US"})), &CancellationToken::new())).unwrap();
+        let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
+        let text: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            (text["coordinate_space"].clone(), text["pixel_status"].clone(), text["accessibility_status"].clone(), text["total_elements"].clone(), text["returned_elements"].clone()),
+            (json!("frame"), json!("available"), json!("empty"), json!(1), json!(1))
+        );
+        assert_eq!(recognizer.1.lock().unwrap().clone(), vec![(Some("en-US".to_owned()), 300)]);
+        let ToolPart::Text(listed) = &parts[2] else { panic!("the recognized text after the image") };
+        assert!(listed.contains(&format!("[ocr:{}:1] Text \"Save\"", frame.id)), "{listed}");
+        let vision = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &FrameStore::default(), None, &command(json!({"screen": 1, "mode": "vision"})), &CancellationToken::new())).unwrap().0;
+        let ToolPart::Text(vision) = &vision[0] else { panic!("text first") };
+        let vision: Value = serde_json::from_str(vision).unwrap();
+        assert_eq!((vision["accessibility_status"].clone(), vision.get("elements").cloned()), (json!("not_requested"), None));
+        // A recognizer that fails leaves the capture whole and says why.
+        let broken = Recognizer(Err(ComputerError::Failed { code: "x".into(), message: "OCR offline".into() }), Default::default());
+        let (parts, _) = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &FrameStore::default(), Some(&broken), &command(json!({"screen": 1, "include_ocr": true})), &CancellationToken::new())).unwrap();
+        assert!(matches!(&parts[2], ToolPart::Text(text) if text == "OCR failed: OCR offline"), "{parts:?}");
+    }
+
     /// With no `screen`, the primary display is captured, and a lone display is the primary screen.
     #[test]
     fn the_primary_display_is_the_default() {
@@ -377,12 +482,12 @@ mod tests {
         shown["captureHeight"] = json!(600);
         shown["source"] = json!({"x": 0, "y": 0, "width": 800, "height": 600, "scaleFactor": 1.0, "displayId": "11", "windowId": null});
         let desktop = Desktop::new(one, shown);
-        let (parts, _) = run(capture_display(&desktop, &blobs(), &FrameStore::default(), &command(json!({"quality": 0})), &CancellationToken::new())).unwrap();
+        let (parts, _) = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"quality": 0})), &CancellationToken::new())).unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         assert!(text.contains("Screenshot of primary screen"), "{text}");
         let asked = desktop.asked.lock().unwrap().clone();
         assert_eq!(asked.iter().find(|(method, _)| method == PIXELS).unwrap().1["quality"], json!(1));
-        let bad = run(capture_display(&desktop, &blobs(), &FrameStore::default(), &command(json!({"screen": 2})), &CancellationToken::new())).unwrap_err();
+        let bad = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"screen": 2})), &CancellationToken::new())).unwrap_err();
         assert_eq!(message(bad), "screen must be an integer from 0 to 0");
     }
 
@@ -393,7 +498,7 @@ mod tests {
             let mut bad = reply();
             edit(&mut bad);
             let frames = FrameStore::default();
-            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, &command(json!({"screen": 1})), &CancellationToken::new())).unwrap_err();
+            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, None, &command(json!({"screen": 1})), &CancellationToken::new())).unwrap_err();
             assert!(frames.lookup(None, std::time::Instant::now()).unwrap().is_none());
             message(error)
         };
@@ -410,10 +515,10 @@ mod tests {
     fn the_hosts_refusals_keep_their_codes() {
         let desktop = Desktop::new(displays(), reply());
         *desktop.pixels.lock().unwrap() = Err(HostError::Rpc { code: -32000, message: "no permission".into(), data: Some(json!({"code": "computer_capture_permission"})) });
-        let error = run(capture_display(&desktop, &blobs(), &FrameStore::default(), &Map::new(), &CancellationToken::new())).unwrap_err();
+        let error = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &Map::new(), &CancellationToken::new())).unwrap_err();
         assert_eq!(error, ComputerError::Failed { code: "computer_capture_permission".into(), message: "no permission".into() });
         *desktop.pixels.lock().unwrap() = Err(HostError::Rpc { code: METHOD_NOT_FOUND, message: "Method not found".into(), data: None });
-        let error = run(capture_display(&desktop, &blobs(), &FrameStore::default(), &Map::new(), &CancellationToken::new())).unwrap_err();
+        let error = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &Map::new(), &CancellationToken::new())).unwrap_err();
         assert!(matches!(error, ComputerError::Unavailable { .. }), "{error:?}");
     }
 

@@ -35,11 +35,13 @@ use mixdog_js::js_trim;
 use mixdog_js::to_number;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
+use crate::state::secrets::ComputerSecretHost;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_backend::HOST_READ_ACTIONS;
 use super::computer_backend::ObserveOnly;
 use super::computer_backend::REPORTED_CODE;
 use super::computer_command::host_command;
@@ -125,13 +127,31 @@ pub struct DesktopHostBackend {
     observe_only: ObserveOnly,
     /// A command has been sent for this session.
     bound: AtomicBool,
+    /// A typed secret's field may hold focus: no read leaves the host until the next action moves on.
+    secret_focus: AtomicBool,
     /// The in-process half (phone input, displays, screen frames): the desktop host does not serve it.
     screen: Screen,
 }
 
 impl DesktopHostBackend {
     pub fn new(desktop: Arc<dyn HostChannel>, blobs: Arc<dyn ComputerBlobs>, session_id: impl Into<String>, observe_only: ObserveOnly) -> Self {
-        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), screen: Screen::default() }
+        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Screen::default() }
+    }
+
+    /// `applySecretFocusHold`: while a typed secret's field may hold focus a read is refused, and the next action (which moves on)
+    /// lifts the hold; a lifecycle control leaves it as it is.
+    fn hold_for_secret(&self, command: &Map<String, Value>) -> Result<(), ComputerError> {
+        if !self.secret_focus.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let action = text(command, "action");
+        if HOST_READ_ACTIONS.contains(&action) {
+            return Err(reported("capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first"));
+        }
+        if !matches!(action, "execution_end" | "session_release" | "session_abort" | "turn_settle") {
+            self.secret_focus.store(false, Ordering::SeqCst);
+        }
+        Ok(())
     }
 
     /// The backend the section reports.
@@ -756,6 +776,38 @@ fn tool_result(reply: HostReply, action: &str, input: &Value) -> Result<Vec<Tool
     Ok(parts)
 }
 
+/// A handed-off secret is typed through the desktop host's router as a helper command (`computerSecretInput`): the `find` of its
+/// bound window and the `type` of the secret, the host admitting them (observation only, the lane, the person's control).
+#[async_trait]
+impl ComputerSecretHost for DesktopHostBackend {
+    async fn execute(&self, mut command: Map<String, Value>) -> Result<Map<String, Value>, String> {
+        let message = |error: ComputerError| match error {
+            ComputerError::Failed { message, .. } => message,
+            ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason,
+            ComputerError::Denied => "denied".to_owned(),
+            ComputerError::Cancelled => "cancelled".to_owned(),
+        };
+        if !self.desktop.serves(HostCapability::Computer) {
+            return Err(message(bridge_unavailable()));
+        }
+        self.hold_for_secret(&command).map_err(message)?;
+        if !js_trim(&self.session_id).is_empty() {
+            command.insert("session_id".into(), json!(self.session_id));
+        }
+        self.bound.store(true, Ordering::SeqCst);
+        match self.post(command, &CancellationToken::new(), REQUEST_TIMEOUT).await {
+            Ok(Posted::Reply(reply)) if reply.is_error => Err(reply.text),
+            Ok(Posted::Reply(reply)) => Ok(payload(&reply.text)),
+            Ok(Posted::Refused(refusal)) => Err(refusal),
+            Err(error) => Err(message(error)),
+        }
+    }
+
+    fn arm_focus(&self) {
+        self.secret_focus.store(true, Ordering::SeqCst);
+    }
+}
+
 #[async_trait]
 impl ComputerBackend for DesktopHostBackend {
     async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
@@ -774,6 +826,7 @@ impl ComputerBackend for DesktopHostBackend {
         if Value::Object(command.clone()).to_string().len() > MAX_REQUEST_BYTES {
             return Err(reported("Error: computer request exceeds byte limit; no input was dispatched"));
         }
+        self.hold_for_secret(&command)?;
         self.bound.store(true, Ordering::SeqCst);
         let posted = self.post(command.clone(), &cancel, REQUEST_TIMEOUT).await;
         // A call cancelled while its request was out ends as aborted, whatever came back (`readComputerBridgeBody`).
@@ -1018,6 +1071,22 @@ mod tests {
         let bad = ComputerRequest { action: ComputerAction::Act, input: json!({ "window_id": "hwnd:0x2" }) };
         assert!(matches!(backend(&host).run(bad, CancellationToken::new()).await, Err(ComputerError::InvalidInput { .. })));
         assert!(host.commands().is_empty());
+    }
+
+    /// A secret typed through the dual path is a helper command the host answers; once its field may hold focus a read is refused,
+    /// and the next input lifts the hold.
+    #[tokio::test]
+    async fn a_secret_is_typed_through_the_host_and_holds_the_reads() {
+        let host = FakeHost::new(vec![ok(r#"{"found":true}"#), ok(r#"{"typed":true}"#), ok("{}")]);
+        let backend = backend(&host);
+        let found = ComputerSecretHost::execute(&backend, command_of(&[("action", json!("find"))])).await.unwrap();
+        assert_eq!(found["found"], json!(true));
+        backend.arm_focus();
+        assert!(ComputerSecretHost::execute(&backend, command_of(&[("action", json!("find"))])).await.unwrap_err().starts_with("capture_withheld"));
+        let typed = ComputerSecretHost::execute(&backend, command_of(&[("action", json!("type")), ("text", json!("x"))])).await.unwrap();
+        assert_eq!(typed["typed"], json!(true));
+        assert!(ComputerSecretHost::execute(&backend, command_of(&[("action", json!("find"))])).await.is_ok(), "the hold was lifted by the input");
+        assert_eq!(host.commands().iter().map(|command| command["command"]["session_id"].clone()).collect::<Vec<_>>(), vec![json!("thread-1"); 3]);
     }
 
     #[tokio::test]

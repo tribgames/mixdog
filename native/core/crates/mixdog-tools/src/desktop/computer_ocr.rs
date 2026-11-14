@@ -23,8 +23,8 @@ const MAX_WORDS: i64 = 1_000;
 /// An OCR pass a capture asks of the helper.
 #[derive(Debug, PartialEq)]
 pub(super) struct Ask {
-    limit: i64,
-    language: Option<String>,
+    pub(super) limit: i64,
+    pub(super) language: Option<String>,
 }
 
 impl Ask {
@@ -82,20 +82,21 @@ struct Recognized {
 }
 
 /// Adds the OCR the helper returned with the window's pixels to the capture's parts, and records its marks for the frame
-/// (`mergeCaptureOcr`). A failed or missing recognition is reported in the text, never an error of the capture.
-pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<String, Value>, frame: Option<&Frame>, parts: &mut Vec<ToolPart>) {
-    let Some(ask) = capture.ask else { return };
+/// (`mergeCaptureOcr`). A failed or missing recognition is reported in the text, never an error of the capture. The answer is the
+/// number of words listed as elements of the capture (state and som modes), which the capture's element counts include.
+pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<String, Value>, frame: Option<&Frame>, parts: &mut Vec<ToolPart>) -> usize {
+    let Some(ask) = capture.ask else { return 0 };
     let automatic = capture.command.get("include_ocr") != Some(&Value::Bool(true));
     let skipped = |reason: &str| ToolPart::Text(format!("OCR skipped ({}): {reason}", if automatic { "automatic" } else { "include_ocr" }));
     let Some(frame) = frame else {
         parts.push(skipped("screenshot_unavailable"));
-        return;
+        return 0;
     };
     let shown = frame_elements(capture.accessibility, frame);
     let remaining = (capture.budget - shown.count as i64).max(0);
     if remaining == 0 {
         parts.push(skipped("element_budget_exhausted"));
-        return;
+        return 0;
     }
     // The helper answers a recognition it could not make as `{available: false, error}`, a failed envelope as `ok: false`.
     let failed = |reply: &&Map<String, Value>| ["ok", "available"].iter().any(|key| reply.get(*key) == Some(&Value::Bool(false)));
@@ -103,7 +104,7 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
     let Some(reply) = reply else {
         let error = result.get("ocr").and_then(|reply| reply.get("error")).and_then(Value::as_str).filter(|error| !error.is_empty());
         parts.push(ToolPart::Text(format!("OCR failed: {}", error.unwrap_or("the helper returned no OCR"))));
-        return;
+        return 0;
     };
     let narrowing = Narrowing::of(capture.command);
     let words: Vec<Recognized> = dedupe(recognized(reply.get("words")), &shown.labelled)
@@ -127,6 +128,7 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
         truncated: count("truncated_words"),
     };
     parts.push(ToolPart::Text(render(&report, frame, first_mark)));
+    if first_mark.is_some() { words.len() } else { 0 }
 }
 
 /// The query and role of a read, applied to recognized text as the accessibility snapshot applies them: a role other than static

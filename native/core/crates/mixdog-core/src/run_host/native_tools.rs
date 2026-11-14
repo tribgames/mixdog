@@ -439,6 +439,28 @@ impl ComputerSessionPool {
         Some((entry.process.clone(), entry.backend.clone()))
     }
 
+    /// The process id of `session`'s resident helper; `None` when the session has none running (nothing is started to tell).
+    pub fn helper_pid(&self, session: &str) -> Option<u32> {
+        self.entries().get(&session_key(session))?.process.helper_pid()
+    }
+
+    /// `abortComputerSession(id)`: the session's helper is stopped and cleaned up from a fresh process. True when the cleanup
+    /// confirmed; false for a session that never reached the helper.
+    pub async fn abort(&self, session: &str) -> bool {
+        let process = self.entries().get(&session_key(session)).map(|entry| entry.process.clone());
+        match process {
+            Some(process) => process.abort_session().await,
+            None => false,
+        }
+    }
+
+    /// The windows of the desktop with their owning processes, as the authorization names them (`listAuthorizationWindows`), read through
+    /// `session`'s helper.
+    pub async fn authorization_windows(&self, session: &str) -> Result<Vec<serde_json::Value>, ComputerError> {
+        let (process, _) = self.entry_for(session).ok_or_else(AtCapacity::refusal)?;
+        process.authorization_windows().await
+    }
+
     /// `releaseComputerSession(id)`: the helper is told to release the session (`release_session`),
     /// stopped and cleaned up, and the session's state is dropped. A call still running keeps its
     /// backend until it ends. False when the session never reached the helper or the release was
