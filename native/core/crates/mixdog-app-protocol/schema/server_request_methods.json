@@ -7022,10 +7022,66 @@
       ],
       "type": "object"
     },
-    "ScreenDisplaysParams": {
+    "ScreenIndicatorParams": {
       "additionalProperties": false,
-      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "description": "Params of `host/screen/indicator` (core to desktop): one session's place on the pill. `screen_id` names the session (one per display) and is the key of its later `update` and `hide`; `client_label` and `controlling` are absent on `hide`.",
+      "properties": {
+        "clientLabel": {
+          "description": "The phone's name, shown as the pill's tooltip.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controlling": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "screenId": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/ScreenIndicatorState"
+        }
+      },
+      "required": [
+        "screenId",
+        "state"
+      ],
       "type": "object"
+    },
+    "ScreenIndicatorResult": {
+      "additionalProperties": false,
+      "description": "The answer of `host/screen/indicator`: nothing.",
+      "type": "object"
+    },
+    "ScreenIndicatorState": {
+      "description": "What the pill does for one session.",
+      "oneOf": [
+        {
+          "description": "The session started: the phone joins the pill (the pill appears when it is the first).",
+          "enum": [
+            "show"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The phone's label changed, or it now views rather than controls (the pill tells neither apart).",
+          "enum": [
+            "update"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The session ended: the phone leaves the pill (the pill goes when it is the last).",
+          "enum": [
+            "hide"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "ToolApprovalDecision": {
       "description": "Mixdog's `ToolApprovalDecision` without `device`: the core stamps the device from the answering connection (P §8.1). The result type of every approval server request.",
@@ -7670,11 +7726,13 @@
         "$ref": "#/definitions/HostNotificationStatus"
       }
     },
-    "host/screen/displays": {
+    "host/screen/indicator": {
       "params": {
-        "$ref": "#/definitions/ScreenDisplaysParams"
+        "$ref": "#/definitions/ScreenIndicatorParams"
       },
-      "result": true
+      "result": {
+        "$ref": "#/definitions/ScreenIndicatorResult"
+      }
     },
     "host/systemProxy/resolve": {
       "params": {

@@ -4530,7 +4530,7 @@ crate::client_request_definitions! {
     /// Redeem the main PC's 6-digit code and save that host (`connectRemoteHostByCode`). Caller: H.
     RemoteHostsRedeemCode => "remoteHosts/redeemCode" {
         params: RemoteHostRedeemParams,
-        result: RemoteHost,
+        result: RemoteHostRedeemed,
         scope: none,
         class: C2,
         mutation: none,

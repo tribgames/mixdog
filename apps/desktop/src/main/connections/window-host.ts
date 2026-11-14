@@ -56,7 +56,7 @@ function windowsKey(windows: readonly WindowFocusEntry[]): string {
   return JSON.stringify(
     [...windows]
       .sort((a, b) => (a.connectionId < b.connectionId ? -1 : a.connectionId > b.connectionId ? 1 : 0))
-      .map((w) => [w.connectionId, w.visible, w.focused, w.sessionId ?? null])
+      .map((w) => [w.connectionId, w.visible, w.focused, w.sessionIds ?? []])
   );
 }
 

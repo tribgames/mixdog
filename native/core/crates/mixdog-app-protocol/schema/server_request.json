@@ -3577,10 +3577,61 @@
         }
       ]
     },
-    "ScreenDisplaysParams": {
+    "ScreenIndicatorParams": {
       "additionalProperties": false,
-      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "description": "Params of `host/screen/indicator` (core to desktop): one session's place on the pill. `screen_id` names the session (one per display) and is the key of its later `update` and `hide`; `client_label` and `controlling` are absent on `hide`.",
+      "properties": {
+        "clientLabel": {
+          "description": "The phone's name, shown as the pill's tooltip.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controlling": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "screenId": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/ScreenIndicatorState"
+        }
+      },
+      "required": [
+        "screenId",
+        "state"
+      ],
       "type": "object"
+    },
+    "ScreenIndicatorState": {
+      "description": "What the pill does for one session.",
+      "oneOf": [
+        {
+          "description": "The session started: the phone joins the pill (the pill appears when it is the first).",
+          "enum": [
+            "show"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The phone's label changed, or it now views rather than controls (the pill tells neither apart).",
+          "enum": [
+            "update"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The session ended: the phone leaves the pill (the pill goes when it is the last).",
+          "enum": [
+            "hide"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "ToolApprovalKind": {
       "oneOf": [
@@ -4639,19 +4690,19 @@
       "type": "object"
     },
     {
-      "description": "The displays of this PC's screen, for the phone's remote-screen picker.",
+      "description": "One phone's screen session on the on-PC pill: shown, relabelled or hidden. The desktop keeps one pill for every active phone (screenId keys the session).",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"
         },
         "method": {
           "enum": [
-            "host/screen/displays"
+            "host/screen/indicator"
           ],
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ScreenDisplaysParams"
+          "$ref": "#/definitions/ScreenIndicatorParams"
         }
       },
       "required": [

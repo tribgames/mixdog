@@ -164,6 +164,8 @@ pub struct DomainSeams {
     pub remote: Arc<RemoteRuntime>,
     /// The bridge target that serves phones from this core (LocalDialer over the connection hub).
     pub local_target: Arc<dyn Dialer>,
+    /// The connections service, told of `host/power` beside the relay leg (bound once it is composed).
+    pub connections_power: Arc<crate::compose_connections::LateConnectionsPower>,
     /// Routes a click on a desktop toast: WP-NOTIFY-ROOMS (`notify`).
     pub notification_clicks: Arc<dyn NotificationClicks>,
     /// Publishes the host's browser surface requests as `ui/openRequested` (`host/browser/surface`).

@@ -41,6 +41,7 @@ function served() {
   createDesktopHost({
     connection,
     hostId: 'host-1',
+    showScreenIndicator: () => ({ update() {}, close() {} }),
     browser: () => {
       throw new Error('not used at registration');
     },

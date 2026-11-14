@@ -38,10 +38,10 @@ test('no key is in two groups', () => {
   }
 });
 
-test('the direct half has the eight groups and sections holds only the key sections', () => {
-  assert.deepEqual(Object.keys(DIRECT_KEYS), ['sessions', 'files', 'scm', 'terminal', 'settings', 'connections', 'capabilities', 'sections']);
+test('the direct half has the nine groups and sections holds only the key sections', () => {
+  assert.deepEqual(Object.keys(DIRECT_KEYS), ['sessions', 'files', 'scm', 'terminal', 'secrets', 'settings', 'connections', 'capabilities', 'sections']);
   assert.deepEqual([...DIRECT_KEYS.sections], ['sections']);
-  assert.equal(Object.values(DIRECT_KEYS).flat().length, 234);
+  assert.equal(Object.values(DIRECT_KEYS).flat().length, 236);
 });
 
 // The preload provides the host half only (window.mixdogDesktopHost); the direct half is composed in the renderer

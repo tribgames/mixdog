@@ -1279,9 +1279,9 @@ impl Inner {
                 let saved = deps.remote_hosts.add(&link, &redeemed.name).await.map_err(attempt_failure)?;
                 // The one-time ticket rides the fragment, which is never sent to the relay with the page request: the window loads
                 // this address and the page drops the ticket once it has used it. The saved address has none.
-                let mut view = remote_host_view(&saved, format!("{}#pair={}", saved.url, redeemed.ticket));
-                view.open = true;
-                value(view)
+                let mut host = remote_host_view(&saved, saved.url.clone());
+                host.open = true;
+                value(mixdog_app_protocol::v2::connections::RemoteHostRedeemed { host, ticket: redeemed.ticket.clone() })
             }
             "remoteHosts/rename" => {
                 let params: ConnectionsRenameParams = decode(req)?;

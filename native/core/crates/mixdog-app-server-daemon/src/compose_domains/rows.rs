@@ -90,7 +90,7 @@ pub(super) async fn build(
         Arc::new(mixdog_core_domains::domains::desktop_residual_b::network_snapshot),
         Arc::new(move || mixdog_core_domains::domains::host::PowerSink::power(&*on_network_change, mixdog_app_protocol::v2::host::PowerEvent::Resume)),
     ));
-    services.push(HostService::new(publisher, power.clone(), power, seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.screen_events.clone(), seams.visualize_panes.clone()));
+    services.push(HostService::new(publisher, power.clone(), Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])), seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.screen_events.clone(), seams.visualize_panes.clone()));
 
     services.push(InstructionsService::new(
         InstructionPaths {

@@ -113,8 +113,6 @@ export const DESKTOP_IPC = {
   submitToSession: 'mixdog:submit-to-session',
   abortSession: 'mixdog:abort-session',
   resolveToolApprovalForSession: 'mixdog:resolve-tool-approval-for-session',
-  provideSecretInput: 'mixdog:provide-secret-input',
-  takeoverReady: 'mixdog:takeover-ready',
   getNotificationPreferences: 'mixdog:get-notification-preferences',
   setNotificationPreferences: 'mixdog:set-notification-preferences',
   sendTestNotification: 'mixdog:send-test-notification',

@@ -568,6 +568,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 ),
                 remote: remote(&dir.join("remote")),
                 local_target: Arc::new(NoDial),
+                connections_power: Arc::default(),
                 notification_clicks: quiet.clone(),
                 browser_surfaces: quiet.clone(),
                 screen_events: quiet.clone(),

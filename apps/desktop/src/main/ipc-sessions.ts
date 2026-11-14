@@ -25,8 +25,6 @@ import { hostDeviceName } from './session-device';
 import { sessionSidebarActions } from './session-sidebar-actions';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { requiredAgentMemoryEntry } from './agent-memory';
-import { secretInputs } from './secret-input';
-import { takeoverGate } from './takeover-gate';
 import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import type { ProtocolConnection } from './protocol/connection';
 import { coreFailure } from '../shared/core-error';
@@ -234,14 +232,6 @@ function registerSessionRoutingIpc({
   );
   handle(DESKTOP_IPC.abortSession, (_event, sessionId, options) =>
     host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options))
-  );
-  // The secret card's value stays in this process (secret-input.ts): never
-  // forwarded to the host, logged or echoed back.
-  handle(DESKTOP_IPC.provideSecretInput, (_event, requestId, value) =>
-    secretInputs.provide(requiredString(requestId, 'secret request id', 120), typeof value === 'string' ? value : '')
-  );
-  handle(DESKTOP_IPC.takeoverReady, (_event, sessionId, id) =>
-    takeoverGate.ready(requiredSessionId(sessionId), requiredString(id, 'takeover id', 200))
   );
   handle(DESKTOP_IPC.resolveToolApprovalForSession, async (_event, sessionId, id, input) => {
     const decision = requiredToolApprovalDecision(input);

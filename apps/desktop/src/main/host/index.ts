@@ -6,7 +6,6 @@
 import { screen } from 'electron';
 import type { HostClaimParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
-import type { RemoteScreenDisplaySummary } from '../../shared/remote-webrtc';
 import { createBrowserCommandHost, type BrowserCommandRunner, type BrowserInputControl } from './browser-command';
 import { type BrowserEnginePorts, serveBrowserEngine } from './browser-engine';
 import type { TranscriptTap } from './browser-engine/transcript';
@@ -24,12 +23,15 @@ import { type NotificationPresenter, registerNotificationHost } from './notifica
 import { registerSystemProxyHost } from './system-proxy';
 import { registerComputerHost, type ComputerHostWiring } from './register-s3';
 import { registerHumanOnlyHolds } from './human-only';
-import { registerScreenDisplaysHost, reportScreenDisplayChanges } from './screen-displays';
+import { reportScreenDisplayChanges } from './screen-displays';
+import { registerScreenIndicatorHost, type ShowScreenIndicator } from './screen-indicator';
 
 export interface DesktopHostOptions {
   connection: HostConnection;
   /** Generated once per install. */
   hostId: string;
+  /** The Electron pill of a phone's screen session (remote-screen/screen-indicator.ts); absent in a harness without one. */
+  showScreenIndicator?: ShowScreenIndicator;
   /** The in-app browser, resolved when first used (it is built after the connection). */
   browser: () => {
     runner: BrowserCommandRunner;
@@ -113,10 +115,8 @@ export function createDesktopHost(options: DesktopHostOptions) {
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
   const stopComputer = registerComputerHost(connection, options.computer);
-  // The browser host's own screen-displays path (the screen sources' displays, or "Remote screen is unavailable.").
-  registerScreenDisplaysHost(connection, () => ({
-    list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
-  }));
+  // The on-PC pill of a phone's screen session, driven by the core (host/screen/indicator, host/screen/indicator/stop).
+  const closeScreenIndicators = options.showScreenIndicator ? registerScreenIndicatorHost(connection, options.showScreenIndicator) : () => {};
   // A display added, removed or rescaled is told to the core (host/screen/displaysChanged).
   // Electron's `screen` exists only once the app is ready, and the host role is built before that.
   let stopDisplayReports = () => {};
@@ -144,6 +144,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   let claimed = false;
   connection.onClose(() => {
     displayReportsOff = true;
+    closeScreenIndicators();
     stopDisplayReports();
     if (!claimed) return;
     claimed = false;
@@ -171,6 +172,8 @@ export function createDesktopHost(options: DesktopHostOptions) {
       commands.start();
       tabs.start();
       reports.resend();
+      // Every live stream's `host/browser/page` is sent again on each claim (a stream alive across a core restart).
+      pageReport.resend();
       visualize.start();
     },
     /** The browser host's `publishRemoteTabs`. */

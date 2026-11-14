@@ -27,6 +27,7 @@ mod lead_request_tests;
 pub mod compose_mcp;
 pub mod compose_computer;
 pub mod compose_computer_bridge;
+pub mod compose_screen;
 pub mod computer_control;
 pub mod computer_gate;
 pub mod computer_pointer_service;

@@ -241,10 +241,10 @@ crate::server_request_definitions! {
         result: HostBrowserTurnResult,
         requires: Some("host.browserEngine"),
     },
-    /// The displays of this PC's screen, for the phone's remote-screen picker.
-    HostScreenDisplays => "host/screen/displays" {
-        params: ScreenDisplaysParams,
-        result: JsonValue,
+    /// One phone's screen session on the on-PC pill: shown, relabelled or hidden. The desktop keeps one pill for every active phone (screenId keys the session).
+    HostScreenIndicator => "host/screen/indicator" {
+        params: crate::v2::screen_indicator::ScreenIndicatorParams,
+        result: crate::v2::screen_indicator::ScreenIndicatorResult,
         requires: Some("host.browser"),
     },
     /// A Computer Use screen capture, taken and encoded by the desktop's computer host.

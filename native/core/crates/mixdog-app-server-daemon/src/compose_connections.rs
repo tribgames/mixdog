@@ -221,7 +221,7 @@ pub struct SshMachineParts {
 
 /// This PC as the ssh code sees it: the process's environment, `home`, the OpenSSH tools through `processes`, Mixdog's own ssh
 /// config in `data_dir` (the core's data folder), the askpass helper and the server runtimes the desktop ships.
-pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &dyn Fn(&str) -> Option<String>, processes: LocalProcessManager, spawn_io: SpawnIo) -> Result<SshMachineParts, ComposeError> {
+pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &(dyn Fn(&str) -> Option<String> + Send + Sync), processes: LocalProcessManager, spawn_io: SpawnIo) -> Result<SshMachineParts, ComposeError> {
     let spawner: Arc<dyn SshSpawner> = Arc::new(ProcessSpawner::new(Arc::new(processes), spawn_io));
     let files: Arc<dyn ConfigFiles + Send + Sync> = Arc::new(LaneFiles(&mixdog_fsio::Unlaned));
     let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
@@ -286,11 +286,22 @@ impl NotifySink for HostToasts {
     }
 
     fn show(&self, mut params: HostNotificationShowParams) -> Result<(), String> {
+        // A toast carries this PC's sound only where the notifier asked for one (a session's final answer).
         let style = (self.style)();
-        params.sound = style.sound;
-        params.volume = Some(style.volume);
+        if params.sound.is_some() {
+            params.sound = style.sound;
+            params.volume = Some(style.volume);
+        } else {
+            params.sound = None;
+            params.volume = None;
+        }
         let params = serde_json::to_value(params).map_err(|error| error.to_string())?;
         self.host.notify(HostCapability::Notifications, NOTIFICATION_SHOW, params).map_err(|error| error.to_string())
+    }
+
+    /// The toasts still showing for a server's connection are closed (its notifier ended).
+    fn close(&self, connection_id: &str) {
+        let _ = self.host.notify(HostCapability::Notifications, Method("host/notification/close"), json!({ "connectionId": connection_id }));
     }
 }
 
@@ -298,8 +309,8 @@ impl NotifySink for HostToasts {
 pub struct PcPreferences(pub Config);
 
 impl NotifyPrefs for PcPreferences {
-    fn view(&self) -> PreferencesView {
-        pc_view(&self.0)
+    fn view(&self) -> Result<PreferencesView, String> {
+        Ok(pc_view(&self.0))
     }
 }
 
@@ -332,7 +343,7 @@ impl WindowFocusSource for HostWindowFocus {
     }
 
     fn session_on_screen(&self, connection_id: &str, session_id: &str) -> bool {
-        self.window(connection_id).is_some_and(|window| window.visible && window.focused && window.session_id.as_deref() == Some(session_id))
+        self.window(connection_id).is_some_and(|window| window.visible && window.focused && window.session_ids.iter().any(|id| id == session_id))
     }
 }
 
@@ -512,7 +523,7 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connection
     let windows: Arc<dyn WindowHost> = Arc::new(HostChannelWindows::new(host.clone()));
     let link_pool = LinkPool::new(
         ssh_env.clone(),
-        LinkStores { hosts: hosts.clone(), port_forwards, payloads: payloads.clone() },
+        LinkStores { hosts: hosts.clone(), port_forwards, payloads: payloads.clone(), host: host.clone() },
         Arc::new(ServiceProxy(model_proxy)),
     );
     let style: ToastStyleReader = {
@@ -529,7 +540,7 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connection
     workspace.set_remote_files(Arc::new(PoolFiles(pool.pool().clone())));
 
     let ssh_env = Arc::new(ssh_env);
-    let login = Arc::new(EnvLoginHelpers::new(ssh_env.clone(), durability_io, user_data_dir));
+    let login = Arc::new(EnvLoginHelpers::new(ssh_env.clone(), durability_io, user_data_dir, Arc::new(mixdog_ssh::context::ClaimedResources::default())));
     let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone()));
     let attempts = Attempts::new(pool.clone(), Arc::new(NotifierPush(notifier.clone())));
     let view_pool = pool.pool().clone();
@@ -574,6 +585,8 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connection
         relay_url: Arc::new(move || crate::domain_seams::remote::resolve_relay_url(relay_env(RELAY_ENV).as_deref()).ok().flatten()),
         config_hosts: Arc::new(move || ssh_config_hosts(&hosts_env)),
         client_version: Arc::new(move |connection| version_of.client_version(connection)),
+        // The pair-code errors in the desktop's UI language: the catalogs are not read by the core yet (deferred-g95.md), so the English text.
+        translate: Arc::new(|text| text.to_owned()),
     }));
     let presence = watch_presence(service.clone(), host);
     Ok(Connections { service, presence })

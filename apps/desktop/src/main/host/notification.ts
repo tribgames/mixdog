@@ -16,7 +16,7 @@ import { HOST_METHOD, type HostConnection, HostRpcError, HOST_INVALID_PARAMS, ob
 
 export interface NotificationPresenter {
   /** The OS toast for already-bounded content. */
-  createNotification(content: { title: string; body: string }): Pick<Notification, 'on' | 'show'>;
+  createNotification(content: { title: string; body: string }): Pick<Notification, 'on' | 'show' | 'close'>;
   /** Plays the notification sound at `volume` percent (0–100); absent volume = the user's own. */
   playSound?(volume: number | undefined): Promise<unknown>;
   /** Brings this PC's window forward (the session itself is routed by the core). */
@@ -31,6 +31,13 @@ export interface NotificationPresenter {
 
 export function registerNotificationHost(connection: HostConnection, presenter: NotificationPresenter): void {
   const live = new Set<unknown>();
+  const byConnection = new Map<string, Set<Pick<Notification, 'on' | 'show' | 'close'>>>();
+  connection.handleNotification(HOST_METHOD.notificationClose, (params) => {
+    const { connectionId } = objectParams<{ connectionId?: unknown }>(params, HOST_METHOD.notificationClose);
+    if (typeof connectionId !== 'string' || !connectionId) return;
+    for (const notification of [...(byConnection.get(connectionId) ?? [])]) notification.close();
+    byConnection.delete(connectionId);
+  });
   // What Node's `notificationStatus` host method answered (main/index.ts at b6f10295a): paired devices hold their pushes
   // while this PC is in use.
   connection.handleRequest(HOST_METHOD.notificationStatus, async (): Promise<HostNotificationStatus> => ({
@@ -47,6 +54,19 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     }
     const notification = presenter.createNotification({ title, body });
     retainNotification(live, notification);
+    // A server's toasts are kept by its connection, so the core can close them when the server's notifier ends.
+    const owner = typeof connectionId === 'string' && connectionId ? connectionId : undefined;
+    if (owner) {
+      const set = byConnection.get(owner) ?? new Set();
+      set.add(notification);
+      byConnection.set(owner, set);
+      const forget = () => {
+        set.delete(notification);
+        if (set.size === 0 && byConnection.get(owner) === set) byConnection.delete(owner);
+      };
+      notification.on('close', forget);
+      notification.on('click', forget);
+    }
     notification.on('click', () => {
       const server = typeof connectionId === 'string' && connectionId ? connectionId : undefined;
       const thread = typeof threadId === 'string' && threadId ? threadId : undefined;
