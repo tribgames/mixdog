@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   browserFailureTiming,
@@ -113,4 +114,53 @@ test('failed commands retain timing without changing a frozen error or replaying
   assert.equal(timing.mouseEvents.mousePressed.count, 1);
   assert.ok(timing.commandMs >= timing.waitMs);
   assert.equal(browserFailureTiming(new Error('unrelated')), undefined);
+});
+
+/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
+const corpus = JSON.parse(
+  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/timing.json', import.meta.url), 'utf8')
+);
+
+test('every scripted command of the shared corpus records what the Rust twin records', async () => {
+  const run = async (nodes) => {
+    for (const node of nodes) {
+      if (node.throw) throw new Error('scripted failure');
+      if (node.mouse) await measureBrowserMouseEvent(node.mouse, async () => {});
+      else if (node.step !== undefined) await measureBrowserStep(node.step, () => run(node.do));
+      else await measureBrowserPhase(node.phase, () => run(node.do));
+    }
+  };
+  for (const { case: name, input, expect } of corpus) {
+    let timing;
+    let failed = false;
+    try {
+      timing = (
+        await timeBrowserCommand(input.queueMs, async () => {
+          await run(input.ops);
+          return { text: 'done' };
+        })
+      ).timing;
+    } catch (error) {
+      failed = true;
+      timing = browserFailureTiming(error);
+    }
+    const mouse = timing.mouseEvents
+      ? Object.fromEntries(Object.entries(timing.mouseEvents).map(([kind, event]) => [kind, event.count]))
+      : null;
+    assert.deepEqual(
+      {
+        snapshots: timing.snapshots,
+        screenshots: timing.screenshots,
+        steps: timing.steps ? timing.steps.map((step) => step.index) : null,
+        mouse,
+        failed,
+        queueMs: timing.queueMs,
+      },
+      expect,
+      name
+    );
+    for (const value of Object.values(timing)) {
+      if (typeof value === 'number') assert.ok(Number.isFinite(value) && value >= 0, name);
+    }
+  }
 });

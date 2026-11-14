@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { browserUrlPolicyFromEnvironment } from './host-policy.ts';
@@ -117,4 +118,35 @@ test('session restoration recreates admitted web pages only, without relaxing na
     []
   );
   assert.deepEqual(restored(['http://192.168.1.1', 'http://169.254.169.254/latest/meta-data'], {}), []);
+});
+
+/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
+const corpus = JSON.parse(
+  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/url-policy.json', import.meta.url), 'utf8')
+);
+
+test('every case of the shared corpus gets the same verdict as the Rust twin', () => {
+  assert.ok(corpus.length > 100);
+  for (const { case: name, input, expect } of corpus) {
+    let got;
+    try {
+      if (input.fn === 'resolved') {
+        assertResolvedAddressAllowed(input.address, input.hostname, input.policy);
+        got = { ok: true };
+      } else if (input.fn === 'page') {
+        got = { ok: normalizePageUrl(input.url, input.policy) };
+      } else {
+        let link;
+        if (input.mailLink) {
+          const { ageMs, ...rest } = input.mailLink;
+          link = { ...rest };
+          if (ageMs !== null && ageMs !== undefined) link.read_at = Date.now() - ageMs;
+        }
+        got = { ok: normalizeAgentUrl(input.url, input.policy, link) };
+      }
+    } catch (error) {
+      got = { error: error.message };
+    }
+    assert.deepEqual(got, expect, name);
+  }
 });

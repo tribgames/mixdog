@@ -1,0 +1,33 @@
+# s4-policy-twins: the new library crate mixdog-browser-policy (native/core/crates/mixdog-browser-policy).
+# Applied by CORE-WIRE-G1; the crate's own Cargo.toml and sources are in this task's commit. No compose call and no daemon/lib.rs
+# line is needed: it is a library the engine (s4-engine-skeleton) and the mail-link module consume.
+
+[workspace-members]
+# native/core/Cargo.toml, [workspace] members, after "crates/mixdog-js":
+    "crates/mixdog-browser-policy",
+
+[workspace-dependencies]
+# native/core/Cargo.toml, [workspace.dependencies], internal crates, after the mixdog-js line:
+mixdog-browser-policy = { path = "crates/mixdog-browser-policy" }
+
+[lock]
+# native/core/Cargo.lock: one new [[package]] "mixdog-browser-policy" (version 0.1.0 as the other members) with dependencies
+# async-trait, mixdog-js, mixdog-testkit, mixdog-workspace-hack, serde, serde_json, tokio, url (all already in the lock; no new
+# external crate). `cargo metadata --locked` fails until it is added: run `cargo update --workspace --offline` once.
+
+[workspace-hack]
+# native/core/crates/mixdog-workspace-hack/Cargo.toml: the hakari section must list the feature set the new crate asks of tokio
+# ("sync", "rt", "macros" for its tests): rerun `cargo hakari generate` (it already lists tokio with macros and rt-multi-thread).
+
+[mixdog-tools Cargo.toml]
+# native/core/crates/mixdog-tools/Cargo.toml [dependencies], after mixdog-js (dependency edge only; no cycle, the new crate depends
+# on mixdog-js and mixdog-testkit alone):
+mixdog-browser-policy = { workspace = true }
+
+[mixdog-tools desktop/mail_links.rs]
+# One copy of the tldts trie. mail_links.rs (not a file of this task) keeps its own copy until this is applied. Replace its
+# `mod suffix { .. }`, `is_valid_hostname`, `is_dotted_quad` and `site_of` by
+#   mixdog_browser_policy::suffix::registrable_domain(host)      (same result: None for an invalid hostname, an IP or a bare suffix)
+# and `MAIL_LINK_WINDOW_MS` by mixdog_browser_policy::url_policy::MAIL_LINK_WINDOW_MS (the same 30 * 60_000, i64); then delete
+# native/core/crates/mixdog-tools/src/desktop/mail_links/public_suffix.txt (the crate holds the one copy:
+# mixdog-browser-policy/src/public_suffix.txt, byte for byte the file it replaces).
