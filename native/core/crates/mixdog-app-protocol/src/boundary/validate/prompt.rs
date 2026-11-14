@@ -249,7 +249,8 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
                 // DECISION (owner direction: open rather than restrictive): the old host refused every type but PDF
                 // and Office documents. That refusal is dropped on purpose. The runtime reads any inline file by its
                 // content, and a phone or a relay caller sends other types (`text/plain`), so only the type's shape
-                // is checked here. The composer still offers only the supported types (`canonical_prompt_file_mime`).
+                // is checked here. The desktop composer still offers only the supported types
+                // (`canonicalPromptFileMimeType`).
                 required_string(
                     part.get("mimeType").unwrap_or(&Value::Null),
                     &format!("{part_path}/mimeType"),
