@@ -623,6 +623,15 @@
       "totalBytes": 2688
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-measure.mjs --tree <dir with node_modules>",
+      "fileCount": 6,
+      "manifest": "office-measure/MANIFEST.json",
+      "manifestSha256": "20ab060f9798877ce67a6db014057d91378678c9d7e6c782688a4b532ad6ab7c",
+      "recorder": "benchmarks/rust-core/recorders/record-office-measure.mjs",
+      "set": "office-measure",
+      "totalBytes": 823913
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-openai-facts.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "openai-facts/MANIFEST.json",

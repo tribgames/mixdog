@@ -1,0 +1,21 @@
+[package]
+name = "mixdog-fonts"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Font faces, system font discovery, CSS font matching with fallback, HarfBuzz-equal shaping and canvas measureText"
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-fsio = { workspace = true }
+rustybuzz = { workspace = true }
+sha2 = { workspace = true }
+ttf-parser = { workspace = true }
+unicode-script = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-office-base = { workspace = true, features = ["test-support"] }
+serde_json = { workspace = true }
