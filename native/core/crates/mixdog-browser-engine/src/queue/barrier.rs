@@ -195,7 +195,8 @@ mod tests {
         let release = async {
             drop(older);
         };
-        let (waited, ()) = tokio::join!(next.wait(&live.view()), release);
+        let view = live.view();
+        let (waited, ()) = tokio::join!(next.wait(&view), release);
         assert_eq!(waited, Ok(()));
     }
 }
