@@ -311,14 +311,15 @@ fn commit_check(state: &mut HeartbeatState, commit: &Commit) {
 /// (`/^[a-z][a-z0-9-]*:\S.*$/u`), at most 160 UTF-16 units and on one line; so two spellings of
 /// one proposal are one, and declining either blocks both.
 pub fn suggestion_key(key: &str) -> Result<String, String> {
-    let key = key.trim().to_lowercase();
+    let key = mixdog_js::js_trim(key).to_lowercase();
     let shaped = key.split_once(':').is_some_and(|(action, target)| {
         let mut chars = action.chars();
         chars.next().is_some_and(|c| c.is_ascii_lowercase())
             && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-            && target.chars().next().is_some_and(|c| !c.is_whitespace())
+            && target.chars().next().is_some_and(|c| !mixdog_js::is_js_space(c))
     });
-    if !shaped || key.encode_utf16().count() > SUGGESTION_KEY_LIMIT || key.contains(['\r', '\n']) {
+    // `.` matches no line terminator: the key is one line.
+    if !shaped || key.encode_utf16().count() > SUGGESTION_KEY_LIMIT || key.contains(['\r', '\n', '\u{2028}', '\u{2029}']) {
         return Err("session: suggest needs key as action:target, e.g. pause-routine:daily-news".to_owned());
     }
     Ok(key)
@@ -457,7 +458,7 @@ mod suggestion_tests {
     #[test]
     fn key_is_trimmed_lowercased_and_shaped() {
         assert_eq!(suggestion_key("  Pause-Routine:Daily-News ").unwrap(), "pause-routine:daily-news");
-        for bad in ["", "pause", "1a:x", "a:", "a: x", "a b:x", ":x", "a:x\ny"] {
+        for bad in ["", "pause", "1a:x", "a:", "a: x", "a:\u{feff}x", "a b:x", ":x", "a:x\ny", "a:x\u{2028}y"] {
             assert!(suggestion_key(bad).is_err(), "{bad:?}");
         }
         assert!(suggestion_key(&format!("a:{}", "x".repeat(158))).is_ok());

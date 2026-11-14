@@ -10,7 +10,6 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-
 use async_trait::async_trait;
 use mixdog_rt::TaskClass;
 use mixdog_ai::service::admin_route::Obj;
@@ -75,7 +74,7 @@ where
             late(value).await;
         }
     }));
-    match tokio::time::timeout(deadline, rx).await {
+    match mixdog_rt::time::timeout(deadline, rx).await {
         Ok(Ok(outcome)) => outcome,
         Ok(Err(_)) => Err("agent spawn prep ended without a result".into()),
         Err(_) => Err(SPAWN_PREP_TIMED_OUT.into()),
@@ -539,13 +538,13 @@ mod deadline_tests {
         let closed = Arc::new(Mutex::new(Vec::new()));
         let sink = closed.clone();
         let work = async {
-            tokio::time::sleep(Duration::from_secs(200)).await;
+            mixdog_rt::time::sleep(Duration::from_secs(200)).await;
             Ok::<_, String>("session".to_owned())
         };
         let out = within_deadline(SPAWN_PREP_DEADLINE, work, move |late| async move { sink.lock().unwrap().push(late) }).await;
         assert_eq!(out.unwrap_err(), SPAWN_PREP_TIMED_OUT);
         assert!(closed.lock().unwrap().is_empty());
-        tokio::time::sleep(Duration::from_secs(100)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(100)).await;
         assert_eq!(*closed.lock().unwrap(), vec!["session".to_owned()]);
     }
 
@@ -556,7 +555,7 @@ mod deadline_tests {
         let sink = closed.clone();
         let out = within_deadline(SPAWN_PREP_DEADLINE, async { Ok::<_, String>(7) }, move |_| async move { *sink.lock().unwrap() += 1 }).await;
         assert_eq!(out, Ok(7));
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*closed.lock().unwrap(), 0);
     }
 }
