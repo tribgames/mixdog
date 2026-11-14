@@ -22,14 +22,43 @@ const STREAM_EXPIRY_MS = 4_000;
 
 type RemoteControl = Exclude<DesktopRemoteBrowserControl, { type: 'answer-dialog' }>;
 
-export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
+export interface BrowserRemoteControlOptions {
+  /** The streamed page's document or locked geometry changed, or its stream
+   *  ended (the new state is read with `streamedPage`). */
+  onStreamedPageChanged?(sessionId: string): void;
+}
+
+export function createBrowserRemoteControl(
+  host: BrowserRemoteControlHost,
+  { onStreamedPageChanged }: BrowserRemoteControlOptions = {}
+) {
   const { state, urlPolicy, ensureGuest, assertResolvedUrlAllowed } = host;
+  /** The document last framed per session: a frame of another one is a navigation. */
+  const framedDocument = new Map<string, string>();
+  // A geometry lock (start, widen, unfit, PC-side resize) and a frame of a new
+  // document are reported from the engine's own calls.
+  const engineHost: BrowserRemoteControlHost = onStreamedPageChanged
+    ? {
+        ...host,
+        geometryChanged: (sessionId, geometry) => {
+          host.geometryChanged?.(sessionId, geometry);
+          onStreamedPageChanged(sessionId);
+        },
+        publishFrame: (frame) => {
+          if (framedDocument.get(frame.sessionId) !== frame.documentId) {
+            framedDocument.set(frame.sessionId, frame.documentId);
+            onStreamedPageChanged(frame.sessionId);
+          }
+          return host.publishFrame(frame);
+        },
+      }
+    : host;
   const streams = new Map<string, RemoteStream>();
   /** A stopped stream's teardown (screencast stop, pane restore) per session,
    *  until it settles: the session's next stream waits for it, so a stale
    *  restore can never undo the viewport a newer stream applied. */
   const teardowns = new Map<string, Promise<void>>();
-  const { publishFacts, check, reconcile, stopRun } = createRemoteStreamEngine(host, streams);
+  const { publishFacts, check, reconcile, stopRun } = createRemoteStreamEngine(engineHost, streams);
 
   /** Nobody streams this session any more: stop composing frames for it. */
   function stopStream(sessionId: string): void {
@@ -57,8 +86,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       });
     stream.work = teardown;
     teardowns.set(sessionId, teardown);
+    framedDocument.delete(sessionId);
     host.geometryChanged?.(sessionId, null);
     host.viewerChanged?.(sessionId, false);
+    onStreamedPageChanged?.(sessionId);
   }
 
   function armExpiry(sessionId: string, stream: RemoteStream): void {

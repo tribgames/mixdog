@@ -1,0 +1,16 @@
+# x-host-browser-page: desktop wiring (the lead applies it). No HOST_METHOD row is needed:
+# the method name is HOST_BROWSER_PAGE, exported by host/browser-page-report.ts (as HOST_STATE_SET is by browser-tabs.ts).
+
+[browser/host-presentation.ts] (the function that returns createBrowserRemoteControl({...}))
+  Add a second argument to that call:
+    createBrowserRemoteControl({ ...existing host object... }, { onStreamedPageChanged: options.onStreamedPageChanged })
+  and add to that function's options type:
+    onStreamedPageChanged?: (sessionId: string) => void;
+  browser/host.ts forwards its own `onStreamedPageChanged` option into it.
+
+[host/index.ts] (createDesktopHost, beside createBrowserTabsReporter)
+  import { createBrowserPageReporter } from './browser-page-report';
+  const pageReport = createBrowserPageReporter(connection, (sessionId) => options.browser().view.streamedPage(sessionId));
+  The browser host is constructed with: onStreamedPageChanged: (sessionId) => pageReport.changed(sessionId)
+  (streamedPage is the member createBrowserRemoteControl already returns; the `view` the host options carry must expose it.)
+  On connection close / host role release: pageReport.stop().
