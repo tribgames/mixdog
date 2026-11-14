@@ -59,6 +59,7 @@ pub use jobs::WaitedSilence;
 pub use jobs::TaskNotifier;
 pub use jobs::most_significant_duration;
 pub use jobs::signal_name;
+pub use shell::ForeignShellTool;
 pub use shell::ShellTool;
 pub use shell_control::ShellControl;
 pub use shell_control::StoppableJob;
@@ -67,6 +68,8 @@ pub use wake::Wake;
 pub use wake::WakeHub;
 pub use wake::WakeReason;
 pub use task::TaskTool;
+pub(crate) use task::describe_type;
+pub(crate) use task::normalize_string_list_args;
 
 /// How long a cancel waits to see the process exit.
 pub(crate) const KILL_VERIFY: Duration = Duration::from_secs(5);

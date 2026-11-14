@@ -2835,3 +2835,35 @@ async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_own
 mod node_cases;
 
 mod unconfirmed_foreground;
+
+/// `guardShell` (`arg-guard.mjs`): the texts Node refuses a malformed shell call with, and the over-long `wait_ms`
+/// it cuts to the maximum instead of refusing.
+#[test]
+fn the_shell_argument_guard_answers_with_the_texts_of_the_argument_guard() {
+    let refusal = |args: JsonValue| shell::guard_shell_args(args).unwrap_err();
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "shell": "bash"})),
+        "Error: shell arg \"shell\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
+    );
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "cwd": " "})), "Error: shell arg \"cwd\" must be a non-empty string (got string)");
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "background": "yes"})), "Error: shell arg \"background\" must be a boolean (got string)");
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "wait_ms": 999})),
+        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 999)"
+    );
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "wait_ms": 1500.5})),
+        "Error: shell arg \"wait_ms\" must be an integer from 1000 to 600000, e.g. wait_ms:120000 (got 1500.5)"
+    );
+    assert!(refusal(serde_json::json!({"command": "ls", "wait_ms": 0})).contains("must be an integer from 1000"));
+    assert_eq!(refusal(serde_json::json!({})), "Error: shell requires \"command\"");
+    assert_eq!(refusal(serde_json::json!({"command": 3})), "Error: shell arg \"command\" must be a string (got number)");
+    assert_eq!(refusal(serde_json::json!({"command": ""})), "Error: shell arg \"command\" must be a non-empty string");
+    assert_eq!(refusal(serde_json::json!({"command": "ls", "timeout_ms": -1})), "Error: shell arg \"timeout_ms\" must be a non-negative integer (got number)");
+    assert_eq!(refusal(serde_json::json!([1])), "Error: shell arguments must be an object (got array)");
+    assert_eq!(refusal(JsonValue::Null), "Error: shell requires arguments object (got null)");
+
+    // Nulls mean "not sent", an empty list is dropped before the key is checked, and a long wait is clamped.
+    let ok = shell::guard_shell_args(serde_json::json!({"command": "ls", "cwd": null, "path": [], "wait_ms": 9_999_999, "timeout_ms": 5000})).unwrap();
+    assert_eq!(ok, serde_json::json!({"command": "ls", "wait_ms": 600000, "timeout_ms": 5000}));
+}

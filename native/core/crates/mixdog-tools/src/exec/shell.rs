@@ -45,6 +45,8 @@ use super::compact::still_worthwhile;
 use super::delivery::Piece;
 use super::delivery::delivery_full_chars;
 use super::delivery::parse_int_prefix;
+use super::describe_type;
+use super::normalize_string_list_args;
 use super::text::strip_ansi;
 use super::delivery::fit_pieces;
 use super::delivery::render_shell_output_body;
@@ -137,6 +139,120 @@ pub(super) struct Args {
     timeout_ms: Option<u64>,
     wait_ms: Option<u64>,
     background: Option<bool>,
+}
+
+/// `validateBuiltinArgs('shell', args)` (`arg-guard.mjs`): the null drops and list normalisation that come first, then
+/// `guardShell`. The arguments the tool then runs with (an over-long `wait_ms` cut to the maximum), or the refusal
+/// text Node answers with.
+pub(super) fn guard_shell_args(args: JsonValue) -> Result<JsonValue, String> {
+    let JsonValue::Object(mut a) = args else {
+        return Err(if args.is_null() {
+            "Error: shell requires arguments object (got null)".to_owned()
+        } else {
+            format!("Error: shell arguments must be an object (got {})", describe_type(&args))
+        });
+    };
+    a.retain(|_, v| !v.is_null());
+    normalize_string_list_args(&mut a);
+    if let Some(key) = a.keys().find(|k| !matches!(k.as_str(), "command" | "cwd" | "timeout_ms" | "wait_ms" | "background")) {
+        return Err(format!("Error: shell arg \"{key}\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"));
+    }
+    if let Some(cwd) = a.get("cwd")
+        && !cwd.as_str().is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
+    {
+        return Err(format!("Error: shell arg \"cwd\" must be a non-empty string (got {})", describe_type(cwd)));
+    }
+    if let Some(background) = a.get("background")
+        && !background.is_boolean()
+    {
+        return Err(format!("Error: shell arg \"background\" must be a boolean (got {})", describe_type(background)));
+    }
+    let whole = |v: &JsonValue| v.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0);
+    if let Some(wait) = a.get("wait_ms") {
+        let over = whole(wait).filter(|n| *n > SHELL_HOLD_MAX_MS as f64);
+        if over.is_some() {
+            a.insert("wait_ms".to_owned(), JsonValue::from(SHELL_HOLD_MAX_MS));
+        } else if !whole(wait).is_some_and(|n| n >= SHELL_HOLD_MIN_MS as f64) {
+            return Err(format!(
+                "Error: shell arg \"wait_ms\" must be an integer from {SHELL_HOLD_MIN_MS} to {SHELL_HOLD_MAX_MS}, e.g. wait_ms:120000 (got {})",
+                serde_json::to_string(wait).unwrap_or_default()
+            ));
+        }
+    }
+    match a.get("command") {
+        None => return Err("Error: shell requires \"command\"".to_owned()),
+        Some(JsonValue::String(command)) if command.is_empty() => {
+            return Err("Error: shell arg \"command\" must be a non-empty string".to_owned());
+        }
+        Some(JsonValue::String(_)) => {}
+        Some(other) => {
+            return Err(format!("Error: shell arg \"command\" must be a string (got {})", describe_type(other)));
+        }
+    }
+    if let Some(timeout) = a.get("timeout_ms") {
+        match whole(timeout).filter(|n| *n >= 0.0) {
+            Some(n) => {
+                a.insert("timeout_ms".to_owned(), JsonValue::from(n as u64));
+            }
+            None => {
+                return Err(format!("Error: shell arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
+            }
+        }
+    }
+    Ok(JsonValue::Object(a))
+}
+
+/// The command tools of other agent CLIs (`external-tool-adapters.mjs` `BASH_SHELL_KIND_NAMES` and `BASH_DEFAULT_NAMES`):
+/// `bash`, which asks for the POSIX shell, and `run`, `runcommand`, `terminal` and `run_terminal_cmd`, which take the default
+/// one. They are in no tool list; a call by one of those names (in any case) runs `shell`.
+pub struct ForeignShellTool {
+    shell: Arc<ShellTool>,
+    spec: ToolSpec,
+    posix: bool,
+}
+
+impl ForeignShellTool {
+    /// The two tools that stand for the foreign names of `shell`.
+    pub fn of(shell: &Arc<ShellTool>) -> Vec<Arc<dyn Tool>> {
+        let tool = |name: &str, aliases: &[&str], posix: bool| -> Arc<dyn Tool> {
+            let mut spec = shell.spec.clone();
+            spec.name = name.to_owned();
+            spec.title = None;
+            spec.public = false;
+            spec.aliases = aliases.iter().map(|alias| (*alias).to_owned()).collect();
+            Arc::new(Self { shell: shell.clone(), spec, posix })
+        };
+        vec![tool("bash", &[], true), tool("run", &["runcommand", "terminal", "run_terminal_cmd"], false)]
+    }
+}
+
+#[async_trait]
+impl Tool for ForeignShellTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    /// `adaptBash`: only the command is required, and the keys `shell` takes are the ones passed on (the other CLI's own
+    /// extras, a description or a timeout in its unit, are not the command's).
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let JsonValue::Object(given) = args else {
+            return Err(failed(
+                ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
+                format!("Error: unknown builtin tool \"{}\" — use the `shell` tool.", self.spec.name),
+            ));
+        };
+        if !given.get("command").and_then(JsonValue::as_str).is_some_and(|command| !command.is_empty()) {
+            return Err(failed(
+                ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
+                format!("Error: unknown builtin tool \"{}\" — use the `shell` tool.", self.spec.name),
+            ));
+        }
+        let kept: serde_json::Map<String, JsonValue> = given
+            .into_iter()
+            .filter(|(key, _)| matches!(key.as_str(), "command" | "cwd" | "timeout_ms" | "wait_ms" | "background"))
+            .collect();
+        self.shell.call_as(ctx, JsonValue::Object(kept), self.posix).await
+    }
 }
 
 pub struct ShellTool {
@@ -622,18 +738,28 @@ impl Tool for ShellTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        self.call_as(ctx, args, false).await
+    }
+}
+
+impl ShellTool {
+    /// The call, its misuse guards reading the command as POSIX syntax when `posix` (`requestedShellType`: a call a foreign
+    /// CLI's `bash` name makes asks for the POSIX shell) and as the default shell's otherwise.
+    async fn call_as(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
         // Whatever the outcome or classification, a finished command is a turn boundary for the
         // review of the folder it ran in (`tool-exec.mjs`); the folder is the raw `cwd` argument
         // resolved against the session cwd, checked or not.
         let requested = args.get("cwd").and_then(JsonValue::as_str).map(str::to_owned);
         let cwd = super::settle::effective_shell_cwd(ctx.cwd.as_path(), requested.as_deref());
         let _settled = super::settle::SettleGuard::new(ctx.review.clone(), cwd);
-        self.run(ctx, args).await
+        self.run(ctx, args, posix).await
     }
 }
 
 impl ShellTool {
-    async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+    async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
+        let args = guard_shell_args(args)
+            .map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
         let args: Args = serde_json::from_value(args).map_err(|e| {
             failed(
                 ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() },
@@ -658,7 +784,7 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell).await {
+        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell && !posix).await {
             Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
             Guarded::Run { command, cwd, notes } => (command, cwd, notes),
         };

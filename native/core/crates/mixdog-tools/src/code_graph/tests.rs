@@ -225,3 +225,21 @@ fn the_tool_output_carries_the_roots_in_meta() {
     assert_eq!(super::dependency_roots(&output), Some(vec!["/p".to_owned(), "/p/a.rs".to_owned()]));
     assert_eq!(super::dependency_roots(&super::ToolOutput::default()), None);
 }
+
+/// `guardCodeGraph` (`arg-guard.mjs`): the refusal texts, the hidden `prewarm` mode, and the symbols a file mode drops.
+#[test]
+fn the_argument_guard_answers_with_the_texts_of_the_argument_guard() {
+    let refusal = |args: serde_json::Value| super::guard_args(args).unwrap_err();
+    assert_eq!(refusal(serde_json::json!({})), "Error: code_graph requires \"mode\"");
+    assert_eq!(refusal(serde_json::json!({"mode": 4})), "Error: code_graph arg \"mode\" must be a string (got number)");
+    assert_eq!(
+        refusal(serde_json::json!({"mode": "bogus"})),
+        "Error: code_graph arg \"mode\" must be one of overview|imports|dependents|related|impact|symbols|find_symbol|symbol_search|search|references|callers|callees|prewarm (got \"bogus\")"
+    );
+    assert_eq!(refusal(serde_json::Value::Null), "Error: code_graph requires arguments object (got null)");
+    assert!(super::guard_args(serde_json::json!({"mode": " prewarm "})).is_ok());
+    let kept = super::guard_args(serde_json::json!({"mode": "imports", "file": "a.rs", "symbol": "x", "symbols": ["y"], "files": [[], null]})).unwrap();
+    assert_eq!(kept, serde_json::json!({"mode": "imports", "file": "a.rs"}));
+    let symbols = super::guard_args(serde_json::json!({"mode": "callers", "symbol": "x"})).unwrap();
+    assert_eq!(symbols["symbol"], "x");
+}

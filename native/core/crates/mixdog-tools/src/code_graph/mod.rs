@@ -80,6 +80,47 @@ enum Failure {
     Lane(mixdog_scm::error::ScmFailure),
 }
 
+/// The modes the schema offers (`CODE_GRAPH_MODES`) and the file modes among them (`CODE_GRAPH_FILE_MODES`); `prewarm` is the
+/// hidden one a call may also name.
+const SCHEMA_MODES: [&str; 12] = [
+    "overview", "imports", "dependents", "related", "impact", "symbols", "find_symbol", "symbol_search", "search", "references",
+    "callers", "callees",
+];
+const FILE_MODES: [&str; 5] = ["overview", "imports", "dependents", "related", "impact"];
+
+/// `validateBuiltinArgs('code_graph', args)` (`arg-guard.mjs`): the null drops and list normalisation that come first, then
+/// `guardCodeGraph`. The arguments the call runs with, or the refusal text Node answers with.
+fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
+    let JsonValue::Object(mut a) = args else {
+        return Err(if args.is_null() {
+            "Error: code_graph requires arguments object (got null)".to_owned()
+        } else {
+            format!("Error: code_graph arguments must be an object (got {})", crate::exec::describe_type(&args))
+        });
+    };
+    a.retain(|_, v| !v.is_null());
+    crate::exec::normalize_string_list_args(&mut a);
+    let mode = match a.get("mode") {
+        None => return Err("Error: code_graph requires \"mode\"".to_owned()),
+        Some(JsonValue::String(mode)) => mixdog_js::js_trim(mode).to_owned(),
+        Some(other) => {
+            return Err(format!("Error: code_graph arg \"mode\" must be a string (got {})", crate::exec::describe_type(other)));
+        }
+    };
+    if mode != "prewarm" && !SCHEMA_MODES.contains(&mode.as_str()) {
+        return Err(format!(
+            "Error: code_graph arg \"mode\" must be one of {}|prewarm (got {})",
+            SCHEMA_MODES.join("|"),
+            serde_json::to_string(&a["mode"]).unwrap_or_default()
+        ));
+    }
+    if FILE_MODES.contains(&mode.as_str()) {
+        a.shift_remove("symbol");
+        a.shift_remove("symbols");
+    }
+    Ok(JsonValue::Object(a))
+}
+
 pub struct CodeGraphTool {
     spec: ToolSpec,
     trust: std::sync::Arc<dyn TrustedRoots>,
@@ -114,6 +155,22 @@ impl CodeGraphTool {
         .await;
         self.cache.schedule_flush(io);
         matches!(built, Ok(Some(_)))
+    }
+
+    /// `mode:'prewarm'` (`_schedulePrewarm`): builds the graph of the project the call's folder belongs to, so the next call
+    /// finds its files in the cache, and describes what was asked. The graph holds every file's symbols, so a symbol list
+    /// asks for the same build as none.
+    async fn prewarm(&self, session_cwd: &std::path::Path, args: &JsonValue, ctx: &ToolContext) -> String {
+        let parsed = args::Args::parse(args);
+        let cwd = match &parsed.cwd {
+            Some(cwd) => roots::abs_from(session_cwd, cwd),
+            None => session_cwd.to_path_buf(),
+        };
+        self.prewarm_if_project(&cwd, ctx.io.maintenance, &ctx.cancel).await;
+        let symbols = parsed.symbol_list();
+        let overflow = if symbols.len() > 5 { format!(",+{}", symbols.len() - 5) } else { String::new() };
+        let detail = if symbols.is_empty() { String::new() } else { format!(" ({}{overflow})", symbols[..symbols.len().min(5)].join(",")) };
+        format!("prewarm scheduled: cwd={} symbols={}{detail}", cwd.to_string_lossy(), symbols.len())
     }
 
     /// `executeCodeGraphTool(name, args, cwd)`, the one path every surface answers through: the
@@ -157,7 +214,11 @@ impl Tool for CodeGraphTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let args = guard_args(args).map_err(|message| invalid_args("arguments", message))?;
         let cwd = ctx.cwd.as_path().to_path_buf();
+        if mixdog_js::js_trim(args.get("mode").and_then(JsonValue::as_str).unwrap_or_default()) == "prewarm" {
+            return Ok(text_output(self.prewarm(&cwd, &args, ctx).await));
+        }
         match self.answer(cwd, &args, ctx.io.maintenance, &ctx.cancel).await {
             Ok(answer) => {
                 let mut output = text_output(answer.text);

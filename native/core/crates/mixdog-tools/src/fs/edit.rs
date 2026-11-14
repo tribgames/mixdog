@@ -30,6 +30,9 @@ use super::edit_plan::dialect;
 
 const EDIT_SPEC: &str = include_str!("specs/edit.json");
 
+/// The tool names of other agent CLIs that `edit` answers to (`external-tool-adapters.mjs` `STR_REPLACE_NAMES`).
+const STR_REPLACE_ALIASES: [&str; 4] = ["strreplace", "str_replace", "str_replace_editor", "search_replace"];
+
 const STALE_DURING_EDIT: &str = "changed on disk during the edit; read it again";
 
 pub struct EditTool {
@@ -40,10 +43,10 @@ pub struct EditTool {
 
 impl EditTool {
     pub fn new() -> Self {
-        Self {
-            spec: spec_from_def(EDIT_SPEC, false, &["fs-write"]),
-            state: None,
-        }
+        let mut spec = spec_from_def(EDIT_SPEC, false, &["fs-write"]);
+        // The names other agent CLIs give the same string replacement (`STR_REPLACE_NAMES`), in any case.
+        spec.aliases = STR_REPLACE_ALIASES.iter().map(|name| (*name).to_owned()).collect();
+        Self { spec, state: None }
     }
 
     /// The read state shared with `read`, keyed by the call's thread.
@@ -232,4 +235,112 @@ async fn create(ctx: &ToolContext, state: Option<&ReadState>, abs: &AbsPath, sho
         note_edit(ctx, state, abs, None, new.as_bytes()).await;
     }
     Ok(committed_edit(ctx, abs, None, new.as_bytes().to_vec(), text_output(format!("Created {shown} ({} bytes)", new.len()))).await)
+}
+
+/// The tool names of other agent CLIs that [`WriteTool`] answers to (`WRITE_NAMES`).
+const WRITE_ALIASES: [&str; 2] = ["create_file", "createfile"];
+
+/// `write` and its foreign spellings (`adaptWrite`): the whole content of a file, written where it is or created. It is not in
+/// any tool list: a model trained on another CLI calls it by that CLI's name, and Node's executor answers the call.
+pub struct WriteTool {
+    spec: ToolSpec,
+    state: Option<std::sync::Arc<ReadState>>,
+}
+
+impl WriteTool {
+    pub fn new() -> Self {
+        let spec = ToolSpec {
+            name: "write".to_owned(),
+            title: None,
+            aliases: WRITE_ALIASES.iter().map(|name| (*name).to_owned()).collect(),
+            description: "Write the whole content of one file, creating it when it is missing.".to_owned(),
+            trigger: None,
+            public: false,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "file_path": { "type": "string" },
+                    "contents": { "type": "string" },
+                    "content": { "type": "string" },
+                    "file_text": { "type": "string" }
+                }
+            }),
+            annotations: mixdog_core_api::domain::tool::ToolAnnotations {
+                read_only_hint: Some(false),
+                destructive_hint: Some(true),
+                idempotent_hint: Some(false),
+                open_world_hint: Some(false),
+                ..Default::default()
+            },
+            parallel_safe: false,
+            exclusive_with: vec![mixdog_core_api::domain::tool::ToolGroup("fs-write".to_owned())],
+        };
+        Self { spec, state: None }
+    }
+
+    /// The read state shared with `read`, keyed by the call's thread.
+    #[must_use]
+    pub fn with_state(mut self, state: std::sync::Arc<ReadState>) -> Self {
+        self.state = Some(state);
+        self
+    }
+}
+
+impl Default for WriteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Tool for WriteTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let not_adapted = || {
+            invalid(
+                "path",
+                "required",
+                "Error: unknown builtin tool \"write\" — use `apply_patch` with an `*** Add File:` V4A section to create a file.",
+            )
+        };
+        let contents = ["contents", "content", "file_text"]
+            .iter()
+            .find_map(|key| args.get(*key).filter(|v| !v.is_null()))
+            .and_then(JsonValue::as_str)
+            .ok_or_else(not_adapted)?;
+        let raw = args
+            .get("path")
+            .filter(|v| !v.is_null())
+            .or_else(|| args.get("file_path"))
+            .and_then(JsonValue::as_str)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(not_adapted)?;
+        let abs = resolve_write_target(ctx, raw).await?;
+        let full = abs.as_path().display().to_string();
+        let _locked = lock_edit_target(ctx, &abs).await?;
+        let pre = match &self.state {
+            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::of(&s)),
+            None => None,
+        };
+        let before = ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes);
+        if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
+            let _ = guarded(ctx, "write", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
+        }
+        let request = WriteRequest { path: abs.clone(), content: contents.as_bytes().to_vec(), precondition: WritePrecondition::Unconditional };
+        match guarded(ctx, "write", ctx.files.write(ctx.io.durability, request)).await? {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(fs_failure_worded(&e, &full, format!("Error: write failed ({})", write_message(&e, abs.as_path()))));
+            }
+        }
+        if let Some(state) = &self.state {
+            note_edit(ctx, state, &abs, pre, contents.as_bytes()).await;
+        }
+        let text = format!("{} {full} ({} bytes)", if before.is_some() { "Updated" } else { "Created" }, contents.len());
+        Ok(committed_edit(ctx, &abs, before, contents.as_bytes().to_vec(), text_output(text)).await)
+    }
 }
