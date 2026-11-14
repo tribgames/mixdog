@@ -39,7 +39,9 @@ fn names_and_aliases_resolve_case_insensitively() {
     assert!(engine.supports_language("js"));
     assert!(engine.supports_language("html"));
     assert!(engine.supports_language("sh"));
-    assert!(!engine.supports_language("tsx"));
+    // highlight.js 10.7.3's alias table maps `tsx` to typescript; graphql is not a language of it.
+    assert!(engine.supports_language("tsx"));
+    assert!(!engine.supports_language("graphql"));
     assert!(!engine.supports_language(""));
     assert!(!engine.supports_language("no-such-language"));
 }

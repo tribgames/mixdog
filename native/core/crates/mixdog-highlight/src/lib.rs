@@ -46,13 +46,18 @@ pub fn list_languages() -> Vec<String> {
     ENGINE.with(Engine::list_languages)
 }
 
-/// cli-highlight's `highlight(code, { language, theme, ignoreIllegals })`.
+/// cli-highlight's `highlight(code, { language, theme, ignoreIllegals })`; an empty language detects one
+/// (`hljs.highlightAuto(code)`), as cli-highlight does when `options.language` is falsy.
 pub fn highlight_ansi(
     code: &str,
     language: &str,
     theme: &HighlightTheme,
     ignore_illegals: bool,
 ) -> Result<String, HighlightError> {
-    let result = highlight(code, language, ignore_illegals)?;
+    let result = if language.is_empty() {
+        highlight_auto(code, None)?
+    } else {
+        highlight(code, language, ignore_illegals)?
+    };
     Ok(colorize(&result.value, theme))
 }

@@ -23,7 +23,8 @@ add (what `cargo metadata --offline` writes; no new external crate, all three de
 [native/core/crates/mixdog-workspace-hack/Cargo.toml]
 nothing: regress, serde_json and mixdog-js are used with the features other members already enable; the crate
 adds the regress feature "utf16" in its own Cargo.toml (`regress = { workspace = true, features = ["utf16"] }`),
-which changes no lock entry.
+which changes no lock entry. If `cargo hakari generate --diff` reports regress (feature utf16) after the crate
+joins the workspace, apply exactly what `cargo hakari generate` writes.
 
 [native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs]
 nothing: the crate registers no protocol method.

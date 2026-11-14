@@ -138,10 +138,10 @@ fn parse_fragment(html: &str) -> Vec<Node> {
     let mut stack: Vec<(Option<String>, Vec<Node>)> = vec![(None, Vec::new())];
     let mut text = String::new();
     let flush = |text: &mut String, stack: &mut Vec<(Option<String>, Vec<Node>)>| {
-        if !text.is_empty() {
-            if let Some(top) = stack.last_mut() {
-                top.1.push(Node::Text(std::mem::take(text)));
-            }
+        if !text.is_empty()
+            && let Some(top) = stack.last_mut()
+        {
+            top.1.push(Node::Text(std::mem::take(text)));
         }
     };
     let mut i = 0;
