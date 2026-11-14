@@ -45,7 +45,7 @@ export async function prepareCore({ coreExe, desktopDir, repoRoot, isoRoot, ortL
     copyFileSync(coreExe, staged);
     writeFileSync(marker, JSON.stringify(want, null, 2));
   }
-  const { writeDevInstall } = await import(new URL(`file:///${join(desktopDir, 'scripts', 'dev-core-install.mjs').replace(/\\/g, '/')}`).href);
+  const { writeDevInstall } = await import(pathToFileURL(join(desktopDir, 'scripts', 'dev-core-install.mjs')).href);
   const { file, manifest } = await writeDevInstall({ exe: staged, ortLibrary, packageRoot: repoRoot });
   log(`core: wrote ${file}`);
   return { ...want, exe: staged, manifest };
