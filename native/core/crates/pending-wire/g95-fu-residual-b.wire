@@ -1,0 +1,108 @@
+# g95-fu-residual-b: what the wiring applies (core)
+
+Library side is done in mixdog-core-domains `domains/desktop_residual_b.rs` (no hot file touched). Four call sites need the lead's files.
+
+## 1. Cargo (hot files): two new dependency edges of mixdog-core-domains
+
+`interface_addresses()` (the interfaces of the machine, so that an adapter joining without a route change fires the network watcher) and the
+login-shell read's `setsid` call platform APIs. Both crates are already in Cargo.lock and the workspace.
+
+native/core/crates/mixdog-core-domains/Cargo.toml, after the `[dependencies]` table:
+
+    [target.'cfg(unix)'.dependencies]
+    libc = { workspace = true }
+
+    [target.'cfg(windows)'.dependencies]
+    windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
+Consequences the lead regenerates (not written by hand): the `mixdog-core-domains` entry of native/core/Cargo.lock gains `libc` and
+`windows-sys 0.61.x`; mixdog-workspace-hack gains the feature `Win32_NetworkManagement_Ndis` on its windows-sys 0.61 line (`GetAdaptersAddresses`
+and `IP_ADAPTER_ADDRESSES_LH` need it with `Win32_Networking_WinSock`; the other three features are already there).
+
+## 2. Network watcher for the relay leg (finding #11, #95)
+
+native/core/crates/mixdog-app-server-daemon/src/compose_domains/rows.rs, in `build`, directly after the line
+`let power = Arc::new(RemotePower::new(seams.remote.clone(), seams.local_target.clone()));`:
+
+    // network-watch.ts: the leg redials at once when the machine comes back online or its addresses change (the old main process reported
+    // `power('resume')` for it; `RemotePower` closes the leg and redials from the first delay, as a system resume does).
+    let on_network_change = power.clone();
+    drop(mixdog_core_domains::domains::desktop_residual_b::NetworkWatcher::start(
+        Duration::from_millis(mixdog_core_domains::domains::desktop_residual_b::NETWORK_POLL_MS),
+        Arc::new(mixdog_core_domains::domains::desktop_residual_b::network_snapshot),
+        Arc::new(move || on_network_change.power(mixdog_app_protocol::v2::host::PowerEvent::Resume)),
+    ));
+
+(`mixdog_core_domains::domains::host::PowerSink` must be in scope in rows.rs for `.power(..)`; `PowerEvent` is the one adapters.rs imports; `Duration` is std::time.) The watcher
+is a mixdog-rt task that lives for the process, as the TypeScript timer did. After it, desktop `index.ts` `createNetworkWatcher({...})` and
+network-watch.ts (+ test) are deleted by the client task (x-residual-moves-b-client).
+
+## 3. Import progress (finding #10)
+
+The call site named in the plan (node_calls.rs) cannot hold it: mixdog-app-server cannot depend on mixdog-core-domains (it is the other way), and
+node_calls.rs only classifies method names into lanes. The call site is a decorator over the `import/*` service, so that every caller of the
+three methods is seen: `ImportProgressService::new(inner, announce)` forwards every call and passes the result of `import/startConversationImport`,
+`import/cancelConversationImport` and `import/getConversationImportJobs` to `ImportProgress::observe`; the poll asks the same service for the job
+list every `CONVERSATION_IMPORT_POLL_MS` while a job runs.
+
+native/core/crates/mixdog-app-server-daemon/src/compose_domains.rs, `compose_domains_post`, replace
+
+    services.push(Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default())));
+
+with
+
+    let import = Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default()));
+    // conversation-import-progress.ts: each changed job snapshot reaches every client on the app feed.
+    let app = state.app.clone();
+    services.push(Arc::new(mixdog_core_domains::domains::desktop_residual_b::ImportProgressService::new(
+        import,
+        Arc::new(move |_event, job| app.notify("import/progress/updated", &serde_json::json!({ "job": job }))),
+    )));
+
+(`state` is the `PreDomains` field `compose_domains_post` already destructures; `SectionFeedState::notify` is the call `config.announce_to`
+uses for `ui/settings/changed`.) The notification row and its params type are in
+native/core/crates/mixdog-app-protocol/pending-rows/g95-fu-residual-b.rows (type module v2/import_progress.rs, written in this task).
+
+The desktop client task (x-residual-moves-b-client) maps this notification to the renderer's `conversation-import-progress` handler and then
+deletes conversation-import-progress.ts (+ its test in conversation-import.test.mjs). The desktop's main process no longer calls
+`createConversationImportProgress` (only the definition is left), so nothing publishes twice meanwhile: the bridge (ipc-state-bridge.ts) still
+forwards a `conversation-import-progress` desktop event when one arrives. The decorator needs no entry in SERVICE_PENDING (it serves the
+methods `ImportService` serves, the same names).
+
+## 4. Login-shell environment (finding #12)
+
+Call site chosen: the start of `mixdog_app_server_daemon::run()` in native/core/crates/mixdog-app-server-daemon/src/lib.rs, before
+`boot_executors()`: no executor thread exists yet, the daemon already depends on mixdog-core-domains (no new edge), and the core, every terminal
+and every tool call inherit the process environment. The shell is read only where the old main process read it: macOS and Linux (Windows returns
+an empty adoption). First statements of `run()`:
+
+    // login-shell-environment.ts: a Dock, Finder or desktop-entry launch lacks what the user's profile exports.
+    let inherited: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let adoption = mixdog_core_domains::domains::desktop_residual_b::adopt_login_shell_environment(
+        mixdog_core_domains::domains::desktop_residual::host_platform(),
+        &inherited,
+        mixdog_core_domains::domains::desktop_residual_b::LOGIN_SHELL_READ_BUDGET,
+    );
+    for (name, value) in &adoption.set {
+        // SAFETY: nothing else runs yet: the executors and every thread that reads the environment are created below.
+        unsafe { std::env::set_var(name, value) };
+    }
+    // the boot diagnostic `login-shell-environment`: duration, adoption.adopted, adoption.changed_count, adoption.homebrew_path_added,
+    // adoption.failures (the fields the old writeBootDiagnostic wrote); a failed read is also logged once at error level here.
+
+`adoption.set` holds the shell's overrides (the probe's PWD/OLDPWD/SHLVL/_, Electron's switches and `MIXDOG_*` values the launcher already
+set are left alone) with Homebrew's directories appended to `PATH` on macOS. Decision left to the lead: whether a daemon started from a terminal by
+the CLI (not by the desktop) also reads the shell (the old code read it for every desktop start only); gate it on the fact the desktop start
+carries today, if there is one, rather than on an environment switch. Then desktop index.ts `adoptLoginShellEnvironment` / `loginShellEnvironmentReady`
+and login-shell-environment.ts (+ test) are deleted by the client task. Note for that task: the old adoption also set the Electron main
+process's own environment, which its own child processes inherit (ssh tunnels and port forwards of server windows, the core spawn itself); the
+daemon-side read covers the core and everything under it, not those, so the client task keeps that coverage (for example by taking the adopted
+variables from the core) before it deletes the TypeScript read, rather than dropping it.
+
+## 5. Attachments (findings #213, #214)
+
+One reader already: `DesktopAttachmentHost` (mixdog-core-session `session/attachments.rs`) answers the residual services' `AttachmentHost` and the
+blob domain's `SessionAttachments` over `desktop_residual::named_attachment` / `session_attachments`, and its three unit tests exist
+(rows named, history beyond the window, bytes by hash). compose_flip.rs builds three instances of the same stateless adapter
+(`PostSeams.session_attachments`, `DesktopResidualService::new`, `DesktopResidualBService::new`); optional tidy-up for the lead: build one
+`Arc<DesktopAttachmentHost>` and clone it into the three.
