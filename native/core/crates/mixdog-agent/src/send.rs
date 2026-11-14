@@ -1248,7 +1248,9 @@ impl Run {
             _ if !self.image_strip_used
                 && replay_safe
                 && partial.tool_calls.is_empty()
-                && (crate::recovery::is_image_processing_error(error) || crate::recovery::is_image_body_dropped(error)) =>
+                && (crate::recovery::is_image_processing_error(error)
+                    || crate::recovery::is_image_body_dropped(error)
+                    || (self.provider.id().as_str() == "grok-oauth" && crate::recovery::is_bare_stream_error(error))) =>
             {
                 self.image_strip = Some(crate::recovery::latest_turn_strip(&self.messages, error)?);
                 self.image_strip_used = true;
