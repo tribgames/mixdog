@@ -1,0 +1,8 @@
+# apps/desktop/src/main/host/index.ts, createDesktopHost, after "const tabs = createBrowserTabsReporter(...)":
+# add: import { registerBrowserSurfaceReport } from './browser-surface-report';
+registerBrowserSurfaceReport(connection, { onSurfaceChanged: (listener) => options.browser().surfaces.onSurfaceChanged(listener) });
+# DesktopHostOptions.browser() gains: surfaces: { onSurfaceChanged(listener: (change: BrowserSurfaceChange) => void): () => void }
+# (type exported from ./browser-surface-report).
+# apps/desktop/src/main/browser/guest-lifecycle.ts (createBrowserGuestLifecycle returns surface's members) and apps/desktop/src/main/browser/host.ts (the browser host object): expose the createBrowserSurfaceRequests result's onSurfaceChanged as `surfaces: { onSurfaceChanged }` so options.browser().surfaces reaches it.
+# HOST_METHOD in connection.ts needs no row: browser-surface-report.ts exports HOST_BROWSER_SURFACE = 'host/browser/surface' (as browser-tabs.ts does for host/state/set). If the lead prefers the table, add browserSurface: 'host/browser/surface' and replace the constant's use.
+# The old path stays until the wave's wiring decides: main/index.ts onSurfaceRequest -> browserRemoteOpen is untouched.
