@@ -7,8 +7,8 @@ param(
     [string]$TargetArchitecture = ''
 )
 
-# Reproducible build of the desktop window library into dist/. Same shape as
-# native/mixdog-secure-desktop/build.ps1: in-repo source only, no dependencies.
+# Reproducible build of the desktop window Node-API module into dist/.
+# Same shape as native/mixdog-secure-desktop/build.ps1: in-repo source plus the crates pinned in Cargo.lock.
 # Runs cargo at Idle priority so a build never makes the workstation sluggish.
 
 $ErrorActionPreference = 'Stop'
@@ -47,11 +47,11 @@ else {
 }
 $library = Join-Path $targetProfileDirectory 'mixdog_window.dll'
 if (-not (Test-Path -LiteralPath $library)) {
-    throw "Window library build did not produce the DLL: $library"
+    throw "Window Node-API module build did not produce the DLL: $library"
 }
 
 Remove-Item -LiteralPath $OutputDirectory -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-Copy-Item -LiteralPath $library -Destination (Join-Path $OutputDirectory 'mixdog_window.dll')
+Copy-Item -LiteralPath $library -Destination (Join-Path $OutputDirectory 'mixdog_window.node')
 
-Write-Host "Window library output: $OutputDirectory"
+Write-Host "Node-API module output: $OutputDirectory"

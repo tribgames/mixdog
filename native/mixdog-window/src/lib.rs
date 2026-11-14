@@ -22,7 +22,8 @@
 //! The library is a Node-API module (mixdog_window.node): Node-API is
 //! ABI-stable across Electron versions, and the loader needs no FFI library.
 //! The Windows imports (comctl32, user32) are raw-dylib, so there are no
-//! import libraries and the build needs no Windows SDK.
+//! import libraries for them; the C runtime is linked statically
+//! (.cargo/config.toml), so the module needs no VC++ Redistributable.
 #![cfg(windows)]
 
 use napi::bindgen_prelude::BigInt;
