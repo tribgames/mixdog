@@ -9,15 +9,29 @@ After `mod computer_gnome;` add:
 ## Dependencies
 None: it uses async-trait, serde, serde_json, tokio, tokio-util, tracing and mixdog-core-api, all already [dependencies] of mixdog-tools.
 
-## The one call (compose / config wiring, Linux only, a no-op elsewhere)
-Where the core observes the config value `desktop.computerControl` (at start with its current value, then on every change), spawn:
-    let state = mixdog_tools::desktop::computer_gnome_extension::apply_gnome_extension(
-        process_manager.clone(),
-        enabled,                                   // the boolean value of desktop.computerControl
-        &env,                                      // the session env map (computer_linux::Env), as the diagnose probes get it
-        &bundled_dir(&env, exe_dir)?,              // computer_gnome_extension::bundled_dir(&env, <dir of current_exe>)
-        &cancel,
-    ).await;
+## The one call (compose_flip.rs `compose_real`, Linux only, a no-op elsewhere)
+Right after `late_computer_hosts.bind(computer_pool.clone())...?;` (the place Computer Use is composed), add:
+    {
+        // GNOME window control comes from Mixdog's own shell extension: keep it installed and enabled exactly while Computer Use
+        // is on (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
+        let (config, manager, cancel) = (config.clone(), b.process_manager.clone(), b.cancel.clone());
+        let mut changes = config.changes();
+        tokio::spawn(async move {
+            use mixdog_tools::desktop::computer_gnome_extension::{apply_gnome_extension, bundled_dir};
+            let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+            loop {
+                let enabled = config.desktop_settings().computer_control;
+                let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
+                apply_gnome_extension(manager.clone(), enabled, &env, bundled_dir(&env, &exe_dir).as_deref(), &cancel).await;
+                if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
+                    break;
+                }
+            }
+        });
+    }
+(At start it applies the current value, then again after every config change, as the desktop re-applied it on every settings
+apply (each step is idempotent, and an extension toggled by hand is brought back in line); the env is the process env, as the Linux preflight reads it
+(`LinuxSession::of_host`). The bundle is optional: without one, off still takes the uuid out of the enabled list.)
 `diagnose` already reports the result: computer_gnome::linux_permissions adds `gnome_extension` {installed, enabled, needsRelogin, error?}.
 
 ## Packaging (the packaging task of the wave, not s3-15)

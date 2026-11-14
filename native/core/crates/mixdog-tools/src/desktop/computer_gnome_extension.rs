@@ -144,15 +144,18 @@ pub fn bundled_dir(env: &Env, exe_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Puts the bundled copy in the user's extensions dir unless one is already installed system-wide.
-fn install_files(host: &dyn Host, env: &Env, bundled: &Path) -> Result<(), String> {
+fn install_files(host: &dyn Host, env: &Env, bundled: Option<&Path>) -> Result<(), String> {
     if host.exists(&system_extension_dir().join("metadata.json")) {
         return Ok(());
     }
     let Some(target) = user_extension_dir(env) else {
         return Err("no home directory to install the GNOME extension into".into());
     };
-    let Some(version) = metadata_version(host, bundled) else {
-        return Err(format!("bundled extension not found at {}", bundled.display()));
+    let Some((bundled, version)) = bundled.and_then(|dir| Some((dir, metadata_version(host, dir)?))) else {
+        return Err(match bundled {
+            Some(dir) => format!("bundled extension not found at {}", dir.display()),
+            None => "bundled extension not found beside the executable".into(),
+        });
     };
     if metadata_version(host, &target) != Some(version) || !host.exists(&target.join("extension.js")) {
         host.replace_dir(bundled, &target).map_err(|error| format!("copying the extension failed: {error}"))?;
@@ -206,7 +209,7 @@ async fn shell_answers(host: &dyn Host) -> bool {
     .is_some()
 }
 
-async fn sync(host: &dyn Host, enabled: bool, env: &Env, bundled: &Path, cancel: &CancellationToken) -> Option<GnomeExtensionState> {
+async fn sync(host: &dyn Host, enabled: bool, env: &Env, bundled: Option<&Path>, cancel: &CancellationToken) -> Option<GnomeExtensionState> {
     if !host.is_linux() || !var(env, "XDG_CURRENT_DESKTOP").to_lowercase().contains("gnome") {
         return None;
     }
@@ -240,8 +243,9 @@ pub fn last_state() -> Option<GnomeExtensionState> {
 
 /// Brings the extension in line with the `desktop.computerControl` value. Serialized, so a quick off/on toggle cannot interleave two
 /// applies; a failure is in the returned state's `error` and logged, never thrown. Off GNOME (or off Linux) nothing is touched and the
-/// default state comes back.
-pub async fn apply_gnome_extension(manager: Arc<dyn ProcessManager>, enabled: bool, env: &Env, bundled: &Path, cancel: &CancellationToken) -> GnomeExtensionState {
+/// default state comes back. `bundled` is [`bundled_dir`]: without one, turning it on reports the missing files and turning it off still
+/// takes our uuid out of the enabled list.
+pub async fn apply_gnome_extension(manager: Arc<dyn ProcessManager>, enabled: bool, env: &Env, bundled: Option<&Path>, cancel: &CancellationToken) -> GnomeExtensionState {
     let _turn = QUEUE.lock().await;
     let host = SystemHost { manager, env: env.clone() };
     let Some(state) = sync(&host, enabled, env, bundled, cancel).await else { return GnomeExtensionState::default() };
@@ -339,7 +343,7 @@ mod tests {
     }
 
     async fn run(fake: &Fake, enabled: bool) -> Option<GnomeExtensionState> {
-        sync(fake, enabled, &env("ubuntu:GNOME"), Path::new(BUNDLED), &CancellationToken::new()).await
+        sync(fake, enabled, &env("ubuntu:GNOME"), Some(Path::new(BUNDLED)), &CancellationToken::new()).await
     }
 
     #[tokio::test]
@@ -405,9 +409,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn without_a_bundle_disabling_still_takes_our_uuid_out_and_enabling_reports_it() {
+        let fake = Fake::new(&[], &format!("['a@b', '{GNOME_EXTENSION_UUID}']"));
+        let state = sync(&fake, false, &env("GNOME"), None, &CancellationToken::new()).await.unwrap();
+        assert_eq!(*fake.extensions.lock().unwrap(), "['a@b']");
+        assert!(state.error.is_none());
+        let state = sync(&fake, true, &env("GNOME"), None, &CancellationToken::new()).await.unwrap();
+        assert!(!state.enabled && state.error.as_deref().is_some_and(|error| error.contains("beside the executable")));
+        assert_eq!(*fake.extensions.lock().unwrap(), "['a@b']");
+    }
+
+    #[tokio::test]
     async fn another_desktop_or_platform_is_left_alone() {
         let fake = Fake::new(&[(&format!("{BUNDLED}/metadata.json"), meta(1))], "@as []");
-        assert!(sync(&fake, true, &env("KDE"), Path::new(BUNDLED), &CancellationToken::new()).await.is_none());
+        assert!(sync(&fake, true, &env("KDE"), Some(Path::new(BUNDLED)), &CancellationToken::new()).await.is_none());
         let mut other = Fake::new(&[(&format!("{BUNDLED}/metadata.json"), meta(1))], "@as []");
         other.platform_linux = false;
         assert!(run(&other, true).await.is_none());
