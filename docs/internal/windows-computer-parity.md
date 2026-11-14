@@ -43,16 +43,24 @@ older than most of the Rust now in the tree; every line it called missing was se
    (`watch`, 200 ms looks for 1 s, `seen` windows named even after they close), the restricted-session filter
    (`narrow_rows`) and the baseline rules; not carried: a late first list seeding the baseline of a read-only command (the
    read is cancelled at its 300 ms budget, so that session takes its baseline at its next command).
-5. **Held keys after a daemon crash.** The receipt lives in the helper and the daemon (reaudit stillOpen); the startup
-   sweep (C:computer_backend.rs `sweep_leftover_ledgers`) clears ledgers only. The old worker lost them the same way, so
-   this is not a regression; listed so nobody believes it is covered.
-6. **The helper's own foreground lock on a panic abort; `SPI_SETFOREGROUNDLOCKTIMEOUT` inside `focus()`** (reaudit
-   stillOpen, low): the old C# had the same two windows. Same status as 5.
+5. **Held keys after a daemon crash.** Covered (g95-fu-computer-helper): the input receipt is backed by a file
+   (`MIXDOG_COMPUTER_RECEIPT_FILE`, `<data>/computer/ledgers/<session>-<marker>.receipt`, set by C:computer_backend.rs
+   `request_for`; H:platform/windows/input.rs `Section`), so its records outlive the core and the helpers. The startup
+   sweep (C:computer_backend.rs `sweep_leftover_ledgers`) runs one `--abort-cleanup` per receipt that still holds
+   something and no process has open, which releases what it names through the tracked path; an empty receipt is only
+   removed. The old worker lost them (not a regression); this is an addition.
+6. **The helper's own foreground lock on a panic abort; `SPI_SETFOREGROUNDLOCKTIMEOUT` inside `focus()`.** The lock:
+   covered (H:platform/windows/foreground_lock.rs `process`, a panic hook that unlocks an open hold before the abort).
+   `SPI_SETFOREGROUNDLOCKTIMEOUT`: not applicable, `native::focus` never sets it (it presses the no-name key instead), so
+   there is no value to put back.
 7. **`bindComputerEnvironmentGuard` in `host/powershell-host.ts`** (deferred-g3.md, s3-23 item 4) goes with the host.
    Rust: C:computer_env.rs and C:computer_user_control.rs `take_over_environment`. Covered; s3-31 deletes the in-process
    guard.
 8. **The remote-screen sweep** (`sweepPowerShellScreenHostFiles` in `remote-screen/screen-input-host.ts`) stays until
    x-del-remote-screen decides how long old script and DLL-cache files are still removed; it is not a PowerShell path.
+   It removes `remote-screen-host-*.ps1` and `remote-screen-cache` only. The scripts of the computer host
+   (`computer-host-<pid>-<hex>.ps1`) and its `host-cache/*.dll` are swept by C:computer_backend.rs
+   `sweep_retired_host_files` (g95-fu-computer-helper), once per data folder at the core's first helper start.
 9. **The TS host's Windows input is already read-only.** `worker-pool.ts` `hostRequestScope` marks every request to the
    helper `read_only` except the four releases, so the input dispatch of `powershell-host.ts` cannot move the mouse on
    Windows; the core does all input. s3-31 deletes that dispatch with the host (dead on Windows today).
@@ -184,7 +192,7 @@ No line below is NOT COVERED.
 | Sequence runner (1..6 steps, 10 s of waits, stale_target, preflight) | host/sequence-runner.ts | C:computer_act.rs, computer_desktop_host.rs |
 | Authorization settings and policy (authorization.ps1, allowElevatedInput) | host/authorization-settings.ts, execution-policy.ts | C:computer_policy.rs |
 | Process start-up: DPI, COM, ownership table, observer ready before the first request | session.ps1 | H:platform/windows/mod.rs, H:host/mod.rs |
-| Assembly compile cache, warm worker | host-script.ts | not needed (native binary); old cache swept by screen-input-host |
+| Assembly compile cache, warm worker | host-script.ts | not needed (native binary); the old scripts and `host-cache` are swept by C:computer_backend.rs `sweep_retired_host_files` (the screen-input-host sweep covers the remote-screen files only) |
 
 ### runtime-saved-login.ps1, MixWin32Process.cs (Authenticode), saved-login.ts
 | Old behaviour | Old place | Rust |

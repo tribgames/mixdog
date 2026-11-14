@@ -279,9 +279,22 @@ pub struct ForegroundLock<N: LockNative = SystemLock> {
 /// This process's lock on the real desktop; its deadline thread starts with
 /// the first call.
 pub fn process() -> &'static ForegroundLock {
-    static LOCK: OnceLock<ForegroundLock> = OnceLock::new();
-    LOCK.get_or_init(|| ForegroundLock::new(SystemLock))
+    PROCESS_LOCK.get_or_init(|| {
+        // The release profile aborts on a panic, which ends the process with
+        // the system-wide lock still taken and the deadline thread dead: the
+        // hook lets go of it first. Installed with the first lock there can be.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Some(lock) = PROCESS_LOCK.get() {
+                lock.unlock_on_panic();
+            }
+            previous(info);
+        }));
+        ForegroundLock::new(SystemLock)
+    })
 }
+
+static PROCESS_LOCK: OnceLock<ForegroundLock> = OnceLock::new();
 
 impl<N: LockNative> ForegroundLock<N> {
     pub fn new(native: N) -> Self {
@@ -396,6 +409,20 @@ impl<N: LockNative> ForegroundLock<N> {
             self.inner.end_own(&mut state, "worker");
         }
         state.outcome
+    }
+
+    /// What a panic hook does: unlocks a hold that may be open, without waiting
+    /// for the state (the panicking thread may hold it) and without the retries
+    /// and facts of an ordinary release, since nothing runs after the panic.
+    fn unlock_on_panic(&self) {
+        let open = match self.inner.state.try_lock() {
+            Ok(state) => state.open,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner().open,
+            Err(std::sync::TryLockError::WouldBlock) => true,
+        };
+        if open {
+            let _ = self.inner.native.unlock();
+        }
     }
 
     /// Records when a step of the delivery happened, on the lease clock, and
@@ -514,6 +541,18 @@ mod tests {
         let _state = lock.inner.state();
         *fake.clock.lock().unwrap() += ms;
         lock.inner.wake.notify_all();
+    }
+
+    #[test]
+    fn a_panic_unlocks_an_open_hold_and_touches_nothing_otherwise() {
+        let (lock, fake, _calls) = granted(0);
+        lock.unlock_on_panic();
+        assert_eq!(fake.unlocks(), 0, "nothing was held");
+        assert_eq!(lock.acquire(60_000, false), Acquired::Held);
+        // The panicking thread may hold the state: the unlock does not wait for it.
+        let _state = lock.inner.state();
+        lock.unlock_on_panic();
+        assert_eq!(fake.unlocks(), 1, "the open hold was unlocked");
     }
 
     #[test]
