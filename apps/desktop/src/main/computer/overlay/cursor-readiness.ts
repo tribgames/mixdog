@@ -1,3 +1,6 @@
+/** How long the core's `host/computer/cursorPrepare` waits on the arrow (it gives up at 900 ms itself). */
+export const CURSOR_PREPARE_BUDGET_MS = 750;
+
 type PrepareSurface = (sessionId: string) => Promise<void>;
 let presenter: PrepareSurface | undefined;
 
@@ -11,7 +14,7 @@ export function bindCursorPreparation(prepare: PrepareSurface): () => void {
 
 export async function prepareCursorFeedback(
   sessionId: string,
-  budgetMs = 750
+  budgetMs = CURSOR_PREPARE_BUDGET_MS
 ): Promise<'ready' | 'unavailable' | 'timeout'> {
   const prepare = presenter;
   if (!prepare) return 'unavailable';
