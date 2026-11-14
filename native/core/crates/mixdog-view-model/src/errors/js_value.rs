@@ -21,16 +21,8 @@ pub fn path<'a>(value: Js<'a>, keys: &[&str]) -> Js<'a> {
     keys.iter().fold(value, |current, key| get(current, key))
 }
 
-/// JavaScript truthiness of a parsed value.
-pub fn truthy(value: Js) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(_) => true,
-    }
-}
+/// JavaScript truthiness of a parsed value (the crate's one reading of it).
+pub(crate) use crate::tool_primitives::truthy;
 
 /// `a || b || ...`: the first truthy value, else the last one.
 pub fn first_truthy<'a>(values: &[Js<'a>]) -> Js<'a> {
@@ -45,11 +37,6 @@ pub fn first_defined<'a>(values: &[Js<'a>]) -> Js<'a> {
 /// `typeof value === 'string'`.
 pub fn str_of(value: Js) -> Option<&str> {
     value?.as_str()
-}
-
-/// A non-empty string member, as `typeof x === 'string' && x`.
-pub fn non_empty_str(value: Js) -> Option<&str> {
-    str_of(value).filter(|text| !text.is_empty())
 }
 
 /// `typeof value === 'object'` with `value` not null (arrays included).
