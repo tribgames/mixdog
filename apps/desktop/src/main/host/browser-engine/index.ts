@@ -76,13 +76,15 @@ export interface BrowserEngineDeps {
   snapshot: Parameters<typeof registerSnapshot>[2];
   refCall: Parameters<typeof registerRefCall>[2];
   screenshot: Parameters<typeof registerScreenshot>[2];
+  /** The privacy check a printed PDF runs, the same one a screenshot runs. */
+  cdpSend: Parameters<typeof registerCdpSend>[2];
 }
 
 /** Registers every engine method of the lane on `connection`. */
 export function registerBrowserEngine(connection: HostConnection, ctx: EngineContext, deps: BrowserEngineDeps): void {
   registerPages(connection, ctx, deps.pages);
   registerPage(connection, ctx, deps.page);
-  registerCdpSend(connection, ctx);
+  registerCdpSend(connection, ctx, deps.cdpSend);
   registerInputBatch(connection, ctx);
   registerSnapshot(connection, ctx, deps.snapshot);
   registerRefCall(connection, ctx, deps.refCall);
@@ -319,6 +321,7 @@ export function createBrowserEngine(
         ports.tools.snapshots.captureSnapshotPayload(guest, command, signal),
     },
     refCall: { evaluate },
+    cdpSend: { prepareVisualOutput: async (guest, signal) => ports.tools.screenshots.prepareVisualOutput(guest, signal) },
     screenshot: {
       screenshots: ports.tools.screenshots,
       resolveRefRect: (guest, ref, signal) => ports.tools.refPoints.resolveRefRect(guest, ref, signal),
