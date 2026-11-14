@@ -1,11 +1,12 @@
 /**
  * The virtual pointer the user sees while an agent drives the desktop: one
- * cursor surface per active session, kept in step with the coordinator's
+ * cursor surface per active session, kept in step with the presence's
  * snapshot. Sessions that leave the snapshot lose their window; a session
  * whose cursor is hidden keeps its surface warm for the next event.
  */
 import { screen } from 'electron';
 
+import type { ComputerPresenceSource } from '../presence/mirror';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { bindCursorPreparation } from './cursor-readiness';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
@@ -29,11 +30,14 @@ export interface ComputerUseCursorOverlay {
   dispose(): void;
 }
 
-export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
+/** `source` is the presence the arrows follow: the core-driven mirror, or (the default) the in-process coordinator. */
+export function createComputerUseCursorOverlay(
+  source: ComputerPresenceSource = computerUseCoordinator
+): ComputerUseCursorOverlay {
   const surfaces = new Map<string, CursorSurface>();
   let visibleCursorEvents = new Map<string, number>();
   let disposed = false;
-  let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
+  let latestSnapshot: ComputerUseSnapshot = source.snapshot();
   const tail = createCursorTail(() => render());
   const arrivals = new Map<string, { eventId: number; promise: Promise<void> }>();
 
@@ -90,7 +94,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       for (const [sessionId, held] of [...heldPointers]) {
         if (Math.abs(point.x - held.x) + Math.abs(point.y - held.y) <= POINTER_MOVE_TOLERANCE) continue;
         heldPointers.delete(sessionId);
-        computerUseCoordinator.releasePointer(sessionId);
+        source.releasePointer(sessionId);
       }
     }, POINTER_WATCH_MS);
     pointerWatch.unref?.();
@@ -146,7 +150,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     }
   };
 
-  const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {
+  const unsubscribe = source.subscribe((snapshot) => {
     latestSnapshot = snapshot;
     render();
   });

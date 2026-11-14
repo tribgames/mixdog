@@ -1,6 +1,6 @@
 /**
  * `host/computer/pointerFeedback`: a Computer Use helper's pointer progress, which the overlay draws as the agent's
- * arrow (`computer/host/pointer-cursor.ts` `publishPointerProgress`). The core has already matched each event to a
+ * arrow (`computer/host/pointer-cursor.ts` `publishPointerProgress`, which routes through the presence mirror once it is bound). The core has already matched each event to a
  * helper line it understands and a phase the overlay paints (`worker-pool.ts` `reportPointerProgress`); the events
  * are fed to the same consumer the PowerShell worker fed, in the helper's order, and the request is answered `null`.
  */
