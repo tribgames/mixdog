@@ -43,9 +43,11 @@ export function createHostConnection(source: Source): HostConnection {
     if (event.type === 'serverRequest') {
       const { id, method, params } = (event as { request: { id: string | number; method: string; params: unknown } }).request;
       const handler = requestHandlers.get(method);
-      // A request nobody here serves is answered, on the connection that asked it, rather than left to time out in the core.
+      // A host request nobody here serves is answered, on the connection that asked it (`live`, read just now), rather than
+      // left to time out in the core. Other server requests on this connection (approval cards, the takeover feed) are not
+      // the host role's: their own consumers answer them.
       if (!handler) {
-        if (source.client() === live) {
+        if (method.startsWith('host/')) {
           source.respond(id, { error: { code: HOST_METHOD_NOT_FOUND, message: `${method} is not served by this desktop` } });
         }
         return;

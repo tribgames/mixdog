@@ -145,6 +145,8 @@ test('a request nobody here serves is answered -32601; a served one is unaffecte
       id: 'host-1',
       error: { code: HOST_METHOD_NOT_FOUND, message: 'host/screen/displays is not served by this desktop' },
     });
+    // An approval card is not the host role's: it is left to the window that answers it.
+    conn.serverSend({ id: 'appr-1', method: 'item/tool/requestApproval', params: { threadId: 't1' } });
     conn.serverSend(command('host-2', 'snapshot'));
     assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the answer')), { id: 'host-2', result: { text: 'ok' } });
   } finally {
