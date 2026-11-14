@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
 use mixdog_js::{js_trim, json_number, slice_utf16, to_number, value_to_string};
-use mixdog_rt::{DurabilityIo, MaintenanceIo};
+use mixdog_rt::{DurabilityIo, LaneToken, MaintenanceIo};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -30,10 +30,6 @@ use crate::memory::reply::ToolReply;
 use crate::memory::transcript::TranscriptIngest;
 use crate::memory::transcript::discovery::{Active, is_skipped_watch_path, is_transcript_jsonl_name, mtime_ms};
 use crate::memory::transcript::rows::cwd_from_transcript_path;
-
-/// The actions the `memory` tool names, in the order the unknown-action answer lists them.
-pub const ACTIONS: [&str; 12] =
-    ["core", "status", "cycle1", "search", "flush", "rebuild", "prune", "backfill", "ingest_session", "dump_session_roots", "manage", "purge"];
 
 /// `actions[action]` of `handleMemoryAction`: a call without an action is `core` (the tool's own entry
 /// adds it); any other name outside the table is unknown, and so is a null or empty one.
@@ -79,7 +75,7 @@ pub fn parse_action(args: &Value) -> std::result::Result<Action, String> {
 
 /// The answer to an action outside the table.
 pub fn unknown_action_reply(name: &str) -> ToolReply {
-    ToolReply::error(format!("unknown memory action: {name}; valid: {}. Mutation verbs belong in op.", ACTIONS.join(", ")))
+    ToolReply::error(format!("unknown memory action: {name}; valid: core, status. Mutation verbs belong in op."))
 }
 
 /// `String(value ?? '')`.
@@ -723,8 +719,9 @@ impl Maintenance {
                 let result = match scheduler.await_cycle1_run(cycle1_base(config), Cycle1Options::default()).await {
                     Ok(result) => result,
                     Err(error) => {
-                        log(&format!("[backfill] cycle1 error (iter={}): {}\n", report.cycle1_iters, plain(error).message()));
-                        report.errors.push(("cycle1", String::new()));
+                        let message = plain(error).message();
+                        log(&format!("[backfill] cycle1 error (iter={}): {message}\n", report.cycle1_iters));
+                        report.errors.push(("cycle1", message));
                         break;
                     }
                 };
@@ -905,11 +902,12 @@ mod tests {
         assert_eq!(parse_action(&json!({ "action": "dump_session_roots" })), Ok(Action::DumpSessionRoots));
         assert_eq!(parse_action(&json!({ "action": "drop_everything" })), Err("drop_everything".into()));
         assert_eq!(parse_action(&json!({ "action": null })), Err(String::new()));
-        for name in ACTIONS {
+        for name in ["core", "status", "cycle1", "search", "flush", "rebuild", "prune", "backfill", "ingest_session", "dump_session_roots", "manage", "purge"] {
             assert!(parse_action(&json!({ "action": name })).is_ok(), "{name}");
         }
         let reply = unknown_action_reply("drop_everything");
-        assert!(reply.is_error && reply.text.starts_with("unknown memory action: drop_everything; valid: core, status, cycle1,"));
+        assert!(reply.is_error);
+        assert_eq!(reply.text, "unknown memory action: drop_everything; valid: core, status. Mutation verbs belong in op.");
     }
 
     #[test]
@@ -1109,7 +1107,7 @@ mod tests {
         let reply = dump_session_roots(&db, &json!({ "sessionId": "s1" })).await.unwrap();
         assert_eq!(
             reply.text,
-            format!("# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nuser: hello there\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
+            format!("# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
                 db.query("SELECT id FROM entries WHERE source_ref = 'r3'", &[]).await.unwrap()[0].get::<_, i64>(0))
         );
         let rootless = dump_session_roots(&db, &json!({ "session_id": "s1", "includeRaw": false })).await.unwrap();
