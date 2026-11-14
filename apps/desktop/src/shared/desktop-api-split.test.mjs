@@ -38,21 +38,23 @@ test('no key is in two groups', () => {
   }
 });
 
-test('the direct half has the seven groups and sections holds only the key sections', () => {
-  assert.deepEqual(Object.keys(DIRECT_KEYS), ['sessions', 'files', 'scm', 'terminal', 'settings', 'capabilities', 'sections']);
+test('the direct half has the eight groups and sections holds only the key sections', () => {
+  assert.deepEqual(Object.keys(DIRECT_KEYS), ['sessions', 'files', 'scm', 'terminal', 'settings', 'connections', 'capabilities', 'sections']);
   assert.deepEqual([...DIRECT_KEYS.sections], ['sections']);
-  assert.equal(Object.values(DIRECT_KEYS).flat().length, 190);
+  assert.equal(Object.values(DIRECT_KEYS).flat().length, 234);
 });
 
-test('the preload provides every member outside OPTIONAL_UNPROVIDED', () => {
-  const preload = ['index.ts', 'browser-texture.ts']
+// The preload provides the host half only (window.mixdogDesktopHost); the direct half is composed in the renderer
+// (core-direct/install.ts), some groups from their key lists, so only the host keys are looked for here.
+test('the preload provides every host key outside OPTIONAL_UNPROVIDED', () => {
+  const preload = ['index.ts', 'host-api.ts', 'browser-texture.ts']
     .map((name) => fs.readFileSync(new URL(`../preload/${name}`, import.meta.url), 'utf8'))
     .join(' ');
   const unprovided = new Set(OPTIONAL_UNPROVIDED);
-  for (const key of desktopApiMembers()) {
+  for (const key of Object.values(HOST_KEYS).flat()) {
     if (unprovided.has(key)) continue;
-    const mentioned = new RegExp("(^|[^A-Za-z0-9_])" + key + "([^A-Za-z0-9_]|$)").test(preload);
-    assert.ok(mentioned, `${key} is classified as provided but the preload never mentions it`);
+    const mentioned = new RegExp('(^|[^A-Za-z0-9_])' + key + '([^A-Za-z0-9_]|$)').test(preload);
+    assert.ok(mentioned, `${key} is a host key but the preload never mentions it`);
   }
 });
 

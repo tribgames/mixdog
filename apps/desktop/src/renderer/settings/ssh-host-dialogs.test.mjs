@@ -3,7 +3,9 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from '../test-support/test-dom.mjs';
-import { SshHostSettingsDialog } from './ssh-host-dialogs.tsx';
+import { useConnectionsCore } from '../test-support/connections-core-mock.mjs';
+
+const { SshHostSettingsDialog } = await import('./ssh-host-dialogs.tsx');
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'FormData'] };
 const HOST = { id: 'h1', name: 'build-box', target: 'dev@build-box', lastConnectedAt: 1, open: true };
@@ -52,6 +54,7 @@ async function mount(t, { host = HOST, logins = SERVER_LOGINS, ...extra } = {}) 
     },
     ...extra,
   };
+  useConnectionsCore(api);
   await act(async () =>
     dom.root.render(
       React.createElement(SshHostSettingsDialog, {

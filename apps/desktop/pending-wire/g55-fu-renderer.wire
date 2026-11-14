@@ -1,0 +1,12 @@
+# g55-fu-renderer
+apps/desktop/src/preload/index.ts: nothing to apply (since the G5 wiring the preload exposes window.mixdogDesktopHost =
+  createHostApi(...), which no longer builds these members): the 42 DIRECT_KEYS.connections members (sshListHosts ...
+  subscribeServerRestoreProgress), getNotificationPreferences, sendTestNotification and listSystemFonts are answered by the
+  composed renderer API (shared/desktop-api-split.ts DIRECT_KEYS.connections and DIRECT_KEYS.settings).
+  `previewProjectFile` is the HOST's (shared/desktop-api-split.ts HOST_KEYS.mixed; preload/host-api.ts invokes DESKTOP_IPC.previewProjectFile):
+  keep its IPC handler (main/ipc-project-files.ts registerPreviewIpc) and the `mixdog-media://preview/<token>` protocol handler
+  (main/media-protocol.ts, main/server-file-access.ts createServerFilePreviews): they are what streams a large image, audio or video by range.
+apps/desktop/src/main/ipc.ts (the channel lists of the registered handlers): the handlers of the channels the renderer no longer calls
+  (DESKTOP_IPC.ssh*, connectionLink*, connectionNotice, connectionRetry*, reopenServerWindows*, serverRestoreProgress*, serverPorts*,
+  serverPort*, connectionSignIn, listSystemFonts, getNotificationPreferences, sendTestNotification) stay registered until the deletion
+  task of the TypeScript ssh/notification stack in main; nothing in the renderer reaches them any more.

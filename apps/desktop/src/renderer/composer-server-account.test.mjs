@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 
+import { useConnectionsCore } from './test-support/connections-core-mock.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 test('the composer marks a server window running on the server’s own logins', async (t) => {
@@ -16,7 +17,7 @@ test('the composer marks a server window running on the server’s own logins', 
     terminalsAvailable: true,
     modelLogin,
   });
-  dom.window.mixdogDesktop = {
+  const api = {
     connection: { id: 'srv', kind: 'ssh', name: 'build-box' },
     getConnectionLink: () => Promise.resolve(view('server')),
     subscribeConnectionLink: (listener) => {
@@ -24,6 +25,8 @@ test('the composer marks a server window running on the server’s own logins', 
       return () => listeners.delete(listener);
     },
   };
+  dom.window.mixdogDesktop = api;
+  useConnectionsCore(api);
   const { ServerAccountBadge } = await import('./ComposerFooter.tsx');
   await act(async () => dom.root.render(React.createElement(ServerAccountBadge)));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));

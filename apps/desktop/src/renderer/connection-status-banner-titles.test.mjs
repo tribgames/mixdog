@@ -3,7 +3,9 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from './test-support/test-dom.mjs';
-import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx';
+import { useConnectionsCore } from './test-support/connections-core-mock.mjs';
+
+const { ConnectionStatusBanner } = await import('./ConnectionStatusBanner.tsx');
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'MutationObserver'] };
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
@@ -11,7 +13,7 @@ const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)))
 test('the re-attach notice names an attachment-only session by its kind, not [Image]', async (t) => {
   const dom = installTestDom(t, DOM);
   const listeners = new Set();
-  dom.window.mixdogDesktop = {
+  const api = {
     connection: { kind: 'ssh', id: 'h1', name: 'vps' },
     subscribeConnectionLink: () => () => undefined,
     subscribeConnectionNotice: (listener) => {
@@ -20,6 +22,8 @@ test('the re-attach notice names an attachment-only session by its kind, not [Im
     },
     getConnectionLink: () => Promise.resolve({ state: { status: 'connected' } }),
   };
+  dom.window.mixdogDesktop = api;
+  useConnectionsCore(api);
   globalThis.window = dom.window;
   await act(async () => dom.root.render(React.createElement(ConnectionStatusBanner)));
   await settle();
