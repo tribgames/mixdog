@@ -243,6 +243,8 @@ pub struct ThreadListService {
     observer: OnceLock<Arc<dyn CatalogObserver>>,
     /// The index writes still queued behind the barriers already acknowledged (see [`ListFence`]).
     fence: OnceLock<Arc<dyn ListFence>>,
+    /// Told of every row sent on the app feed, after the dedupe and before the notification (the session notification producer).
+    on_row: OnceLock<Arc<dyn Fn(&ThreadSummary) + Send + Sync>>,
     /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
     /// The row last sent on the app feed per thread: Node hands a catalog only when it differs from the one its listener holds
@@ -265,7 +267,7 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into(), announced: Default::default() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), on_row: OnceLock::new(), loaded: false.into(), announced: Default::default() }
     }
 
     /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it is the row
@@ -276,6 +278,9 @@ impl ThreadListService {
             return;
         }
         announced.insert(thread.id.as_str().to_owned(), thread.clone());
+        if let Some(hook) = self.on_row.get() {
+            hook(&thread);
+        }
         if started {
             app.notify(STARTED, &mixdog_app_protocol::v2::thread::ThreadStartedParams { thread });
         } else {
@@ -296,6 +301,11 @@ impl ThreadListService {
     /// Connects the observer of the published catalog. Set once.
     pub fn observe(&self, observer: Arc<dyn CatalogObserver>) {
         let _ = self.observer.set(observer);
+    }
+
+    /// Connects what is told each row sent on the app feed. Set once.
+    pub fn on_row(&self, hook: Arc<dyn Fn(&ThreadSummary) + Send + Sync>) {
+        let _ = self.on_row.set(hook);
     }
 
     /// Connects the fence of the index writes. Set once.

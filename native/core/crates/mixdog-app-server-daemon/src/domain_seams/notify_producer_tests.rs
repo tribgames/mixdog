@@ -794,6 +794,24 @@ async fn a_phone_that_holds_while_this_pc_is_in_use_hears_an_unread_turn_after_t
     assert!(read.pushes().is_empty(), "seen on the desktop");
 }
 
+/// PN `deliver` while this PC is idle: a turn that finishes is one push of the finished kind to the registered device at once, in the
+/// session's own title and the answer's words, and the same roster row again tells nothing more.
+#[tokio::test(start_paused = true)]
+async fn a_finished_turn_is_exactly_one_push_of_its_kind_to_a_registered_phone() {
+    let rig = rig();
+    rig.phone("phone", DevicePreferences::default());
+    rig.answer("a", Ok(Some(done("All **done**."))));
+    finish(&rig, "a", "Task").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    let pushed = rig.pushes();
+    assert_eq!(pushed.len(), 1);
+    assert_eq!((pushed[0].device_id.as_str(), pushed[0].thread_id.as_str(), pushed[0].event), ("phone", "a", Event::Finished));
+    assert_eq!((pushed[0].title.as_str(), pushed[0].body.as_str(), pushed[0].schedule), ("Task", "All done.", PushSchedule::Now));
+    rig.input.row(row("a", "Task", false));
+    advance(DESKTOP_HOLD_MS).await;
+    assert_eq!(rig.pushes().len(), 1, "one turn, one push");
+}
+
 /// PN `onSessionState`: an approval's push carries its id and whether Allow is offered; a question has none and says so in its
 /// own words; a wait answered during the hold is not pushed; one push per approval.
 #[tokio::test(start_paused = true)]
