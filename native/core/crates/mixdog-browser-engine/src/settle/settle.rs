@@ -20,7 +20,6 @@ use std::time::Duration;
 
 use mixdog_app_protocol::v2::browser_engine::HostBrowserPageDomQuietParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserPageRenderCheckpointParams;
-use mixdog_app_protocol::v2::browser_engine::HostBrowserPageStopParams;
 use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_rt::CancelView;
 use mixdog_rt::CancellationToken;
@@ -35,8 +34,6 @@ use crate::port::BrowserHost;
 use crate::queue::barrier::Either;
 use crate::queue::barrier::race;
 
-/// How long a cancelled command waits for the host to answer the stop of the page's load.
-const STOP_GRACE: Duration = Duration::from_secs(1);
 /// How often the page's `loading` fact is read while a load is awaited.
 const LOAD_POLL: Duration = Duration::from_millis(25);
 /// How often the network observer reads the ledger.
@@ -205,6 +202,10 @@ impl PageState {
 /// Where the engine reads a page's current state (the lane's mirror of the host's facts and the page's ledgers).
 pub trait PageProbe: Send + Sync {
     fn state(&self) -> PageState;
+
+    /// Sends `page/stop` for the page and returns at once (the old listener did not wait for the stop): the cancelled command is
+    /// not held for an answer, and a stop that fails or hangs changes nothing the caller is told.
+    fn stop_loading(&self);
 }
 
 /// The page a settle observes: the host to ask what only it can see, the page's id, and how to read its state.
@@ -451,10 +452,7 @@ pub async fn settle_after_action(
     if !was_cancelled && cancel.is_cancelled() {
         let state = page.probe.state();
         if state.loading && !state.destroyed {
-            let params = HostBrowserPageStopParams { page_id: page.id.to_string() };
-            // The old listener did not wait for the stop: the request goes out and the cancelled command is not held for its answer
-            // beyond a moment. Teardown can race the cancellation: a stop that fails or hangs changes nothing the caller is told.
-            let _ = time::timeout(STOP_GRACE, page.host.page_stop(params, &CancellationToken::new())).await;
+            page.probe.stop_loading();
         }
     }
     outcome
@@ -502,6 +500,8 @@ pub(super) mod support {
     //! A page and a host the settle tests drive: the page's state is set by the test, the host answers by wire name.
 
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use async_trait::async_trait;
     use serde_json::Value;
@@ -512,21 +512,30 @@ pub(super) mod support {
     use crate::port::HostWire;
 
     #[derive(Default)]
-    pub struct TestProbe(Mutex<PageState>);
+    pub struct TestProbe(Mutex<PageState>, AtomicUsize);
 
     impl TestProbe {
         pub fn new(url: &str) -> Arc<Self> {
-            Arc::new(Self(Mutex::new(PageState { url: url.to_string(), ..PageState::default() })))
+            Arc::new(Self(Mutex::new(PageState { url: url.to_string(), ..PageState::default() }), AtomicUsize::new(0)))
         }
 
         pub fn set(&self, change: impl FnOnce(&mut PageState)) {
             change(&mut self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        }
+
+        /// How many `page/stop` requests the settle sent without waiting.
+        pub fn stops(&self) -> usize {
+            self.1.load(Ordering::SeqCst)
         }
     }
 
     impl PageProbe for TestProbe {
         fn state(&self) -> PageState {
             self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+        }
+
+        fn stop_loading(&self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -828,7 +837,9 @@ mod tests {
         let error = settle_after_action(&page(&host, &probe), &fast_policy(), &view, None, &AfterAction::default()).await.expect_err("cancelled");
         canceller.await.expect("canceller");
         assert_eq!(error, SettleError::Cancelled(Cancelled { reason: Some("user stopped it".into()) }));
-        assert_eq!(host.called(), ["stop"]);
+        // The stop goes out without the command waiting for it: the host lane is never asked from the settle.
+        assert_eq!(probe.stops(), 1);
+        assert!(host.called().is_empty());
     }
 
     #[tokio::test]

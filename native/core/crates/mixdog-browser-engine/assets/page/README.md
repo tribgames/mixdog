@@ -34,3 +34,18 @@ Format:
 | `ref-point-probe.js` | ref point probe (hit-tested point of a ref) | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_FRAME_HAS_TRANSFORM__` (the frame-transform function) |
 
 `frame-transform.js` and `document-roots.js` are the sources the two placeholders above take.
+
+The form-action sources below are the page-world functions the engine applies to a ref's element (`host/browser/ref/call`); each
+file is one function, byte for byte, with the placeholders named. `apps/desktop/src/main/browser/ref-fill.test.mjs` and
+`ref-selection.test.mjs` run them in JSDOM.
+
+| File | Owning engine module | Placeholders |
+| --- | --- | --- |
+| `fill-ref.js` | `refs/text_entry.rs` (`FILL_REF`) | `__MIXDOG_EDITABILITY__` (`editability.js`) |
+| `focus-ref.js` | `refs/text_entry.rs` (`FOCUS_REF`) | `__MIXDOG_EDITABILITY__` |
+| `select-native.js` | `refs/select.rs` (`SELECT_NATIVE`) | `__MIXDOG_EDITABILITY__` |
+| `custom-control.js` | `refs/select.rs` (`CUSTOM_CONTROL`, the head both custom-dropdown functions share) | `__MIXDOG_EDITABILITY__` |
+| `open-custom.js` | `refs/select.rs` (`OPEN_CUSTOM`) | `__MIXDOG_CUSTOM_CONTROL__` (`custom-control.js`), `__MIXDOG_EDITABILITY__` |
+| `pick-custom.js` | `refs/select.rs` (`PICK_CUSTOM`) | `__MIXDOG_CUSTOM_CONTROL__`, `__MIXDOG_EDITABILITY__` |
+| `read-select-options.js` | `refs/control_state.rs` (`READ_SELECT_OPTIONS`) | none |
+| `read-checked.js` | `refs/control_state.rs` (`READ_CHECKED`) | none |

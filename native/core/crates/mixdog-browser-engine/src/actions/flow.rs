@@ -11,9 +11,6 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::browser_engine::BrowserPageReadKind;
-use mixdog_app_protocol::v2::browser_engine::BrowserPageReadOptions;
-use mixdog_app_protocol::v2::browser_engine::HostBrowserPageReadParams;
 use mixdog_js::js_trim;
 use mixdog_rt::CancelView;
 use mixdog_rt::time;
@@ -29,8 +26,7 @@ use crate::settle::postcondition::Expected;
 use crate::settle::postcondition::PageSample;
 use crate::settle::postcondition::describe;
 use crate::settle::postcondition::matches;
-use crate::settle::reply_wait::POSTCONDITION_READ_CHARS;
-use crate::settle::reply_wait::POSTCONDITION_READ_PARTS;
+use crate::settle::reply_wait::read_page_text;
 use crate::settle::settle::Cancelled;
 use crate::settle::settle::Page;
 use crate::settle::settle::cancelled;
@@ -62,40 +58,13 @@ enum Observation {
 /// The whole text of the page, read in parts when it is longer than one read returns. A text still cut after the last part is
 /// reported as `truncated`.
 async fn observe_text(page: &Page<'_>, cancel: &CancelView) -> Result<Observation, Cancelled> {
-    let mut text = String::new();
-    // How much has been read, in the UTF-16 units the host counts in.
-    let mut taken: u64 = 0;
-    for _ in 0..POSTCONDITION_READ_PARTS {
-        let offset = (taken > 0).then(|| u32::try_from(taken).unwrap_or(u32::MAX));
-        let params = HostBrowserPageReadParams {
-            page_id: page.id.to_owned(),
-            kind: BrowserPageReadKind::Text,
-            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset, attributes: None, limit: None }),
-        };
-        let read = page.host.page_read(params, cancel.token()).await;
-        throw_if_cancelled(cancel)?;
-        let read = match read {
-            Err(HostCallError::Cancelled) => return Err(cancelled(cancel)),
-            Err(error) => return Ok(Observation::Failed(format!("Page observation failed: {error}"))),
-            Ok(read) => read,
-        };
-        let Some(part) = read.payload.get("text").and_then(Value::as_str) else {
-            return Ok(Observation::Failed("Page observation failed: the page answered no text".to_owned()));
-        };
-        taken += mixdog_js::utf16_len(part) as u64;
-        text.push_str(part);
-        let finished = match read.payload.get("total").and_then(Value::as_u64) {
-            Some(total) => taken >= total,
-            None => !read.truncated,
-        };
-        if finished {
-            return Ok(Observation::Text { text, truncated: false });
-        }
-        if part.is_empty() {
-            break;
-        }
-    }
-    Ok(Observation::Text { text, truncated: true })
+    let read = read_page_text(page.host, page.id, cancel.token()).await;
+    throw_if_cancelled(cancel)?;
+    Ok(match read {
+        Err(HostCallError::Cancelled) => return Err(cancelled(cancel)),
+        Err(error) => Observation::Failed(format!("Page observation failed: {error}")),
+        Ok(whole) => Observation::Text { text: whole.text, truncated: whole.clipped },
+    })
 }
 
 /// `wait`: `text`, `textGone` and/or `url` (substrings) to wait for, `timeoutMs` (500 ms to 30 s, 10 s by default). `internalStep`
@@ -197,6 +166,8 @@ mod tests {
         fn state(&self) -> PageState {
             PageState { url: self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone(), ..PageState::default() }
         }
+
+        fn stop_loading(&self) {}
     }
 
     /// Answers `page/read` from a list of texts (the last one stays), and may move the page to another URL during the first read.

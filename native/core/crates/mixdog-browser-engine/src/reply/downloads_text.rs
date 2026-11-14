@@ -4,10 +4,17 @@
 //! (naming, size limits, the files) is the host's; the engine reads it through `host/browser/downloads`.
 
 use std::collections::HashMap;
+use std::path::Path;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use mixdog_app_protocol::v2::browser_engine::DownloadItem;
 use mixdog_browser_policy::redaction::redact_browser_text;
 use mixdog_browser_policy::redaction::redact_url;
+
+use super::reply::ReplyFile;
+use crate::limits::DOWNLOAD_ATTACH_MAX_BYTES;
+use crate::port::FilePort;
 
 /// The size a download is reported at, in whole KB, at least 1 (`Math.max(1, Math.round(bytes / 1024))`).
 fn kilobytes(download: &DownloadItem) -> i64 {
@@ -137,6 +144,34 @@ pub fn changed_while_attaching(id: &str) -> String {
     format!("download {id} changed while it was being attached; retry")
 }
 
+/// The bytes of a saved download, for an inline attach. The files the engine otherwise only asks facts of (`FilePort`) are not
+/// read by it; this is the one read.
+#[async_trait]
+pub trait DownloadFiles: Send + Sync {
+    /// The file at `path`, at most `limit` bytes of it (a file that grew past what was measured is not read past it).
+    async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes>;
+}
+
+/// `downloads` with `attach`: the completed download as an inline file part. A path that is not a file, a file above
+/// [`DOWNLOAD_ATTACH_MAX_BYTES`] and a file that changed size while it was read are refused, the last two naming what to do.
+pub async fn attach_download(files: &dyn FilePort, reader: &dyn DownloadFiles, download: &DownloadItem) -> Result<(ReplyFile, String), String> {
+    let path = Path::new(&download.path);
+    let before = files.stat(path).await;
+    if !before.is_file {
+        return Err(not_a_file(&download.id));
+    }
+    if before.size > DOWNLOAD_ATTACH_MAX_BYTES {
+        return Err(too_large_to_attach(&download.id, before.size, DOWNLOAD_ATTACH_MAX_BYTES, &download.path));
+    }
+    let bytes = reader.read_file(path, before.size).await.map_err(|_| not_a_file(&download.id))?;
+    let after = files.stat(path).await;
+    if after.size != before.size || bytes.len() as u64 != before.size {
+        return Err(changed_while_attaching(&download.id));
+    }
+    let file = ReplyFile { mime_type: download_mime_type(&download.file, &download.mime_type), name: download.file.clone(), bytes };
+    Ok((file, attached_note(download)))
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -220,5 +255,59 @@ mod tests {
         assert_eq!(not_a_file("d1"), "download d1 is not a readable file");
         assert_eq!(too_large_to_attach("d1", 9, 8, "C:/x"), "download d1 is 9 bytes; inline attachment limit is 8 bytes. Use read with path C:/x");
         assert_eq!(changed_while_attaching("d1"), "download d1 changed while it was being attached; retry");
+    }
+
+    /// A disk of one file whose size the test can change between the measurements, and whose content is what a read answers.
+    struct OneFile {
+        sizes: std::sync::Mutex<std::collections::VecDeque<u64>>,
+        content: Vec<u8>,
+        is_file: bool,
+    }
+
+    #[async_trait]
+    impl FilePort for OneFile {
+        async fn stat(&self, _path: &Path) -> crate::types::FileFacts {
+            let mut sizes = self.sizes.lock().unwrap();
+            let size = if sizes.len() > 1 { sizes.pop_front().unwrap() } else { sizes.front().copied().unwrap_or(0) };
+            crate::types::FileFacts { exists: true, is_file: self.is_file, size, ..crate::types::FileFacts::default() }
+        }
+
+        async fn write_frame(&self, _run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<std::path::PathBuf> {
+            unreachable!("no frame is written")
+        }
+    }
+
+    #[async_trait]
+    impl DownloadFiles for OneFile {
+        async fn read_file(&self, _path: &Path, limit: u64) -> std::io::Result<Bytes> {
+            Ok(Bytes::copy_from_slice(&self.content[..self.content.len().min(limit as usize)]))
+        }
+    }
+
+    fn disk(sizes: &[u64], content: &[u8], is_file: bool) -> OneFile {
+        OneFile { sizes: std::sync::Mutex::new(sizes.iter().copied().collect()), content: content.to_vec(), is_file }
+    }
+
+    #[tokio::test]
+    async fn an_attach_returns_the_file_whole_with_its_type_and_a_note() {
+        let files = disk(&[3], b"a,b", true);
+        let (file, note) = attach_download(&files, &files, &download(json!({"file": "a.CSV", "mimeType": ""}))).await.expect("attached");
+        assert_eq!((file.name.as_str(), file.mime_type.as_str(), &file.bytes[..]), ("a.CSV", "text/csv", &b"a,b"[..]));
+        assert_eq!(note, "
+
+Attached download d1 as a.CSV.");
+    }
+
+    #[tokio::test]
+    async fn an_attach_refuses_a_non_file_a_file_above_the_cap_and_a_file_that_changed_while_it_was_read() {
+        let not_file = disk(&[3], b"abc", false);
+        assert_eq!(attach_download(&not_file, &not_file, &download(json!({}))).await.expect_err("not a file"), "download d1 is not a readable file");
+        let big = disk(&[DOWNLOAD_ATTACH_MAX_BYTES + 1], b"", true);
+        let refused = attach_download(&big, &big, &download(json!({}))).await.expect_err("too large");
+        assert_eq!(refused, format!("download d1 is {} bytes; inline attachment limit is {DOWNLOAD_ATTACH_MAX_BYTES} bytes. Use read with path C:/tmp/a.csv", DOWNLOAD_ATTACH_MAX_BYTES + 1));
+        let exactly = disk(&[DOWNLOAD_ATTACH_MAX_BYTES], b"", true);
+        assert_ne!(attach_download(&exactly, &exactly, &download(json!({}))).await.expect_err("short read"), refused, "the cap itself is allowed");
+        let grew = disk(&[3, 4], b"abcd", true);
+        assert_eq!(attach_download(&grew, &grew, &download(json!({}))).await.expect_err("changed"), "download d1 changed while it was being attached; retry");
     }
 }
