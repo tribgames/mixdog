@@ -39,6 +39,11 @@ pub(crate) async fn save_and_adopt(config: &Config, before: &Doc, after: &Doc) -
 pub trait SettingsEffects: Send + Sync {
     /// `setConfiguredShell(command)`.
     fn set_configured_shell(&self, command: &str);
+    /// `getConfiguredShell()`: the command every spawn reads now, for an owner that holds it (`None` for one that does not,
+    /// whose reading of the stored setting is then the answer).
+    fn configured_shell(&self) -> Option<String> {
+        None
+    }
     /// `noteCacheWarmingEnabled(enabled)`: off cancels every armed chain.
     fn note_cache_warming_enabled(&self, enabled: bool);
     /// `syncDeveloperOption(id)`: flushes and applies live effects (the provider registry).
@@ -219,7 +224,17 @@ impl Settings {
     /// `normalizeSystemShellConfig(config.shell)`.
     pub fn system_shell(&self) -> Value {
         let agent = self.config.agent();
-        shell_config(agent.get("shell"), &*self.env)
+        let command = self.effects.configured_shell().unwrap_or_else(|| {
+            clean(agent.get("shell").and_then(Value::as_object).and_then(|m| m.get("command")))
+        });
+        shell_config(command, &*self.env)
+    }
+
+    /// `normalizeSystemShellConfig(config.shell).command`: the command the agent config stores, which boot and every adoption of
+    /// the document hand to `setConfiguredShell`. A stored command the platform refuses (`shell_command`) is none.
+    pub fn stored_shell_command(agent: &Doc) -> String {
+        let stored = agent.get("shell").and_then(Value::as_object).and_then(|m| m.get("command"));
+        shell_command(stored).unwrap_or_default()
     }
 
     /// `setSystemShell(input)`: a string or `{ command }`.
@@ -516,9 +531,8 @@ fn normalize_bot_order(value: Option<&Value>) -> Option<Vec<String>> {
     Some(ids)
 }
 
-/// `normalizeSystemShellConfig`.
-fn shell_config(value: Option<&Value>, env: &(dyn Fn(&str) -> Option<String> + Send + Sync)) -> Value {
-    let command = clean(value.and_then(Value::as_object).and_then(|m| m.get("command")));
+/// `normalizeSystemShellConfig`, over the command in use.
+fn shell_config(command: String, env: &(dyn Fn(&str) -> Option<String> + Send + Sync)) -> Value {
     let env_command = env("MIXDOG_SHELL").map(|v| mixdog_js::js_trim(&v).to_owned()).unwrap_or_default();
     let source = if !command.is_empty() {
         "config"

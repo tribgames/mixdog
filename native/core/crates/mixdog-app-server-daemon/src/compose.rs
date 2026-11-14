@@ -740,7 +740,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let shell_path =
         crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
     // The one `ConfiguredShell`: every spawn reads it, and the flip hands `exec.configured_shell` to
-    // `DaemonSettingsEffects::new` and sets the boot value from `config.shell` on it.
+    // `DaemonSettingsEffects::new`, which sets the boot value from `config.shell` on it and follows every later adoption of the document (`ShellFollow`).
     let (exec, exec_events) = build_exec(
         tokens,
         data_dir,
