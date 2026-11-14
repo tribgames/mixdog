@@ -82,7 +82,7 @@ export function browserDownloadSavePath(
 }
 
 /** Extension-derived type, used only when Chromium reported nothing useful. */
-function downloadMimeType(path: string, fallback: string): string {
+export function downloadMimeType(path: string, fallback: string): string {
   const extension = path.split('.').pop()?.toLowerCase() || '';
   const types: Record<string, string> = {
     txt: 'text/plain',

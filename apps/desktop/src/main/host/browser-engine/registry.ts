@@ -87,7 +87,9 @@ function serve(
   method: string,
   run: (
     fields: EngineParams,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Masks with the page's secrets from here on, a refusal of `run` itself included. */
+    maskWith: (redact: (text: string) => string) => void
   ) => { redact: (text: string) => string; result: Promise<unknown>; finish?: (result: unknown) => unknown }
 ): void {
   connection.handleRequest(method, async (params, signal) => {
@@ -99,7 +101,7 @@ function serve(
       ctx.transcript?.record({ dir: 'in', method, params: redactLeaves(fields, redact) });
     };
     try {
-      const call = run(fields, signal);
+      const call = run(fields, signal, (mask) => (redact = mask));
       redact = call.redact;
       recordIn();
       const settled = await call.result;
@@ -130,12 +132,13 @@ export function registerEngineMethod(
   method: string,
   handler: EngineHandler
 ): void {
-  serve(connection, ctx, method, (fields, signal) => {
+  serve(connection, ctx, method, (fields, signal, maskWith) => {
     const { pageId, expect } = fields;
     if (typeof pageId !== 'string' || !pageId) {
       throw new HostRpcError(HOST_INVALID_PARAMS, `${method} needs a pageId.`);
     }
     const redact = (text: string) => ctx.redactKnown(pageId, text);
+    maskWith(redact);
     const live = () => {
       const page = ctx.page(pageId);
       if (!page || page.guest.isDestroyed()) throw pageGone(pageId);
@@ -153,19 +156,24 @@ export function registerEngineMethod(
         throw error;
       }
     }
+    // The person's input on the page ends this call with -32012; while they hold it the call is refused.
+    const running = ctx.leases?.beginCall(pageId, signal);
     const call: EnginePageCall = {
       ...page,
       pageId,
       facts,
       guarded: (bound, send) => guardedSend(page, facts, bound, send),
     };
-    const result = handler(fields, signal, call).catch((error) => {
+    const result = handler(fields, running?.signal ?? signal, call).catch((error) => {
       // A page that died under the handler is gone, whatever the CDP error said.
       if (page.guest.isDestroyed() && !(error instanceof HostRpcError)) throw pageGone(pageId);
       throw error;
     });
     // The queued events go out before the reply, on success and on failure alike.
-    const settled = result.finally(() => ctx.events.flush(pageId));
+    const settled = result.finally(() => {
+      running?.end();
+      ctx.events.flush(pageId);
+    });
     return {
       redact,
       result: settled,

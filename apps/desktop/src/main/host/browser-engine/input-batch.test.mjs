@@ -56,7 +56,7 @@ function harness({ script, guardVerdict = { blocked: false } } = {}) {
   };
   registerInputBatch(connection, ctx);
   const call = (params, signal = new AbortController().signal) =>
-    handlers.get(METHOD)({ pageId: 'p1', stopOnDialog: true, timeoutMs: 0, ...params }, signal);
+    handlers.get(METHOD)({ pageId: 'p1', stopOnDialog: true, timeoutMs: 0, expect: { documentId: 'p1:1' }, ...params }, signal);
   return { call, sent, state };
 }
 
@@ -179,4 +179,10 @@ test('press with modifiers and repeat sends the chord repeat times', async () =>
   assert.equal(h.sent.filter((event) => event.type === 'rawKeyDown').length, 2);
   assert.equal(h.sent[0].modifiers, 2);
   assert.equal(result.completedSteps, 1);
+});
+
+test('a batch bound to no state is refused as document in engine mode, and nothing is sent', async () => {
+  const h = harness();
+  await assert.rejects(h.call({ steps: [{ op: 'press', key: 'Enter' }], expect: undefined }), (e) => e.code === -32010 && e.data.reason === 'document');
+  assert.equal(h.sent.length, 0);
 });

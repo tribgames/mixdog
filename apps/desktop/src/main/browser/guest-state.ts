@@ -20,7 +20,7 @@ import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 
 /** What moved in a page's record, for whoever publishes the page's facts. */
-export type GuestChangeReason = 'document' | 'dialog' | 'chooser' | 'crash' | 'session';
+export type GuestChangeReason = 'document' | 'dialog' | 'chooser' | 'crash' | 'session' | 'popup';
 
 /** What the record tells an observer: a fact changed, or the host itself
  *  logged or refused something the core must see in order with the page's own

@@ -147,6 +147,8 @@ export function createBrowserBackgroundPages(
     // changes nothing in this document and would otherwise be reported as a
     // click the page ignored.
     pushBounded(state.for(opener).openedPopups, popupName);
+    // The facts of the opener list the popup: an engine lane publishes them when this fires.
+    state.changed(opener, 'popup');
     host.onPopup?.(opener, popup.guest, select);
     if (select) {
       sessions.selectGuest(ownerSessionId, popup.guest);
