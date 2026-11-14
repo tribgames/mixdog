@@ -22,6 +22,11 @@ pub trait OAuthProvider: Send + Sync {
     /// The interactive login writing `account`'s credential file; `None` when the provider
     /// has no login flow in Rust (OpenAI, Devin).
     fn login_flow(&self, account: &str) -> Option<Arc<dyn LoginFlow>>;
+    /// The login for a host with no browser (`beginOAuthLogin({ openBrowser: false })`): a provider with a device-code
+    /// sign-in (OpenAI, Grok) signs in by it; any other provider's is its ordinary login.
+    fn login_flow_without_browser(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
+        self.login_flow(account)
+    }
     /// Refreshes `account`'s token now unless it lasts `minimum_validity_ms` more (`preflight<Provider>OAuthCredentials`);
     /// `Err` when the provider cannot, or the grant cannot give that lease.
     async fn renew(&self, _account: &str, _minimum_validity_ms: u64) -> Result<(), String> {

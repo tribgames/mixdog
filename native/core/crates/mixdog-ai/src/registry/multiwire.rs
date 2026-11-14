@@ -181,6 +181,12 @@ impl ProviderAdapter for MultiWireAdapter {
         false
     }
 
+    fn begin_loop(&self) {
+        for (_, engine) in &self.engines {
+            engine.begin_loop();
+        }
+    }
+
     fn release_session(&self, session_id: &str) {
         for (_, engine) in &self.engines {
             engine.release_session(session_id);

@@ -490,6 +490,12 @@ impl ProviderAdapter for KeyPoolAdapter {
         }
         self.pool.primary.settle_send(group, end).await;
     }
+    fn begin_loop(&self) {
+        if let Some(rotation) = self.pool.engines.rotation() {
+            rotation.reset_probe_pacing();
+        }
+        self.pool.primary.begin_loop();
+    }
     fn release_session(&self, session_id: &str) {
         self.pool.primary.release_session(session_id);
         for engine in self.pool.engines.built() {

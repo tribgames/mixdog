@@ -285,10 +285,18 @@ impl GatewayAdapter {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
         request.options.send_identity.set_wire(wire.as_str());
         let request = self.with_ceiling(wire, request);
-        if !self.session_header {
-            return engine.attempt(request).await;
+        match self.session_headers(&request) {
+            Some(headers) => SEND_HEADERS.scope(headers, engine.attempt(request)).await,
+            None => engine.attempt(request).await,
         }
-        // The conversation's id, else one id for this send (`opencode-go.mjs` `send`).
+    }
+
+    /// OpenCode Go names the conversation on every request: its id, else one id for this send (`opencode-go.mjs`
+    /// `send`).
+    fn session_headers(&self, request: &ModelRequest) -> Option<Vec<(String, String)>> {
+        if !self.session_header {
+            return None;
+        }
         let session = request
             .options
             .session_id
@@ -296,7 +304,7 @@ impl GatewayAdapter {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map_or_else(|| request.options.send_identity.get_or_mint(random_uuid), str::to_owned);
-        SEND_HEADERS.scope(vec![("x-opencode-session".into(), session)], engine.attempt(request)).await
+        Some(vec![("x-opencode-session".into(), session)])
     }
 
     fn engine(&self, wire: Wire) -> Option<Arc<dyn ProviderAdapter>> {
@@ -389,6 +397,31 @@ impl ProviderAdapter for GatewayAdapter {
             // The Messages engine is an Anthropic provider named for the gateway (`label: this.name`, anthropic.mjs:411).
             Wire::Messages => Some(RetryLine { tag: format!("[{}]", self.account.id()), delay: true, style: RetryLineStyle::Attempt }),
             other => self.engine(other)?.retry_line_of(request),
+        }
+    }
+    /// `canFallbackNonStreaming` of the Chat Completions engine, which every send of this gateway may have gone out on:
+    /// the non-streaming re-issue exists on that wire only ([`Self::recover_spent`] refuses any other).
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.account.recovers_spent(model, failure)
+    }
+    /// `recoverCompatNonStreaming` for a send whose last attempt went out on the Chat wire; a send that went out on
+    /// another wire ends with its own ladder's failure.
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        match self.wire_of(&request) {
+            Some(Wire::Chat) => match self.session_headers(&request) {
+                Some(headers) => SEND_HEADERS.scope(headers, self.account.recover_spent(request)).await,
+                None => self.account.recover_spent(request).await,
+            },
+            _ => Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent)),
+        }
+    }
+    fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {
+        self.account.recovery_line(model, failure)
+    }
+    fn begin_loop(&self) {
+        self.account.begin_loop();
+        for (_, engine) in &self.engines {
+            engine.begin_loop();
         }
     }
     fn release_session(&self, session_id: &str) {
@@ -757,6 +790,30 @@ mod tests {
         assert!(gateway.send_stages_of(&on_gemini).ladder_by_connection);
         assert_eq!(gateway.retry_line_of(&on_messages).map(|line| line.tag), Some(format!("[{}]", gateway.id())));
         assert_eq!(gateway.retry_line_of(&on_gemini).map(|line| line.tag), Some("[opencode-go:gemini]".to_owned()));
+    }
+
+    /// A spent Chat ladder is re-issued without streaming (`recoverCompatNonStreaming`); a send that went out on
+    /// another wire ends with its own ladder's failure, and a failure that showed output is never re-issued.
+    #[tokio::test]
+    async fn a_spent_chat_ladder_is_recovered_on_the_chat_wire_only() {
+        use crate::providers::compat::profile::CompatProfile;
+        let gateway = GatewayAdapter::new(
+            engine(CompatProfile::opencode_go()),
+            vec![(Wire::Messages, engine(CompatProfile::deepseek()) as Arc<dyn ProviderAdapter>)],
+            WirePick::Routed,
+        );
+        let transient = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        assert!(gateway.recovers_spent("m", &transient));
+        let mut shown = transient.clone();
+        shown.exposure.text_emitted = true;
+        assert!(!gateway.recovers_spent("m", &shown));
+        assert!(!gateway.recovers_spent("m", &ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted)));
+
+        let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() };
+        request.options.send_identity.set_wire(Wire::Messages.as_str());
+        let refused = gateway.recover_spent(Arc::new(request)).await.err().expect("another wire has no re-issue");
+        assert_eq!(refused.kind, ErrorKind::Unknown);
+        assert_eq!(refused.delivery, DeliveryState::NotSent);
     }
 
     /// No stream the registry puts under a reroute awaits after the wire today, so the production stacks cannot show

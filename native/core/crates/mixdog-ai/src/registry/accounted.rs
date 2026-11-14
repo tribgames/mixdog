@@ -268,6 +268,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn release_session(&self, session_id: &str) {
         self.inner.release_session(session_id);
     }
+    fn begin_loop(&self) {
+        self.inner.begin_loop();
+    }
     fn release_transport_scope(&self, scope: &str) {
         self.inner.release_transport_scope(scope);
     }
