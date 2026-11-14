@@ -1,0 +1,15 @@
+package com.example
+import kotlin.math.*
+/** KDoc */
+@Serializable data class User(val name: String, var age: Int = 0, val tags: List<String>? = null)
+sealed interface Result<out T> { class Ok<T>(val v: T) : Result<T>; object Err : Result<Nothing> }
+fun main(args: Array<String>) {
+    val s = "esc \" \$x \${y} ${args.size}"; val raw = """raw $s"""; val c = 'a'; val n = 0x1F + 1_000L + 3.14f
+    var x: Int? = null; x?.let { println(it) } ?: run { println("none") }
+    when (x) { 1, 2 -> println("a"); in 3..5 -> {}; is Int -> {}; else -> {} }
+    for (i in 0 until 10 step 2) { if (i % 2 == 0 && !flag) continue }
+    val f = { a: Int, b: Int -> a + b }; suspend fun g() = coroutineScope { launch { delay(1) } }
+    try { throw IllegalStateException() } catch (e: Exception) { } finally { }
+}
+inline fun <reified T> T.ext(): String = this.toString() // comment
+companion object { const val K = 1 }

@@ -1,0 +1,23 @@
+# comment
+defmodule MyApp.User do
+  @moduledoc """
+  Docs with "quotes".
+  """
+  use GenServer
+  import Enum, only: [map: 2]
+  alias MyApp.{Repo, Post}
+  @attr 1
+  defstruct [:name, age: 0]
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  defp private(a, b) when is_integer(a) and a > 0 do
+    s = "interp #{a + b} \n"; c = 'charlist'; atom = :"quoted atom"; n = 1_000 + 0x1F + 3.14e-2
+    ~r/regex\d+/i |> then(& &1); ~w(a b c)a
+    case {a, b} do
+      {1, _} -> :ok
+      {x, y} when x > y -> {:error, "bad"}
+      _ -> nil
+    end
+  end
+  def handle_call(:get, _from, state), do: {:reply, state, state}
+  def run(list), do: list |> Enum.map(fn x -> x * 2 end) |> Enum.filter(&(&1 > 2))
+end

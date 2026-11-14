@@ -1,0 +1,14 @@
+# comment
+<# block
+comment #>
+[CmdletBinding()] param([Parameter(Mandatory = $true)][string]$Name, [int]$Count = 3, [switch]$Force)
+function Get-Thing { param($Path) Write-Host "Hello $Name $($Count + 1) `n" -ForegroundColor Green; return $Path }
+$arr = @(1, 2.5, 0x1F); $h = @{ Key = 'value'; "k2" = $null; N = 5 }
+$s = 'single ''quoted'' x'; $here = @"
+heredoc $Name
+"@
+if ($Name -eq 'x' -and -not $Force -or $Count -gt 1) { Write-Output $true } elseif ($Name -match '^a.*z$') { } else { throw "bad" }
+foreach ($i in 1..10) { if ($i % 2 -eq 0) { continue } }
+Get-ChildItem -Path . -Recurse | Where-Object { $_.Length -gt 1KB } | ForEach-Object { $_.FullName } | Sort-Object -Descending
+try { Invoke-RestMethod -Uri "http://x" } catch [System.Exception] { $_.Exception.Message } finally { }
+[System.IO.Path]::Combine("a", "b"); $env:PATH += ";C:\bin"; Set-Alias -Name ll -Value ls

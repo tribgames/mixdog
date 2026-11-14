@@ -1,0 +1,21 @@
+import 'dart:async';
+import 'package:flutter/material.dart' as m;
+/// Doc comment with [Reference]
+abstract class Shape<T extends num> implements Comparable<Shape> {
+  final String name; static const int k = 0x1F; late final int n; int? maybe;
+  Shape(this.name, {required this.n, this.maybe = 3});
+  factory Shape.make() => _Impl();
+  get area => 0.0; set area(double v) {}
+  Future<void> run() async { await Future.delayed(Duration(seconds: 1)); }
+}
+void main() {
+  var s = 'it\'s $name ${a + b}', r = r'raw \n', m = """multi
+line""", d = 3.14e-2, h = 0xFF;
+  List<int> l = [1, 2, ...rest]; Map<String, dynamic> mp = {'a': 1}; Set<int> st = {1};
+  for (final i in l) { if (i is! int || i == null) continue; }
+  switch (x) { case 1: break; default: }
+  try { throw Exception('x'); } on FormatException catch (e, st) { rethrow; } finally {}
+  x ??= y ?? z; a?.b!.c; var f = (int a) => a * 2;
+}
+extension E on String { String get up => toUpperCase(); }
+mixin M { } enum Color { red, green }

@@ -1,0 +1,15 @@
+" comment
+set nocompatible number relativenumber
+let g:var = 1 | let s:x = "str\n" . 'single''s'
+function! s:Greet(name, ...) abort
+  echo "Hello " . a:name . a:1
+  return a:name =~# '^a'
+endfunction
+command! -nargs=* Foo call s:Greet(<f-args>)
+autocmd BufWritePre *.py :%s/\s\+$//e
+nnoremap <silent> <Leader>f :Files<CR>
+if has('nvim') && !exists('g:x') | let g:x = 0x1F | elseif 1 | endif
+for i in range(1, 10) | if i % 2 | continue | endif | endfor
+augroup Mine | autocmd! | augroup END
+syntax on | colorscheme desert | filetype plugin indent on
+try | call Foo() | catch /E\d\+/ | echoerr v:exception | finally | endtry

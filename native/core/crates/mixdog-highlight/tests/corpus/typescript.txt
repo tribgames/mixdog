@@ -1,0 +1,15 @@
+interface Point<T extends number = number> { readonly x: T; y?: T; [key: string]: unknown }
+type U = 'a' | 'b' | { kind: "c"; n: number };
+enum Color { Red = 1, Green, Blue }
+abstract class Shape implements Drawable { private constructor(protected name: string, public readonly id: number = 0) { super(); } abstract area(): number; }
+function id<T>(x: T): T { return x as unknown as T; }
+declare module "m" { export function f(a: string): void; }
+namespace N { export const v = <const>[1, 2]; }
+let t: [string, number?] = ["a"]; const n = x!.y satisfies Foo;
+for (const [k, v] of Object.entries(o) as [string, number][]) {}
+type Fn = (a: number, ...r: string[]) => Promise<void>;
+export type { Foo } from './foo'; import type { Bar } from "./bar";
+@@@@
+const el = <T,>(x: T) => <div id="a">{x}</div>;
+let m: Map<string, Array<Array<number>>> = new Map();
+@Component({ selector: 'app', template: `<p>{{ title }}</p>` }) class AppComponent { @Input() title = ''; constructor(private http: HttpClient) {} }

@@ -1,0 +1,25 @@
+# comment
+version: "3.8"
+name: &anchor value
+services:
+  web:
+    image: nginx:1.25
+    ports: ["80:80", '443:443']
+    environment:
+      - KEY=value
+      - OTHER=${VAR:-default}
+    command: >
+      folded text
+      continues
+    script: |
+      echo "literal"
+      ls -la
+  db: {image: postgres, tags: [a, b], n: 5, f: 1.5, t: true, nul: null, empty: ~}
+ref: *anchor
+merge:
+  <<: *anchor
+? complex key
+: complex value
+---
+second: doc
+...

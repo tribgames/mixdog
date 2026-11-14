@@ -1,0 +1,18 @@
+#!/usr/bin/perl
+use strict; use warnings;
+my ($x, @arr, %h) = (1, 2.5, 0x1F);
+our $VERSION = '1.0'; my $s = "interp $x @arr[0] ${x} \n"; my $q = q(single 'quoted'); my $qq = qq{braces $x};
+my @words = qw(a b c); my %map = (key => 'value', 'k2' => "v2");
+sub greet { my ($name, %opts) = @_; return "Hello, $name!" unless $name eq ''; }
+if ($x =~ /^(\w+)\s*=\s*(.*)$/i) { print "$1 => $2\n"; } elsif ($s !~ m{a/b}x) { }
+(my $t = $s) =~ s/foo/bar/gi; $s =~ tr/a-z/A-Z/;
+foreach my $item (@arr) { next if $item < 0; last unless defined $item; }
+while (my $line = <STDIN>) { chomp $line; print STDERR $line; }
+open(my $fh, '<', $file) or die "Cannot open: $!"; close($fh);
+print <<"END";
+heredoc $x
+END
+my $ref = \@arr; my $href = { a => [1, 2], b => sub { 1 } }; print $$ref[0], $href->{a}[1], "\n";
+package Foo; use parent -norequire, 'Bar'; 1;
+__END__
+doc

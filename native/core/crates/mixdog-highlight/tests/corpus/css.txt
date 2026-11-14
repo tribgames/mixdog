@@ -1,0 +1,15 @@
+@charset "utf-8";
+@import url("a.css") screen and (min-width: 10px);
+:root { --main: #FF00aa; --w: calc(100% - 2rem); }
+html, body > .a:not(.b)::before { margin: 0 auto !important; font: 12px/1.5 "Helvetica Neue", sans-serif; }
+a[href^='http']:hover, #id.class[data-x="1"] ~ p + span { color: rgba(0, 0, 0, .5); transform: translate(-50%, 10px) rotate(45deg); }
+@media (max-width: 600px) and (orientation: landscape) { .x { display: none } }
+@font-face { font-family: F; src: url(f.woff2) format("woff2"); }
+@keyframes spin { from { opacity: 0 } 50.5% { opacity: .5 } to { opacity: 1 } }
+.grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); width: 10vh; transition: all 0.3s ease-in-out; }
+/* comment */
+.a { background: url(data:image/png;base64,AAAA) no-repeat; }
+@@@@
+.btn { &:hover { color: red; } .nested & { color: blue; } }
+$var: 10px; @mixin m($a) { width: $a; } .x { @include m(1px); }
+@supports (display: grid) { .y { display: grid } }

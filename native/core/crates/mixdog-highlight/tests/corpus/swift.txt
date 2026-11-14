@@ -1,0 +1,19 @@
+import Foundation
+/// doc
+@available(iOS 13.0, *) public struct Point: Codable, Equatable { var x: Double = 0, y: Double = 0
+    mutating func move(by d: Double) { x += d; y += d } }
+protocol Drawable: AnyObject { func draw() -> Void }
+enum Result<T> { case success(T), failure(Error) }
+class Shape: Drawable { private(set) var name: String; init(name: String) { self.name = name }
+    func draw() { print("Shape \(name) \u{1F600}") } deinit {} }
+let s = "esc \" \n \(1 + 2)", multi = """
+  lines
+  """, n = 0x1F + 0b11 + 1_000 + 3.14e2
+guard let v = opt, v > 0 else { return }
+if case .success(let r) = res { print(r) } else if x != nil { }
+for i in 0..<10 where i % 2 == 0 { switch i { case 0, 1: break; default: continue } }
+let c = { (a: Int, b: Int) -> Int in a + b }; async let r = fetch(); await task()
+extension Array where Element: Equatable { func uniq() -> [Element] { [] } }
+#if DEBUG
+print("d") // comment
+#endif

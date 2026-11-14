@@ -1,0 +1,29 @@
+#include <iostream>
+#include "local.h"
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#ifdef _WIN32
+#  define EXPORT __declspec(dllexport)
+#endif
+namespace ns { template <typename T, int N = 3> class Vec : public Base<T> {
+public:
+    explicit Vec(std::initializer_list<T> il) noexcept : data_(il) {}
+    virtual ~Vec() = default;
+    constexpr auto size() const -> std::size_t { return N; }
+    T& operator[](std::size_t i) { return data_[i]; }
+private: std::vector<T> data_; }; }
+int main(int argc, char** argv) {
+    int x = 0x1F + 077 + 1'000 + 3.14f; unsigned long long y = 10ULL; char c = '\n'; const char* s = "esc \" \\ %d\n";
+    auto lam = [&](int a) mutable -> int { return a << 2; };
+    std::cout << "hi" << std::endl; /* block */ // line
+    for (auto& e : v) { if (e == nullptr || !ok) continue; }
+    switch (x) { case 1: break; default: goto end; }
+    try { throw std::runtime_error("x"); } catch (const std::exception& e) {}
+    auto p = new Foo<int>(); delete p; static_cast<double>(x);
+    R"(raw string)";
+end: return 0;
+}
+@@@@
+#include <stdio.h>
+typedef struct { int x; float y; } P;
+static inline int f(const P *p) { return p->x * 2; }
+int main(void) { printf("%d\n", f(&(P){1, 2.0f})); return 0; }
