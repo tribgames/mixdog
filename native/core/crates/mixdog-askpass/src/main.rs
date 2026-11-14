@@ -23,7 +23,18 @@ type Stream = std::os::unix::net::UnixStream;
 
 #[cfg(windows)]
 fn connect(endpoint: &str) -> std::io::Result<Stream> {
-    std::fs::OpenOptions::new().read(true).write(true).open(endpoint)
+    // Every instance of the pipe busy: wait for one and try again for up to 30 s, as Node's pipe connect (libuv,
+    // WaitNamedPipe) does, then give up.
+    const ERROR_PIPE_BUSY: i32 = 231;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match std::fs::OpenOptions::new().read(true).write(true).open(endpoint) {
+            Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) && std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            result => return result,
+        }
+    }
 }
 
 #[cfg(unix)]

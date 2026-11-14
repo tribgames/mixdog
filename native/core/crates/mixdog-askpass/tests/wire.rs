@@ -58,6 +58,12 @@ mod endpoint {
             self.0
         }
     }
+
+    /// Closes the server end once the helper has read everything written to it (closing first could drop it).
+    pub fn hang_up(stream: File) {
+        // FlushFileBuffers on a pipe waits until the other end has read the buffered bytes.
+        let _ = stream.sync_all();
+    }
 }
 
 #[cfg(unix)]
@@ -77,6 +83,11 @@ mod endpoint {
             self.0.accept().expect("accept").0
         }
     }
+
+    /// Closes the server end; what was written stays readable for the helper.
+    pub fn hang_up(stream: UnixStream) {
+        drop(stream);
+    }
 }
 
 /// What the helper sent and how it ended.
@@ -95,13 +106,20 @@ fn run(args: &[&str], reply: Option<&str>) -> Run {
         let mut stream = listener.accept();
         let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).expect("request");
+        let whole_line = reply.as_deref().is_some_and(|reply| reply.ends_with('
+'));
         if let Some(reply) = reply {
             stream.write_all(reply.as_bytes()).expect("reply");
             stream.flush().expect("flush");
         }
         request_tx.send(line).expect("send");
-        // The endpoint stays open until the helper has read its answer.
-        let _ = release_rx.recv();
+        if whole_line {
+            // The endpoint stays open until the helper has exited: it must stop at the newline, not wait for the end.
+            let _ = release_rx.recv();
+        } else {
+            // No whole reply line: hang up so the helper reads what was written and then sees the end.
+            endpoint::hang_up(stream);
+        }
     });
     let output = Command::new(HELPER)
         .args(args)
