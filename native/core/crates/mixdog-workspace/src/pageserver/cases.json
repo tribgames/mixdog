@@ -1,0 +1,197 @@
+{
+  "pageAsset": [
+    {
+      "root": "/w/site",
+      "file": "/w/site/index.html",
+      "type": "text/html; charset=utf-8"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/a/b/app.JS",
+      "type": "text/javascript; charset=utf-8"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/a/style.css",
+      "type": "text/css; charset=utf-8"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/.git/x.css",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/a/.x.css",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/other/x.png",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/x.rs",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/noext",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/x.",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/x.json",
+      "type": "application/json; charset=utf-8"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/x.json",
+      "dataRoot": "/w/site/data",
+      "type": ""
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/data/x.json",
+      "dataRoot": "/w/site/data",
+      "type": "application/json; charset=utf-8"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/data/sub/m.bin",
+      "dataRoot": "/w/site/data",
+      "type": "application/octet-stream"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/data/x.png",
+      "dataRoot": "/w/site/data",
+      "type": "image/png"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/data/.hidden/x.json",
+      "dataRoot": "/w/site/data",
+      "type": ""
+    },
+    {
+      "root": "/w/.open/site",
+      "file": "/w/.open/site/a/b.css",
+      "type": "text/css; charset=utf-8"
+    },
+    {
+      "root": "/w/.open/site",
+      "file": "/w/.open/site/.git/b.css",
+      "type": ""
+    },
+    {
+      "root": "/w/site/.data",
+      "file": "/w/site/.data/m.pdf",
+      "type": "application/pdf"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/m.glb",
+      "type": "model/gltf-binary"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/f.woff2",
+      "type": "font/woff2"
+    },
+    {
+      "root": "/w/site",
+      "file": "/w/site/.well/x.txt",
+      "dataRoot": "/w/site/.well",
+      "type": "text/plain; charset=utf-8"
+    }
+  ],
+  "headScript": [
+    {
+      "html": "<p>hi</p>",
+      "out": "<script>S</script><p>hi</p>"
+    },
+    {
+      "html": "",
+      "out": "<script>S</script>"
+    },
+    {
+      "html": "<html><head><title>x</title></head><body></body></html>",
+      "out": "<html><head><script>S</script><title>x</title></head><body></body></html>"
+    },
+    {
+      "html": "<!DOCTYPE html><html lang=\"en\"><body>x</body></html>",
+      "out": "<!DOCTYPE html><html lang=\"en\"><script>S</script><body>x</body></html>"
+    },
+    {
+      "html": "<!DOCTYPE html>\n<!-- <head> --><html><head></head></html>",
+      "out": "<!DOCTYPE html>\n<!-- <head> --><html><head><script>S</script></head></html>"
+    },
+    {
+      "html": "﻿<!doctype html><head>a",
+      "out": "﻿<!doctype html><head><script>S</script>a"
+    },
+    {
+      "html": "<HTML><HEAD data-x=\"a>b\"><meta></HEAD>",
+      "out": "<HTML><HEAD data-x=\"a>b\"><script>S</script><meta></HEAD>"
+    },
+    {
+      "html": "<html data-a=\">\" ><body>",
+      "out": "<html data-a=\">\" ><script>S</script><body>"
+    },
+    {
+      "html": "<script>var s = \"<head>\";</script><head>",
+      "out": "<script>S</script><script>var s = \"<head>\";</script><head>"
+    },
+    {
+      "html": "<!--><head>",
+      "out": "<!--><head><script>S</script>"
+    },
+    {
+      "html": "<!---><head>",
+      "out": "<!---><head><script>S</script>"
+    },
+    {
+      "html": "<!-- a --!><head>",
+      "out": "<!-- a --!><head><script>S</script>"
+    },
+    {
+      "html": "<!-- never closed <head>",
+      "out": "<script>S</script><!-- never closed <head>"
+    },
+    {
+      "html": "<html><head",
+      "out": "<html><script>S</script><head"
+    },
+    {
+      "html": "  \n<?xml version=\"1.0\"?><head>",
+      "out": "  \n<?xml version=\"1.0\"?><head><script>S</script>"
+    },
+    {
+      "html": "</x><head>",
+      "out": "</x><head><script>S</script>"
+    },
+    {
+      "html": "<div><head>",
+      "out": "<script>S</script><div><head>"
+    },
+    {
+      "html": "<head x = '1'>t",
+      "out": "<head x = '1'><script>S</script>t"
+    },
+    {
+      "html": "plain text <head>",
+      "out": "<script>S</script>plain text <head>"
+    },
+    {
+      "html": "<html> <head>é",
+      "out": "<html> <head><script>S</script>é"
+    }
+  ]
+}
