@@ -46,7 +46,6 @@ const PENDING = {
   'host/computer/permissions': 's3-23 (wired by DESKTOP-WIRE-G4)',
   'host/computer/command': 's3-23 (wired by DESKTOP-WIRE-G4)',
   'host/computer/cursorPrepare': 's3-20 (wired by DESKTOP-WIRE-G4)',
-  'host/state/updated': 'unowned: no task in the plan registers a desktop handler for this core notification',
 };
 
 function served() {
@@ -81,7 +80,10 @@ function served() {
   return connection.servedMethods();
 }
 
-const hostMethods = (rows) => rows.map((row) => row.method).filter((method) => method.startsWith('host/'));
+// A notification with delivery 'app' (host/state/updated: the hostState section) goes to every app client through the
+// section machinery, not to the host role, so only requests and connection-delivered notifications need a host handler.
+const hostMethods = (rows) =>
+  rows.filter((row) => row.delivery !== 'app').map((row) => row.method).filter((method) => method.startsWith('host/'));
 
 test('every host/* server request and notification in the method table has a desktop handler', () => {
   const servedMethods = new Set(served());
