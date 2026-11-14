@@ -390,6 +390,11 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Cance
                 if cancel.is_cancelled() || error == HostCallError::Cancelled {
                     return Err(cancelled(cancel));
                 }
+                // The host refused because a dialog blocks the page: the sequence is blocked, even before the page's facts say so.
+                if let HostCallError::DialogBlocking { dialog } = &error {
+                    let text = format!("A {} dialog is blocking the sequence.", dialog.kind);
+                    return Ok(Step { result: StepResult { outcome: StepKind::Blocked, text }, unconfirmed: false });
+                }
                 // The old document has nothing left to render; the navigation the input started is what the caller's load settle
                 // and reply observe next.
                 let state = page.probe.state();
@@ -555,6 +560,8 @@ pub(super) mod support {
         /// The page navigates while its text is read.
         pub url_after_read: Mutex<Option<String>>,
         pub read_fails: Mutex<bool>,
+        /// The read answers only the first part of a longer text.
+        pub read_truncated: Mutex<bool>,
     }
 
     impl TestHost {
@@ -568,6 +575,7 @@ pub(super) mod support {
                 loading_at_checkpoint: Mutex::new(None),
                 url_after_read: Mutex::new(None),
                 read_fails: Mutex::new(false),
+                read_truncated: Mutex::new(false),
             }
         }
 
@@ -591,6 +599,9 @@ pub(super) mod support {
                     *self.loading_at_checkpoint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(self.probe.state().loading);
                     match self.checkpoint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone() {
                         Ok(reached) => Ok(json!({"reached": reached, "facts": facts})),
+                        Err(message) if message == DIALOG_BLOCKING => Err(HostCallError::DialogBlocking {
+                            dialog: Box::new(serde_json::from_value(json!({"type": "alert", "message": "hi", "openedAt": 1, "bridge": false})).expect("dialog")),
+                        }),
                         Err(message) => Err(HostCallError::Failed { message }),
                     }
                 }
@@ -610,7 +621,8 @@ pub(super) mod support {
                         self.probe.set(|state| state.url = url);
                     }
                     let text = self.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-                    Ok(json!({"payload": {"url": "u", "title": "", "text": text}, "truncated": false, "facts": facts}))
+                    let truncated = *self.read_truncated.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    Ok(json!({"payload": {"url": "u", "title": "", "text": text}, "truncated": truncated, "facts": facts}))
                 }
                 other => Err(HostCallError::Failed { message: format!("unscripted {other}") }),
             }
@@ -620,6 +632,9 @@ pub(super) mod support {
             Ok(())
         }
     }
+
+    /// The checkpoint answer that makes the host refuse with -32014 (an `alert` blocks the page).
+    pub const DIALOG_BLOCKING: &str = "dialog blocking";
 
     pub fn fast_policy() -> SettlePolicy {
         SettlePolicy { quiet: Duration::from_millis(20), load: Duration::from_millis(200), dom: Duration::from_millis(200) }
@@ -782,6 +797,15 @@ mod tests {
         assert_eq!(result, StepResult { outcome: StepKind::Blocked, text: "A confirm dialog is blocking the sequence.".into() });
         settle_after_action(&page(&host, &probe), &fast_policy(), &live(), None, &AfterAction::default()).await.expect("settled");
         assert!(host.called().is_empty(), "a blocked page is never asked");
+    }
+
+    #[tokio::test]
+    async fn a_checkpoint_refused_for_a_dialog_the_facts_do_not_show_yet_ends_the_step_as_blocked() {
+        let (probe, host) = rig(true);
+        *host.checkpoint.lock().expect("lock") = Err(DIALOG_BLOCKING.into());
+        let result = step_settle_result(&page(&host, &probe), &fast_policy(), &live()).await.expect("step");
+        assert_eq!(result, StepResult { outcome: StepKind::Blocked, text: "A alert dialog is blocking the sequence.".into() });
+        settle_after_action(&page(&host, &probe), &fast_policy(), &live(), None, &AfterAction::default()).await.expect("settled");
     }
 
     #[tokio::test]

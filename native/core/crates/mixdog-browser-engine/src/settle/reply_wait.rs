@@ -119,6 +119,10 @@ pub async fn postcondition_matches_page(page: &Page<'_>, expected: &Postconditio
         return Err(super::settle::cancelled(cancel));
     }
     let Ok(read) = read else { return Ok(false) };
+    // The rest of a cut text was not observed: it cannot prove that a phrase is gone.
+    if read.truncated && !expected.text_gone.is_empty() {
+        return Ok(false);
+    }
     let Some(text) = read.payload.get("text").and_then(Value::as_str) else { return Ok(false) };
     Ok(page.probe.state().url == url && matches(expected.expected(), PageSample { text: Some(text), url: &url }))
 }
@@ -310,5 +314,15 @@ mod tests {
         let (probe, host) = rig("Saved");
         *host.read_fails.lock().expect("lock") = true;
         assert!(!postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("a failed read is not an error"));
+    }
+
+    #[tokio::test]
+    async fn a_cut_text_finds_a_phrase_in_its_first_part_but_never_proves_one_gone() {
+        let (probe, host) = rig("Saved");
+        *host.read_truncated.lock().expect("lock") = true;
+        let present = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
+        assert!(postcondition_matches_page(&page(&host, &probe), &present, &live()).await.expect("read"));
+        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
+        assert!(!postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
     }
 }
