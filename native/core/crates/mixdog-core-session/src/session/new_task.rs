@@ -740,7 +740,7 @@ impl SessionDirectory {
 }
 
 #[cfg(test)]
-mod normalised_request {
+mod normalised_request_tests {
     use serde_json::json;
 
     use super::*;
