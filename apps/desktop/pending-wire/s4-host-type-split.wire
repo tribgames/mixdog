@@ -1,0 +1,22 @@
+# s4-host-type-split wiring (desktop)
+
+The two hot files still reach the host types through command.ts and host.ts; command.ts is a re-export of
+browser/host-types.ts until s4-delete-ts-engine deletes it.
+
+## 1. apps/desktop/src/main/index.ts (imports, beside the other ./browser/* imports)
+Replace
+    import { createBrowserHost, type BrowserHost } from './browser/host';
+    import { BROWSER_PARTITION } from './browser/command';
+by
+    import { createBrowserHost } from './browser/host';
+    import { BROWSER_PARTITION, type BrowserHost } from './browser/host-types';
+(createBrowserHost is a value and stays on ./browser/host until s4-delete-ts-engine removes the TypeScript engine.)
+
+## 2. apps/desktop/src/main/ipc.ts (imports)
+Replace
+    import type { BrowserHost } from './browser/host';
+by
+    import type { BrowserHost } from './browser/host-types';
+
+After both, the allow-list of the third test in apps/desktop/src/main/browser/host-types.test.mjs can drop 'index.ts' and 'ipc.ts'
+(they are outside browser/ and host/ and are not scanned anyway).
