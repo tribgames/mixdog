@@ -13,7 +13,7 @@ function jpegOf(bytes) {
   return body.toString('base64');
 }
 
-function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2' } = {}) {
+function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialCrop = false } = {}) {
   const handlers = new Map();
   const puts = [];
   const connection = {
@@ -42,7 +42,7 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2' } = {}) {
       },
       captureElement: async (_guest, background, options, rect, geometry) => {
         calls.push(['captureElement', background, options, rect, geometry]);
-        return { ...shot(), partial: false };
+        return { ...shot(), partial: partialCrop };
       },
     },
     resolveRefRect: async (_guest, ref) => {
@@ -104,6 +104,14 @@ test('a rectangle clip is cropped from the viewport capture with the page geomet
       { viewport: { width: 800, height: 600 }, scroll: { x: 0, y: 0 } },
     ],
   ]);
+});
+
+test('an element crop the page clipped says so; one that fit and a whole-page capture say nothing', async () => {
+  const clipped = await harness({ partialCrop: true }).call({ format: 'jpeg', clip: { x: 1, y: 2, width: 3, height: 4 } });
+  assert.equal(clipped.partial, true);
+  const whole = await harness({ partialCrop: false }).call({ format: 'jpeg', clip: { x: 1, y: 2, width: 3, height: 4 } });
+  assert.equal(whole.partial, undefined);
+  assert.equal((await harness({ partialCrop: true }).call({ format: 'jpeg' })).partial, undefined);
 });
 
 test('a ref clip resolves the ref of the current snapshot; a stale snapshot is -32013 and nothing is captured', async () => {

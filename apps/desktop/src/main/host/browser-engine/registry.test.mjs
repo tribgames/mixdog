@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import { HostRpcError } from '../connection.ts';
 import { MAX_INLINE_RESULT_BYTES } from './blob-upload.ts';
+import { createLeases } from './lease.ts';
 import { registerEngineMethod, registerEngineSessionMethod } from './registry.ts';
 import { createTranscriptTap } from './transcript.ts';
 
@@ -41,6 +42,17 @@ function harness({ destroyed = false, transcript } = {}) {
   const call = (method, params) => handlers.get(method)(params, new AbortController().signal);
   return { log, connection, ctx, puts, call };
 }
+
+test('the facts a stale-expect refusal carries are masked like those of a reply', async () => {
+  const h = harness();
+  registerEngineMethod(h.connection, h.ctx, 'host/browser/x', async () => ({}));
+  await assert.rejects(h.call('host/browser/x', { pageId: 'p1', expect: { documentId: 'p1:0' } }), (e) => {
+    assert.equal(e.code, -32010);
+    assert.ok(!JSON.stringify(e.data).includes(SECRET));
+    assert.match(e.data.facts.url, /\[SECRET\]/);
+    return true;
+  });
+});
 
 test('params must be an object and a page method names its page', async () => {
   const h = harness();
@@ -194,4 +206,25 @@ test('the transcript records the call and the masked answer, and only in a devel
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a handler runs under the page lease: the person taking the page aborts it with -32012, and a held page refuses it', async () => {
+  const h = harness();
+  const leases = createLeases(
+    { notify: () => undefined, handleNotification: () => undefined, onClose: () => undefined },
+    h.ctx
+  );
+  h.ctx.leases = leases;
+  let seen;
+  registerEngineMethod(h.connection, h.ctx, 'host/browser/x', (_params, signal) => {
+    seen = signal;
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+  });
+  const running = h.call('host/browser/x', { pageId: 'p1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  leases.onUserInput('p1', 'pointer');
+  await assert.rejects(running, (e) => e.code === -32012);
+  assert.equal(seen.aborted, true);
+  // The person still holds the page: a new call is refused before its handler starts.
+  await assert.rejects(h.call('host/browser/x', { pageId: 'p1' }), (e) => e.code === -32012);
 });

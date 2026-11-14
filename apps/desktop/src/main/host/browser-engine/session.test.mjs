@@ -102,6 +102,7 @@ test('cookies get lists metadata with every value masked, filtered by name and c
   h.jar.cookies = Array.from({ length: 250 }, (_, index) => cookie(`c${index}`));
   const out = await h.call('host/browser/cookies', { pageId: 'p1', op: 'get', name: 'c1' });
   assert.equal(out.cookies.length, 200);
+  assert.equal(out.total, 250);
   assert.ok(out.cookies.every((entry) => entry.value === '[REDACTED]'));
   assert.deepEqual(h.jar.calls[0], ['get', { url: 'https://a.example/', name: 'c1' }]);
   assert.ok(!JSON.stringify(out).includes('secret-value'));
@@ -220,6 +221,22 @@ test('a script Chromium no longer has is dropped; any other removal failure keep
   assert.equal((await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'list' })).scripts.length, 1);
 });
 
+test('clear removes every init script; one that could not be removed stays listed and is named', async () => {
+  const h = harness();
+  await h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'a' });
+  await h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'b' });
+  const cleared = await h.call('host/browser/initScripts', { pageId: 'p1', op: 'clear' });
+  assert.deepEqual(cleared.scripts, []);
+  assert.equal(h.sends.filter((send) => send.method === 'Page.removeScriptToEvaluateOnNewDocument').length, 2);
+  const broken = harness({}, { 'Page.removeScriptToEvaluateOnNewDocument': new Error('Target closed') });
+  await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'a' });
+  await assert.rejects(
+    broken.call('host/browser/initScripts', { pageId: 'p1', op: 'clear' }),
+    /removed 0 init script\(s\), but 1 could not be removed; retry clear\nis\d+: Target closed/
+  );
+  assert.equal((await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'list' })).scripts.length, 1);
+});
+
 test('intercept rules are normalised, matched with hit counts and rolled back when the Fetch push fails', async () => {
   let pushes = 0;
   let failPush = false;
@@ -299,6 +316,26 @@ test('performance: metrics, then a trace that starts once and stops with its sum
     (error) => error.code === -32602
   );
   assert.equal(relative.traces.size, 0);
+});
+
+test('performance: saveTrace saves into the host-chosen directory; without one it is unavailable', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-trace-'));
+  try {
+    const h = harness({ traceDirectory: () => dir });
+    await h.call('host/browser/performance', { pageId: 'p1', op: 'start', saveTrace: true });
+    const active = h.traces.get(h.guest);
+    active.raw.add([{ name: 'Layout', dur: 2000 }]);
+    const stopping = h.call('host/browser/performance', { pageId: 'p1', op: 'stop' });
+    await new Promise((resolve) => setImmediate(resolve));
+    active.resolveComplete();
+    assert.ok((await stopping).exportedTo.startsWith(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  await assert.rejects(
+    harness().call('host/browser/performance', { pageId: 'p1', op: 'start', saveTrace: true }),
+    /trace export is unavailable/
+  );
 });
 
 test('performance: a start that Chromium refuses leaves no trace recorded', async () => {
@@ -416,6 +453,9 @@ test('downloads list what changed since, and take hands the file over as a blob'
     await assert.rejects(h.call('host/browser/downloads', { op: 'list' }), (error) => error.code === -32602);
     const taken = await h.call('host/browser/downloads', { sessionId: 's1', op: 'take' });
     assert.equal(taken.items[0].id, 'd1');
+    h.downloads[1].mimeType = 'application/octet-stream';
+    h.downloads[1].file = 'report.pdf';
+    assert.equal((await h.call('host/browser/downloads', { sessionId: 's1', op: 'take', id: 'd1' })).items[0].mimeType, 'application/pdf');
     assert.deepEqual(taken.blob, { digest: `sha256:${createHash('sha256').update('hello').digest('hex')}`, size: 5 });
     assert.equal(h.puts[0].method, 'blob/put');
     assert.equal(Buffer.from(h.puts[0].params.bytesB64, 'base64').toString(), 'hello');

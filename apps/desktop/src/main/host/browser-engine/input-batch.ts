@@ -117,6 +117,8 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
     const stopOnDialog = params.stopOnDialog !== false;
     const timeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : 0;
     const expect = params.expect as Precondition | undefined;
+    // The input goes to the page the core decided the batch against: in engine mode one bound to no state is refused.
+    if (!expect && ctx.isEngineMode()) throw preconditionFailed('document', call.facts());
     const { guest, state } = call;
     states.set(guest, state);
 

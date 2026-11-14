@@ -75,6 +75,12 @@ test('another snapshot, or none, is refused as snapshot', () => {
   assert.equal(refusal({ documentId: 'p1:3', snapshotId: 'snap-4' }, none), 'snapshot');
 });
 
+test('a DOM-fallback snapshot (refs in refSet) is the current snapshot when there are no accessibility refs', () => {
+  const fallback = page({ state: { accessibilityRefs: undefined, refSet: { snapshotId: 'dom-2' } } });
+  assert.equal(refusal({ documentId: 'p1:3', snapshotId: 'dom-2' }, fallback), null);
+  assert.equal(refusal({ documentId: 'p1:3', snapshotId: 'snap-4' }, fallback), 'snapshot');
+});
+
 test('guardedSend starts the send in the same step as the check, and not at all when the check fails', async () => {
   const log = [];
   const target = page();

@@ -1,0 +1,60 @@
+# g35-fu-host: the optional fields and the init-script `clear` op the desktop engine host already sends or serves (apps/desktop/src/main/host/browser-engine). The fields are
+# optional and `clear` is a new op only the core sends, so an old core and an old host keep parsing; no method, server request, notification or inventory row changes.
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# none (an enum, a count, a flag and a flag: no free-text member)
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# 1. New enum, placed before `HostBrowserPagesResolveParams`: where an `open`/`reveal` put the page (the old reply's "shown" / "pending" line).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserPlacement {
+    /// A panel on screen shows the page.
+    Shown,
+    /// The conversation is not on screen or the person keeps the panel closed; the shell holds the reveal until it can show it.
+    Pending,
+}
+# 2. struct HostBrowserPagesResolveResult: add after `lease_id`:
+    /// Set when the call revealed the page (`open.reveal`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<BrowserPlacement>,
+# 3. struct HostBrowserPagesSurfaceResult: add after `facts`:
+    /// Set by `reveal` of a page the session owns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<BrowserPlacement>,
+# 4. struct HostBrowserCookiesResult: add after `cookies`:
+    /// How many cookies matched; `cookies` lists at most 200 of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u32>,
+# 5. struct HostBrowserScreenshotResult: add after `blob`:
+    /// True when an element crop was cut by the viewport or the page (the old "partial" note); absent for a whole picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<bool>,
+# 6. struct HostBrowserPerformanceParams: add after `export_path`:
+    /// Save the redacted trace in the host's own trace folder (the old `saveTrace`); `export_path` names another absolute folder instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_trace: Option<bool>,
+# 7. enum BrowserListOp (used only by HostBrowserInitScriptsParams.op): add a fourth variant after `List`:
+    /// Removes every init script of the page (the old init_script `clear`).
+    Clear,
+# Regenerate packages/protocol/src/index.ts and schema/*.json (the usual codegen) after applying.
+
+[remove]
+# none
+
+[window]
+# none
