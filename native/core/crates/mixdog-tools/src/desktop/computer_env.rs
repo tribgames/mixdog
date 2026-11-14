@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn display(index: u32, x: i32, y: i32, width: u32, height: u32, scale_factor: f64) -> HostComputerDisplay {
-        HostComputerDisplay { index, id: index.to_string(), primary: index == 0, scale_factor, width, height, x, y }
+        HostComputerDisplay { index, id: index.to_string(), primary: index == 0, scale_factor, width, height, x, y, label: None }
     }
 
     /// The union of the displays' native rectangles: a second display to the left and above widens it both ways, and a scaled display

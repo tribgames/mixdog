@@ -413,7 +413,7 @@ async fn max_8_attempts() {
     rig.connect.inspect(TWO, TARGET).await.unwrap();
     assert_eq!(rig.connect.attempts().attempt_count(TWO), 1);
     // With eight connecting there is no idle one to drop.
-    let busy = rig().await;
+    let busy = self::rig().await;
     busy.links.hold.store(true, Ordering::SeqCst);
     let mut runs = Vec::new();
     for _ in 0..MAX_ATTEMPTS_PER_CALLER {

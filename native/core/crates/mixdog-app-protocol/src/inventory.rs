@@ -6,7 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InventoryList {
-    /// The 166 desktop operations.
+    /// The 171 desktop operations.
     Operations,
     /// The 61 DesktopService methods.
     Services,
@@ -802,6 +802,31 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
         InventoryList::Operations,
         "serverUploadAbort",
         Target::Method("transfer/abort"),
+    ),
+    (
+        InventoryList::Operations,
+        "serverDownloadBegin",
+        Target::Method("transfer/serverDownload/begin"),
+    ),
+    (
+        InventoryList::Operations,
+        "serverDownloadStep",
+        Target::Method("transfer/serverDownload/step"),
+    ),
+    (
+        InventoryList::Operations,
+        "serverDownloadFinish",
+        Target::Method("transfer/serverDownload/finish"),
+    ),
+    (
+        InventoryList::Operations,
+        "serverDownloadAbort",
+        Target::Method("transfer/serverDownload/abort"),
+    ),
+    (
+        InventoryList::Operations,
+        "serverDownloadCheck",
+        Target::Method("transfer/serverDownload/check"),
     ),
     (
         InventoryList::Operations,

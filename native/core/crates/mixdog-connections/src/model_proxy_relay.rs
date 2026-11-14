@@ -339,4 +339,5 @@ impl ModelProxyRelay {
 }
 
 #[cfg(test)]
+#[path = "model_proxy_relay_tests.rs"]
 mod model_proxy_relay_tests;

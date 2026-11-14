@@ -538,7 +538,7 @@ async fn a_failed_ssh_dial_is_reported_as_it_is_and_nothing_stays_open() {
         forces: Mutex::new(Vec::new()),
         tunnels: Mutex::new(Vec::new()),
     });
-    let dialer = Arc::new(FakeDialer { transport: lonely.clone(), net: rig.net.clone(), seen: rig.seen.clone(), forwards: rig.forwards.clone() });
+    let dialer = Arc::new(FakeDialer { transport: lonely.clone(), net: rig.net.clone(), seen: rig.seen.clone(), forwards: rig.forwards.clone(), contexts: rig.contexts.clone() });
     let paths = ConnectionsPaths::new(rig._dir.path());
     let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
     let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts, Arc::new(PortForwardStore::new(&paths, io_lane())), Arc::new(FakeLocal(mpsc::unbounded_channel().0)));

@@ -243,12 +243,23 @@
       "type": "object"
     },
     "BrowserPageCloseReason": {
-      "enum": [
-        "agent",
-        "turnEnd",
-        "idle"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "agent",
+            "turnEnd",
+            "idle"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The page a failed command made, closed when it still holds no document (the host answers `closed: false` for any other page).",
+          "enum": [
+            "discard"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserPageReadKind": {
       "enum": [
@@ -373,6 +384,24 @@
       ],
       "description": "The region a screenshot is cut to: an element a snapshot ref names, or a rectangle in CSS pixels."
     },
+    "BrowserSignInOp": {
+      "oneOf": [
+        {
+          "description": "Before a click, fill or type is sent.",
+          "enum": [
+            "beforeAction"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "After a command ran: the automatic sign-in, then the linked-identity line.",
+          "enum": [
+            "afterCommand"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "BrowserSnapshotMode": {
       "enum": [
         "full",
@@ -424,6 +453,24 @@
         }
       },
       "type": "object"
+    },
+    "BrowserTurnOp": {
+      "oneOf": [
+        {
+          "description": "The session's running turn ended.",
+          "enum": [
+            "end"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The session was released.",
+          "enum": [
+            "forget"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserUploadRoute": {
       "enum": [
@@ -701,6 +748,32 @@
       },
       "required": [
         "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCredentialsFillParams": {
+      "description": "`host/browser/credentials/fill`: the page is held to `expect` while the password is written.",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "account",
         "pageId"
       ],
       "type": "object"
@@ -1373,6 +1446,46 @@
       ],
       "type": "object"
     },
+    "HostBrowserSignInParams": {
+      "description": "`host/browser/signIn`. `turn` is the session's running turn (what a sign-in remembers is per turn); `action` and `command` (its `ref`, `target`, `text` and `fields`) go with `beforeAction`; `explicitFill` marks a command that filled a saved account, which no automatic sign-in follows.",
+      "properties": {
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": true,
+        "explicitFill": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserSignInOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turn": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "HostBrowserSnapshotParams": {
       "description": "`host/browser/snapshot`.",
       "properties": {
@@ -1450,6 +1563,36 @@
         "area",
         "op",
         "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserTurnParams": {
+      "description": "`host/browser/turn`.",
+      "properties": {
+        "aborted": {
+          "description": "The turn ended badly (its pages were released by the engine).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserTurnOp"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turn": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
       ],
       "type": "object"
     },
@@ -4382,6 +4525,75 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserUploadReceiverParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The sign-in state the desktop keeps for the page: before a click, fill or type it notes the field the agent names (provider sign-in), and after a command it signs in with a saved login when the page asks for one and answers the note, and the identity line a provider flow last used.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/signIn"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserSignInParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "`fill` with a saved account: the desktop writes the stored login's password into the page and answers whether the form took it.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/credentials/fill"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserCredentialsFillParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A session's turn ended, or the session was released: the desktop drops what it remembered of them.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/turn"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserTurnParams"
         }
       },
       "required": [

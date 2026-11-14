@@ -9,6 +9,7 @@ pub mod desktop_files;
 pub mod desktop_pet;
 pub mod desktop_residual;
 pub mod desktop_residual_b;
+pub mod server_download;
 pub mod domain;
 pub mod feed;
 pub mod host;

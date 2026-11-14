@@ -290,7 +290,7 @@ fn target_of(list: InventoryList, name: &str) -> Option<&'static Target> {
         .map(|(_, _, t)| t)
 }
 
-/// DS-ALL-1: each of the 166 operations, 61 service methods, 190 phone
+/// DS-ALL-1: each of the 171 operations, 61 service methods, 190 phone
 /// methods and 303 session actions is mapped exactly once, to a target that
 /// exists in the generated tables.
 #[test]
@@ -300,7 +300,7 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
     )
     .unwrap();
     let lists = [
-        (InventoryList::Operations, "operations", 166),
+        (InventoryList::Operations, "operations", 171),
         (InventoryList::Services, "services", 61),
         (InventoryList::Remote, "remote", 190),
         (InventoryList::Actions, "actions", 303),

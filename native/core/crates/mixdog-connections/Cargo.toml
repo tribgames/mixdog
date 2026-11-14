@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 mixdog-ssh = { workspace = true }
 mixdog-core-api = { workspace = true }
+mixdog-core-base = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server-client = { workspace = true }

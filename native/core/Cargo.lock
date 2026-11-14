@@ -4195,6 +4195,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-connections"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "mixdog-app-protocol",
+ "mixdog-app-server-client",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-domains",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-services",
+ "mixdog-ssh",
+ "mixdog-statefile",
+ "mixdog-testkit",
+ "mixdog-workspace",
+ "mixdog-workspace-hack",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "mixdog-core"
 version = "1.5.0"
 dependencies = [

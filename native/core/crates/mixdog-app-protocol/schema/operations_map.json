@@ -1213,6 +1213,46 @@
     },
     {
       "list": "operations",
+      "name": "serverDownloadBegin",
+      "target": {
+        "kind": "method",
+        "target": "transfer/serverDownload/begin"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverDownloadStep",
+      "target": {
+        "kind": "method",
+        "target": "transfer/serverDownload/step"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverDownloadFinish",
+      "target": {
+        "kind": "method",
+        "target": "transfer/serverDownload/finish"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverDownloadAbort",
+      "target": {
+        "kind": "method",
+        "target": "transfer/serverDownload/abort"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "serverDownloadCheck",
+      "target": {
+        "kind": "method",
+        "target": "transfer/serverDownload/check"
+      }
+    },
+    {
+      "list": "operations",
       "name": "serverFileReadRange",
       "target": {
         "kind": "method",

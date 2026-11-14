@@ -60,6 +60,7 @@ members = [
     "crates/mixdog-app-server-client",
     "crates/mixdog-askpass",
     "crates/mixdog-ssh",
+    "crates/mixdog-connections",
     "crates/mixdog-cli",
     "crates/mixdog-workspace-hack",
 ]

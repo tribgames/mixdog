@@ -216,6 +216,25 @@ crate::server_request_definitions! {
         result: HostBrowserUploadReceiverResult,
         requires: Some("host.browserEngine"),
     },
+    /// The sign-in state the desktop keeps for the page: before a click, fill or type it notes the field the agent names (provider sign-in), and after
+    /// a command it signs in with a saved login when the page asks for one and answers the note, and the identity line a provider flow last used.
+    HostBrowserSignIn => "host/browser/signIn" {
+        params: HostBrowserSignInParams,
+        result: HostBrowserSignInResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// `fill` with a saved account: the desktop writes the stored login's password into the page and answers whether the form took it.
+    HostBrowserCredentialsFill => "host/browser/credentials/fill" {
+        params: HostBrowserCredentialsFillParams,
+        result: HostBrowserCredentialsFillResult,
+        requires: Some("host.browserEngine"),
+    },
+    /// A session's turn ended, or the session was released: the desktop drops what it remembered of them.
+    HostBrowserTurn => "host/browser/turn" {
+        params: HostBrowserTurnParams,
+        result: HostBrowserTurnResult,
+        requires: Some("host.browserEngine"),
+    },
     /// The displays of this PC's screen, for the phone's remote-screen picker.
     HostScreenDisplays => "host/screen/displays" {
         params: ScreenDisplaysParams,

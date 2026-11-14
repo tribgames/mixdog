@@ -242,6 +242,13 @@ pub struct PageDescriptor {
     pub tab_id: String,
     pub session_id: String,
     pub background: bool,
+    /// This call made the page: a command that fails on it closes it when it still holds no document.
+    #[serde(default)]
+    pub created: bool,
+    /// A turn that ends badly may close the page: an agent's hidden helper the person did not keep, or the page a session's first command
+    /// made. A page the person can see, a user tab or a page kept alive is never disposable.
+    #[serde(default)]
+    pub disposable: bool,
     pub facts: PageFacts,
 }
 
@@ -637,6 +644,8 @@ pub enum BrowserPageCloseReason {
     Agent,
     TurnEnd,
     Idle,
+    /// The page a failed command made, closed when it still holds no document (the host answers `closed: false` for any other page).
+    Discard,
 }
 
 /// `host/browser/pages/close`.
@@ -1659,6 +1668,115 @@ pub struct HostBrowserUploadReceiverResult {
     pub key: String,
     pub url: String,
     pub facts: PageFacts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserSignInOp {
+    /// Before a click, fill or type is sent.
+    BeforeAction,
+    /// After a command ran: the automatic sign-in, then the linked-identity line.
+    AfterCommand,
+}
+
+/// `host/browser/signIn`. `turn` is the session's running turn (what a sign-in remembers is per turn); `action` and `command` (its `ref`,
+/// `target`, `text` and `fields`) go with `beforeAction`; `explicitFill` marks a command that filled a saved account, which no automatic
+/// sign-in follows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserSignInParams {
+    pub session_id: String,
+    pub page_id: String,
+    pub op: BrowserSignInOp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub turn: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_fill: Option<bool>,
+}
+
+/// `note`: the saved-login line of a sign-in the host made on the page (or the line that hands it to the person); the engine puts a fresh
+/// observation behind it. `line`: the "Linked sign-in:" line of the identity a provider flow last used here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserSignInResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    /// The page facts the host answers every page request with (the sign-in may have moved the page).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facts: Option<PageFacts>,
+}
+
+/// `host/browser/credentials/fill`: the page is held to `expect` while the password is written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserCredentialsFillParams {
+    pub page_id: String,
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Precondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserCredentialsFillResult {
+    pub username_filled: bool,
+    pub password_filled: bool,
+    /// `no-password-field` when the page has no visible password field of its own document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub facts: PageFacts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserTurnOp {
+    /// The session's running turn ended.
+    End,
+    /// The session was released.
+    Forget,
+}
+
+/// `host/browser/turn`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserTurnParams {
+    pub session_id: String,
+    pub op: BrowserTurnOp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub turn: Option<i64>,
+    /// The turn ended badly (its pages were released by the engine).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aborted: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserTurnResult {
+    /// How many pages the host's own turn bookkeeping closed (the engine closes the pages it owns itself).
+    #[serde(default)]
+    pub closed: u32,
 }
 
 /// `host/browser/lease/release` (core to host notification): the lease on a page ended.
