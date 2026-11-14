@@ -1,0 +1,9 @@
+# apps/desktop/src/main/capture-window.ts (not owned by x-jitter-dev-split; the only importer of the probe)
+# In runCaptureJitterProbe replace
+#   const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
+# with
+#   const probe = await loadJitterProbe();
+#   if (!probe) return;
+#   const { runJitterProbe, jitterProbeOutPath } = probe;
+# and add: import { loadJitterProbe } from './jitter-probe-gate';
+# No HOST_METHOD rows, no index.ts/ipc.ts call lines: the probe has no IPC surface.

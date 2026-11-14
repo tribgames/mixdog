@@ -29,6 +29,9 @@ files:
   - out/**
   - package.json
   - '!out/main/capture-window.js'
+  # The jitter probe is a dev-only harness (main/jitter-probe-gate.ts); its dynamic
+  # import lands in out/main/chunks/jitter-probe-<hash>.js.
+  - '!out/main/**/jitter-probe*'
   - '!**/*.map'
 extraResources:
   # BrowserWindow uses the same explicit icon as the executable/shortcut so
