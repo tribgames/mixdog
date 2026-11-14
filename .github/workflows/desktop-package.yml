@@ -331,8 +331,8 @@ jobs:
           path: apps/desktop/.cache/computer-native
           key: ${{ steps.computer-native.outputs.cache-primary-key }}
       # Runs on a restored cache as well as a fresh preparation: it compares
-      # the versions inside runtime.asar, its unpacked sidecar and the shipped
-      # node-pty with the lockfiles, so a stale cache or install cannot ship.
+      # the versions inside runtime.asar and its unpacked sidecar with the
+      # lockfile, so a stale cache or install cannot ship.
       - name: Verify packaged runtime dependency versions match the lockfiles
         shell: bash
         run: node scripts/verify-runtime-dependency-versions.mjs
