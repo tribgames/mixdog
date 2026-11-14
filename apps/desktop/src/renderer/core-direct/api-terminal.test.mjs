@@ -1,4 +1,4 @@
-// createTerminalApi against a fake connection: every member sends the request main sent for the same IPC call (ipc-terminal.ts and
+// createTerminalApi against a fake connection: every member sends the request main sent for the same IPC call (the former main ipc-terminal.ts and
 // connections/terminal-host.ts over the shared routes), answers what main answered, and the feeds, sections and flow control
 // behave as the terminal host did.
 import assert from 'node:assert/strict';
