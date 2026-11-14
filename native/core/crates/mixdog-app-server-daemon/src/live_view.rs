@@ -50,6 +50,7 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::Caller;
 use mixdog_core_api::domain::media::FrameSourceKind;
+#[cfg(windows)]
 use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
@@ -80,11 +81,14 @@ use mixdog_remote::webrtc::sources::FrameSink;
 use mixdog_remote::webrtc::sources::frame_feed;
 use mixdog_rt::MediaThread;
 use mixdog_rt::TaskClass;
+#[cfg(windows)]
 use mixdog_tools::desktop::screen_source::ScreenSink;
+#[cfg(windows)]
 use mixdog_tools::desktop::screen_source::ScreenViewer;
 use serde_json::Value;
 use serde_json::json;
 
+#[cfg(windows)]
 use crate::compose_screen::live::ScreenLive;
 use crate::connection_close::ConnectionOwner;
 use crate::live_view_streams::BrowserStreams;
@@ -126,10 +130,13 @@ pub trait PhoneScreens: Send + Sync {
     async fn grant(&self, connection: ConnectionId) -> Result<(), String>;
     fn withdraw(&self, connection: ConnectionId, ended: ScreenEnd);
     /// The session of `screen_id` for `connection`: the one it owns, or a new one for its `ready` when nobody holds the display.
+    #[cfg(windows)]
     fn resolve(&self, screen_id: &str, connection: ConnectionId, ready: bool) -> Option<Arc<ScreenViewer>>;
     /// The pictures of display `screen_id` for the track (the in-process capture, else the desktop's pixels).
+    #[cfg(windows)]
     fn capture(&self, screen_id: &str) -> Result<Box<dyn MediaFrameSource>, String>;
     /// Where the sessions report their geometry, track changes, channel messages and helper frames (once, before any phone signal).
+    #[cfg(windows)]
     fn attach(&self, sink: Arc<dyn ScreenSink>);
 }
 
@@ -204,6 +211,7 @@ struct Inner {
     /// The phone's whole-PC screen, bound once it is composed.
     screens: OnceLock<Arc<dyn PhoneScreens>>,
     /// The sessions of `screens` as the host streams them, made when they are bound.
+    #[cfg(windows)]
     screen_live: OnceLock<Arc<ScreenLive>>,
     /// Each push of the view to a phone holds this from its `view_allowed` check through its `notify` (synchronous, nothing awaited),
     /// and an unpair's cleanup passes through it after the revocation and the drop (`LiveViewService::unpaired`): once the cleanup has
@@ -694,7 +702,14 @@ impl HostEnv for LiveEnv {
                 inner.subscribed(connection.0, session_id).then(|| Arc::new(BrowserPage { inner: self.0.clone(), session: session_id.clone() }) as Arc<dyn VideoSource>)
             }
             // A screen is opened per client, and only by its `ready`.
+            #[cfg(windows)]
             Source::Screen { screen_id } => inner.screen_live.get()?.source(screen_id, connection, signal == "ready"),
+            // No screen is streamed where the PC has no screen control.
+            #[cfg(not(windows))]
+            Source::Screen { .. } => {
+                let _ = signal;
+                None
+            }
         }
     }
 
@@ -703,7 +718,10 @@ impl HostEnv for LiveEnv {
         // The source every connection of the stream or the screen encodes.
         let shared = match source_key.strip_prefix(SESSION_PREFIX) {
             Some(session) => lock(&inner.state).streams.get(session).map(|stream| stream.shared.clone()).ok_or_else(|| "no stream".to_owned()),
+            #[cfg(windows)]
             None => inner.screen_live.get().ok_or_else(|| "no screens".to_owned()).and_then(|live| live.track(source_key)),
+            #[cfg(not(windows))]
+            None => Err("no screens".to_owned()),
         };
         let (weak, id) = (self.0.clone(), connection_id.to_owned());
         let events: Box<dyn Fn(SenderEvent) + Send + Sync> = Box::new(move |event| {
@@ -754,9 +772,12 @@ impl HostEnv for LiveEnv {
     }
 
     fn source_closed(&self, source_key: &str) {
+        #[cfg(windows)]
         if let Some(live) = self.inner().and_then(|inner| inner.screen_live.get().cloned()) {
             live.closed(source_key);
         }
+        #[cfg(not(windows))]
+        let _ = source_key;
     }
 
     fn report(&self, event: &str, data: Value) {
@@ -839,6 +860,7 @@ impl LiveViewService {
             streams: OnceLock::new(),
             timer_seq: AtomicU64::new(0),
             screens: OnceLock::new(),
+            #[cfg(windows)]
             screen_live: OnceLock::new(),
             view_gate: Mutex::default(),
             #[cfg(test)]
@@ -933,9 +955,12 @@ impl LiveViewService {
     /// Binds the phone's whole-PC screen (once): its sessions report to the live view from here on.
     pub fn bind_screens(&self, screens: Arc<dyn PhoneScreens>) -> Result<(), Arc<dyn PhoneScreens>> {
         self.inner.screens.set(screens.clone())?;
-        let live = ScreenLive::new(self.inner.host().clone(), screens.clone());
-        screens.attach(live.sink());
-        let _ = self.inner.screen_live.set(live);
+        #[cfg(windows)]
+        {
+            let live = ScreenLive::new(self.inner.host().clone(), screens.clone());
+            screens.attach(live.sink());
+            let _ = self.inner.screen_live.set(live);
+        }
         Ok(())
     }
 
