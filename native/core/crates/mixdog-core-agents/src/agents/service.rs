@@ -290,27 +290,14 @@ mod tests {
         let data = dir.path().join("data");
         let cut = data.join("agents/cut");
         std::fs::create_dir_all(&cut).unwrap();
-        std::fs::write(cut.join(".purging"), "purging
-").unwrap();
-        std::fs::write(cut.join("AGENT.md.archived"), "---
-name: Cut
----
-
-Body
-").unwrap();
-        std::fs::write(cut.join(".deleted"), "deleted
-").unwrap();
+        std::fs::write(cut.join(".purging"), "purging\n").unwrap();
+        std::fs::write(cut.join("AGENT.md.archived"), "---\nname: Cut\n---\n\nBody\n").unwrap();
+        std::fs::write(cut.join(".deleted"), "deleted\n").unwrap();
         // A marker beside a live definition is not a purge to finish.
         let live = data.join("agents/live");
         std::fs::create_dir_all(&live).unwrap();
-        std::fs::write(live.join(".purging"), "purging
-").unwrap();
-        std::fs::write(live.join("AGENT.md"), "---
-name: Live
----
-
-Body
-").unwrap();
+        std::fs::write(live.join(".purging"), "purging\n").unwrap();
+        std::fs::write(live.join("AGENT.md"), "---\nname: Live\n---\n\nBody\n").unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let connectors = AgentConnectors::new(agents.clone(), Arc::new(NoCatalog));
         let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(|| 1));
