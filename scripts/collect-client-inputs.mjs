@@ -127,6 +127,8 @@ function validate(defs, schema, v, at = '$') {
 // ── schema -> example ──
 
 const OP_ID = (n) => `0190f3c2-7a31-7c00-8000-${String(n).padStart(12, '0')}`;
+/** A blob digest the core deserializes (`BlobDigest`: `sha256:` and 64 lowercase hex digits); the schema only says string. */
+const DIGEST = `sha256:${'0'.repeat(64)}`;
 let opCounter = 0;
 
 /** A value the schema accepts. `full` includes every optional property except the host-only ones (a connection's request
@@ -151,7 +153,7 @@ function example(defs, schema, full, name = '', stack = []) {
   const types = typesOf(schema).filter((t) => t !== 'null');
   const t = types[0];
   if (!t) return {};
-  if (t === 'string') return name === 'opId' ? OP_ID(++opCounter) : `${name || 'text'}-1`;
+  if (t === 'string') return name === 'opId' ? OP_ID(++opCounter) : name === 'digest' ? DIGEST : `${name || 'text'}-1`;
   if (t === 'integer') return Math.max(1, schema.minimum ?? 1);
   if (t === 'number') return 1;
   if (t === 'boolean') return true;
@@ -377,10 +379,10 @@ const EDGES = [
   // op status and blobs
   ['protocol-client', 'op/status', 'no ids, no fence', { scope: 'thread:thread-1', opIds: [], fence: false }],
   ['protocol-client', 'op/status', 'several ids, fenced', { scope: 'domain:config', opIds: [OP_ID(920), OP_ID(921)], fence: true }],
-  ['protocol-client', 'blob/read', 'offset and length null', { digest: 'sha256-0000', offset: null, length: null }],
-  ['protocol-client', 'blob/read', 'page at an offset', { digest: 'sha256-0000', offset: 262144, length: 65536 }],
-  ['protocol-client', 'blob/put', 'first chunk', { digest: 'sha256-0000', offset: 0, bytesB64: 'AAAA' }],
-  ['protocol-client', 'blob/put', 'empty last chunk', { digest: 'sha256-0000', offset: 3, bytesB64: '' }],
+  ['protocol-client', 'blob/read', 'offset and length null', { digest: DIGEST, offset: null, length: null }],
+  ['protocol-client', 'blob/read', 'page at an offset', { digest: DIGEST, offset: 262144, length: 65536 }],
+  ['protocol-client', 'blob/put', 'first chunk', { digest: DIGEST, offset: 0, bytesB64: 'AAAA' }],
+  ['protocol-client', 'blob/put', 'empty last chunk', { digest: DIGEST, offset: 3, bytesB64: '' }],
   // initialize: every client kind, capabilities absent against null
   ['tui', 'initialize', 'tui, no capabilities', { clientInfo: { kind: 'tui', name: 'mixdog-tui', version: '0.0.0' } }],
   ['tui', 'initialize', 'cli, capabilities null', { clientInfo: { kind: 'cli', name: 'mixdog-exec', version: '0.0.0', title: null, build: null }, capabilities: null }],
