@@ -4,8 +4,16 @@
  * rather than waiting for a mounted terminal pane.
  */
 import type { DesktopTerminalRunRequest } from '../../shared/terminal-command';
-import type { SessionTerminalTab } from '../terminal-manager';
 import type { TerminalBridgeBackend } from './commands';
+
+/** One tab of a session's terminal, as the agent `terminal` bridge sees it. */
+export interface SessionTerminalTab {
+  tab: number;
+  id: string;
+  shell: string;
+  running: boolean;
+  cwd: string | null;
+}
 
 export interface TerminalBridgeBackendDeps {
   invoke(name: string, args: unknown[]): Promise<unknown>;

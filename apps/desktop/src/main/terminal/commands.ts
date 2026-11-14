@@ -9,7 +9,7 @@
  * text plus a cursor.
  */
 import { terminalCommandInput } from '../../shared/terminal-command';
-import type { SessionTerminalTab } from '../terminal-manager';
+import type { SessionTerminalTab } from './bridge-backend';
 
 export interface TerminalBridgeBackend {
   sessionTabs(sessionId: string): SessionTerminalTab[] | Promise<SessionTerminalTab[]>;
