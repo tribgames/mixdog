@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates `mixdog-tools/src/desktop/mail_links/public_suffix.txt`: the public-suffix trie the Node product's tldts
+// Generates `mixdog-browser-policy/src/public_suffix.txt`: the public-suffix trie the Node product's tldts
 // (b6f10295a's node_modules, which `getDomain(host, { allowPrivateDomains: true })` of mail-links.mjs reads) holds, one node per
 // line, so the core finds a sender's Organizational Domain with the same list. tldts is MIT licensed.
 //

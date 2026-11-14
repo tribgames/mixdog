@@ -21,6 +21,7 @@ members = [
     "crates/mixdog-fsio",
     "crates/mixdog-testkit",
     "crates/mixdog-js",
+    "crates/mixdog-browser-policy",
     "crates/mixdog-trace",
     "crates/mixdog-statefile",
     "crates/mixdog-store",
@@ -114,6 +115,7 @@ mixdog-rt = { path = "crates/mixdog-rt" }
 mixdog-fsio = { path = "crates/mixdog-fsio" }
 mixdog-testkit = { path = "crates/mixdog-testkit" }
 mixdog-js = { path = "crates/mixdog-js" }
+mixdog-browser-policy = { path = "crates/mixdog-browser-policy" }
 mixdog-trace = { path = "crates/mixdog-trace" }
 # The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:
 # the Windows version resource belongs to the standalone helper executable, not to the core.
@@ -154,6 +156,10 @@ mixdog-app-server = { path = "crates/mixdog-app-server" }
 mixdog-app-server-transport = { path = "crates/mixdog-app-server-transport" }
 mixdog-app-server-daemon = { path = "crates/mixdog-app-server-daemon" }
 mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
+# Wired by CORE-WIRE-G1 (s2b-scaffold); not members yet: their module files land in later waves (see members above).
+mixdog-ssh = { path = "crates/mixdog-ssh" }
+mixdog-connections = { path = "crates/mixdog-connections" }
+mixdog-askpass = { path = "crates/mixdog-askpass" }
 
 # External crates. Versions match codex-rs/Cargo.toml wherever Codex uses the same crate;
 # the few not in Codex are marked. Declared once here, referenced with `workspace = true`.
@@ -260,6 +266,7 @@ windows-sys = "0.61.2"
 wiremock = "0.6"
 zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] } # WP-SVC-MISC: tidy engine archives
+zeroize = "1" # s2b-scaffold: mixdog-ssh (1.9.1 already in the lock and the workspace-hack)
 # WP-WEBRTC: sans-I/O WebRTC stack and its async layer (same release, pinned together), libvpx
 # VP8 encoder (prebuilt static libvpx, checksum-verified at build), pure-Rust JPEG decoder.
 webrtc = "=0.21.1" # not in Codex

@@ -15,6 +15,7 @@ policy-observer = []
 mixdog-ai = { workspace = true }
 mixdog-sandboxing = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-browser-policy = { workspace = true }
 mixdog-patch = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-workspace = { workspace = true }
