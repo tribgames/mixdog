@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { actionLabel, actionQuestion, alwaysAllowScope, sessionAllowScope } from './ApprovalCard';
 import { type ApprovalButton, ApprovalPrompt } from './approval-prompt';
 import { subscribeBrowserApprovals, type BrowserApprovalAnswer } from './browser-approval-protocol';
@@ -252,7 +252,18 @@ export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApp
  *  leaves when answered, closed or expired), tells a failed "always allow"
  *  save. It renders nothing: a prompt docks in its own chat when that chat is
  *  open, and otherwise only marks its session (see browser-approval-marks). */
-export function BrowserApprovalHost({ client = pcCoreClient() }: { client?: Parameters<typeof subscribeBrowserApprovals>[0] | null } = {}) {
+export function BrowserApprovalHost({ client: given }: { client?: Parameters<typeof subscribeBrowserApprovals>[0] | null } = {}) {
+  // The PC core's client as it is now: a reopen replaces it, and the connection says so (a status change, or the replaced store
+  // committing), so the cards are followed on the client that is open and not on the one the first render read.
+  const [current, setCurrent] = useState(() => pcCoreClient());
+  useEffect(() => {
+    const refresh = () => setCurrent(pcCoreClient());
+    refresh();
+    return window.mixdogDesktop?.sections?.subscribe((push) => {
+      if (push.kind === 'status' || (push.kind === 'replace' && push.stage === 'commit')) refresh();
+    });
+  }, []);
+  const client = given === undefined ? current : given;
   // The core's own cards: each leaves when answered or when the core resolved it elsewhere.
   useEffect(() => {
     if (!client) return;
