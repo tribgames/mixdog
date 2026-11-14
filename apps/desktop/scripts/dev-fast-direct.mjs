@@ -186,6 +186,7 @@ const runtimeDependencyInputs = [
   join(desktopDir, 'scripts', 'cli-args.mjs'),
   join(desktopDir, 'scripts', 'runtime-package-payload.mjs'),
   join(repoRoot, 'native', 'mixdog-browser-import'),
+  join(repoRoot, 'native', 'mixdog-computer'),
   join(repoRoot, 'native', 'mixdog-secure-desktop'),
   join(repoRoot, 'native', 'mixdog-window'),
 ];
