@@ -844,10 +844,8 @@ pub fn sumxmy2(a: &[Value]) -> Result<Value, Failure> {
     sumx(a, 2)
 }
 pub fn seriessum(a: &[Value]) -> Result<Value, Failure> {
-    let p = match parsed(a, 3) {
-        Ok(p) => p,
-        Err(_) => return err(E::Value),
-    };
+    // The source converts coefficients before testing any numeric-argument errors.
+    let numbers = parsed(a, 3);
     let coeff = arg(a, 3);
     let coeff = match coeff {
         Value::Array(v) => match parse_number_array(&v) {
@@ -866,6 +864,10 @@ pub fn seriessum(a: &[Value]) -> Result<Value, Failure> {
         }
         ref v if !is_truthy(v) || matches!(v, Value::Error(_)) => return err(E::Value),
         v => v,
+    };
+    let p = match numbers {
+        Ok(p) => p,
+        Err(_) => return err(E::Value),
     };
     let mut result = to_js_number(&index(&coeff, 0)?) * j::pow(p[0], p[1]);
     for i in 1..length(&coeff)?.unwrap_or(0) {

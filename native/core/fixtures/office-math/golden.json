@@ -57053,6 +57053,75 @@
    "name": "SERIESSUM",
    "args": [
     {
+     "t": "text",
+     "v": "bad"
+    },
+    {
+     "t": "number",
+     "bits": "3ff0000000000000"
+    },
+    {
+     "t": "number",
+     "bits": "3ff0000000000000"
+    },
+    {
+     "t": "text",
+     "v": "2"
+    }
+   ],
+   "sample": 0.5,
+   "threw": "Cannot assign to read only property '0' of string '2'"
+  },
+  {
+   "name": "SERIESSUM",
+   "args": [
+    {
+     "t": "number",
+     "bits": "4000000000000000"
+    },
+    {
+     "t": "text",
+     "v": "bad"
+    },
+    {
+     "t": "number",
+     "bits": "3ff0000000000000"
+    },
+    {
+     "t": "text",
+     "v": "2"
+    }
+   ],
+   "sample": 0.5,
+   "threw": "Cannot assign to read only property '0' of string '2'"
+  },
+  {
+   "name": "SERIESSUM",
+   "args": [
+    {
+     "t": "number",
+     "bits": "4000000000000000"
+    },
+    {
+     "t": "number",
+     "bits": "3ff0000000000000"
+    },
+    {
+     "t": "text",
+     "v": "bad"
+    },
+    {
+     "t": "text",
+     "v": "2"
+    }
+   ],
+   "sample": 0.5,
+   "threw": "Cannot assign to read only property '0' of string '2'"
+  },
+  {
+   "name": "SERIESSUM",
+   "args": [
+    {
      "t": "number",
      "bits": "4000000000000000"
     },
