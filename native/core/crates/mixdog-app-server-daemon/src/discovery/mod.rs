@@ -380,7 +380,8 @@ fn republish_if_deleted(root: &Path, held: &mut Held) {
     if !std::fs::symlink_metadata(path(root)).is_err_and(|error| error.kind() == io::ErrorKind::NotFound) {
         return;
     }
-    match publish(root, document) {
+    // A temp cleaner can take the runtime root with the file: it is made again, owner-only, as at startup.
+    match ensure_private_root(root).and_then(|()| publish(root, document)) {
         Ok(()) => {
             held.failing = false;
             tracing::warn!("the discovery file was deleted while this core serves: published it again");
