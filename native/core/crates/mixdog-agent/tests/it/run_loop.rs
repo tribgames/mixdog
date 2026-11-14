@@ -5251,6 +5251,35 @@ async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
     );
 }
 
+/// Answers `Error: …` text the tool itself declares a success (an MCP result without `isError`).
+struct ExplicitSuccessText(ToolSpec);
+#[async_trait]
+impl Tool for ExplicitSuccessText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text("Error: not a failure".into())], explicit_success: true, ..ToolOutput::default() })
+    }
+}
+
+/// `classifyToolReturn`: a tool's own `explicitSuccess` keeps text that starts `Error:` a normal result: not an error to
+/// the provider, nothing in the failure log.
+#[tokio::test]
+async fn an_explicit_success_is_not_classified_by_its_wording() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "agent", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    let output = finish(h.run(config(), vec![Arc::new(ExplicitSuccessText(agent.0))], vec![AgentMessage::user("go")])).await;
+    assert_eq!(dump(&output.transcript)[2..3], ["tool#c1(Normal):Error: not a failure".to_owned()]);
+    assert!(log.0.lock().unwrap().is_empty());
+}
+
 /// Answers `Error: ` and 100,000 more characters as a normal return.
 struct LongErrorText(ToolSpec);
 #[async_trait]
