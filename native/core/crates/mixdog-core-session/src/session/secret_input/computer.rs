@@ -6,12 +6,36 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::computer::ComputerAction;
+use mixdog_core_api::domain::computer::ComputerBackend;
+use mixdog_core_api::domain::computer::ComputerError;
+use mixdog_core_api::domain::computer::ComputerRequest;
+use mixdog_core_api::domain::computer::ComputerStatus;
+use mixdog_core_api::domain::computer::DesktopIdentity;
+use mixdog_core_api::domain::computer::DisplayId;
+use mixdog_core_api::domain::computer::DisplayInfo;
+use mixdog_core_api::domain::computer::InputOutcome;
+use mixdog_core_api::domain::computer::ScreenInput;
+use mixdog_core_api::domain::media::MediaFrameSource;
+use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_tools::desktop::host::HostCommands;
 use mixdog_tools::state::secrets::ComputerSecretHost;
+use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use super::ComputerCommands;
 use super::HumanOnlyLock;
+use super::Redact;
+use super::saved_login::FillContext;
+use super::saved_login::SavedLoginRegistry;
+use super::saved_login::SavedLoginTurn;
+use super::saved_login::fill_saved_login;
+use super::saved_login::pixels_allowed;
+use super::saved_login_host::HelperWindowPids;
+use super::saved_login_host::HostSavedLogins;
 
 /// The computer helper of a thread's session; `None` when no desktop control is attached to it.
 pub trait ComputerSecretHosts: Send + Sync {
@@ -50,6 +74,159 @@ impl ComputerCommands for HostComputerCommands {
         }
         let _operation = self.lock.begin_computer_operation()?;
         host.execute(command).await.map(Value::Object)
+    }
+}
+
+/// The agent turn a session's saved-login fill belongs to (Node's bridge named it in `turn_id`): the
+/// number of the session's turn that is running now, `None` when none is. The fill's redaction and
+/// pixel guard live until that turn settles.
+pub trait SavedLoginTurns: Send + Sync {
+    fn turn(&self, thread: &ThreadId) -> Option<u64>;
+}
+
+/// The runtime that names itself in a fill's command (`runtime_id`).
+const RUNTIME_ID: &str = "core";
+
+/// One session's [`ComputerBackend`] that serves `fill_saved_login` itself, as the desktop host's
+/// `fillSavedLogin` did: the login comes from the desktop's vault (`host/browser/command`
+/// `saved_login_admit|value|release`) and is written by the session's computer helper
+/// (`saved_login_check`, `saved_login_type`); the value never passes through the tool call or its
+/// reply. It also holds the capture of a browser a saved password was filled into back until the
+/// filling turn settles (`assertSavedLoginPixelsAllowed`). Every other call goes to `inner`.
+pub struct SavedLoginComputerBackend {
+    inner: Arc<dyn ComputerBackend>,
+    thread: ThreadId,
+    host: Arc<dyn HostCommands>,
+    commands: Arc<dyn ComputerCommands>,
+    registry: Arc<SavedLoginRegistry>,
+    redactor: Arc<dyn Redact>,
+    turns: Arc<dyn SavedLoginTurns>,
+}
+
+impl SavedLoginComputerBackend {
+    pub fn new(
+        inner: Arc<dyn ComputerBackend>,
+        thread: ThreadId,
+        host: Arc<dyn HostCommands>,
+        commands: Arc<dyn ComputerCommands>,
+        registry: Arc<SavedLoginRegistry>,
+        redactor: Arc<dyn Redact>,
+        turns: Arc<dyn SavedLoginTurns>,
+    ) -> Self {
+        Self { inner, thread, host, commands, registry, redactor, turns }
+    }
+
+    fn hide(&self, text: &str) -> String {
+        self.redactor.redact(&self.thread, text)
+    }
+
+    /// A refusal as the tool's failure: its code is the text before the first colon when that is a
+    /// code (`saved_login_unavailable: ...`), else the generic one.
+    fn failed(&self, message: &str) -> ComputerError {
+        let message = self.hide(message);
+        let code = message
+            .split_once(':')
+            .map(|(code, _)| code)
+            .filter(|code| !code.is_empty() && code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
+            .unwrap_or("computer_failed");
+        ComputerError::Failed { code: code.to_owned(), message }
+    }
+
+    async fn fill(&self, input: &Value, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let Some(turn) = self.turns.turn(&self.thread) else {
+            return Err(self.failed("saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent"));
+        };
+        let given = |key: &str| input.get(key).cloned().unwrap_or(Value::Null);
+        let command = json!({
+            "action": "fill_saved_login",
+            "session_id": self.thread.as_str(),
+            "window_id": given("window_id"),
+            "saved_account": given("savedAccount"),
+            "field": given("field"),
+            "turn_id": turn,
+            "runtime_id": RUNTIME_ID,
+        });
+        let logins = HostSavedLogins::admit(self.host.clone(), self.thread.clone(), turn)
+            .await
+            .map_err(|message| self.failed(&format!("saved_login_unavailable: {message}; no input was sent")))?;
+        let outcome = self.fill_admitted(&command, &logins, turn, cancel).await;
+        // The turn's admission at the desktop is not needed once the fill is over.
+        logins.release().await;
+        let reply = outcome.map_err(|message| self.failed(&message))?;
+        let mut result = reply.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
+        let message = result.shift_remove("text").unwrap_or(Value::Null);
+        let refused = result.get("code").and_then(Value::as_str).is_some_and(|code| !code.is_empty());
+        let mut shaped = Map::new();
+        shaped.insert("ok".to_owned(), json!(!refused));
+        shaped.insert("message".to_owned(), message);
+        shaped.extend(result);
+        Ok(vec![ToolPart::Text(self.hide(&Value::Object(shaped).to_string()))])
+    }
+
+    async fn fill_admitted(&self, command: &Value, logins: &HostSavedLogins, turn: u64, cancel: &CancellationToken) -> Result<Value, String> {
+        let admitted = self
+            .registry
+            .admit(&SavedLoginTurn { session: self.thread.as_str().to_owned(), turn })
+            .map_err(|message| format!("saved_login_unavailable: {message}; no input was sent"))?;
+        let window = command.get("window_id").and_then(Value::as_str).unwrap_or_default();
+        let worker = logins.worker(self.commands.clone(), window);
+        let runnable = || if cancel.is_cancelled() { Err("cancelled".to_owned()) } else { Ok(()) };
+        let hide = |text: &str| self.hide(text);
+        let context = FillContext { registry: &self.registry, windows: cfg!(windows), assert_runnable: &runnable, redact: &hide };
+        let outcome = fill_saved_login(command, logins, &worker, &context).await;
+        drop(admitted);
+        outcome
+    }
+
+    /// While a saved password's turn runs, the pixels of its browser leave nothing: a capture, and
+    /// the capture an `act` takes after its steps, unless they read the accessibility tree only.
+    async fn pixels(&self, request: &ComputerRequest) -> Result<(), ComputerError> {
+        let mode = match request.action {
+            ComputerAction::Capture => request.input.get("mode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("state"),
+            ComputerAction::Act => match request.input.get("observe").and_then(Value::as_str).filter(|mode| !mode.is_empty()) {
+                Some(mode) => mode,
+                None => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
+        let window = request.input.get("window_id").and_then(Value::as_str).unwrap_or_default();
+        let pids = HelperWindowPids::new(self.commands.clone(), self.thread.clone());
+        pixels_allowed(&self.registry, mode, window, &pids).await.map_err(|message| self.failed(&message))
+    }
+}
+
+#[async_trait]
+impl ComputerBackend for SavedLoginComputerBackend {
+    async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        if request.action == ComputerAction::SavedLogin {
+            return self.fill(&request.input, &cancel).await;
+        }
+        self.pixels(&request).await?;
+        self.inner.run(request, cancel).await
+    }
+
+    fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
+        self.inner.inject(input)
+    }
+
+    fn release_input(&self) -> Result<u32, ComputerError> {
+        self.inner.release_input()
+    }
+
+    fn input_desktop(&self) -> Option<DesktopIdentity> {
+        self.inner.input_desktop()
+    }
+
+    fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+        self.inner.displays()
+    }
+
+    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+        self.inner.screen_source(display)
+    }
+
+    fn status(&self) -> ComputerStatus {
+        self.inner.status()
     }
 }
 
