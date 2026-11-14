@@ -149,6 +149,7 @@ pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
 /// The process has no runtime of its own: the calling thread blocks inside RT-W's context, so the composition's tasks and every ambient `Handle::current()` land on the
 /// executors, and the connection tasks the transport spawns with `TaskClass::Control` run on RT-C. Blocking work goes to the lanes, never to either runtime.
 pub fn run() -> Result<(), ServeError> {
+    adopt_login_shell_environment(std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let (executors, tokens) = boot_executors()?;
     match executors.handle(TaskClass::Work).block_on(serve(&executors, tokens)) {
         Err(ServeError::Startup(startup::StartupError::Ownership(ownership::AcquireError::AlreadyOwned))) => {
@@ -156,6 +157,41 @@ pub fn run() -> Result<(), ServeError> {
             Ok(())
         }
         served => served,
+    }
+}
+
+/// A start by a launcher (the desktop, a login item, a service) lacks what the user's shell profile exports; a start from a terminal has it already. The shell is read only
+/// where the profile can be missing (macOS and Linux) and the process was not started from a terminal.
+fn reads_login_shell(platform: &str, started_from_terminal: bool) -> bool {
+    platform != "win32" && !started_from_terminal
+}
+
+/// The login-shell environment (`login-shell-environment.ts`): what the shell overrides is set in this process before any executor or thread exists, so the core, every
+/// terminal and every tool call inherit it. A failed read is reported once at error level and the start goes on with the inherited environment.
+fn adopt_login_shell_environment(started_from_terminal: bool) {
+    use mixdog_core_domains::domains::desktop_residual::host_platform;
+    use mixdog_core_domains::domains::desktop_residual_b as residual;
+    let platform = host_platform();
+    if !reads_login_shell(platform, started_from_terminal) {
+        return;
+    }
+    let began = std::time::Instant::now();
+    let inherited: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let adoption = residual::adopt_login_shell_environment(platform, &inherited, residual::LOGIN_SHELL_READ_BUDGET);
+    for (name, value) in &adoption.set {
+        // SAFETY: the process is still single-threaded: no executor or thread that reads the environment exists yet.
+        unsafe { std::env::set_var(name, value) };
+    }
+    if adoption.adopted {
+        tracing::info!(
+            elapsed_ms = began.elapsed().as_millis() as u64,
+            changed = adoption.changed_count,
+            homebrew_path_added = ?adoption.homebrew_path_added,
+            "login-shell environment adopted"
+        );
+    }
+    for failure in &adoption.failures {
+        tracing::error!(shell = %failure.shell, reason = %failure.reason, "the login-shell environment could not be read");
     }
 }
 
@@ -313,4 +349,18 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let mut state = serving.lifecycle.state();
     let _ = state.wait_for(|state| matches!(state, CoreState::Stopped)).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod login_shell_tests {
+    use super::reads_login_shell;
+
+    #[test]
+    fn only_a_launcher_start_on_macos_or_linux_reads_the_login_shell() {
+        assert!(reads_login_shell("darwin", false));
+        assert!(reads_login_shell("linux", false));
+        assert!(!reads_login_shell("darwin", true));
+        assert!(!reads_login_shell("linux", true));
+        assert!(!reads_login_shell("win32", false));
+    }
 }
