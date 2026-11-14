@@ -51,7 +51,7 @@ export interface ComputerHostDeps {
 
 /** Every `host/computer/*` handler, always: a core that does not drive Computer Use (or runs it through the desktop's own
  *  host) never calls cursorPrepare, appWindows, appInput or pixels, so serving them changes nothing for it. */
-export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, deps: ComputerHostDeps): void {
+export function registerComputerHandlers(connection: HostConnection, source: ComputerControlSource, deps: ComputerHostDeps): void {
   const running = (): ComputerControl => {
     const control = source();
     if (!control) throw new HostRpcError(HOST_COMMAND_FAILED, COMPUTER_UNAVAILABLE);

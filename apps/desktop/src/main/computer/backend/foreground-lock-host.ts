@@ -1,4 +1,4 @@
-import { dlopenNativeModule } from '../../native-module';
+import { loadWindowModule } from '../../native-module';
 
 /**
  * The foreground-lock leases the process hosting the bridge gives a worker
@@ -376,7 +376,7 @@ export interface LeaseNative {
 const failureOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Loads the Node-API module from any file name (the dev build keeps cargo's .dll name): the desktop's one native-module loader. */
-export const loadLeaseNative = (library: string): LeaseNative => dlopenNativeModule<LeaseNative>(library);
+export const loadLeaseNative = (library: string): LeaseNative => loadWindowModule<LeaseNative>(library);
 
 /** The lease thread of the module: an answer comes back from the call that asks,
  *  a lease's end as an event. A call the module fails ends the thread for the

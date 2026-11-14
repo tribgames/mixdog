@@ -1,0 +1,6 @@
+apps/desktop/src/main/ipc.ts, line `import { registerWindowSettingsIpc, type PcQuotaHost } from './ipc-window-settings';`:
+  replace with
+    import { registerWindowSettingsIpc } from './ipc-window-settings';
+    import type { PcQuotaHost } from './ipc-host-extras';
+  Then s2a-del-ipc-handlers may delete ipc-window-settings.ts (it keeps a `export type { PcQuotaHost }` re-export only so ipc.ts compiles until then; the type itself now lives in ipc-host-extras.ts).
+apps/desktop/src/main/host/index.ts: no change needed (register-s3.ts keeps exporting registerComputerHost, the registration of the whole set; host/computer.ts's function is now registerComputerHandlers).
