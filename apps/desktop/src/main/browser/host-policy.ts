@@ -3,6 +3,9 @@
  * URL policy, pane viewport emulation, task-cleanup validation, pending
  * session work and how a human input competes with agent commands.
  */
+import type { WebContents } from 'electron';
+
+import type { EmulationSpec } from '../../../../../packages/protocol/src/index.ts';
 import { BROWSER_INPUT_WAIT_MS, browserTypingInput } from '../../shared/browser-input-policy';
 import type { DesktopBrowserPageControl, DesktopBrowserViewportConfig } from '../../shared/contract';
 import type { BrowserCommand } from './command';
@@ -45,6 +48,69 @@ export function browserViewportEmulation(config: DesktopBrowserViewportConfig): 
       : {}),
   };
 }
+
+/** The `emulate` command the agent's overrides make, with the pane's fixed
+ *  viewport laid under them: the size, scale factor, mobile flag and
+ *  orientation only make sense together, so an override of one of them keeps
+ *  the pane's size for the part it leaves out instead of being refused. */
+export function mergeEmulationOverrides(
+  overrides: EmulationSpec,
+  pane: DesktopBrowserViewportConfig | null
+): BrowserCommand {
+  const command: BrowserCommand = { action: 'emulate' };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined && value !== null) Object.assign(command, { [key]: value });
+  }
+  if (!pane || pane.width === null || pane.height === null) return command;
+  const sizeParts = [command.width, command.height].filter((value) => value !== undefined).length;
+  const shapesViewport = [command.deviceScaleFactor, command.mobile, command.orientation].some(
+    (value) => value !== undefined
+  );
+  if (sizeParts === 1 || (sizeParts === 0 && shapesViewport)) {
+    command.width ??= pane.width;
+    command.height ??= pane.height;
+  }
+  return command;
+}
+
+/** The one owner of a page's emulation: the pane's viewport and the agent's
+ *  overrides both go through it, so clearing the agent's overrides gives the
+ *  page back to the pane's viewport rather than to none. `configure` is the
+ *  emulation tool's `configureEmulation`. */
+export function createBrowserEmulationOwner(host: {
+  configure(guest: WebContents, command: BrowserCommand, signal?: AbortSignal): Promise<string[]>;
+}) {
+  const panes = new WeakMap<WebContents, DesktopBrowserViewportConfig>();
+  return {
+    /** The pane's viewport the page was last given (null: none was chosen). */
+    paneViewport: (guest: WebContents): DesktopBrowserViewportConfig | null => panes.get(guest) ?? null,
+    /** A pane preset: replaces every emulation of the page, the agent's included. */
+    async applyPane(guest: WebContents, config: DesktopBrowserViewportConfig, signal?: AbortSignal): Promise<void> {
+      panes.set(guest, config);
+      await host.configure(guest, browserViewportEmulation(config), signal);
+    },
+    /** The agent's overrides on top of what the page has; `null` clears them
+     *  and the pane's viewport is what remains. The returned spec is what the
+     *  agent now has in force. */
+    async applyAgent(
+      guest: WebContents,
+      overrides: EmulationSpec | null,
+      signal?: AbortSignal
+    ): Promise<EmulationSpec | null> {
+      const pane = panes.get(guest) ?? null;
+      if (overrides === null) {
+        await host.configure(guest, pane ? browserViewportEmulation(pane) : { action: 'emulate', reset: true }, signal);
+        return null;
+      }
+      const command = mergeEmulationOverrides(overrides, pane);
+      await host.configure(guest, command, signal);
+      const { action: _action, ...applied } = command;
+      return applied as EmulationSpec;
+    },
+  };
+}
+
+export type BrowserEmulationOwner = ReturnType<typeof createBrowserEmulationOwner>;
 
 /** A task cleanup context must name a session and a real turn, and carry
  *  nothing beyond its abort flag. */
