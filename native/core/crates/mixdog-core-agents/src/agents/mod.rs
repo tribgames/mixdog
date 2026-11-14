@@ -594,15 +594,15 @@ impl AgentDefinitions {
         let kinds = if stage.skipped || stage.failed {
             store_migration::KindReport { skipped: stage.skipped, failed: stage.failed, ..Default::default() }
         } else {
-            let (data, stage) = (data.clone(), stage.clone());
-            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::finish_kind_stamp(lane, &data, &stage)).await?;
+            let (data, stage, now) = (data.clone(), stage.clone(), (writes.now)());
+            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::finish_kind_stamp(lane, &data, &stage, &now)).await?;
             report
         };
         // The routes the stamp restored are read again for the split.
         let facts = if kinds.restored.is_empty() { facts } else { Arc::new(self.store_facts().await?) };
         let split = {
-            let (data, backup) = (data.clone(), backup.clone());
-            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::migrate_bots_to_own_store(lane, &data, &facts, &|lane| backup(lane, "bot-split"))).await?;
+            let (data, backup, now) = (data.clone(), backup.clone(), (writes.now)());
+            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::migrate_bots_to_own_store(lane, &data, &facts, &now, &|lane| backup(lane, "bot-split"))).await?;
             report
         };
         Ok((kinds, split))

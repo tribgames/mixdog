@@ -22,27 +22,22 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_protocol::JsonValue;
 use mixdog_rt::LaneToken;
 
-/// `positiveEnvInt(name, fallback)` of `shared/tool-output-limit.mjs`, read once as Node reads it when the module loads.
-fn limit(cell: &'static std::sync::LazyLock<usize>) -> usize {
-    **cell
-}
-
 /// Model-facing byte cap of one tool result (`TOOL_OUTPUT_MAX_BYTES`, `MIXDOG_TOOL_OUTPUT_MAX_BYTES`).
 pub(crate) fn output_max_bytes() -> usize {
     static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES").ok().as_deref(), 50 * 1024));
-    limit(&MAX)
+    *MAX
 }
 
 /// Model-facing byte cap of locator tools: find, glob, list (`LOCATOR_OUTPUT_MAX_BYTES`, `MIXDOG_LOCATOR_OUTPUT_MAX_BYTES`).
 pub(crate) fn locator_max_bytes() -> usize {
     static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_LOCATOR_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
-    limit(&MAX)
+    *MAX
 }
 
 /// Model-facing byte cap of grep (`GREP_OUTPUT_MAX_BYTES`, `MIXDOG_GREP_OUTPUT_MAX_BYTES`).
 pub(crate) fn grep_max_bytes() -> usize {
     static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_GREP_OUTPUT_MAX_BYTES").ok().as_deref(), 5 * 1024));
-    limit(&MAX)
+    *MAX
 }
 
 /// Directory names pruned unless `include_noise` is set.

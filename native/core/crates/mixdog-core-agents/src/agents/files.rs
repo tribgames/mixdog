@@ -30,8 +30,8 @@ pub(super) type Lane = InLane<InteractiveIo>;
 
 /// `AGENT_DELETED_MARKER`: the tombstone a deleted agent leaves in its user folder.
 pub const DELETED_MARKER: &str = ".deleted";
-const BOTS_DIR: &str = "bots";
-const MIXY_BOT_ID: &str = "mixy";
+pub(super) const BOTS_DIR: &str = "bots";
+pub(super) const MIXY_BOT_ID: &str = "mixy";
 
 /// `FIXED_AGENT_SLOTS`: id, label and description of the built-in services.
 pub const FIXED_SLOTS: [(&str, &str, &str, &str); 2] = [
