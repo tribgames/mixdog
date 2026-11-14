@@ -1,0 +1,45 @@
+# s4-core-events-service core wiring (applied by the wiring task that composes the browser engine, s4-wire-core / CORE-WIRE-G7)
+
+## 1. Module line
+File: native/core/crates/mixdog-app-server-daemon/src/lib.rs, with the other `pub mod` lines (next to `pub mod connection_close;`):
+
+    pub mod browser_engine_service;
+
+(public: `ClaimantProbe` and `BrowserToolRunner` are implemented by the composition and by the engine adapter.)
+
+## 2. Cargo
+No new dependency edge: the daemon already depends on mixdog-browser-engine, mixdog-app-protocol, mixdog-protocol, mixdog-core-base, async-trait,
+tokio-util and serde_json, and its dev-dependency line already enables its own `test-hooks` feature for the tests.
+
+## 3. The claim table's answer (one visibility edit in a file this task does not own)
+File: native/core/crates/mixdog-app-server/src/outgoing.rs, `Outgoing::is_host_claimant`: change `pub(crate) fn` to `pub fn`, and implement the probe for it
+where the composition has the `Arc<Outgoing>` (b.outgoing), in compose_flip.rs:
+
+    struct OutgoingClaimants(Arc<mixdog_app_server::Outgoing>);
+    impl crate::browser_engine_service::ClaimantProbe for OutgoingClaimants {
+        fn is_claimant(&self, connection: mixdog_core_api::ids::ConnectionId) -> bool { self.0.is_host_claimant(connection) }
+    }
+
+## 4. The one compose call, in compose_flip.rs next to `builder.register(live_view.clone())?;`
+Needs the engine's sink (`EngineSinkImpl::new(lane.mirror().clone(), hold)` of s4-engine-lane, the same Arc the engine's HostLane reads):
+
+    let browser_engine = Arc::new(crate::browser_engine_service::BrowserEngineService::new(engine_sink.clone(), Arc::new(OutgoingClaimants(b.outgoing.clone()))));
+    #[cfg(feature = "test-hooks")]
+    let browser_engine = Arc::new(Arc::try_unwrap(browser_engine).ok().expect("sole owner").with_test_hook(&*env, tool_runner));
+    builder.register(browser_engine.clone())?;
+
+(simpler: build the service once with `let service = BrowserEngineService::new(..);` then, under cfg(feature = "test-hooks"),
+`let service = service.with_test_hook(&*env, tool_runner);` before wrapping it in the Arc.) `tool_runner` is an `Arc<dyn BrowserToolRunner>` that the
+engine adapter (s4-tool-adapter / s4-wire-core) implements over `BrowserEngine::run` with a turn-less caller; `env` is the daemon's env reader that
+`compose_computer` already passes to `DevComputerRun::if_enabled`.
+
+## 5. Connection close
+File: native/core/crates/mixdog-app-server-daemon/src/connection_close.rs, `ConnectionOwners::new`: add an eighth parameter
+`browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>` and append it to the `owners` vec (it implements `ConnectionOwner`);
+the call in compose_flip.rs (`ConnectionOwners::new(terminal.clone(), ... scm_service.clone())`) passes `browser_engine` last. (The doc comment
+"the five owners" stays as it is.)
+
+## 6. SERVICE_PENDING (compose_flip.rs)
+Remove "host/browser/events", "host/browser/page/facts", "host/browser/userInput" (the service registers them).
+Keep "test/browserEngine/run" in it, as "dev/computer/run" is kept: an ordinary start (no test-hooks build, or MIXDOGD_TEST_HOOKS unset) registers
+nothing for it. Reword the comment above the group to "the browser engine composed into mixdogd; the test hook only with MIXDOGD_TEST_HOOKS=1".
