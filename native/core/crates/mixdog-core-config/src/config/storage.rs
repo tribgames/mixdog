@@ -19,6 +19,7 @@ use serde_json::json;
 use super::patch::js_deep_equal;
 use super::patch::strip_agent_section_defaults;
 use crate::workflow::ids::truthy;
+use crate::workflow::presets::normalize_maintenance_routes;
 use crate::workflow::presets::normalize_preset;
 use crate::workflow::presets::redundant_generated;
 use crate::workflow::presets::stored_web_search_route;
@@ -218,6 +219,9 @@ pub(super) fn canonical_agent_storage(value: &Doc, catalog: &[Value], now_ms: i6
                 (id, route)
             })
             .collect();
+        // `config.mjs`'s load keeps each maintenance slot as `normalizeMaintenanceRoutes` reads it: a route is its provider, model and
+        // the settings it states, so what is saved holds no more.
+        let routes = if key == "maintenance" { normalize_maintenance_routes(&routes) } else { routes };
         next.insert(key.into(), Value::Object(routes));
     }
     // A superseded model's own settings have no model left to apply to.

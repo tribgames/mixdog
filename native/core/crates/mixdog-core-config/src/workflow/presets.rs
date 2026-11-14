@@ -70,6 +70,37 @@ fn first_text(preset: &Value, keys: &[&str]) -> String {
     String::new()
 }
 
+/// `normalizeMaintenanceRoutes(rawMaint)` (`config-storage.mjs`): a slot that is no object, or whose route lacks a provider or a
+/// model, is dropped; a kept route holds the provider (its alias resolved), the model, a non-empty `effort`, `fast: true` and
+/// `autoEffort: false`, nothing else.
+pub(crate) fn normalize_maintenance_routes(raw: &Map<String, Value>) -> Map<String, Value> {
+    let mut out = Map::new();
+    for (slot, value) in raw {
+        let Some(route) = value.as_object() else { continue };
+        let provider = js_trim(&first_text(value, &["provider"])).to_owned();
+        let provider = AGENT_PROVIDER_ALIASES.iter().find(|(alias, _)| *alias == provider).map_or(provider.clone(), |(_, id)| (*id).to_owned());
+        let model = js_trim(&first_text(value, &["model"])).to_owned();
+        if provider.is_empty() || model.is_empty() {
+            continue;
+        }
+        let mut kept = Map::new();
+        kept.insert("provider".into(), Value::String(provider));
+        kept.insert("model".into(), Value::String(model));
+        let effort = js_trim(&first_text(value, &["effort"])).to_owned();
+        if !effort.is_empty() {
+            kept.insert("effort".into(), Value::String(effort));
+        }
+        if route.get("fast") == Some(&Value::Bool(true)) {
+            kept.insert("fast".into(), Value::Bool(true));
+        }
+        if route.get("autoEffort") == Some(&Value::Bool(false)) {
+            kept.insert("autoEffort".into(), Value::Bool(false));
+        }
+        out.insert(slot.clone(), Value::Object(kept));
+    }
+    out
+}
+
 /// `normalizePreset`.
 pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     let map = preset.as_object()?;
@@ -282,5 +313,26 @@ mod tests {
         assert_eq!(presets.len(), 6);
         let summary = summarize_workflow_routes(&view).unwrap();
         assert_eq!(summary["lead"]["effort"], "high");
+    }
+
+    /// `normalizeMaintenanceRoutes`: only the slots with a provider and a model stay, holding the fields the route states.
+    #[test]
+    fn a_maintenance_slot_keeps_its_route_fields_and_nothing_else() {
+        let raw: Doc = serde_json::from_value(json!({
+            "webhook": { "provider": " openai-api ", "model": " gpt-x ", "effort": " high ", "fast": true, "autoEffort": false, "note": "extra" },
+            "plain": { "provider": "anthropic", "model": "m", "effort": "  ", "fast": "yes", "autoEffort": true },
+            "nomodel": { "provider": "anthropic" },
+            "text": "anthropic/m",
+            "list": [1],
+        }))
+        .unwrap();
+        let kept = normalize_maintenance_routes(&raw);
+        assert_eq!(
+            Value::Object(kept),
+            json!({
+                "webhook": { "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "autoEffort": false },
+                "plain": { "provider": "anthropic", "model": "m" },
+            })
+        );
     }
 }
