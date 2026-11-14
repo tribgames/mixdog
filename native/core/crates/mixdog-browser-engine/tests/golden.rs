@@ -230,7 +230,7 @@ async fn golden_texts_match_recorded_host() {
 
         let mut input: Map<String, Value> = serde_json::from_str(&Value::Object(request.clone()).to_string().replace("<ORIGIN>", &origin)).expect("a request is JSON");
         input.remove("action");
-        let answer = engine.run(&thread, "1", action, &input, &CancellationToken::new()).await;
+        let answer = engine.run(&thread, action, &input, &CancellationToken::new()).await;
         let (got_ok, got, image_mime, has_timing) = match &answer {
             Ok(reply) => (true, reply.text.clone(), reply.image.as_ref().map(|image| image.mime_type.clone()), reply.timing.is_some()),
             Err(error) => (false, error.message_for_model.clone(), None, false),

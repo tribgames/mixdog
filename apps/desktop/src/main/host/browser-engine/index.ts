@@ -38,6 +38,7 @@ import { registerRefCall } from './ref-call';
 import { registerRefMint } from './ref-mint';
 import { registerScreenshot } from './screenshot';
 import { registerSession, type SessionDeps } from './session';
+import { registerSignIn, type SignInDeps } from './signin';
 import { registerSnapshot } from './snapshot';
 import type { TranscriptTap } from './transcript';
 import { registerUpload, type UploadDeps } from './upload';
@@ -54,6 +55,8 @@ export interface BrowserEnginePorts {
   lifecycle: ReturnType<typeof createBrowserGuestLifecycle>;
   tabs: ReturnType<typeof createBrowserTabs>;
   taskLifecycle: ReturnType<typeof createBrowserTaskLifecycle<WebContents>>;
+  /** The sign-in flows and the turn bookkeeping the core's engine asks about (browser/host-agent.ts builds it). */
+  signIn: SignInDeps;
   /** The one owner of a page's emulation, shared with the pane's preset path. */
   emulation: BrowserEmulationOwner;
   /** The folder a saved performance trace goes to when the core does not name one. */
@@ -73,6 +76,7 @@ export interface BrowserEngineDeps {
   page: PageHost;
   session: SessionDeps;
   upload: UploadDeps;
+  signIn: SignInDeps;
   snapshot: Parameters<typeof registerSnapshot>[2];
   refCall: Parameters<typeof registerRefCall>[2];
   screenshot: Parameters<typeof registerScreenshot>[2];
@@ -92,6 +96,7 @@ export function registerBrowserEngine(connection: HostConnection, ctx: EngineCon
   registerScreenshot(connection, ctx, deps.screenshot);
   registerSession(connection, ctx, deps.session);
   registerUpload(connection, ctx, deps.upload);
+  registerSignIn(connection, ctx, deps.signIn);
 }
 
 /** The guests the host has now: the pane's pages and every named background page. */
@@ -105,6 +110,7 @@ function liveGuests(sessions: BrowserEnginePorts['base']['sessions']): WebConten
 export const ENGINE_REQUEST_METHODS: readonly string[] = [
   'host/browser/cdp/send',
   'host/browser/cookies',
+  'host/browser/credentials/fill',
   'host/browser/downloads',
   'host/browser/emulation',
   'host/browser/initScripts',
@@ -126,8 +132,10 @@ export const ENGINE_REQUEST_METHODS: readonly string[] = [
   'host/browser/ref/call',
   'host/browser/ref/mint',
   'host/browser/screenshot',
+  'host/browser/signIn',
   'host/browser/snapshot',
   'host/browser/storage',
+  'host/browser/turn',
   'host/browser/upload',
   'host/browser/upload/receiver',
 ];
@@ -317,6 +325,7 @@ export function createBrowserEngine(
       },
       invalidateInteractionState: (guest) => state.invalidateInteraction(guest),
     },
+    signIn: ports.signIn,
     snapshot: {
       captureSnapshotPayload: (guest, command, signal) =>
         ports.tools.snapshots.captureSnapshotPayload(guest, command, signal),

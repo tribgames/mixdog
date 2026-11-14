@@ -3,7 +3,9 @@
 //! [`FakeHost::from_transcript`] from a JSONL recording. Test support only (`cfg(any(test, feature = "test-support"))`).
 //!
 //! A call that is not the next expected one is answered `Failed` and recorded; [`FakeHost::finish`] reports it, so a test that
-//! swallowed the failure still fails.
+//! swallowed the failure still fails. The exception is the sign-in and turn hooks (`host/browser/signIn`, `host/browser/turn`): they are
+//! asked around every command and turn, and one the script does not mention is answered with an empty result (a host with no
+//! sign-in state).
 //!
 //! Transcript rows, one JSON object per line (blank lines are skipped):
 //! - `{"method": "host/browser/...", "params": {..}?, "result": ..}`: the next call, with `params` matched as a subset;
@@ -27,6 +29,10 @@ use serde_json::json;
 use crate::error::HostCallError;
 use crate::port::EngineSink;
 use crate::port::HostWire;
+
+/// The questions the engine asks the host around every command and every turn, which a script that does not mention them leaves
+/// unanswered.
+const HOOKS: [&str; 2] = ["host/browser/signIn", "host/browser/turn"];
 
 /// A notification the host sends.
 #[derive(Debug, Clone, PartialEq)]
@@ -195,6 +201,10 @@ impl HostWire for FakeHost {
         let (answer, pushes) = {
             let mut state = self.state();
             state.calls.push(Call { method: method.to_string(), params: params.clone() });
+            // The hooks run around every command and turn; a script that does not mention one is a host with nothing to say.
+            if HOOKS.contains(&method) && state.expected.front().is_none_or(|next| next.method != method) {
+                return Ok(json!({}));
+            }
             let problem = match state.expected.front() {
                 None => Some(format!("{method}: no call is scripted")),
                 Some(next) if next.method != method => Some(format!("{method}: the script expects {}", next.method)),

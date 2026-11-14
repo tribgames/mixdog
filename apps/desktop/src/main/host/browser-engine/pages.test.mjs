@@ -7,7 +7,7 @@ function makeGuest(pageId) {
   return { pageId, isDestroyed: () => false, getURL: () => 'https://a.example/', isLoading: () => false };
 }
 
-function harness({ policy, freshPage } = {}) {
+function harness({ policy, freshPage, kind = 'agent', keepAlive } = {}) {
   const handlers = new Map();
   const log = [];
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
@@ -43,7 +43,7 @@ function harness({ policy, freshPage } = {}) {
           const guest = makeGuest('p2');
           pages.set('p2', guest);
           owner.set(guest, 'sess');
-          backgrounds.set('bg', { guest, window: { isDestroyed: () => false }, kind: 'agent', lastUsedAt: 0 });
+          backgrounds.set('bg', { guest, window: { isDestroyed: () => false }, kind, keepAlive, lastUsedAt: 0 });
           return { guest, background: true, tabName: 'bg' };
         }
         return tab === 'p1' ? { guest: visible[0], background: false } : null;
@@ -100,6 +100,7 @@ test('resolve answers the visible page with its descriptor and the lease the com
   assert.equal(result.page.sessionId, 'sess');
   assert.equal(result.page.background, false);
   assert.equal(result.page.facts.pageId, 'p1');
+  assert.deepEqual([result.page.created, result.page.disposable], [false, false], 'a page the session already had is nobody to reclaim');
   assert.equal(result.leaseId, 'lease-1');
   assert.ok(h.log.includes('lease p1 c1 5000'));
   assert.ok(h.log.includes('agentPage p1'));
@@ -113,6 +114,22 @@ test('resolve with background:true makes the hidden page; a tab index is the vis
   assert.equal(hidden.leaseId, undefined);
   await h.call('resolve', { sessionId: 'sess', tab: { index: 1 } });
   assert.ok(h.log.includes('target false v1'));
+});
+
+test('a hidden page an agent made is the turn to reclaim, one kept alive or the user own is not', async () => {
+  const made = await harness().call('resolve', { sessionId: 'sess', background: true });
+  assert.deepEqual([made.page.created, made.page.disposable], [true, true]);
+  const kept = await harness({ keepAlive: true }).call('resolve', { sessionId: 'sess', background: true });
+  assert.deepEqual([kept.page.created, kept.page.disposable], [true, false]);
+  const users = await harness({ kind: 'user' }).call('resolve', { sessionId: 'sess', background: true });
+  assert.deepEqual([users.page.created, users.page.disposable], [true, false]);
+  const listed = await harness().call('list', { sessionId: 'sess' });
+  assert.deepEqual(listed.pages.map((page) => [page.created, page.disposable]), [[false, false]]);
+});
+
+test('a page this call had to make for the command says so', async () => {
+  const made = await harness({ freshPage: true }).call('resolve', { sessionId: 'sess' });
+  assert.deepEqual([made.page.pageId, made.page.created], ['p9', true]);
 });
 
 test('resolve places a command with no tab on a visible page of its own, or on the pane page when it adopts', async () => {
@@ -184,6 +201,13 @@ test('close destroys a background page and names the page that is active next', 
   assert.deepEqual(closed, { closed: true, nextActivePageId: 'p1' });
   assert.ok(h.log.includes('destroy bg'));
   assert.deepEqual(await h.call('close', { pageId: 'p2', reason: 'turnEnd' }), { closed: false });
+});
+
+test('a discard closes the page a failed command made only while the lifecycle says it holds no document', async () => {
+  const h = harness();
+  assert.deepEqual(await h.call('close', { pageId: 'p1', reason: 'discard' }), { closed: true });
+  assert.ok(h.log.includes('discard p1'));
+  assert.deepEqual(await h.call('close', { pageId: 'nowhere', reason: 'discard' }), { closed: false });
 });
 
 test('the visible tab stays with the panel: the agent is told how to move on, the sweeps close nothing', async () => {
