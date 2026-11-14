@@ -31,7 +31,12 @@ async function setup({ role, answer = async (method) => (method === 'thread/read
   const client = fakeClient(answer);
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();
-  const ctx = { ...createDirectContext(connection), window: () => (role ? { role } : { role: 'main' }) };
+  // A server window's primary socket is `main` on the server's core; this PC's core names its other socket `server:<id>`.
+  const ctx = {
+    ...createDirectContext(connection),
+    window: () => ({ role: 'main' }),
+    pcClient: () => ({ server: { connection: { window: { role: role ?? 'main' } } } }),
+  };
   const hostCalls = [];
   const host = {
     enableAllowAllActions: async () => (hostCalls.push(['enableAllowAllActions']), { value: 'settings' }),
