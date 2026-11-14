@@ -332,6 +332,7 @@ portable-pty = "0.9.0"
 vte = "0.14.1"
 signal-hook = "0.3.18"
 windows = { version = "0.62.2", default-features = false }
+libwebp-sys = "=0.9.6"
 
 [patch.crates-io]
 # The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps

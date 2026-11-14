@@ -3766,6 +3766,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libwebp-sys"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54cd30df7c7165ce74a456e4ca9732c603e8dc5e60784558c1c6dc047f876733"
+dependencies = [
+ "cc",
+ "glob",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5054,16 +5064,22 @@ dependencies = [
 name = "mixdog-exthost-worker"
 version = "1.5.0"
 dependencies = [
+ "base64 0.22.1",
  "bytes",
  "dunce",
  "libc",
  "mixdog-core-api",
  "mixdog-exthost",
+ "mixdog-fsio",
+ "mixdog-imaging",
+ "mixdog-ooxml-text",
  "mixdog-protocol",
  "mixdog-rt",
+ "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -5119,6 +5135,7 @@ version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "image",
+ "libwebp-sys",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "moxcms",
@@ -5166,6 +5183,7 @@ dependencies = [
  "mixdog-app-server-daemon",
  "mixdog-js",
  "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-store",
  "mixdog-testkit",
  "mixdog-workspace-hack",
@@ -5173,6 +5191,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5670,6 +5689,7 @@ name = "mixdog-skill-scripts"
 version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
+ "libc",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-mcp",
@@ -5677,6 +5697,7 @@ dependencies = [
  "mixdog-workspace-hack",
  "serde_json",
  "sha2 0.10.9",
+ "signal-hook",
  "tempfile",
 ]
 
@@ -5787,6 +5808,8 @@ dependencies = [
  "libc",
  "mixdog-fsio",
  "mixdog-js",
+ "mixdog-termtext",
+ "mixdog-tui-style",
  "portable-pty",
  "serde",
  "serde_json",
@@ -5803,6 +5826,7 @@ version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "serde_json",
+ "unicode-normalization",
  "unicode-segmentation",
 ]
 
@@ -5843,6 +5867,7 @@ dependencies = [
  "mixdog-fsio",
  "mixdog-graph",
  "mixdog-js",
+ "mixdog-jssyntax",
  "mixdog-patch",
  "mixdog-protocol",
  "mixdog-rt",
@@ -5907,6 +5932,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-protocol",
  "mixdog-testkit",
+ "mixdog-tui-style",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",

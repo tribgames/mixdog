@@ -21,6 +21,7 @@ required-features = ["fake-core"]
 mixdog-app-server-client = { workspace = true }
 # One implementation of the crash capture's exit text, retention and capture directory: the core's own (crash_record.rs, stale_temps.rs).
 mixdog-app-server-daemon = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-rt = { workspace = true }
@@ -30,6 +31,9 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
