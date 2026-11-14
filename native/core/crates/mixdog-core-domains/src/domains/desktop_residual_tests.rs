@@ -32,9 +32,11 @@ fn an_href_is_decoded_the_way_markdown_link_decodes_it_and_a_web_link_names_no_f
     assert_eq!(at("https://example.com/a/b.txt"), None);
     assert_eq!(at(""), None);
     // Locations: a range, a column, a drive letter never taken for a line, an invalid position dropped with its suffix.
-    assert_eq!(at("a.ts:12:4-9").as_deref(), Some("/work/project/a.ts"));
+    assert_eq!(at("src/a.ts:12:4-9").as_deref(), Some("/work/project/src/a.ts"));
     assert_eq!(at("a.ts#L12C4-L20").as_deref(), Some("/work/project/a.ts"));
-    assert_eq!(at("a.ts:0").as_deref(), Some("/work/project/a.ts"));
+    assert_eq!(at("src/a.ts:0").as_deref(), Some("/work/project/src/a.ts"));
+    // A bare `name.ext:line` reads as a URL scheme (`isLocalMarkdownLink`), so it names no file, as in the app.
+    assert_eq!(at("a.ts:12"), None);
     assert_eq!(at("mailto:x@y.z"), None);
     assert_eq!(at("#section"), None);
     assert_eq!(at("//server/share/a.pdf"), None);
@@ -334,4 +336,13 @@ async fn the_service_answers_links_attachments_and_settings() {
     std::fs::write(&file, "{ \"a\": 1, }").unwrap();
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": file })).await.unwrap(), json!({ "config": { "a": 1 } }));
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": dir.path().join("none.jsonc") })).await.unwrap(), json!({ "config": null }));
+}
+
+#[test]
+fn a_session_id_is_trimmed_and_holds_only_id_characters() {
+    assert_eq!(required_session_id("  s_1-A "), Some("s_1-A"));
+    for bad in ["", "   ", "a b", "a/b", "..", "é", &"x".repeat(257)] {
+        assert_eq!(required_session_id(bad), None, "{bad:?}");
+    }
+    assert!(required_session_id(&"x".repeat(256)).is_some());
 }
