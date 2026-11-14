@@ -374,7 +374,16 @@ impl<'s> Checker<'s> {
             "comment" => Ok(()),
             "statement_block" => self.visit_block(node, cx),
             "function_declaration" | "generator_function_declaration" => self.visit_function_declaration(node, cx),
-            "function_expression" | "generator_function" | "arrow_function" | "method_definition" => {
+            "function_expression" | "generator_function" | "arrow_function" => self.function_like(node, cx, false),
+            // A method of an object literal (class members are visited by `visit_class_body`): its key is code of
+            // the enclosing context (`[await x]() {}`), and a private name is no key of an object literal.
+            "method_definition" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    if name.kind() == "private_property_identifier" {
+                        return Err(Reason::Msg(msg::INVALID_TOKEN));
+                    }
+                    self.visit(name, cx)?;
+                }
                 self.function_like(node, cx, false)
             }
             "class_declaration" | "class" => self.visit_class(node, cx),
@@ -540,6 +549,17 @@ impl<'s> Checker<'s> {
         }
         if let Some(name) = node.child_by_field_name("name").filter(|_| !is_method) {
             check_binding_name(self.text(name), strict)?;
+            // The name of a function expression is bound by the function itself: `await` is reserved in an async
+            // one, `yield` in a generator, the reserved words everywhere (a declaration's name was checked in the
+            // enclosing context by `visit_function_declaration`).
+            if matches!(kind, "function_expression" | "generator_function") {
+                let mut name_cx = cx;
+                name_cx.strict = strict;
+                name_cx.no_arguments = false;
+                name_cx.await_kw = if facts.is_async { Kw::Reserved } else { Kw::Identifier };
+                name_cx.yield_kw = if facts.is_gen { Kw::Reserved } else { Kw::Identifier };
+                self.visit_ident(name, name_cx)?;
+            }
         }
 
         let mut inner = cx;
