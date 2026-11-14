@@ -1,0 +1,23 @@
+# g95-fu-takeover-feed wiring
+
+## 1. Protocol (see mixdog-app-protocol/pending-rows/g95-fu-takeover-feed.rows)
+`takeover/state` {secretRequestIds?} -> {held:[{sessionId, takeoverId, step, surface}], screen?, secretSlots:[]}. Regenerate schema, method_table and
+packages/protocol (index.ts, method-table.ts, method-args.generated.*). SERVICE_PENDING: `takeover/state` is not listed (takeover/ready is served
+today); nothing to remove.
+
+## 2. compose_flip.rs
+(a) Where TakeoverReadyService is registered (`builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone())))?;`) give it the one
+SecretSlots the secret input uses, so the state answer can say which request ids hold a value:
+
+    builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone()).with_secret_slots(secret.slots.clone())))?;
+
+(b) REQUIRED, not optional: the trait TakeoverHolds gained `fn holding(&self) -> Vec<(ThreadId, TakeoverHold)>` (default: none). The real implementer in
+mixdog-app-server-daemon/src/late_session.rs `impl TakeoverHolds for LateHolds` must forward it, or `takeover/state` always answers no held takeover:
+
+    fn holding(&self) -> Vec<(mixdog_core_api::ids::ThreadId, mixdog_core_session::session::secret_input::TakeoverHold)> {
+        self.directory().holding()
+    }
+
+(SessionDirectory implements it in gates.rs; the test implementers in human_only.rs keep the default.)
+
+## 3. Desktop (apps/desktop/pending-wire/g95-fu-takeover-feed.wire)

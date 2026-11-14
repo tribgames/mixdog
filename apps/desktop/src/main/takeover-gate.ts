@@ -67,7 +67,7 @@ interface HeldTakeover {
   expiry: ReturnType<typeof setTimeout>;
 }
 
-const browserRefusal = (entry: HeldTakeover): Error =>
+const browserRefusal = (entry: { step: string }): Error =>
   new Error(
     `Browser Use is paused for this session: the user has taken over (${entry.step}) and was shown a card for it. ` +
       'Wait for the handoff_user result ("done", "denied" or "expired"); do not retry or work around it meanwhile.'
@@ -252,6 +252,58 @@ export function createTakeoverGate(
     },
   };
 }
+
+/** What the core publishes for takeovers and secret slots (`takeover/state`): one session's open takeover, by its hold. */
+export interface CoreHeldTakeover {
+  sessionId: string;
+  takeoverId: string;
+  step: string;
+  surface: 'browser' | 'computer';
+}
+
+/** The core's answer to `takeover/state`: no secret value is ever part of it. */
+export interface CoreTakeoverState {
+  held: CoreHeldTakeover[];
+  /** The step of a screen takeover some session holds. */
+  screen?: string;
+  /** The ids among the asked secret request ids whose one-shot slot holds a value. */
+  secretSlots: string[];
+}
+
+/** Asks the core (`takeover/state` with the secret request ids to look up). */
+export type TakeoverStateReader = (secretRequestIds?: string[]) => Promise<CoreTakeoverState>;
+
+/**
+ * A read-only mirror of the core's takeover state. The core decides (its own `begin` refuses a command during its session's
+ * takeover and stops what runs; `takeover/ready` answers readiness); nothing here holds, drains or expires a takeover. A reader
+ * asks the core first, so a takeover that started a moment ago is seen.
+ */
+export function createTakeoverMirror(read: TakeoverStateReader) {
+  let state: CoreTakeoverState = { held: [], secretSlots: [] };
+  const entryOf = (sessionId: string): CoreHeldTakeover | undefined => state.held.find((entry) => entry.sessionId === sessionId);
+  return {
+    /** Reads the core's state now. */
+    async refresh(): Promise<void> {
+      state = await read();
+    },
+    /** The takeover held for `sessionId` in the last reading, if any. */
+    heldOf(sessionId: string): CoreHeldTakeover | undefined {
+      return entryOf(sessionId);
+    },
+    /** The step of the screen takeover held in the last reading. */
+    screenStep(): string | undefined {
+      return state.screen;
+    },
+    /** Refuses like the core's own `begin` while `sessionId`'s own takeover is pending; another session's never does. */
+    async assertFree(sessionId: string): Promise<void> {
+      await this.refresh();
+      const entry = entryOf(sessionId);
+      if (entry) throw browserRefusal(entry);
+    },
+  };
+}
+
+export type TakeoverMirror = ReturnType<typeof createTakeoverMirror>;
 
 /** The window process's one gate (fed by index.ts, checked by the browser runner). */
 export const takeoverGate = createTakeoverGate();

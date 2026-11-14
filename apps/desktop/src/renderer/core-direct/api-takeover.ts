@@ -4,11 +4,9 @@
 import type { DesktopApi } from '../../shared/contract';
 import { requiredSessionId } from '../../shared/desktop-state';
 import { requiredString } from '../../shared/scm-input';
+import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../../shared/secret-slots';
 import type { DirectContext } from './context.ts';
 
-/** A secret request id as the runtime mints it (a sign-in card's username and save slots ride it with a suffix). */
-const SECRET_REQUEST_ID = /^secret_[A-Za-z0-9-]{8,80}$/;
-const MAX_SECRET_LENGTH = 4_096;
 const MAX_REQUEST_ID_LENGTH = 120;
 const MAX_TAKEOVER_ID_LENGTH = 200;
 

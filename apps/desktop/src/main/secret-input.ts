@@ -27,6 +27,7 @@ export {
   type SecretFieldForm,
 } from './secret-requests';
 export { REDACTED_MARKER, SAVED_LOGIN_MARKER } from './secret-markers';
+export { createSecretSlotMirror } from './secret-requests';
 
 /** What the agent hears about a fill (human-gate/requests.mjs HANDOFF_OUTCOMES). */
 export type SecretFillOutcome = 'entered' | 'no_field' | 'page_changed' | 'blocked' | 'expired';

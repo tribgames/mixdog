@@ -4,13 +4,12 @@
  * page or window it was bound to at request time (secret-input.ts).
  */
 
-import { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
+import type { TakeoverStateReader } from './takeover-gate';
+import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID, SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
 
 export const SECRET_INPUT_TIMEOUT_MS = 120_000;
 /** A binding outlives the card's own wait (the runtime's 120 s) a little. */
 const BINDING_TIMEOUT_MS = 180_000;
-const MAX_SECRET_LENGTH = 4_096;
-const REQUEST_ID = /^secret_[A-Za-z0-9-]{8,80}$/;
 
 /** What a bound field is (requests.mjs SECRET_FORMS). */
 export type SecretFieldForm = 'login' | 'password' | 'new-password' | 'otp';
@@ -77,7 +76,7 @@ export function createSecretRequests(options: { timeoutMs?: number; bindingTimeo
     /** Bind `requestId` to its page at request time (no value involved), for
      *  `ttlMs` (default: a little past the card's wait). */
     bind(requestId: string, binding: SecretBinding, ttlMs = bindingTimeoutMs): boolean {
-      if (!REQUEST_ID.test(requestId)) return false;
+      if (!SECRET_REQUEST_ID.test(requestId)) return false;
       hold(bindings, requestId, { ...binding }, ttlMs);
       return true;
     },
@@ -90,7 +89,7 @@ export function createSecretRequests(options: { timeoutMs?: number; bindingTimeo
      *  named; false (nothing bound) unless both are plain tokens. */
     bindComputer(requestId: string, binding: ComputerSecretBinding): boolean {
       const { sessionId, windowId, ref } = binding;
-      if (!REQUEST_ID.test(requestId) || !sessionId) return false;
+      if (!SECRET_REQUEST_ID.test(requestId) || !sessionId) return false;
       if (!TARGET_TOKEN.test(windowId) || windowId.length > 128 || !TARGET_TOKEN.test(ref) || ref.length > 64) {
         return false;
       }
@@ -116,7 +115,7 @@ export function createSecretRequests(options: { timeoutMs?: number; bindingTimeo
     },
     /** The card's value for `requestId`; false when the id or value is unusable. */
     provide(requestId: string, value: string): boolean {
-      if (!REQUEST_ID.test(requestId) || typeof value !== 'string' || !value || value.length > MAX_SECRET_LENGTH) {
+      if (!SECRET_REQUEST_ID.test(requestId) || typeof value !== 'string' || !value || value.length > MAX_SECRET_LENGTH) {
         return false;
       }
       hold(slots, requestId, value, timeoutMs);
@@ -127,6 +126,20 @@ export function createSecretRequests(options: { timeoutMs?: number; bindingTimeo
       const value = slots.get(requestId)?.value || '';
       drop(slots, requestId);
       return value;
+    },
+  };
+}
+
+/**
+ * A read-only mirror of the core's secret slots: whether the card handed a value for a request (the core holds the value, takes
+ * it once and drops it at its deadline; it never reaches this process).
+ */
+export function createSecretSlotMirror(read: TakeoverStateReader) {
+  return {
+    /** Whether the core's slot for `requestId` holds a value now (it is not taken). */
+    async has(requestId: string): Promise<boolean> {
+      if (!SECRET_REQUEST_ID.test(requestId)) return false;
+      return (await read([requestId])).secretSlots.includes(requestId);
     },
   };
 }
