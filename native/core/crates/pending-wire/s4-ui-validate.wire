@@ -1,2 +1,0 @@
-# s4-ui-validate: crates/mixdog-exthost/src/lib.rs, in the module list after `mod browser;` (symbol: the mod declarations)
-pub mod browser_validate;
