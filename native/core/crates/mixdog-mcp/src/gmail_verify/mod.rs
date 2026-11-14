@@ -10,11 +10,11 @@
 //! report OpenSSL's altnames detail or the "in certificate chain" wording). SMTP CRAM-MD5 is not
 //! spoken: the servers are Gmail's, which does not offer it.
 
-mod imap;
-mod smtp;
+pub(crate) mod imap;
+pub(crate) mod smtp;
 #[cfg(test)]
-mod tests;
-mod wire;
+pub(crate) mod tests;
+pub(crate) mod wire;
 
 use std::sync::{Arc, LazyLock};
 
@@ -24,7 +24,7 @@ use rustls::{ClientConfig, RootCertStore};
 
 use crate::mcp_secrets::GmailVerifier;
 pub use wire::{Target, Timeouts};
-use wire::Failure;
+pub(crate) use wire::Failure;
 
 /// One server to speak to.
 pub(crate) struct Leg<'a> {
@@ -34,7 +34,7 @@ pub(crate) struct Leg<'a> {
 }
 
 /// `MESSAGES`: one fixed sentence per cause.
-fn sentence(code: &str) -> &'static str {
+pub(crate) fn sentence(code: &str) -> &'static str {
     match code {
         "REJECTED" => "Google did not accept this address and app password.",
         "UNAVAILABLE" => {
@@ -79,7 +79,7 @@ static REJECTED: LazyLock<Regex> = LazyLock::new(|| {
 const DETAIL_CHARS: usize = 200;
 
 /// `gmailError(error, password)` rendered as the error's message.
-fn describe(failure: &Failure, password: &str) -> String {
+pub(crate) fn describe(failure: &Failure, password: &str) -> String {
     let joined = [failure.response.as_deref(), failure.response_text.as_deref(), Some(failure.message.as_str())]
         .into_iter()
         .flatten()
@@ -173,6 +173,21 @@ impl GmailAppPassword {
     pub fn with_hello_name(mut self, name: &str) -> Self {
         self.hello = name.to_owned();
         self
+    }
+
+    /// The IMAP server of the account's mailbox.
+    pub(crate) fn imap_leg(&self) -> Leg<'_> {
+        Leg { target: &self.imap, tls: &self.tls, timeouts: self.timeouts }
+    }
+
+    /// The SMTP server mail is sent through.
+    pub(crate) fn smtp_leg(&self) -> Leg<'_> {
+        Leg { target: &self.smtp, tls: &self.tls, timeouts: self.timeouts }
+    }
+
+    /// The name sent with EHLO.
+    pub(crate) fn hello_name(&self) -> &str {
+        &self.hello
     }
 
     /// `verifyGmailAppPassword`: IMAP, then SMTP; the first failure ends it.
