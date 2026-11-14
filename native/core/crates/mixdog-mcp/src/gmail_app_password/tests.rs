@@ -258,6 +258,23 @@ async fn read_email_gives_the_headers_text_links_attachments_and_the_authenticat
     assert_eq!(server.error("read_email", json!({})).await, "id is required");
 }
 
+#[test]
+fn a_text_part_is_read_in_the_charset_it_names() {
+    use super::parse::Node;
+    let node = |charset: &str| Node {
+        kind: "text/plain".into(),
+        parameters: vec![("charset".into(), charset.into())],
+        encoding: "base64".into(),
+        ..Node::default()
+    };
+    // "한글" in EUC-KR, as imapflow's download converts it.
+    assert_eq!(super::decoded_part(&node("euc-kr"), b"x9Gx2w==", 1024), "한글");
+    assert_eq!(super::decoded_part(&node("US-ASCII"), b"aGk=", 1024), "hi");
+    assert_eq!(super::decoded_part(&node("utf-8"), "7ZWc6riA".as_bytes(), 1024), "한글");
+    // The text is cut at the byte limit, on a character boundary.
+    assert_eq!(super::decoded_part(&node("euc-kr"), b"x9Gx2w==", 4), "한");
+}
+
 #[tokio::test]
 async fn describe_emails_names_the_account_and_each_email_it_finds() {
     let server = server(stored().await).await;

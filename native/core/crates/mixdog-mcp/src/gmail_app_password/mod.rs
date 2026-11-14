@@ -189,15 +189,34 @@ fn attachments_of(node: &Node, out: &mut Vec<Attachment>) {
     }
 }
 
-/// Up to `max` bytes of a part, undone by its transfer encoding and read as UTF-8; `complete` is false when the part may
-/// go on past them.
+/// Up to `max` bytes of a part, undone by its transfer encoding and read in its charset (imapflow's `download` converts
+/// a text part that names a charset other than ASCII or UTF-8), as UTF-8 cut at `max` bytes.
+fn decoded_part(node: &Node, raw: &[u8], max: usize) -> String {
+    let mut decoded = text::transfer_decode(&node.encoding, raw);
+    decoded.truncate(max);
+    let label = node.parameter("charset").unwrap_or_default();
+    let key: String = label.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_ascii_lowercase();
+    let mut out = if matches!(key.as_str(), "" | "ascii" | "usascii" | "utf8") {
+        String::from_utf8_lossy(&decoded).into_owned()
+    } else {
+        text::charset_text(label, &decoded)
+    };
+    if out.len() > max {
+        let mut end = max;
+        while !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
+    }
+    out
+}
+
+/// Up to `max` bytes of a part as text ([`decoded_part`]); `complete` is false when the part may go on past them.
 async fn part_text(mailbox: &mut Mailbox<'_>, uid: u32, node: &Node, max: usize) -> Result<(String, bool), Fail> {
     let part = node.part.as_deref().unwrap_or("1");
     let raw = mailbox.part_bytes(uid, part, max).await?;
     let complete = raw.len() < max;
-    let mut decoded = text::transfer_decode(&node.encoding, &raw);
-    decoded.truncate(max);
-    Ok((String::from_utf8_lossy(&decoded).into_owned(), complete))
+    Ok((decoded_part(node, &raw, max), complete))
 }
 
 /// Up to `max` bytes of the body text (the text/plain part, else the text/html part), decoded to UTF-8.
@@ -302,7 +321,7 @@ struct Head {
 async fn read_work(session: &mut Session, id: &str) -> Result<String, Fail> {
     let mut mailbox = Mailbox::new(session);
     mailbox.open_all_mail(true).await?;
-    let uid = mailbox.uid_of(id).await?;
+    let uid = uid_of(&mut mailbox, id).await?;
     let items = "(UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID BODY.PEEK[HEADER.FIELDS (AUTHENTICATION-RESULTS)])";
     let found = match uid {
         Some(uid) => mailbox.fetch(&uid.to_string(), items).await?,
