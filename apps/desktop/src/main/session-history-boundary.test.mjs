@@ -33,12 +33,12 @@ test('only the host, its client and readSessionAttachment name the history read'
     'main/desktop-service-client.ts',
     'main/desktop-service-contract.ts',
     // The download host's type Pick, handed on to readSessionAttachment.
-    // The service RPC's route onto the core's `thread/items/list` op (main <-> core only).
-    'main/protocol/service-route.ts',
+    // The session lane's read onto the core's `thread/items/list` op (main <-> core only; the lane is Node-free and shared by the main process's clients).
+    'shared/core-lanes/session-lane.ts',
   ]);
-  // Not the window's preload / renderer / shared contract, nor any remote table.
+  // Not the window's preload / renderer / shared contract (the core lane above is not that contract), nor any remote table.
   assert.equal(
-    naming.some((file) => /^(preload|renderer|shared)\//.test(file) || /remote/.test(file)),
+    naming.some((file) => /^(preload|renderer|shared)\//.test(file) ? file !== 'shared/core-lanes/session-lane.ts' : /remote/.test(file)),
     false
   );
 });

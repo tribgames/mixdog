@@ -10,7 +10,19 @@ import { JSDOM } from 'jsdom';
 import { visualizeFeedbackScript } from '../../shared/visualize-feedback.ts';
 import { requiredVisualizeCaptureRect, requiredVisualizeGestureTarget } from '../ipc-validation.ts';
 import { createVisualizeGestureTokens, VISUALIZE_GESTURE_TTL_MS, visualizeGestureTarget } from './gestures.ts';
+import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
+import { localPageUrl, pageAssetType } from '../local-page-server.ts';
 import { createDesktopVisualize } from './host.ts';
+
+// The core page server stands behind coreLocalPages(); here the in-process page server answers the same call.
+setCoreLocalPages(
+  createCoreLocalPages(async (name, [root, rel, third, ownerId]) => {
+    if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+    if (name === 'localPageAssetType') return pageAssetType(root, rel, third);
+    if (name === 'localPageVirtualIn') return 'http://127.0.0.1:1/__virtual/index.html';
+    throw new Error(`unexpected core call ${name}`);
+  })
+);
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-feedback-'));

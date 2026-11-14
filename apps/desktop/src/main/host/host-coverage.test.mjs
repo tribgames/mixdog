@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
+import { createComputerPresence } from '../computer/presence/mirror.ts';
 import { methodTable } from '../../../../../packages/protocol/src/index.ts';
 
 // The core computer host's modules read Electron's screen and windows at import; outside Electron stand-ins answer.
@@ -75,7 +77,13 @@ function served() {
     visualize: () => ({}),
     files: () => ({}),
     resolveProxy: async (url) => url,
-    computer: () => null,
+    computer: {
+      mirror: createComputerPresence({ notifyPointerReleased() {}, now: () => 1 }),
+      permissions: { read: () => ({}), request() {} },
+      environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
+      desktopHostScreen: () => null,
+      desktopHostCommand: () => null,
+    },
     updater: { check: async () => ({}), getState: () => ({}), confirmBusy: async () => false, install: async () => {} },
     notifications: { createNotification() {}, playSound: async () => {}, activate() {}, isSupported: () => true, idleSeconds: () => 0 },
     windows: { open: async () => true, close() {}, focus() {} },
