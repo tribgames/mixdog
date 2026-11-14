@@ -1753,7 +1753,9 @@ mod tests {
 
         let manager = Arc::new(Answering::default());
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        backend.run(window("move"), CancellationToken::new()).await.unwrap_err();
+        let moved = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "move", "window_id": "w1", "x": 1}) };
+        backend.run(moved, CancellationToken::new()).await.unwrap_err();
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "move_window"), "{:?}", locked(&manager.lines));
         assert_eq!(captures(&manager), 0, "{:?}", locked(&manager.lines));
     }
 

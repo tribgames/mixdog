@@ -68,12 +68,12 @@ pub(super) fn recapture_window(action: &str, input: &Value, message: &str) -> Op
 
 /// The refusal with the exact window captured again below it: what the model reads when no input was sent.
 pub(super) fn refusal_with_capture(message: &str, window: &str, capture: &[ToolPart]) -> String {
-    let mut out = format!("Error: {message}
-Recovery: no input was sent; window {window} was captured again below. Act only on its fresh refs, OCR marks, or frame_id.");
+    let mut out = format!(
+        "Error: {message}\nRecovery: no input was sent; window {window} was captured again below. Act only on its fresh refs, OCR marks, or frame_id."
+    );
     for part in capture {
         if let ToolPart::Text(text) = part {
-            out.push('
-');
+            out.push('\n');
             out.push_str(text);
         }
     }
@@ -200,9 +200,10 @@ mod tests {
     fn the_recapture_is_attached_to_the_refusal_as_text() {
         let capture = [ToolPart::Text("{\"frame_id\":\"f2\"}".into()), ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1]), width: None, height: None }];
         let out = refusal_with_capture("stale_target: gone", "w-7", &capture);
-        assert_eq!(out, "Error: stale_target: gone
-Recovery: no input was sent; window w-7 was captured again below. Act only on its fresh refs, OCR marks, or frame_id.
-{\"frame_id\":\"f2\"}");
+        assert_eq!(
+            out,
+            "Error: stale_target: gone\nRecovery: no input was sent; window w-7 was captured again below. Act only on its fresh refs, OCR marks, or frame_id.\n{\"frame_id\":\"f2\"}"
+        );
     }
 
     fn cases() -> Vec<Value> {
