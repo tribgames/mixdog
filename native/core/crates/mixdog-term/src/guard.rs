@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mixdog_fsio::{File, OpenOptions, Unlaned};
 
@@ -50,30 +50,11 @@ pub fn signal_exit_code(signal: &str) -> i32 {
     }
 }
 
-/// A JavaScript `Number(text)`: `None` for NaN.
-fn js_number(text: &str) -> Option<f64> {
-    let trimmed = text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
-    if trimmed.is_empty() {
-        return Some(0.0);
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    for (prefix, radix) in [("0x", 16), ("0o", 8), ("0b", 2)] {
-        if let Some(digits) = lower.strip_prefix(prefix) {
-            return u64::from_str_radix(digits, radix).ok().map(|value| value as f64);
-        }
-    }
-    if lower.chars().any(|c| c.is_ascii_alphabetic() && c != 'e') {
-        return None;
-    }
-    trimmed.parse::<f64>().ok()
-}
-
-/// `positiveIntEnv`: the value as a floored number when it is finite and above zero, else `fallback`.
+/// `positiveIntEnv`: `Number(value)` floored when it is finite and above zero, else `fallback` (an unset variable is
+/// `Number(undefined)`, NaN).
 pub fn positive_int(value: Option<String>, fallback: u64) -> u64 {
-    match value.as_deref().and_then(js_number) {
-        Some(number) if number.is_finite() && number > 0.0 => number.floor() as u64,
-        _ => fallback,
-    }
+    let number = value.as_deref().map_or(f64::NAN, mixdog_js::string_to_number);
+    if number.is_finite() && number > 0.0 { number.floor() as u64 } else { fallback }
 }
 
 /// The exit timings the environment sets.
@@ -235,7 +216,11 @@ pub fn schedule_hard_exit(settings: &ExitSettings, code: i32) {
     }
     let delay = settings.hard_exit_delay;
     let spawned = thread::Builder::new().name("mixdog-term-hard-exit".into()).spawn(move || {
-        thread::park_timeout(delay);
+        // park_timeout may return early (a spurious wake-up): wait out the whole delay.
+        let deadline = Instant::now() + delay;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|left| !left.is_zero()) {
+            thread::park_timeout(left);
+        }
         let sink = stdout_sink();
         // A stdout that does not take the bytes must not keep the process from ending.
         run_bounded("mixdog-term-hard-exit-write", Duration::from_millis(200), move || {
