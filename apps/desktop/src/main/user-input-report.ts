@@ -28,14 +28,15 @@ interface UserInputReporterOptions {
 }
 
 /** Whether Computer Use is executing a command against `window` right now:
- *  the coordinator's windows of sessions with an active command include it.
+ *  the windows of sessions with an active command (the presence mirror's: the core's `computer` section
+ *  while the helper runs Computer Use, the in-process coordinator's while the desktop's own host does) include it.
  *  Input events on it then belong to the agent, not the user. */
 export function computerUseOperates(
-  coordinator: { windowIdsWithActiveCommand(): string[] },
+  presence: { windowIdsWithActiveCommand(): string[] },
   windowForNativeId: (windowId: string) => unknown,
   window: unknown
 ): boolean {
-  return coordinator.windowIdsWithActiveCommand().some((windowId) => windowForNativeId(windowId) === window);
+  return presence.windowIdsWithActiveCommand().some((windowId) => windowForNativeId(windowId) === window);
 }
 
 export interface UserInputReporter {
