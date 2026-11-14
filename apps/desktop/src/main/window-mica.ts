@@ -61,7 +61,8 @@ function loadModule(library: string): MicaModule {
 /** The native bindings: the Node-API module's three functions, nothing else.
  *  The library's functions are plain calls: nothing in it calls back into
  *  JavaScript. A module that fails to load (a stale dev build) leaves
- *  keepActive false and is reported as mica-native-unavailable. */
+ *  keepActive false and activate a no-op, and is reported as
+ *  mica-native-unavailable. */
 export function nativeMica(
   library: string,
   report: MicaReport,
