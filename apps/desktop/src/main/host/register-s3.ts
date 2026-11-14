@@ -7,7 +7,7 @@
  * the arrow of the helper's pointer progress, so one overlay draws both.
  */
 import type { ComputerPresence } from '../computer/presence/mirror';
-import { registerComputerHost as registerComputerHandlers, type ComputerControlSource, type ComputerHostDeps } from './computer';
+import { registerComputerHandlers, type ComputerControlSource, type ComputerHostDeps } from './computer';
 import { registerComputerCommand, type ComputerCommandHostSource } from './computer-command';
 import { bindComputerEnvironment } from './computer-environment';
 import { registerComputerPermissions, type ComputerPermissionReads } from './computer-permissions';

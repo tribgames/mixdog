@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
-import { dlopenNativeModule } from './native-module';
+import { loadWindowModule } from './native-module';
 
 const WM_NCACTIVATE = 0x0086;
 const WM_THEMECHANGED = 0x031a;
@@ -62,7 +62,7 @@ interface MicaModule {
 export function nativeMica(
   library: string,
   report: MicaReport,
-  load: (library: string) => MicaModule = dlopenNativeModule<MicaModule>
+  load: (library: string) => MicaModule = loadWindowModule<MicaModule>
 ): MicaNative {
   let native: MicaModule | undefined;
   try {
