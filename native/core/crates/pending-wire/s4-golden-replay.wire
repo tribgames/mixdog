@@ -7,8 +7,12 @@ The two integration tests (tests/golden.rs, tests/contract.rs) are a separate cr
     # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
     # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
     mixdog-browser-engine = { path = ".", features = ["test-support"] }
-    mixdog-tools = { workspace = true }
+    mixdog-tools = { workspace = true, features = ["policy-observer"] }
     regex = { workspace = true }
+
+`policy-observer` is the test-only feature every other crate's dev-dependency on mixdog-tools names (one feature set per test
+build). mixdog-tools brings further workspace crates into this crate's test build (mixdog-ai, mixdog-spawn, ...): after applying,
+run `D:\mixdog-build\tools\unify-test-features.py <native/core> --write` so their lines with their test-only features are added too.
 
 New workspace-crate edge: mixdog-browser-engine -> mixdog-tools (dev only; mixdog-tools does not depend on the engine, no cycle).
 regex is already in Cargo.lock (1.13.1); Cargo.lock needs the three new entries in the mixdog-browser-engine package (regenerate --locked offline).
