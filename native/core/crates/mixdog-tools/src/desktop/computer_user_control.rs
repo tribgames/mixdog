@@ -1273,7 +1273,7 @@ mod tests {
 
     /// The renderer-death pause holds like a Stop but is no cancellation: a wait keeps waiting, the hold outlives the sessions'
     /// executions and only Resume ends it (`takeOver('user_pause')`).
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_pause_holds_without_cancelling() {
         let manager = quiet_helper();
         let control = Arc::new(UserControlState::new(Duration::ZERO));
@@ -1285,7 +1285,9 @@ mod tests {
         assert!(matches!(control.standing("a"), Standing::Held), "the model is not told it was cancelled");
         control.session_ended("a");
         assert!(control.section().is_some(), "a pause outlives the executions");
-        assert!(matches!(control.admit(&a, &click_in_background(), &CancellationToken::new()).await, Err(ComputerError::Failed { ref code, .. }) if code == TAKEOVER_CODE));
+        // A request meets the pause: it parks and, past the pause budget, answers `paused` (s3-07), never a takeover refusal.
+        let reply = control.admit(&a, &click_in_background(), &CancellationToken::new()).await.unwrap().expect("a paused reply");
+        assert_eq!(payload_of(&reply)["status"], "paused");
         assert!(control.resume(None));
         assert_eq!(control.section(), None);
     }

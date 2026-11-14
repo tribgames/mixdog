@@ -1088,6 +1088,7 @@ mod tests {
                 }
                 // The recordings predate the internal-window filter: the desktop shows no window of its own.
                 "host/computer/internalWindows" => Ok(json!({ "windowIds": [] })),
+                "host/computer/appWindows" => Ok(json!({ "windows": [] })),
                 "host/computer/capture" => {
                     let answer = self.answer.as_ref().expect("the recording has no capture of a screen for this call");
                     self.asked.lock().unwrap().push(params["command"].clone());
