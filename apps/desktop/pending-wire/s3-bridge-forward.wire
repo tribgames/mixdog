@@ -1,0 +1,38 @@
+# s3-bridge-forward -> DESKTOP-WIRE-G10
+
+The bridge now lives in apps/desktop/src/main/computer/bridge/ (bridge-server.ts exports createBridgeServer and LISTEN_RETRY_MS).
+It imports nothing under computer/backend, computer/host or computer/session; the old copies in computer/host/bridge-*.ts and their
+tests stay only for the TypeScript host and are deleted with it (s3-31/s3-32), together with host/request-policy.ts.
+
+## apps/desktop/src/main/index.ts
+
+1. Import `createBridgeServer` from './computer/bridge/bridge-server' and `bridgeDiscoveryDirectory` from './bridge/discovery-file'.
+2. Next to `computerHost` (symbol `computerHost`), construct the one bridge for the process:
+
+       const computerBridge = createBridgeServer({
+         dataDirectory: bridgeDiscoveryDirectory,
+         isBridgeWanted: () => computerControlEnabled,
+         isDisposed: () => quitApproved || quitAfterDispose,
+         diagnose: (event, data) => diagnostics?.write(event, data),
+         // The host-role connection (localProtocol, the one createLocalHostRole claims host with): the core serves
+         // computer/bridge/run and /abort only to the host claimant.
+         callCore: (method, params) => localProtocol.call(method, params),
+       });
+
+   (Place it after `const localProtocol = localConnection.protocol;`, since it reads localProtocol.)
+
+3. In `applyComputerControlSetting` (and where `computerHost?.setBridgeEnabled(computerControlEnabled)` is called after the host is
+   created and after settings load): replace the call with `computerControlEnabled ? computerBridge.startBridge() : void computerBridge.stopBridge().catch(...)`
+   (the bridge is started only while Computer Use is on; setBridgeEnabled's `userWait.cancel()` and worker retirement belong to the
+   TypeScript host and go with it).
+4. Pass `bridgeEnabled: false` to `createComputerHost` until the TypeScript host is deleted, so the old host does not publish a second
+   `computer-bridge.json` (discovery ownership then belongs to the new bridge alone). On app quit, `await computerBridge.stopBridge()`
+   with `isBridgeWanted` already false.
+5. `host/computer.ts` `answer:` / `answerBridgeCommand` (index.ts ~1102/1111) served the core's `host/computer/capture` through the
+   old bridge's answer; with the core owning Computer Use that handler goes with the TypeScript host (s3-31). Not changed here.
+
+## Core side (CORE-WIRE-G10 / compose_flip.rs)
+
+`computer/bridge/run` and `computer/bridge/abort` are served only with a computer pool (deferred-g7.md); the desktop now calls them
+at every command, so the core must have them registered when Computer Use is on (a command to a core without them is answered
+`{ok:false,error}` with status 200, the failure of the call).
