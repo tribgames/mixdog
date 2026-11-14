@@ -13281,12 +13281,6 @@
       "result": "HostFileSnapshot"
     },
     {
-      "method": "host/localPage/url",
-      "params": "HostLocalPageUrlParams",
-      "requires": "host.files",
-      "result": "String"
-    },
-    {
       "method": "host/files/trashItem",
       "params": "HostFilesTrashItemParams",
       "requires": "host.files",
