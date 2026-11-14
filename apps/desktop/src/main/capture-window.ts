@@ -1,12 +1,20 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import { app, BrowserWindow, dialog, ipcMain, shell, type NativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent, type NativeImage } from 'electron';
 import { settingsCategoriesForSurface } from '../renderer/settings/settings-items';
-import { DESKTOP_IPC, type SessionSnapshot } from '../shared/contract';
+import { DESKTOP_IPC } from '../shared/contract';
 import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
-import { registerDesktopIpc } from './ipc';
-import { DESKTOP_TITLEBAR_HEIGHT, DESKTOP_WINDOW_OPTIONS } from './window-options';
+import { captureFixtures, createCaptureRelay, startCaptureCore, type CaptureCore } from './capture-core';
+import { CORE_PORT_OPEN_CHANNEL, type CorePortRelay } from './core-port/relay';
+import { registerPaneLayoutIpc } from './ipc-pane-layout';
+import { registerScreenSessions } from './screen-sessions';
+import {
+  DESKTOP_TITLEBAR_HEIGHT,
+  DESKTOP_WINDOW_OPTIONS,
+  setDesktopTitleBarDim,
+  setDesktopTitleBarTheme,
+} from './window-options';
 
 // The capture flow owns window lifetime. Without this listener Electron's
 // default quit-on-last-window-close fires the moment a failing step reaches
@@ -51,8 +59,7 @@ import {
   withCaptureTimeout,
   type LiveCaptureAssertions,
 } from './capture-assertions';
-import { CaptureService, jitterProbeEnabled } from './capture-host';
-import { loadJitterProbe } from './jitter-probe-gate';
+import { CAPTURE_SHOWCASE_PROMPT, jitterProbeEnabled } from './capture-host';
 
 /** Shipped sidebar geometry, from its sources: the 48px activity rail
  *  (06-activity-rail.css), the titlebar plus the desktop body's 1px top
@@ -67,10 +74,65 @@ const CAPTURE_SIDEBAR_GEOMETRY = {
   mainLeft: ACTIVITY_RAIL_WIDTH + DESKTOP_SIDEBAR_DEFAULT_WIDTH,
 };
 
-/** The capture renderer window and the IPC surface it answers. Renderer console
- *  errors land both in the returned buffer, which the final validation reads,
- *  and in the module buffer the top-level failure handler reports. */
-function createCaptureRendererWindow(host: CaptureService): {
+/** The updater state the capture shows: an installed, ready update (the old capture host's answer). */
+const CAPTURE_UPDATER_STATE = { status: 'ready', version: '0.2.0' } as const;
+
+/** What only this process can answer a capture window: the Electron host methods its renderer calls beside the core
+ *  (updater, title bar, zoom, pane layout, screen sessions) and the window's own port to the core. Everything else the
+ *  renderer asks goes to the core over that port. */
+function registerCaptureHostIpc(window: BrowserWindow, relay: CorePortRelay): () => void {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>();
+  const handle = (channel: string, listener: (...args: unknown[]) => unknown): void => {
+    handlers.set(channel, listener);
+    ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
+        throw new Error('IPC call rejected.');
+      }
+      return listener(...args);
+    });
+  };
+  handle(CORE_PORT_OPEN_CHANNEL, (options) =>
+    relay.open(
+      window.webContents as unknown as Parameters<CorePortRelay['open']>[0],
+      (options as { slot?: unknown } | null | undefined)?.slot === 'pc' ? 'pc' : 'primary'
+    )
+  );
+  handle(DESKTOP_IPC.getUpdaterState, () => CAPTURE_UPDATER_STATE);
+  handle(DESKTOP_IPC.checkForDesktopUpdate, () => CAPTURE_UPDATER_STATE);
+  handle(DESKTOP_IPC.showDesktopUpdate, () => undefined);
+  handle(DESKTOP_IPC.getZoomFactor, () => window.webContents.getZoomFactor());
+  handle(DESKTOP_IPC.applyTitleBarTheme, (theme, systemPreference) => {
+    setDesktopTitleBarTheme(window, String(theme), systemPreference === true);
+  });
+  handle(DESKTOP_IPC.setTitleBarDim, (dim) => {
+    const record = (dim && typeof dim === 'object' ? dim : {}) as Record<string, unknown>;
+    const hex = /^#[0-9a-f]{6}$/i;
+    const valid =
+      typeof record.color === 'string' &&
+      hex.test(record.color) &&
+      typeof record.symbolColor === 'string' &&
+      hex.test(record.symbolColor);
+    setDesktopTitleBarDim(
+      window,
+      valid ? { color: record.color as string, symbolColor: record.symbolColor as string } : null
+    );
+  });
+  handle(DESKTOP_IPC.visualizeState, () => []);
+  const disposePaneLayout = registerPaneLayoutIpc({ window, ipcMain });
+  const disposeScreenSessions = registerScreenSessions(window, ipcMain);
+  const sendUpdaterState = (): void => window.webContents.send(DESKTOP_IPC.updaterState, CAPTURE_UPDATER_STATE);
+  window.webContents.on('did-finish-load', sendUpdaterState);
+  return () => {
+    window.webContents.removeListener('did-finish-load', sendUpdaterState);
+    disposeScreenSessions();
+    disposePaneLayout();
+    for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+  };
+}
+
+/** The capture renderer window and what answers it. Renderer console errors land both in the returned buffer, which the
+ *  final validation reads, and in the module buffer the top-level failure handler reports. */
+function createCaptureRendererWindow(relay: CorePortRelay): {
   window: BrowserWindow;
   removeIpc: () => void;
   rendererConsoleErrors: string[];
@@ -95,22 +157,7 @@ function createCaptureRendererWindow(host: CaptureService): {
     }
   });
   window.on('page-title-updated', (event) => event.preventDefault());
-  const captureUpdaterState = { status: 'ready', version: '0.2.0' } as const;
-  const removeIpc = registerDesktopIpc(window, host, {
-    app,
-    ipcMain,
-    dialog,
-    shell,
-    updater: {
-      getState: () => captureUpdaterState,
-      subscribe(listener) {
-        listener(captureUpdaterState);
-        return () => {};
-      },
-      check: async () => captureUpdaterState,
-      install: async () => {},
-    },
-  });
+  const removeIpc = registerCaptureHostIpc(window, relay);
   return { window, removeIpc, rendererConsoleErrors };
 }
 
@@ -137,23 +184,6 @@ async function loadCaptureRenderer(window: BrowserWindow): Promise<void> {
   // late capture passes (tool showcase) read the compositor's latest frame
   // and a paint-suspended window serves stale pre-mutation pixels.
   window.webContents.setBackgroundThrottling(false);
-}
-
-/** Jitter probe mode: measure streaming follow, warm compositor handoff,
- *  and session/panel transition stability, then exit — no capture passes. */
-async function runCaptureJitterProbe(window: BrowserWindow, host: CaptureService): Promise<void> {
-  const probe = await loadJitterProbe();
-  if (!probe) return;
-  const { runJitterProbe, jitterProbeOutPath } = probe;
-  await runJitterProbe({
-    window,
-    stateChannel: DESKTOP_IPC.state,
-    baseSnapshot: host.getSnapshot() as unknown as Record<string, unknown>,
-    prepareRemoteResume: (stored, live) => host.prepareJitterRemoteResume(stored, live),
-    prepareColdResume: (snapshot) => host.prepareJitterColdResume(snapshot),
-    publish: (snapshot) => host.publishProbeSnapshot(snapshot as unknown as SessionSnapshot),
-    outPath: jitterProbeOutPath(resolve(__dirname, '../..')),
-  });
 }
 
 /** The pane workspace starts with a deliberate empty guidance surface. Normal
@@ -594,29 +624,24 @@ async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
   };
 }
 
-/** Tool-presentation E2E: publish a synthetic rich transcript through the
- *  host so the REAL transcript renderer (tool activity groups, running
- *  status, diff review bar) is exercised and captured — no provider/engine
- *  required. Panes paint their session's lane and a frame on the bare state
- *  channel never reaches a transcript, so the draft is submitted through the
- *  real composer first and the showcase lands on the session the host opened.
- *  The artifacts ship next to the main PNG for visual review; counts are
- *  asserted by capture-ui. NOTE: the diff body must not contain an
- *  `import ... from "..."` line — electron-vite's CJS shim pass lexes the
- *  bundled chunk for import statements and splices the chunk mid-string,
+/** Tool-presentation E2E: a real turn on the capture core. The scripted model endpoint answers the submitted prompt
+ *  with calls (two commands, one passing and one failing, and an edit with a diff), prose, and a command that is still
+ *  running, so the REAL transcript renderer (tool activity groups, running status, diff review bar) is exercised and
+ *  captured. The prompt goes through the real composer. The artifacts ship next to the main PNG for visual review;
+ *  counts are asserted by capture-ui. NOTE: the diff body must not contain an `import ... from "..."` line —
+ *  electron-vite's CJS shim pass lexes the bundled chunk for import statements and splices the chunk mid-string,
  *  corrupting the build. */
-async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureService) {
-  const showcaseBase = await submitShowcaseTask(window, host);
-  publishShowcaseTranscript(host, showcaseBase);
+async function runCaptureToolShowcase(window: BrowserWindow, core: CaptureCore) {
+  core.queueShowcase();
+  await submitShowcaseTask(window);
   const toolShowcase = await readToolShowcase(window);
   const { toolsPng, toolsTopPng, toolShowcaseDimensions } = await captureShowcaseFrames(window);
-  await restoreShowcase(window, host, showcaseBase);
+  await restoreShowcase(window);
   return { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions };
 }
 
-/** Submits the showcase task through the real composer; the snapshot of the
- *  session the host opened for it is what the showcase publishes over. */
-async function submitShowcaseTask(window: BrowserWindow, host: CaptureService): Promise<Record<string, unknown>> {
+/** Submits the showcase task through the real composer and waits for its session's tab. */
+async function submitShowcaseTask(window: BrowserWindow): Promise<void> {
   await withCaptureTimeout(
     window.webContents.executeJavaScript(`(async () => {
       const link = document.querySelector('button[aria-label="New task"]');
@@ -626,7 +651,7 @@ async function submitShowcaseTask(window: BrowserWindow, host: CaptureService): 
       const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
       if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Missing capture element: composer textarea');
       const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-      setValue.call(textarea, 'Run the test suite and fix the retry regression.');
+      setValue.call(textarea, ${JSON.stringify(CAPTURE_SHOWCASE_PROMPT)});
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 100));
       const send = document.querySelector('button.send-button');
@@ -637,78 +662,11 @@ async function submitShowcaseTask(window: BrowserWindow, host: CaptureService): 
     'Showcase task submission',
     8_000
   );
-  const submittedBy = Date.now() + 5_000;
-  while (!String(host.getSnapshot()?.sessionId || '')) {
-    if (Date.now() > submittedBy) throw new Error('Showcase task submission did not open a session.');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
   await waitForRenderer(
     window,
     "(document.querySelector('.pane-cell.is-focused .workspace-tab.active')?.textContent || '').includes('Run the test')",
     'showcase session tab'
   );
-  return (host.getSnapshot() || {}) as Record<string, unknown>;
-}
-
-/** Publishes the synthetic rich transcript: shell successes and failures, an
- *  edit with a diff, prose and a running call. */
-function publishShowcaseTranscript(host: CaptureService, showcaseBase: Record<string, unknown>): void {
-  const showcasePatch = [
-    '--- a/src/app.ts',
-    '+++ b/src/app.ts',
-    '@@ -1,4 +1,4 @@',
-    ' const config = loadConfig();',
-    '-const retries = 1;',
-    '+const retries = 3;',
-    ' boot({ config, retries });',
-    '',
-  ].join('\n');
-  host.publishProbeSnapshot({
-    ...showcaseBase,
-    toasts: [],
-    busy: true,
-    items: [
-      { id: 'sc-user', kind: 'user', text: 'Run the test suite and fix the retry regression.' },
-      {
-        id: 'sc-shell-ok',
-        kind: 'tool',
-        name: 'shell',
-        args: { command: 'npm run typecheck:node', description: 'Typecheck the main process' },
-        result: 'Exit code: 0\n> tsc -p tsconfig.node.json\nTypecheck passed in 4.2s.',
-        completedAt: 1,
-        expanded: true,
-      },
-      {
-        id: 'sc-shell-fail',
-        kind: 'tool',
-        name: 'shell',
-        args: { command: 'npm test' },
-        result: 'Exit code: 1\n1) retry configuration\n   AssertionError: expected retries to equal 3, got 1',
-        isError: true,
-        completedAt: 2,
-        expanded: true,
-      },
-      {
-        id: 'sc-edit',
-        kind: 'tool',
-        name: 'edit',
-        args: { path: 'src/app.ts' },
-        result: showcasePatch,
-        completedAt: 3,
-        expanded: true,
-      },
-      { id: 'sc-assistant', kind: 'assistant', text: 'Retry count fixed — rerunning the suite now.' },
-      {
-        id: 'sc-shell-running',
-        kind: 'tool',
-        name: 'shell',
-        args: { command: 'npm test' },
-        startedAt: Date.now() - 12_000,
-        liveOutput:
-          '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
-      },
-    ],
-  } as unknown as SessionSnapshot);
 }
 
 /** Counts the rendered tool activity groups once the transcript has them. */
@@ -720,7 +678,7 @@ async function readToolShowcase(window: BrowserWindow) {
       // by a category summary, a Running status while a call is pending, and
       // no body until opened.
       const started = Date.now();
-      while (Date.now() - started < 5000) {
+      while (Date.now() - started < 60000) {
         if (document.querySelectorAll('.tool-activity').length >= 2 && document.querySelector('.turn-review-bar')) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
@@ -736,7 +694,7 @@ async function readToolShowcase(window: BrowserWindow) {
       };
     })()`),
     'Tool showcase render',
-    8_000
+    70_000
   )) as {
     activityGroups: number;
     collapsedGroups: number;
@@ -786,16 +744,13 @@ async function captureShowcaseFrames(window: BrowserWindow) {
   return { toolsPng, toolsTopPng, toolShowcaseDimensions };
 }
 
-async function restoreShowcase(
-  window: BrowserWindow,
-  host: CaptureService,
-  showcaseBase: Record<string, unknown>
-): Promise<void> {
-  // Restore the empty-session state so the trailing renderer validation
-  // (inline errors, welcome view) still checks the shipped default screen.
-  host.publishProbeSnapshot({ ...showcaseBase, toasts: [], busy: false, items: [] } as unknown as SessionSnapshot);
+/** Back to an empty task: a new draft takes the pane, so no tool activity of the showcase turn is painted. */
+async function restoreShowcase(window: BrowserWindow): Promise<void> {
   await withCaptureTimeout(
     window.webContents.executeJavaScript(`(async () => {
+      const link = document.querySelector('button[aria-label="New task"]');
+      if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: New task');
+      link.click();
       const started = Date.now();
       while (Date.now() - started < 5000) {
         if (document.querySelectorAll('.tool-activity').length === 0) return true;
@@ -854,17 +809,18 @@ async function captureWindow(): Promise<void> {
   if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
   if (!captureId) throw new Error('Capture ID is required.');
   await app.whenReady();
-  const host = new CaptureService();
-  const { window, removeIpc, rendererConsoleErrors } = createCaptureRendererWindow(host);
+  // The jitter probe injects synthetic frames into the renderer's state channels. A window on a core takes its frames
+  // from the core alone, so there is nothing for the probe to drive: it is off, said once, before anything starts.
+  if (jitterProbeEnabled()) {
+    throw new Error(
+      `MIXDOG_JITTER_PROBE=${process.env.MIXDOG_JITTER_PROBE} is off: the capture window is a client of a core and the probe has no seam to publish frames through.`
+    );
+  }
+  const core = await startCaptureCore({ userData: app.getPath('userData'), fixtures: captureFixtures });
+  const relay = createCaptureRelay(core, { log: (message) => console.error(message) });
+  const { window, removeIpc, rendererConsoleErrors } = createCaptureRendererWindow(relay);
   try {
     await loadCaptureRenderer(window);
-    if (jitterProbeEnabled()) {
-      await runCaptureJitterProbe(window, host);
-      removeIpc();
-      window.destroy();
-      app.exit(0);
-      return;
-    }
     await ensureCaptureTaskWorkspace(window);
     const startupGeometry = await readCaptureStartupGeometry(window);
     await expandCaptureSessionSidebar(window);
@@ -905,7 +861,7 @@ async function captureWindow(): Promise<void> {
       );
     }
     const dictationSmoke = await runCaptureDictationSmoke(window);
-    const { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions } = await runCaptureToolShowcase(window, host);
+    const { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions } = await runCaptureToolShowcase(window, core);
     const outputSize = image.getSize();
     const nativeWindow = {
       resizable: window.isResizable(),
@@ -977,10 +933,10 @@ async function captureWindow(): Promise<void> {
       removeIpc();
     } finally {
       destroyCaptureWindow(window);
-      // Engine teardown can hang for 30s+ (session dispose). The capture
-      // artifacts/error are already decided at this point — never let dispose
-      // block the exit path past a short grace.
-      await Promise.race([host.dispose(), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      relay.dispose();
+      // The capture artifacts/error are already decided at this point — never let the core's stop block the exit path
+      // past a short grace.
+      await Promise.race([core.stop(), new Promise((resolve) => setTimeout(resolve, 15_000))]);
     }
   }
 }

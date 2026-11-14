@@ -1,26 +1,6 @@
-import type {
-  DesktopAbortOptions,
-  DesktopAgentMemoryEntry,
-  DesktopAgentPoolRow,
-  DesktopSessionContentMatch,
-  DesktopCapability,
-  DesktopCapabilityReadRequest,
-  DesktopCapabilityReadResult,
-  DesktopCapabilityResult,
-  DesktopModelCatalogOptions,
-  DesktopModelOption,
-  DesktopModelSelection,
-  DesktopNewTaskDraft,
-  DesktopNewTaskSubmitResult,
-  DesktopProjectSummary,
-  DesktopPromptContent,
-  DesktopSessionStateUpdate,
-  DesktopSessionSummary,
-  DesktopSubmitOptions,
-  SessionSnapshot,
-  ToolApprovalDecision,
-} from '../shared/contract';
-import type { DesktopService } from './desktop-service-contract';
+// What the capture profile holds. The capture window talks to a real core like any window (capture-core.ts); the
+// profile that core starts from is described here: the settings the shipped surface reads, the Lead route, the files
+// of the project the tool showcase edits, and the scripted model answers of that showcase.
 
 // MIXDOG_JITTER_PROBE: '1' = streaming/follow pass, 'entry' = cold-entry and
 // tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
@@ -33,593 +13,81 @@ export function jitterProbeEnabled(): boolean {
   );
 }
 
-// The capture profile is a presentation-only fake. It intentionally implements
-// the same client contract without importing a session runtime or service host.
-export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
-  getProfile: {
-    title: 'Capture',
-    language: 'system',
-    languages: [{ id: 'system', label: 'System' }],
-    experienceLevel: 'junior',
-    experienceLevelEntry: { id: 'junior', label: 'Junior' },
-    experienceLevels: [
-      { id: 'beginner', label: 'Beginner' },
-      { id: 'vibe-coder', label: 'Vibe coder' },
-      { id: 'junior', label: 'Junior' },
-      { id: 'expert', label: 'Expert' },
-    ],
-  },
-  getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
-  getCompactionSettings: { auto: true },
-  getRecapSettings: { enabled: true },
-  getSessionTitleSettings: { aiSessionTitles: true },
-  getCacheWarmingSettings: { enabled: false },
+/** The settings the capture profile stores, in the shape their getters answer. The scripted model endpoint answers its
+ *  queue in request order, so no request of the core's own (a session title) may take a slot: AI titles are off here. */
+export const CAPTURE_SETTINGS_VALUES = {
   getHeartbeatSettings: { heartbeat: false, intervalMinutes: 60 },
   getReactionSettings: { reactions: true },
-  getChannelSetup: {
-    webhook: { status: 'Not configured' },
-    channel: {},
-    webhooks: [],
-  },
-  // The composer shows its mic only once the voice runtime is installed (the
-  // install consent lives in Extensions), so captures run installed and the
-  // dictation smoke drives the composer chain.
-  getVoiceStatus: {
-    installed: true,
-    enabled: true,
-    components: { whisper: true, model: true, ffmpeg: true },
-  },
-  listWorkflows: [{ id: 'solo', name: 'Solo', active: true }],
-  listOutputStyles: {
-    configured: 'default',
-    current: { id: 'default', label: 'Default' },
-    styles: [
-      { id: 'default', label: 'Default' },
-      { id: 'minimal', label: 'Minimal' },
-    ],
-  },
-  getWebSearchRoute: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
-  listWebSearchModels: [
-    {
-      provider: 'openai',
-      model: 'gpt-capture',
-      display: 'Capture',
-      effortOptions: [{ value: 'high', label: 'High' }],
-      fastCapable: true,
-      fastPreferred: true,
+  getSessionTitleSettings: { aiSessionTitles: false },
+  getCacheWarmingSettings: { enabled: false },
+  getRecapSettings: { enabled: true },
+} as const;
+
+/** The route the Lead runs on in the capture profile: the scripted endpoint (scripts/live/lib/provider.mjs). */
+export interface CaptureRoute {
+  provider: string;
+  model: string;
+}
+
+/** The `agent` section of the profile's mixdog-config.json: onboarding done (a fresh profile would cover the UI with
+ *  the wizard), every action allowed (the showcase's tools run without an approval card), the stored settings above, the
+ *  scripted provider and the Lead's route to it. */
+export function captureAgentConfig(
+  providers: Record<string, unknown>,
+  route: CaptureRoute,
+  now: Date = new Date(),
+  values: typeof CAPTURE_SETTINGS_VALUES = CAPTURE_SETTINGS_VALUES
+): Record<string, unknown> {
+  return {
+    providers,
+    agents: { lead: { provider: route.provider, model: route.model } },
+    heartbeat: values.getHeartbeatSettings.heartbeat,
+    heartbeatIntervalMinutes: values.getHeartbeatSettings.intervalMinutes,
+    reactions: values.getReactionSettings.reactions,
+    aiSessionTitles: values.getSessionTitleSettings.aiSessionTitles,
+    promptCacheWarming: values.getCacheWarmingSettings.enabled,
+    recap: { enabled: values.getRecapSettings.enabled },
+    developer: { allowAllActions: true },
+    onboarding: {
+      completed: true,
+      version: 1,
+      completedAt: now.toISOString(),
+      skipped: true,
+      starterGuide: { closed: true, welcomed: true, visited: [] },
     },
-  ],
-  getProviderSetup: {
-    api: [
-      { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, status: 'Connected' },
-      { id: 'anthropic', name: 'Anthropic', authenticated: false, status: 'Not connected' },
-    ],
-    oauth: [{ id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, status: 'Connected' }],
-    local: [],
-  },
-  mcpStatus: {
-    connectedCount: 1,
-    configuredCount: 1,
-    failedCount: 0,
-    servers: [{ name: 'capture-docs', status: 'connected', toolCount: 3, enabled: true }],
-  },
-  pluginsStatus: {
-    count: 1,
-    plugins: [
-      {
-        id: 'capture-plugin',
-        name: 'Capture plugin',
-        version: '1.0.0',
-        root: 'C:\\capture\\plugin',
-        mcpScript: 'scripts/mcp.mjs',
-        mcpServerName: 'capture-plugin-mcp',
-        mcpEnabled: true,
-      },
-    ],
-  },
-  skillsStatus: {
-    count: 1,
-    skills: [{ name: 'capture-skill', description: 'Capture layout skill', source: 'built-in' }],
-  },
-  getDisabledSkills: { disabled: [] },
-  listAgents: [
-    {
-      id: 'lead',
-      name: 'Lead',
-      route: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
-    },
-  ],
-  getUpdateSettings: { currentVersion: 'capture', latestVersion: 'capture', autoUpdate: false },
-  getUpdateStatus: { phase: 'idle' },
-  getSessionReviewDiff: {
-    supported: true,
-    files: [],
-    patch: '',
-    snapshotKind: 'session',
-    authoritative: true,
-  },
-  getTurnReviewDiff: {
-    supported: true,
-    files: [],
-    patch: '',
-    agents: [
-      {
-        sessionId: 'capture-worker',
-        agent: 'worker',
-        tag: 'worker-1',
-        patch: [
-          'diff --git a/src/app.ts b/src/app.ts',
-          '--- a/src/app.ts',
-          '+++ b/src/app.ts',
-          '@@ -1,4 +1,4 @@',
-          '-const retries = 1;',
-          '+const retries = 3;',
-          '',
-        ].join('\n'),
-      },
-    ],
-  },
+  };
+}
+
+/** The project the tool showcase edits: its files by path, and the prompt the composer submits. */
+export const CAPTURE_SHOWCASE_PROMPT = 'Run the test suite and fix the retry regression.';
+
+export const CAPTURE_PROJECT_FILES: Readonly<Record<string, string>> = {
+  'src/app.ts': 'const config = loadConfig();\nconst retries = 1;\nboot({ config, retries });\n',
+  // A command that succeeds, one that fails, and one that keeps running with output on screen.
+  'tools/typecheck.mjs': "console.log('> tsc -p tsconfig.node.json');\nconsole.log('Typecheck passed in 4.2s.');\n",
+  'tools/test.mjs':
+    "console.log('1) retry configuration');\nconsole.error('   AssertionError: expected retries to equal 3, got 1');\nprocess.exit(1);\n",
+  'tools/suite.mjs':
+    "console.log('> vitest run');\nconsole.log('\u2713 retry configuration (3 tests)');\nconsole.log('\u2713 boot sequence (5 tests)');\nconsole.log('running suite: integration \u2026');\nsetInterval(() => {}, 1000);\n",
 };
 
-export class CaptureService implements DesktopService {
-  private captureTheme = 'basic';
-  private jitterStoredSnapshot: SessionSnapshot = null;
-  private jitterLiveSnapshot: SessionSnapshot = null;
-  private jitterColdSnapshot: SessionSnapshot = null;
-  private visibleSessions = new Set<string>();
-  private snapshot: SessionSnapshot = {
-    sessionId: '',
-    items: [],
-    queued: [],
-    toasts: [],
-    busy: false,
-    commandBusy: false,
-    spinner: null,
-    cwd: process.cwd(),
-  };
-  private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
-  private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
-  private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
-  private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
-
-  private publish(snapshot: SessionSnapshot): void {
-    this.snapshot = snapshot;
-    for (const listener of this.listeners) listener(snapshot);
-    const sessionId = String(snapshot?.sessionId || '');
-    if (sessionId) {
-      for (const listener of this.sessionStateListeners) {
-        listener({ sessionId, snapshot, frameSource: 'live' });
-      }
-    }
-  }
-
-  subscribe(listener: (snapshot: SessionSnapshot) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
-    this.sessionListeners.add(listener);
-    return () => this.sessionListeners.delete(listener);
-  }
-
-  subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void {
-    this.agentPoolListeners.add(listener);
-    return () => this.agentPoolListeners.delete(listener);
-  }
-
-  subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
-    this.sessionStateListeners.add(listener);
-    return () => this.sessionStateListeners.delete(listener);
-  }
-
-  async startProject(projectPath: string): Promise<SessionSnapshot> {
-    this.publish({ ...this.snapshot, cwd: projectPath });
-    return this.snapshot;
-  }
-
-  async startProjectTask(projectPath: string): Promise<SessionSnapshot> {
-    return this.startProject(projectPath);
-  }
-
-  async listProjects(): Promise<DesktopProjectSummary[]> {
-    return [];
-  }
-  async addProject(): Promise<void> {}
-  async projectDirectory(projectPath: string): Promise<string> {
-    return projectPath;
-  }
-  async renameProject(): Promise<void> {}
-  async removeProject(): Promise<void> {}
-  async listProjectDir(): Promise<unknown> {
-    return [];
-  }
-  async readProjectTextFile(): Promise<unknown> {
-    return null;
-  }
-  async writeProjectTextFile(): Promise<unknown> {
-    return null;
-  }
-  async statProjectFile(): Promise<unknown> {
-    return null;
-  }
-  async createProjectEntry(): Promise<unknown> {
-    return null;
-  }
-  async renameProjectEntry(): Promise<unknown> {
-    return null;
-  }
-  async moveProjectEntry(): Promise<unknown> {
-    return null;
-  }
-  async copyProjectEntry(): Promise<unknown> {
-    return null;
-  }
-  async projectEntryPath(_projectPath: string, relPath: string): Promise<string> {
-    return relPath;
-  }
-  async codeGraphQuery(): Promise<unknown> {
-    return null;
-  }
-  async searchSessionContent(_query: string): Promise<DesktopSessionContentMatch[]> {
-    return [];
-  }
-  async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
-    return [];
-  }
-  async markSessionRead(): Promise<boolean> {
-    return true;
-  }
-  async renameSession(): Promise<void> {}
-  async continueSessionInModel(): Promise<boolean> {
-    return true;
-  }
-  async scheduleQuotaResume(): Promise<boolean> {
-    return true;
-  }
-  async cancelQuotaResume(): Promise<boolean> {
-    return true;
-  }
-  async stopShellJob(): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }> {
-    return { stopped: false, error: 'unavailable' };
-  }
-  async releaseShellJob(): Promise<{ released: boolean; error?: string }> {
-    return { released: false, error: 'unavailable' };
-  }
-  async getQuotaAutoResume(): Promise<boolean> {
-    return true;
-  }
-  async getTaskWorkspace(): Promise<string> {
-    return '';
-  }
-  async setQuotaAutoResume(): Promise<boolean> {
-    return true;
-  }
-  async setSessionArchived(): Promise<void> {}
-  async openAgentHome(): Promise<{ sessionId: string }> {
-    throw new Error('Agent threads are unavailable in the capture profile.');
-  }
-  async resetAgentHome(): Promise<{ sessionId: string; archivedSessionId: string | null }> {
-    throw new Error('Agent threads are unavailable in the capture profile.');
-  }
-  async listAgentMemory(): Promise<DesktopAgentMemoryEntry[]> {
-    return [];
-  }
-  async deleteAgentMemory(): Promise<void> {
-    throw new Error('Agent memory is unavailable in the capture profile.');
-  }
-  async agentRoomAction(): Promise<unknown> {
-    throw new Error('Group rooms are unavailable in the capture profile.');
-  }
-  async setSessionFavorite(): Promise<void> {}
-  async setSessionProject(): Promise<void> {}
-  async deleteSession(): Promise<SessionSnapshot> {
-    return null;
-  }
-  async prefetchSession(_sessionId?: string, _transcriptItemLimit?: number): Promise<boolean> {
-    return true;
-  }
-  async setVisibleSessions(sessionIds: string[] = []): Promise<boolean> {
-    // A pane shows a session by making it visible, and the host answers with
-    // that session's lane: probe sessions after their modelled load delay, the
-    // capture's own session (the tool showcase) at once, so a frame published
-    // before the pane opened its lane is never lost.
-    for (const sessionId of sessionIds) {
-      if (this.visibleSessions.has(sessionId)) continue;
-      if (jitterProbeEnabled()) void this.openProbeSession(sessionId);
-      else if (sessionId === String(this.snapshot?.sessionId || '')) this.publish(this.snapshot);
-    }
-    this.visibleSessions = new Set(sessionIds);
-    return true;
-  }
-  async searchProjectFiles(): Promise<string[]> {
-    return [];
-  }
-  async submitToSession(): Promise<boolean> {
-    return true;
-  }
-  async inheritSession(): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    const sessionId = `capture_inherit_${Date.now()}`;
-    return { sessionId, snapshot: { ...this.snapshot, sessionId } };
-  }
-  async abortSession(_sessionId: string, _options: DesktopAbortOptions = {}): Promise<{ aborted: boolean }> {
-    return { aborted: true };
-  }
-  resolveToolApprovalForSession(_sessionId: string, _id: string, _decision: ToolApprovalDecision): boolean {
-    return true;
-  }
-  async submitNewTask(
-    _prompt: DesktopPromptContent,
-    _options: DesktopSubmitOptions = {},
-    _draft: DesktopNewTaskDraft = {}
-  ): Promise<DesktopNewTaskSubmitResult> {
-    const sessionId = `capture_${Date.now()}`;
-    const snapshot = { ...this.snapshot, sessionId };
-    this.publish(snapshot);
-    return { accepted: true, sessionId, snapshot };
-  }
-
-  async setModelRoute(selection: DesktopModelSelection, _sessionId?: string): Promise<SessionSnapshot> {
-    this.publish({ ...this.snapshot, ...selection });
-    return this.snapshot;
-  }
-
-  async setFast(enabled: boolean, _sessionId?: string): Promise<SessionSnapshot> {
-    this.publish({ ...this.snapshot, fast: enabled });
-    return this.snapshot;
-  }
-
-  async invokeDesktopOperation(): Promise<unknown> {
-    throw new Error('The capture harness has no daemon.');
-  }
-
-  /** Jitter probes: push a frame through the host's real publish path (state
-   *  and per-session channels), not only the bare state channel. */
-  publishProbeSnapshot(snapshot: SessionSnapshot): void {
-    this.publish(snapshot);
-  }
-
-  prepareJitterRemoteResume(stored: SessionSnapshot, live: SessionSnapshot): void {
-    this.jitterStoredSnapshot = stored;
-    this.jitterLiveSnapshot = live;
-  }
-
-  // Cold-entry pass: a settled session with history, resumed through the real
-  // sidebar → visible-session lane path (a pushed snapshot for a session no
-  // pane shows never reaches a transcript).
-  prepareJitterColdResume(snapshot: SessionSnapshot): void {
-    this.jitterColdSnapshot = snapshot;
-  }
-
-  async listSessions(): Promise<DesktopSessionSummary[]> {
-    if (jitterProbeEnabled()) {
-      if (process.env.MIXDOG_JITTER_PROBE === 'switch') {
-        return ['a', 'b', 'c'].map((suffix, index) => ({
-          id: `probe_switch_${suffix}`,
-          preview: `Switch ${suffix.toUpperCase()}`,
-          title: `Switch ${suffix.toUpperCase()}`,
-          updatedAt: Date.now() - index,
-          messageCount: suffix === 'b' ? 96 : 1,
-          cwd: process.cwd(),
-          classification: 'task',
-          projectPath: null,
-          working: false,
-        }));
-      }
-      const sessions: DesktopSessionSummary[] = [
-        {
-          id: 'probe_session_b',
-          preview: 'Remote streaming probe',
-          title: 'Remote streaming probe',
-          updatedAt: Date.now(),
-          messageCount: 90,
-          cwd: process.cwd(),
-          classification: 'task',
-          projectPath: null,
-          working: true,
-        },
-      ];
-      // The cold-history row belongs to the passes that resume it (entry,
-      // keys, width). The streaming pass must not see it: an extra listed
-      // session changes the layout it measures against.
-      const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-      if (mode === 'entry' || mode === 'keys' || mode === 'width' || mode === 'select') {
-        sessions.push({
-          id: 'probe_session_cold',
-          preview: 'Cold history probe',
-          title: 'Cold history probe',
-          updatedAt: Date.now() - 60_000,
-          messageCount: 84,
-          cwd: process.cwd(),
-          classification: 'task',
-          projectPath: null,
-          working: true,
-        });
-      }
-      return sessions;
-    }
-    return [];
-  }
-
-  /** A pane shows a session by making it visible; the host then publishes that
-   *  session's lane. Probe sessions answer the same way, each after the delay
-   *  its real load path takes. */
-  private async openProbeSession(sessionId: string): Promise<void> {
-    if (process.env.MIXDOG_JITTER_PROBE === 'switch' && /^probe_switch_[abc]$/.test(sessionId)) {
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
-      const suffix = sessionId.slice(-1).toUpperCase();
-      const longScript = `Switch B transcript\n\n\`\`\`ts\n${Array.from(
-        { length: 320 },
-        (_line, line) => `const switchLine${line} = ${line};`
-      ).join('\n')}\n\`\`\``;
-      let items: Array<{ id: string; kind: string; text: string }>;
-      if (suffix === 'B') {
-        items = Array.from({ length: 96 }, (_, index) => ({
-          id: `${sessionId}-row-${index}`,
-          kind: index % 2 === 0 ? 'user' : 'assistant',
-          text: index === 95 ? longScript : `Switch B transcript row ${index}`,
-        }));
-      } else if (suffix === 'A') {
-        items = Array.from({ length: 88 }, (_, index) => ({
-          id: `${sessionId}-row-${index}`,
-          kind: index % 2 === 0 ? 'user' : 'assistant',
-          text: `Switch A transcript row ${index} ${'variable height '.repeat(index % 5)}`,
-        }));
-      } else {
-        items = [{ id: `${sessionId}-row`, kind: 'assistant', text: `Switch ${suffix} transcript` }];
-      }
-      const snapshot = {
-        ...((this.snapshot || {}) as Record<string, unknown>),
-        toasts: [],
-        sessionId,
-        busy: false,
-        commandBusy: false,
-        spinner: null,
-        items,
-        queued: [],
-        streamingTail: null,
-      } as SessionSnapshot;
-      this.publish(snapshot);
-      return;
-    }
-    if (sessionId === 'probe_session_cold') {
-      if (!this.jitterColdSnapshot) throw new Error('Jitter probe cold snapshot is not prepared.');
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 120));
-      this.publish(this.jitterColdSnapshot);
-      return;
-    }
-    if (sessionId !== 'probe_session_b') return;
-    const stored = this.jitterStoredSnapshot as Record<string, unknown> | null;
-    const live = this.jitterLiveSnapshot as Record<string, unknown> | null;
-    if (!stored || !live || stored.sessionId !== sessionId || live.sessionId !== sessionId) {
-      throw new Error('Jitter probe remote resume snapshots are not prepared.');
-    }
-    // Model the service's real held-publication boundary: the persisted restore
-    // exists first, but resume resolves only after the live runtime frame.
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
-    this.publish(this.jitterLiveSnapshot);
-  }
-
-  // Keep model-route rows fully populated without starting the isolated
-  // runtime engine, so phone alignment covers model, effort, and fast controls.
-  async listProviderModels(_options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
-    return [
-      {
-        provider: 'openai',
-        model: 'gpt-capture',
-        display: 'Capture',
-        effortOptions: [{ value: 'high', label: 'High' }],
-        fastCapable: true,
-        fastPreferred: true,
-      },
-    ];
-  }
-
-  // New-task activation without booting the disabled engine: App renders
-  // EMPTY_SNAPSHOT on the new-task tab until startTask succeeds, so the tool
-  // showcase pass clicks New task and this override must resolve instantly.
-  async startTask(): Promise<SessionSnapshot> {
-    return this.getSnapshot();
-  }
-
-  getSnapshot(): SessionSnapshot {
-    return {
-      ...(this.snapshot || {}),
-      toasts: [{ id: 'capture-toast', tone: 'error', text: 'Capture stacking check' }],
-    };
-  }
-
-  async readAttachmentImage(): Promise<null> {
-    return null;
-  }
-
-  async readSessionFinalAnswer(): Promise<null> {
-    // Capture fixtures have no model turns; never turn their sample text
-    // into a real OS notification.
-    return null;
-  }
-
-  async readCapabilities(
-    requests: ReadonlyArray<DesktopCapabilityReadRequest>
-  ): Promise<DesktopCapabilityReadResult[]> {
-    return requests.map((request) => {
-      if (request.capability === 'getTheme') return { ok: true, value: this.captureTheme };
-      if (Object.hasOwn(CAPTURE_SETTINGS_VALUES, request.capability)) {
-        return { ok: true, value: CAPTURE_SETTINGS_VALUES[request.capability] };
-      }
-      return { ok: false, error: `${request.capability} is unavailable in UI capture.` };
-    });
-  }
-
-  async invokeCapability<T = unknown>(
-    capability: DesktopCapability,
-    args: unknown[] = []
-  ): Promise<DesktopCapabilityResult<T>> {
-    if (capability === 'setTheme') {
-      this.captureTheme = String(args[0] || 'basic');
-      return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
-    }
-    if (capability === 'toggleVoice') {
-      return { value: { enabled: true, installed: true } as T, snapshot: this.getSnapshot() };
-    }
-    // Dictation E2E: setup and transcription are stubbed while the fake
-    // Chromium media device validates the FULL renderer chain hardware-free.
-    if (capability === 'transcribeAudio') {
-      const payload = args[0] as { data?: string; mimeType?: string } | undefined;
-      if (!payload || typeof payload.data !== 'string' || payload.data.length < 512) {
-        throw new Error('capture transcribeAudio received no recorded audio payload.');
-      }
-      return { value: 'dictation smoke transcript' as T, snapshot: this.getSnapshot() };
-    }
-    if (capability === 'getUpdateSettings') {
-      return { value: { currentVersion: 'capture', autoUpdate: false } as T, snapshot: this.getSnapshot() };
-    }
-    if (capability === 'memoryControl') {
-      return { value: '' as T, snapshot: this.getSnapshot() };
-    }
-    if (capability === 'checkForUpdate') {
-      return {
-        value: CAPTURE_SETTINGS_VALUES.getUpdateSettings as T,
-        snapshot: this.getSnapshot(),
-      };
-    }
-    if (capability === 'getTheme') {
-      return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
-    }
-    if (Object.hasOwn(CAPTURE_SETTINGS_VALUES, capability)) {
-      return {
-        value: CAPTURE_SETTINGS_VALUES[capability] as T,
-        snapshot: this.getSnapshot(),
-      };
-    }
-    // The capture profile runs against an isolated MIXDOG_HOME, where a fresh
-    // config reports onboarding as incomplete; the wizard would cover the UI
-    // under capture. Captures always run as an already-onboarded desktop.
-    if (
-      capability === 'getOnboardingStatus' ||
-      capability === 'skipOnboarding' ||
-      capability === 'completeOnboarding' ||
-      capability === 'saveStarterGuideState'
-    ) {
-      return { value: { completed: true } as T, snapshot: this.getSnapshot() };
-    }
-    // Anything else (e.g. the settings preload's memoryControl read) would
-    // boot the runtime engine; with every provider disabled in the isolated
-    // profile that call never settles, so settings hydration stays pending
-    // forever and engine-independent rows (Theme) remain disabled. Fail fast
-    // instead — every capability consumer catches and falls back.
-    void args;
-    throw new Error(`${capability} is unavailable in UI capture.`);
-  }
-
-  subscribeDesktopEvents(): () => void {
-    return () => {};
-  }
-  perfLog(): void {}
-  async dispose(): Promise<void> {
-    this.listeners.clear();
-    this.sessionListeners.clear();
-    this.agentPoolListeners.clear();
-    this.sessionStateListeners.clear();
-  }
+/** The scripted model answers of the showcase, in request order: three calls (a command that passes, one that fails, an
+ *  edit), then prose followed by a command that is still running when the frames are taken. Paths are absolute and use
+ *  forward slashes, which every shell and Node accept. */
+export function captureShowcaseAnswers(projectPath: string): object[] {
+  const file = (relative: string): string => `${projectPath.replaceAll('\\', '/')}/${relative}`;
+  const run = (relative: string): string => `node "${file(relative)}"`;
+  return [
+    {
+      calls: [
+        { name: 'bash', args: { command: run('tools/typecheck.mjs'), description: 'Typecheck the main process' } },
+        { name: 'bash', args: { command: run('tools/test.mjs') } },
+        { name: 'edit', args: { path: file('src/app.ts'), old_string: 'const retries = 1;', new_string: 'const retries = 3;' } },
+      ],
+    },
+    {
+      text: 'Retry count fixed — rerunning the suite now.',
+      calls: [{ name: 'bash', args: { command: run('tools/suite.mjs') } }],
+    },
+  ];
 }
