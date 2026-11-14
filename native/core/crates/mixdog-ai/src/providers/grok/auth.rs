@@ -284,6 +284,31 @@ pub(super) fn identity_of(token: &str) -> Identity {
     Identity { user_id, principal_type, principal_id }
 }
 
+/// `tokensFromGrant`: the stored tokens a granted code (the PKCE exchange or the device poll) yields, the identity
+/// claims of the access token filling what the grant does not name.
+pub(super) fn tokens_from_grant(grant: &Value, token_endpoint: &str, now_ms: u64) -> Result<StoredTokens, LoginFailure> {
+    let text = |key: &str| grant.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or_default();
+    let (access, refresh) = (text("access_token"), text("refresh_token"));
+    if access.is_empty() || refresh.is_empty() {
+        return Err(failed("token_exchange", "[grok-oauth] token exchange response missing access_token or refresh_token".to_owned()));
+    }
+    let identity = identity_of(access);
+    let first = |own: &str, claimed: String| if own.is_empty() { claimed } else { own.to_owned() };
+    Ok(StoredTokens {
+        access_token: access.to_owned(),
+        refresh_token: refresh.to_owned(),
+        expires_at: match grant.get("expires_in").and_then(Value::as_f64) {
+            Some(seconds) => now_ms + (seconds * 1000.0) as u64,
+            None => grant.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
+        },
+        token_endpoint: token_endpoint.to_owned(),
+        user_id: identity.user_id,
+        principal_type: first(text("principal_type"), identity.principal_type),
+        principal_id: first(text("principal_id"), identity.principal_id),
+        email: email_from_jwts(&[text("id_token"), access]).unwrap_or_default(),
+    })
+}
+
 /// `saveTokens` (`grok-oauth-tokens.mjs:213`): the document the whole file becomes, with Node's fallbacks: no expiry is
 /// 0, no endpoint `null`, and an identity field or email that is empty (and absent from the access token's claims) is
 /// left out.
@@ -689,13 +714,6 @@ impl Credential for GrokCredential {
     }
 }
 
-/// The `email` claim of a JWT, if it carries one.
-fn email_claim(jwt: &str) -> Option<String> {
-    let payload = jwt.split('.').nth(1)?;
-    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
-    claims.get("email")?.as_str().map(str::to_owned)
-}
-
 pub const CALLBACK_PORT: u16 = 56121;
 pub const CALLBACK_PATH: &str = "/callback";
 
@@ -802,37 +820,13 @@ impl PkceProvider for GrokLogin {
             let text = format!("{OPERATION} returned a malformed response (HTTP {})", reply.status);
             return Err(Refusal { failure: failed("token_exchange", text.clone()), detail: Some(text) });
         };
-        let text = |key: &str| json.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
-        let (Some(access), Some(refresh_token)) = (text("access_token"), text("refresh_token")) else {
-            return Err(failed(
-                "token_exchange",
-                "[grok-oauth] token exchange response missing access_token or refresh_token".to_owned(),
-            )
-            .into());
-        };
-        let email = text("id_token")
-            .and_then(email_claim)
-            .or_else(|| email_claim(access))
-            .unwrap_or_default();
-        let tokens = StoredTokens {
-            access_token: access.to_owned(),
-            refresh_token: refresh_token.to_owned(),
-            expires_at: match json.get("expires_in").and_then(Value::as_f64) {
-                Some(seconds) => now_ms() + (seconds * 1000.0) as u64,
-                None => json.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
-            },
-            token_endpoint: self.token_endpoint.to_string(),
-            user_id: String::new(),
-            principal_type: text("principal_type").unwrap_or_default().to_owned(),
-            principal_id: text("principal_id").unwrap_or_default().to_owned(),
-            email: email.clone(),
-        };
+        let tokens = tokens_from_grant(&json, self.token_endpoint.as_str(), now_ms())?;
         self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
         self.file
-            .save(&tokens)
+            .replace(saved_document(&tokens))
             .await
             .map_err(|_| failed("storage", "the tokens could not be stored".to_owned()))?;
-        Ok((!email.is_empty()).then_some(email))
+        Ok((!tokens.email.is_empty()).then_some(tokens.email))
     }
 }
 #[cfg(test)]
@@ -930,5 +924,20 @@ mod tests {
         assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS + 1));
         assert!(!t.needs_refresh(0));
         assert!(!StoredTokens::default().needs_refresh(u64::MAX / 2));
+    }
+
+    /// One grant-to-tokens step for the PKCE exchange and the device poll: both tokens are required, the expiry counts from
+    /// now, and the identity the grant does not name comes from the access token's claims.
+    #[test]
+    fn a_grant_becomes_tokens_with_the_identity_of_its_access_token() {
+        let claims = URL_SAFE_NO_PAD.encode(br#"{"sub":"u-1","principal_type":"user","principal_id":"p-1","email":"a@x.ai"}"#);
+        let access = format!("h.{claims}.s");
+        let grant = serde_json::json!({ "access_token": access, "refresh_token": "r", "expires_in": 60, "principal_id": "" });
+        let tokens = tokens_from_grant(&grant, "https://auth.x.ai/oauth2/token", 1_000).unwrap();
+        assert_eq!(tokens.expires_at, 61_000);
+        assert_eq!((tokens.user_id.as_str(), tokens.principal_type.as_str(), tokens.principal_id.as_str()), ("p-1", "user", "p-1"));
+        assert_eq!(tokens.email, "a@x.ai");
+        let missing = serde_json::json!({ "access_token": "a" });
+        assert!(tokens_from_grant(&missing, "https://auth.x.ai/oauth2/token", 0).is_err());
     }
 }

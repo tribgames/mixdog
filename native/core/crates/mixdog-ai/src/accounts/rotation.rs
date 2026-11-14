@@ -279,6 +279,19 @@ impl AccountRotation {
         self.state().last_probe.clear();
     }
 
+    /// Test seam: records a probe of the account now, as a measurement does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn mark_probed(&self, provider: &str, account_id: &str) {
+        let now = self.now();
+        self.state().last_probe.insert(format!("{provider}:{account_id}"), now);
+    }
+
+    /// Test seam: whether the account's probe pacing is still recorded.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn probe_paced(&self, provider: &str, account_id: &str) -> bool {
+        self.state().last_probe.contains_key(&format!("{provider}:{account_id}"))
+    }
+
     /// Forgets every in-memory session binding, as a restart does.
     pub fn reset_session_bindings(&self) {
         let mut state = self.state();
