@@ -1,0 +1,60 @@
+# nr-tui-vm-tools wiring (core): the new crate `mixdog-view-model` (the view model of the terminal UI; this task fills the tool surface, tool work units, tool primitives, tool status and the tool execution contract, and declares the module directories the later vm tasks fill).
+
+The crate is in `native/core/crates/mixdog-view-model` (Cargo.toml, src/{lib,tool_primitives,tool_surface,tool_work_units,tool_status,tool_contract,results,card_model,errors,display}.rs, the stub submodule files under
+src/{results,card_model,errors,display}/, tests/tools_twin.rs, tests/recorders/record-tools.mjs, tests/goldens/tools.json). It has no protocol rows, no registration and no SERVICE_PENDING entry: no daemon method uses it yet.
+Its consumers are the later view-model tasks (nr-tui-vm-results, nr-tui-vm-errors, nr-tui-vm-display, nr-tui-vm-cards) and the TUI widgets that draw tool cards.
+
+## 1. native/core/Cargo.toml
+
+(a) `[workspace] members`: after `"crates/mixdog-trace",` add
+
+    "crates/mixdog-view-model",
+
+(b) `[workspace.dependencies]`, in the internal crates block after `mixdog-trace = { path = "crates/mixdog-trace" }`:
+
+    mixdog-view-model = { path = "crates/mixdog-view-model" }
+
+No registry crate is added: serde and serde_json are already workspace dependencies. The crate depends on these workspace crates (all downward; nothing depends on `mixdog-view-model` yet): `mixdog-js`,
+`mixdog-protocol`, `mixdog-workspace-hack`, and `mixdog-testkit` as a dev-dependency (tests/tools_twin.rs reads its golden with `mixdog_testkit::fixture!`; the workspace clippy.toml bans `std::fs` reads). `mixdog-termtext` is added to its `[dependencies]` by nr-tui-vm-display (wave 2), not here.
+
+## 2. native/core/Cargo.lock
+
+Add the package entry (cargo writes it; `--locked` needs it present), in name order after `mixdog-trace`:
+
+    [[package]]
+    name = "mixdog-view-model"
+    version = "1.5.0"
+    dependencies = [
+     "mixdog-js",
+     "mixdog-protocol",
+     "mixdog-testkit",
+     "mixdog-workspace-hack",
+     "serde",
+     "serde_json",
+    ]
+
+## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Run `cargo hakari generate` (the new crate adds no registry crate, so the file is expected not to change; `cargo hakari verify` is the check).
+
+## 4. The recording
+
+`tests/goldens/tools.json` is written by `node native/core/crates/mixdog-view-model/tests/recorders/record-tools.mjs --tree <the Node tree> --fixtures <native/core/fixtures>` and checked with the same command plus
+`--check native/core/crates/mixdog-view-model/tests/goldens/tools.json`. It was recorded here from `packages/protocol-client/src/rows/` and `src/runtime/shared/tool-execution-contract.mjs` of this tree (the recorder reads
+`src/runtime/shared/` first and falls back to the rows copies; `tool-surface.mjs` and `tool-work-units.mjs` exist only as the rows copies in this tree). tests/tools_twin.rs reads the file and needs no fixture directory.
+Two recorded outputs are Node exceptions (`code_graph` with a null argument, `classifyToolCategory` and `aggregateToolCategoryEntries` read `args.mode` of null); the twin skips them.
+
+## 5. Left for later tasks (review)
+
+- nr-tui-vm-results: `formatAggregateDetail` (and its stepped form `formatAggregateDetailSteps` of the rows copy) of `tool-surface.mjs` is not in
+  `tool_surface.rs`: it reads `parseUpdateSummary` / `formatLineDelta` of `tool-result-summary.mjs`, which that task ports. It is ported there
+  (in `results/`, beside the summary parsers, with `singularNoun`, `pluralNoun`, `mergedFileTarget` and `accumulateUpdateMetric`), and its
+  only Node caller, `tool-result-status.mjs` (`aggregateRawResultSteps`), uses it from there. The twin of that task records it.
+- `mixdog_protocol::tool_units::surfaced_tool_units` (used by mixdog-core-session `actor.rs` and `statusline_agents.rs`) repeats a subset of
+  the rules now in `tool_work_units.rs` (its own normalize / parse-args / collection-count). The protocol crate cannot depend on this crate;
+  the duplicate goes when its two callers take `classify_tool_category` / `aggregate_tool_category_entries` from `mixdog-view-model` (a
+  core-session task; not owned here).
+
+## 6. Nothing else
+
+No `compose_flip.rs` change (no protocol method), no `pending-rows`.
