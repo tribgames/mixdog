@@ -1,0 +1,281 @@
+[
+ {
+  "text": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\nid=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-2> First — First alpha memory\nid=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-2> Second — Second alpha memory\nid=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-3> Beta — Beta memory",
+  "parsed": [
+   {
+    "value": "core-common-1",
+    "label": "#1",
+    "meta": "",
+    "description": "Common preference",
+    "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Common",
+    "_summary": "Common preference",
+    "_projectId": null,
+    "_origElement": "Common",
+    "_origSummary": "Common preference"
+   },
+   {
+    "value": "core-alpha-1",
+    "label": "#1",
+    "meta": "alpha",
+    "description": "First alpha memory",
+    "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-2> First — First alpha memory",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-2>",
+    "_element": "First",
+    "_summary": "First alpha memory",
+    "_projectId": "alpha",
+    "_origElement": "First",
+    "_origSummary": "First alpha memory"
+   },
+   {
+    "value": "core-alpha-2",
+    "label": "#2",
+    "meta": "alpha",
+    "description": "Second alpha memory",
+    "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-2> Second — Second alpha memory",
+    "_action": "core-entry",
+    "_id": 2,
+    "_indexRevision": "<uuid-2>",
+    "_element": "Second",
+    "_summary": "Second alpha memory",
+    "_projectId": "alpha",
+    "_origElement": "Second",
+    "_origSummary": "Second alpha memory"
+   },
+   {
+    "value": "core-beta-1",
+    "label": "#1",
+    "meta": "beta",
+    "description": "Beta memory",
+    "_line": "id=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-3> Beta — Beta memory",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-3>",
+    "_element": "Beta",
+    "_summary": "Beta memory",
+    "_projectId": "beta",
+    "_origElement": "Beta",
+    "_origSummary": "Beta memory"
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-1> First — First alpha memory\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+  "parsed": [
+   {
+    "value": "core-alpha-1",
+    "label": "#1",
+    "meta": "alpha",
+    "description": "First alpha memory",
+    "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-1> First — First alpha memory",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "First",
+    "_summary": "First alpha memory",
+    "_projectId": "alpha",
+    "_origElement": "First",
+    "_origSummary": "First alpha memory"
+   },
+   {
+    "value": "core-1",
+    "label": "More memories: call list with offset=1 and the same project scope/include_inactive.",
+    "description": "",
+    "_line": "More memories: call list with offset=1 and the same project scope/include_inactive."
+   }
+  ]
+ },
+ {
+  "text": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-1> Second — Second alpha memory",
+  "parsed": [
+   {
+    "value": "core-alpha-2",
+    "label": "#2",
+    "meta": "alpha",
+    "description": "Second alpha memory",
+    "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-1> Second — Second alpha memory",
+    "_action": "core-entry",
+    "_id": 2,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Second",
+    "_summary": "Second alpha memory",
+    "_projectId": "alpha",
+    "_origElement": "Second",
+    "_origSummary": "Second alpha memory"
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+  "parsed": [
+   {
+    "value": "core-common-1",
+    "label": "#1",
+    "meta": "",
+    "description": "Common preference",
+    "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Common",
+    "_summary": "Common preference",
+    "_projectId": null,
+    "_origElement": "Common",
+    "_origSummary": "Common preference"
+   },
+   {
+    "value": "core-1",
+    "label": "More memories: call list with offset=1 and the same project scope/include_inactive.",
+    "description": "",
+    "_line": "More memories: call list with offset=1 and the same project scope/include_inactive."
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-1> Active — Project preference",
+  "parsed": [
+   {
+    "value": "core-mixdog-1",
+    "label": "#1",
+    "meta": "mixdog",
+    "description": "Project preference",
+    "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-1> Active — Project preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Active",
+    "_summary": "Project preference",
+    "_projectId": "mixdog",
+    "_origElement": "Active",
+    "_origSummary": "Project preference"
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\narchived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule\nid=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+  "parsed": [
+   {
+    "value": "core-common-1",
+    "label": "#1",
+    "meta": "",
+    "description": "Common preference",
+    "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Common",
+    "_summary": "Common preference",
+    "_projectId": null,
+    "_origElement": "Common",
+    "_origSummary": "Common preference"
+   },
+   {
+    "value": "core-1",
+    "label": "archived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule",
+    "description": "",
+    "_line": "archived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule"
+   },
+   {
+    "value": "core-mixdog-1",
+    "label": "#1",
+    "meta": "mixdog",
+    "description": "Project preference",
+    "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-2>",
+    "_element": "Active",
+    "_summary": "Project preference",
+    "_projectId": "mixdog",
+    "_origElement": "Active",
+    "_origSummary": "Project preference"
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\nid=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference\nid=1 source=curated project=other status=active injection=enabled index_revision=<uuid-3> Other — Other preference",
+  "parsed": [
+   {
+    "value": "core-common-1",
+    "label": "#1",
+    "meta": "",
+    "description": "Common preference",
+    "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Common",
+    "_summary": "Common preference",
+    "_projectId": null,
+    "_origElement": "Common",
+    "_origSummary": "Common preference"
+   },
+   {
+    "value": "core-mixdog-1",
+    "label": "#1",
+    "meta": "mixdog",
+    "description": "Project preference",
+    "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-2>",
+    "_element": "Active",
+    "_summary": "Project preference",
+    "_projectId": "mixdog",
+    "_origElement": "Active",
+    "_origSummary": "Project preference"
+   },
+   {
+    "value": "core-other-1",
+    "label": "#1",
+    "meta": "other",
+    "description": "Other preference",
+    "_line": "id=1 source=curated project=other status=active injection=enabled index_revision=<uuid-3> Other — Other preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-3>",
+    "_element": "Other",
+    "_summary": "Other preference",
+    "_projectId": "other",
+    "_origElement": "Other",
+    "_origSummary": "Other preference"
+   }
+  ]
+ },
+ {
+  "text": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+  "parsed": [
+   {
+    "value": "core-common-1",
+    "label": "#1",
+    "meta": "",
+    "description": "Common preference",
+    "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+    "_action": "core-entry",
+    "_id": 1,
+    "_indexRevision": "<uuid-1>",
+    "_element": "Common",
+    "_summary": "Common preference",
+    "_projectId": null,
+    "_origElement": "Common",
+    "_origSummary": "Common preference"
+   }
+  ]
+ },
+ {
+  "text": "memory: empty",
+  "parsed": [
+   {
+    "value": "core-0",
+    "label": "memory: empty",
+    "description": "",
+    "_line": "memory: empty"
+   }
+  ]
+ }
+]
