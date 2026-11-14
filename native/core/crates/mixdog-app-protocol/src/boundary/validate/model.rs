@@ -124,11 +124,11 @@ fn model_selection(value: &Value, path: &str) -> Checked {
             return refuse(&at("modelParameters"), "selection.modelParameters must be a string map.");
         }
     }
+    // A number is accepted as the runtime takes it (`normalizeContextPercent` snaps it to a 10% step from 10 to 100):
+    // the phone sends any number here (fixtures/clients-accepted.json), so the desktop's range and step rule
+    // would refuse what they send today.
     if let Some(percent) = object.get("contextPercent") {
-        let ten_point = percent
-            .as_f64()
-            .is_some_and(|number| number.is_finite() && (10.0..=100.0).contains(&number) && number % 10.0 == 0.0);
-        if !ten_point {
+        if !percent.is_number() {
             return refuse(
                 &at("contextPercent"),
                 "selection.contextPercent must be a 10-point percentage from 10 to 100.",
