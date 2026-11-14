@@ -1,0 +1,17 @@
+# s2b-ssh-base core wire
+
+## native/core/crates/mixdog-ssh/Cargo.toml [dependencies] (the scaffold's file; after `sha2 = { workspace = true }`)
+
+Add these three lines (all three are already workspace.dependencies and in Cargo.lock, no new lock entry):
+
+    regex = { workspace = true }
+    hmac = { workspace = true }
+    sha1 = { workspace = true }
+
+Used by: command.rs (regex, RegexSet), diagnostics.rs / user_config.rs (regex), known_hosts.rs (hmac + sha1 for hashed |1| host fields, regex for wildcard host patterns).
+Then `cargo hakari generate` as for the other members.
+
+## No other wiring
+
+The seven modules and their tests are declared by lib.rs already (context, command, binary, known_hosts, user_config, diagnostics); the test files are declared inside the modules
+(`mod command_tests;` in command.rs, `mod base_tests;` in context.rs). No SERVICE_PENDING change, no protocol rows.
