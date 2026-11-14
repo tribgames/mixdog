@@ -47,5 +47,7 @@ calls on it (a core that does not compose the engine never calls one and keeps u
 
 ## 5. Tests the wiring touches
 
-  host-coverage.test.mjs / host-twin.test.mjs list the host's served methods: the 25 request methods of
-  ENGINE_REQUEST_METHODS and host/browser/lease/release are now served at construction.
+  host-coverage.test.mjs / host-twin.test.mjs list the host's served methods: the 26 request methods of
+  ENGINE_REQUEST_METHODS and host/browser/lease/release are now served at construction: delete the 'host/browser/ref/mint'
+  entry from PENDING in host/host-coverage.test.mjs (g45-fu-rest.wire item 2: registerRefMint is now in registerBrowserEngine,
+  so that item's registration line is done here).
