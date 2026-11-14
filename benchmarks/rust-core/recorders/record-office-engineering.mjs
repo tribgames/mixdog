@@ -45,6 +45,9 @@ const units=vm.runInNewContext(sourceText.slice(unitStart,unitEnd+4)+'\nunits',{
 for(const unit of units){const target=units.find(u=>u[3]===unit[3]);for(const symbol of [unit[1],...(unit[2]||[])]){add('CONVERT',[1.25,symbol,target[1]],'unit-table');add('CONVERT',[-3.5,target[1],symbol],'unit-table-reverse');}}
 for(const prefix of ['Y','Z','E','P','T','G','M','k','h','e','da','d','c','m','u','n','p','f','a','z','y','Yi','Zi','Ei','Pi','Ti','Gi','Mi','ki'])for(const symbol of ['m','bit','g','ang2','K'])add('CONVERT',[1.125,prefix+symbol,symbol],'prefix');
 for(const args of [[1,'C','K'],[1,'F','K'],[1,'Rank','K'],[1,'b','bit'],[1,'h','s'],[1,'e','J'],[1,'?','rad'],[1,'m','s'],[1,'unknown','m'],[1,1,'m'],[1,'m',null],[1,'unknown',true],[NaN,'m','m'],[' ', 'ft','m']])add('CONVERT',args,'unit-quirk');
+add('BESSELJ',[0,-Infinity],'negative-infinite-order-positive-zero');
+add('BESSELJ',[-0,-Infinity],'negative-infinite-order-negative-zero');
+add('DEC2BIN',[1,536871000],'padding-exceeds-v8-string-limit');
 const unavailable=['ERF.PRECISE','ERFC.PRECISE','ERFPRECISE','ERFCPRECISE'].map(name=>({name,type:typeof name.split('.').reduce((v,k)=>v?.[k],f)}));
 if(unavailable.some(v=>v.type!=='undefined'))throw Error('PRECISE aliases changed; inspect actual source');
 // Positive infinite order in J/I does not decrement in JS. It is not a returned

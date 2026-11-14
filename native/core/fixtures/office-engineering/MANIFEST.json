@@ -16,12 +16,12 @@
     }
   ],
   "functions": 52,
-  "cases": 10002,
+  "cases": 10005,
   "files": [
     {
       "path": "golden.json",
-      "sha256": "e019394cdea61381444725ac67a9e97ddfee79bc33f49f5747dc6f73424a19e1",
-      "bytes": 1518330
+      "sha256": "bfef225a74ced864dd19c6fdc90f0ef44db1c220f4e1b0f411cbdedcb2cdc61c",
+      "bytes": 1518929
     },
     {
       "path": "LICENSE.formulajs",

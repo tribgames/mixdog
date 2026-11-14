@@ -62,7 +62,7 @@ pub(super) fn j(x: f64, n: f64) -> f64 {
         return if x.is_nan() { x } else { 0.0 };
     }
     if n < 0.0 {
-        return if n % 2.0 != 0.0 { -1.0 } else { 1.0 } * j(x, -n);
+        return if n % 2.0 != 0.0 && !(n % 2.0).is_nan() { -1.0 } else { 1.0 } * j(x, -n);
     }
     if x < 0.0 {
         return if n % 2.0 != 0.0 && !n.is_nan() {
