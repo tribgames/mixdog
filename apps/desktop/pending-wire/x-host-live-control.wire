@@ -1,0 +1,8 @@
+# Desktop wiring for x-host-live-control (applied by the wave's DESKTOP-WIRE task)
+
+[host/connection.ts] HOST_METHOD: no row needed (browser-live-control.ts holds the method name itself); HOST_CAPABILITIES.browser is already true.
+
+[host/index.ts] in createDesktopHost, beside the other register*Host(connection, ...) calls:
+  import { registerBrowserLiveControlHost } from './browser-live-control';
+  registerBrowserLiveControlHost(connection, () => <the browser remote control from createRemoteControl: its { resize, widenVideo }>);
+The control is resolved lazily (the callback runs per request) because the remote control is created after the host connection.
