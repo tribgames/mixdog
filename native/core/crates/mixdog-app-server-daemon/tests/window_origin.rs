@@ -526,3 +526,61 @@ async fn a_server_window_asking_for_another_connection_is_refused() {
         assert_ne!(own["error"]["data"]["reason"], json!("permissionDenied"), "{own}");
     }
 }
+
+/// The refusal of a host-role method is the window's alone: the same call from a connection that names no window (main's own lane,
+/// the host role, a TUI) is not answered with the window's refusal, so the table narrows nothing for them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_without_a_window_header_is_not_given_the_window_refusal() {
+    let harness = Harness::start().await;
+    let mut window = harness.window("w-1", json!({})).await;
+    let mut plain = harness.plain().await;
+    for method in [
+        "host/claim",
+        "host/state/set",
+        "host/humanOnly/begin",
+        "host/remoteTarget/set",
+        "modelProxy/run",
+        "migrate/profile/adopt",
+        "migrate/profile/status",
+        "process/spawn",
+        "connections/endpoint",
+        "projectFs/localPage/revokeOwner",
+    ] {
+        let refused = window.call(method, json!({})).await;
+        assert!(denied(&refused, method), "{method}: the window is refused: {refused}");
+        let by_plain = plain.call(method, json!({})).await;
+        assert_ne!(answer(&by_plain), answer(&refused), "{method}: a connection with no window header got the window's refusal: {by_plain}");
+    }
+}
+
+/// The agents and project-connector methods over a window: the window gets the answer a connection with no window gets (the mock
+/// core claims neither service, so both are `unclaimed`: the case is that the window gate lets the call through and nothing in
+/// the window's path changes it). The services narrow by the relay origin only (`agents/service.rs`, `project/service.rs`); the
+/// widen rule itself is replayed against the real service in mixdog-core-session-replays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_window_calls_the_agents_and_project_connector_methods_as_main_does() {
+    let harness = Harness::start().await;
+    let mut plain = harness.plain().await;
+    let mut window = harness.window("w-1", json!({})).await;
+    for method in ["agent/archivedAgentIdentities", "agent/getLeadPersona", "project/getProjectConnectors", "project/setProjectConnectorEnabled"] {
+        let by_plain = plain.call(method, json!({})).await;
+        let by_window = window.call(method, json!({})).await;
+        assert!(!denied(&by_window, method), "{method}: the window is not refused: {by_window}");
+        assert_eq!(answer(&by_window), answer(&by_plain), "{method}: the window's answer is main's");
+    }
+}
+
+/// `github/status` over a window: the window's call is answered as a connection with no window's is (`scm` honours `refresh` for a
+/// local origin and ignores it for a relay origin only; the mock core does not claim the service, so both answers are `unclaimed`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_window_calls_github_status_as_main_does() {
+    let harness = Harness::start().await;
+    let mut plain = harness.plain().await;
+    let mut window = harness.window("w-1", json!({})).await;
+    for params in [json!({}), json!({ "refresh": true })] {
+        let by_plain = plain.call("github/status", params.clone()).await;
+        let by_window = window.call("github/status", params).await;
+        assert!(!denied(&by_window, "github/status"), "the window is not refused: {by_window}");
+        assert_eq!(answer(&by_window), answer(&by_plain), "the window's answer is main's");
+    }
+}
