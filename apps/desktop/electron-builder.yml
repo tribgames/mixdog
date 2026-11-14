@@ -90,7 +90,7 @@ win:
   # executable (mixdog-computer.exe included); the main process also loads
   # this in-repo library (native-tools). Matched by file-name suffix.
   signExts:
-    - mixdog_window.dll
+    - mixdog_window.node
   target:
     - nsis
 nsis:
