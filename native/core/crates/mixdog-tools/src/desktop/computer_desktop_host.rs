@@ -297,7 +297,7 @@ impl DesktopHostBackend {
             }
             if status != Some("resumed") || waited.get("resumed") != Some(&Value::Bool(true)) {
                 let reason = waited.get("reason").filter(|reason| truthy(reason)).cloned().unwrap_or(json!("resume_unconfirmed"));
-                return Ok(finish(merged(
+                return Ok(finish(Value::Object(merged(
                     &progress,
                     [
                         ("ok", json!(false)),
@@ -306,7 +306,7 @@ impl DesktopHostBackend {
                         ("input_replayed", json!(false)),
                         ("recovery", json!({ "next": "wait_for_user", "guidance": "Work has not completed. Resume was not confirmed; no input was replayed." })),
                     ],
-                )));
+                ))));
             }
             let completed = progress.get("total_steps").is_some_and(Value::is_number)
                 && progress.get("completed_steps") == progress.get("total_steps")
@@ -316,7 +316,7 @@ impl DesktopHostBackend {
             resumed.shift_remove("error");
             let resumed = merged(&resumed, [("status", json!("resumed")), ("reason", json!("")), ("completed", json!(completed))]);
             let Some(target) = capture_target(command) else {
-                return Ok(finish(merged(
+                return Ok(finish(Value::Object(merged(
                     &resumed,
                     [
                         ("fresh_capture_required", json!(true)),
@@ -329,7 +329,7 @@ impl DesktopHostBackend {
                             }),
                         ),
                     ],
-                )));
+                ))));
             };
             let mut read = command_of(&[("action", json!("capture"))]);
             read.extend(target);
@@ -369,7 +369,7 @@ impl DesktopHostBackend {
                     ("recovery", json!({ "next": next, "guidance": guidance })),
                 ],
             );
-            return Ok(HostReply { text: body.to_string(), ..captured });
+            return Ok(HostReply { text: Value::Object(body).to_string(), ..captured });
         }
     }
 }

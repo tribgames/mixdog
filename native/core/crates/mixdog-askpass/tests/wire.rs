@@ -106,8 +106,7 @@ fn run(args: &[&str], reply: Option<&str>) -> Run {
         let mut stream = listener.accept();
         let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).expect("request");
-        let whole_line = reply.as_deref().is_some_and(|reply| reply.ends_with('
-'));
+        let whole_line = reply.as_deref().is_some_and(|reply| reply.ends_with('\n'));
         if let Some(reply) = reply {
             stream.write_all(reply.as_bytes()).expect("reply");
             stream.flush().expect("flush");
