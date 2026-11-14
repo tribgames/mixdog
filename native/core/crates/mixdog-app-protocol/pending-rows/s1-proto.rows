@@ -1,13 +1,13 @@
 # s1-proto: desktop file grants, core page server owners and origin, standalone project roots.
 # Types live in src/v2/desktop_files.rs (new, owned by this task). PROTO-WIRE adds `pub mod desktop_files;` to
-# src/v2/mod.rs (after `pub mod config;`) and `use crate::v2::desktop_files::*;` to src/methods.rs
-# (next to `use crate::v2::params::*;`).
+# src/v2/mod.rs (after `pub mod config;`). The rows name the params by path (`v2::desktop_files::...`), as the
+# v2::feed and v2::op rows do, so methods.rs needs no new `use`.
 
 [methods]
 # Paste after the ProjectFsLocalPageUrl row in src/methods.rs (symbol: ProjectFsLocalPageUrl => "projectFs/localPageUrl").
     /// Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).
     ProjectFsGrantDescribe => "projectFs/grant/describe" {
-        params: ProjectFsGrantDescribeParams,
+        params: v2::desktop_files::ProjectFsGrantDescribeParams,
         result: JsonValue,
         scope: none,
         class: C1,
@@ -16,7 +16,7 @@
     },
     /// Check a one-file grant against the path asked for and answer the file's folder and name (Node's `requireGrant`, selected-file-access.ts).
     ProjectFsGrantRedeem => "projectFs/grant/redeem" {
-        params: ProjectFsGrantRedeemParams,
+        params: v2::desktop_files::ProjectFsGrantRedeemParams,
         result: JsonValue,
         scope: none,
         class: C1,
@@ -25,7 +25,7 @@
     },
     /// End every page lease a desktop window holds (Node's `revokeLocalPagesForOwner`, local-page-server.ts).
     ProjectFsLocalPageRevokeOwner => "projectFs/localPage/revokeOwner" {
-        params: ProjectFsLocalPageRevokeOwnerParams,
+        params: v2::desktop_files::ProjectFsLocalPageRevokeOwnerParams,
         result: JsonValue,
         scope: none,
         class: C1,
@@ -34,7 +34,7 @@
     },
     /// Origin of the core's local page server (Node's `localPageOrigin`, local-page-server.ts).
     ProjectFsLocalPageOrigin => "projectFs/localPage/origin" {
-        params: ProjectFsLocalPageOriginParams,
+        params: v2::desktop_files::ProjectFsLocalPageOriginParams,
         result: JsonValue,
         scope: none,
         class: C1,
