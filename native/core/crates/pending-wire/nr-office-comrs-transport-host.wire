@@ -15,5 +15,7 @@ not guaranteed to be mixdogd. Nothing else changes in the public API.
 
 ## nr-office-comrs-retire-powershell
 mixdog-office-com/src/route.rs RUST_HOST_FORMATS is the compiled list (empty). Each format the Rust host gains is added
-there by the task that implements it; the retire task removes the PowerShell branch of Inner::start and the list.
+there by the task that implements it (a one-shot `detect`, whatever format it probes, is routed by the `docx` entry:
+route.rs DETECT_FOLLOWS, so nr-office-comrs-switch-word adds only "docx"); the retire task removes the PowerShell
+branch of Inner::start and the list.
 No SERVICE_PENDING names are involved.

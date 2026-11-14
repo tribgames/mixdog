@@ -1,5 +1,5 @@
 //! Which host program a call or a session starts: with a test list of formats served by the Rust host, a docx session
-//! and `detect` start the configured Rust host program as `office-com-host --session` / `office-com-host`, and xlsx and
+//! and `detect` (whatever format it probes) start the configured Rust host program as `office-com-host --session` / `office-com-host`, and xlsx and
 //! pptx start the PowerShell command line; with the shipped (empty) list everything starts PowerShell. The stand-in
 //! host (`tests/fake_host.rs`) reports the arguments it was started with.
 
@@ -87,7 +87,9 @@ async fn a_listed_format_starts_the_rust_host_program_and_the_others_start_power
 async fn detect_follows_the_docx_entry() {
     let listed = office(Some(&["docx"]));
     assert_eq!(argv(&listed.detect("docx", "a.docx").await.value), ["office-com-host"]);
-    assert!(is_powershell_line(&argv(&listed.detect("xlsx", "a.xlsx").await.value), "office-com-host.ps1"));
+    assert_eq!(argv(&listed.detect("xlsx", "a.xlsx").await.value), ["office-com-host"]);
+    let other = office(Some(&["xlsx"]));
+    assert!(is_powershell_line(&argv(&other.detect("xlsx", "a.xlsx").await.value), "office-com-host.ps1"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

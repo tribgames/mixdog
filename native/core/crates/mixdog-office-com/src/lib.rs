@@ -398,7 +398,7 @@ impl Inner {
     }
 
     async fn call_once(&self, payload: &Value, options: &CallOptions) -> OfficeReply {
-        match self.start(false, payload.get("format").and_then(Value::as_str)).await {
+        match self.start(false, route::one_shot_format(payload)).await {
             Ok(running) => {
                 let client = oneshot::attach(running, self.config.drain_grace);
                 oneshot::call_once(client, payload, options.timeout, &options.cancel).await
