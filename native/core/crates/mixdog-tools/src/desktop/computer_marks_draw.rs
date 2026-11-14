@@ -215,14 +215,11 @@ fn decode(image: &[u8], mime: &str) -> Result<Raster, PaintError> {
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
 fn crc32(parts: &[&[u8]]) -> u32 {
-    let mut crc = 0xffff_ffffu32;
-    for byte in parts.iter().flat_map(|part| part.iter()) {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
-        }
+    let mut crc = flate2::Crc::new();
+    for part in parts {
+        crc.update(part);
     }
-    !crc
+    crc.sum()
 }
 
 fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
@@ -382,7 +379,7 @@ fn encode(raster: &Raster, mime: &str, _quality: u8) -> Result<PaintedImage, Pai
 }
 
 /// Burns the marks into the image and re-encodes it in the input's format (`image/png` stays PNG, anything else is JPEG at
-/// `quality`). `width` and `height` are the frame's size the bounds are in; a decoded image of another size has the bounds
+/// `quality`, which fails with the reason until `jpeg-encoder` is vendored). `width` and `height` are the frame's size the bounds are in; a decoded image of another size has the bounds
 /// scaled onto it. A mark with a non-finite bound is skipped, as `renderSomOverlay` did.
 pub fn paint_marks(
     image: &[u8],
