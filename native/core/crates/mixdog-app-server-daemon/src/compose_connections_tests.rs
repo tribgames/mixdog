@@ -200,7 +200,8 @@ fn shown(title: &str) -> HostNotificationShowParams {
         title: title.to_owned(),
         body: "done".to_owned(),
         thread_id: None,
-        sound: None,
+        // A final answer: the notifier asks for a sound, and the sink gives this PC's own.
+        sound: Some("default".to_owned()),
         volume: None,
         connection_id: Some("srv".to_owned()),
         label: Some("Server".to_owned()),
@@ -270,4 +271,15 @@ fn a_power_event_reaches_every_sink_in_order() {
 #[test]
 fn a_power_event_before_the_service_exists_is_nobodys() {
     LateConnectionsPower::default().power(PowerEvent::Suspend);
+}
+
+/// A toast the notifier asked no sound for (anything but a session's final answer) carries none, whatever this PC's volume.
+#[test]
+fn a_toast_that_asked_for_no_sound_carries_none() {
+    let host = Arc::new(MockHostChannel::default());
+    host.claim(HostCapability::Notifications);
+    toasts(host.clone(), 40).show(HostNotificationShowParams { sound: None, ..shown("t") }).expect("the host takes it");
+    let params = &host.sent()[0].2;
+    assert!(params.get("sound").is_none_or(serde_json::Value::is_null), "{params}");
+    assert!(params.get("volume").is_none_or(serde_json::Value::is_null), "{params}");
 }
