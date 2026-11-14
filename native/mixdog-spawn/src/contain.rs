@@ -2,6 +2,7 @@
 //! kill is one O(1) call that takes the whole tree.
 
 use mixdog_core_api::domain::process::ExitStatus;
+use mixdog_core_api::domain::process::ProcessOwner;
 
 /// How a wait for a tree to end finished.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -45,6 +46,7 @@ mod imp {
     use windows_sys::Win32::System::IO::GetQueuedCompletionStatus;
     use windows_sys::Win32::System::IO::OVERLAPPED;
     use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+    use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_BREAKAWAY_OK;
     use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     use windows_sys::Win32::System::JobObjects::JOBOBJECT_ASSOCIATE_COMPLETION_PORT;
     use windows_sys::Win32::System::JobObjects::JOBOBJECT_BASIC_ACCOUNTING_INFORMATION;
@@ -125,6 +127,32 @@ mod imp {
         .as_ref()
     }
 
+    /// The limit flags of a new job: every job kills its members when its last handle closes; one that
+    /// allows breakaway lets a member start a child with CREATE_BREAKAWAY_FROM_JOB (the computer helper's
+    /// cursor watchdog, which must outlive the helper), and only that child leaves the job.
+    pub(crate) fn job_limit_flags(breakaway_ok: bool) -> u32 {
+        if breakaway_ok {
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        } else {
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        }
+    }
+
+    #[cfg(test)]
+    mod flag_tests {
+        use super::*;
+
+        #[test]
+        fn a_job_allows_breakaway_only_when_asked() {
+            assert_eq!(job_limit_flags(false), JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE);
+            assert_eq!(
+                job_limit_flags(true),
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            );
+            assert_ne!(job_limit_flags(true) & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
+        }
+    }
+
     /// A job object. Dropping the last handle kills whatever is still in it.
     pub(crate) struct Containment {
         /// Null once the job was seen empty and closed ([`Self::release_if_empty`]). Never passed on null: a null job
@@ -138,13 +166,13 @@ mod imp {
     unsafe impl Sync for Containment {}
 
     impl Containment {
-        pub(crate) fn create() -> io::Result<Self> {
+        pub(crate) fn create(breakaway_ok: bool) -> io::Result<Self> {
             let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
             if job.is_null() {
                 return Err(io::Error::last_os_error());
             }
             let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            limits.BasicLimitInformation.LimitFlags = job_limit_flags(breakaway_ok);
             let set = unsafe {
                 SetInformationJobObject(
                     job,
@@ -394,7 +422,7 @@ mod imp {
     }
 
     impl Containment {
-        pub(crate) fn create() -> std::io::Result<Self> {
+        pub(crate) fn create(_breakaway_ok: bool) -> std::io::Result<Self> {
             Ok(Self { tree: OnceLock::new() })
         }
 
@@ -472,6 +500,23 @@ mod imp {
 }
 pub(crate) use imp::Containment;
 
+/// Whether a process's job lets a member start a child outside it. Only the computer helper's does: its
+/// cursor watchdog must survive the helper, and the helper itself stays in the job and dies with the core.
+pub(crate) fn breakaway_ok(owner: &ProcessOwner) -> bool {
+    matches!(owner, ProcessOwner::ComputerHelper)
+}
+
+#[cfg(test)]
+mod breakaway_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_computer_helper_may_break_away() {
+        assert!(breakaway_ok(&ProcessOwner::ComputerHelper));
+        assert!(!breakaway_ok(&ProcessOwner::Internal));
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::process::CommandExt;
@@ -488,7 +533,7 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        let containment = Containment::create().unwrap();
+        let containment = Containment::create(false).unwrap();
         containment.adopt(child.id());
         std::thread::sleep(Duration::from_millis(300));
         containment.terminate();

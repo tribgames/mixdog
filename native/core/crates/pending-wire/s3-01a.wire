@@ -1,0 +1,62 @@
+# s3-01a: the wincu-int computer stack merged onto the ft-fix core (non-hot files). No Cargo change: the new files use only crates
+# mixdog-tools, mixdog-core and mixdog-app-server-daemon already depend on (mixdog-js, mixdog-rt, mixdog-protocol, mixdog-secure-desktop,
+# regex, unicode-normalization, base64, bytes, futures, tokio, tokio-util, serde, serde_json, async-trait); no new workspace edge.
+
+# mixdog-tools: module lines (the exact set wincu-int's desktop/mod.rs carries)
+file: native/core/crates/mixdog-tools/src/desktop/mod.rs
+place: the `pub mod computer;` .. `pub mod host;` block, kept alphabetical, replacing the lines from `pub mod computer_backend;` to `mod computer_screen;` with:
+add:   mod computer_abort;
+add:   mod computer_act;
+add:   pub mod computer_backend;
+add:   pub mod computer_budget;
+add:   mod computer_capture;
+add:   mod computer_command;
+add:   mod computer_diagnose;
+add:   mod computer_env;
+add:   mod computer_feedback;
+add:   mod computer_frames;
+add:   mod computer_gnome;
+add:   mod computer_internal_windows;
+add:   mod computer_keys;
+add:   pub mod computer_lane;
+add:   mod computer_lease;
+add:   pub mod computer_linux;
+add:   mod computer_ocr;
+add:   mod computer_policy;
+add:   pub mod computer_recovery;
+add:   mod computer_reply;
+add:   mod computer_screen;
+add:   mod computer_settle;
+add:   mod computer_targets;
+add:   pub mod computer_user_control;
+add:   mod computer_verify;
+add:   mod computer_zoom;
+
+# mixdog-app-server-daemon: the module
+file: native/core/crates/mixdog-app-server-daemon/src/lib.rs
+place: directly after `pub mod compose_mcp;`
+add:   pub mod computer_control;
+
+# mixdog-core-session: the hold tests (a test-only module)
+file: native/core/crates/mixdog-core-session/src/session/secret_input.rs
+place: directly after `mod human_only;`
+add:   #[cfg(test)]
+add:   mod human_only_merge_tests;
+
+# compose_flip.rs, fn real_core: two edits
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+edit-1: in the `native_paths.computer_sessions(...)` call, the last argument (after `pre.state.publisher.clone(),`) is now the pool's settings; replace the whole block
+        `{ // `isObserveOnly()` ... let config = config.clone(); Arc::new(move || config.desktop_settings().computer_observe_only) }`
+        with
+        `mixdog_core::run_host::native_tools::ComputerSettings::from_config(b.data_dir.clone(), config.clone())`
+        (the wrap closure, RedactingComputerBackend under GatedComputerBackend with `human_only`, stays exactly as it is: it is the gate over the wincu pool).
+        ObserveOnlySetting and ProcessComputerBackend::with_observe_only_setting no longer exist: the one implementation of "Observation only" is wincu's ComputerShared.observe_only.
+edit-2: directly after `builder.register(live_view.clone())?;` add
+        // computer/userControl: the Computer Use pill's Resume and Stop.
+        builder.register(Arc::new(crate::computer_control::ComputerUserControlService::new(computer_pool.as_ref().map(|pool| pool.user_control()))))?;
+
+# Protocol rows this task's files compile against (PROTO-WIRE-G1 carries them; wincu-int's text, taken as is):
+#   mixdog-app-protocol: client method `computer/userControl` (v2::host::ComputerUserControlParams/Result/Action), server requests host/computer/foregroundLease,
+#     host/computer/internalWindows, host/computer/pointerFeedback and their v2::host types, free_text_fields.json rows, the five schema/*.json files;
+#   mixdog-protocol section.rs: ComputerSection gains `user_control` and `lane` (ComputerUserControlSection, ComputerResumeMode, ComputerLaneSection);
+#   mixdog-core-api host.rs: HostCapability::Computer doc line (text only).

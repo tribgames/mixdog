@@ -196,4 +196,143 @@ mod tests {
         }
         assert!(compared > 100, "{compared}");
     }
+
+    /// Codes `computerToolErrorRecovery` classifies (the helper and the core emit them): the model is told what to do next.
+    const WITH_RECOVERY: [&str; 23] = [
+        "ambiguous_window_target",
+        "window_target_not_found",
+        "stale_frame",
+        "stale_target",
+        "target_mismatch",
+        "computer_foreground_available_recapture_required",
+        "computer_user_takeover",
+        "user_input_active",
+        "input_observation_unavailable",
+        "computer_cursor_unavailable",
+        "input_cleanup_unconfirmed",
+        "privileged_worker_cleanup_unconfirmed",
+        "foreground_input_not_ready",
+        "saved_login_refused",
+        "saved_login_changed",
+        "saved_login_unconfirmed",
+        "computer_command_timeout",
+        "foreground_changed",
+        "menu_path_not_found",
+        "menu_item_not_invokable",
+        "background_blocked_uipi",
+        "background_target_hung",
+        "background_message_rejected",
+    ];
+
+    /// Codes the TS module has no recovery for either: the reply carries the error text alone. The helper's new Windows codes
+    /// (`capture_*`, `privileged_worker_*`, `msaa_*`, `focus_required`, ...) belong here because `error-recovery.mjs` never named them.
+    /// So do the remote screen's input codes (`cursor_unavailable`, `out_of_bounds`, `protocol_error`: `--screen-input` answers the
+    /// desktop, never the model) and the JPEG encoder's own `wic` failure, which falls back to PNG and never reaches a reply.
+    const WITHOUT_RECOVERY: [&str; 53] = [
+        "a11y_action_failed",
+        "a11y_value_failed",
+        "accessibility_blocked_by_integrity",
+        "accessibility_permission_required",
+        "accessibility_unavailable",
+        "blank_black_frame",
+        "blocked_input",
+        "capture_cleanup_failed",
+        "capture_cloaked",
+        "capture_denied",
+        "capture_geometry_changed",
+        "capture_geometry_invalid",
+        "capture_minimized",
+        "capture_region_invalid",
+        "capture_source_unavailable",
+        "capture_timeout",
+        "capture_wgc_unavailable",
+        "capture_withheld",
+        "clipboard_unavailable",
+        "computer_policy_denied",
+        "computer_policy_expired",
+        "cursor_unavailable",
+        "dialog_key_unsupported",
+        "display_unavailable",
+        "focus_required",
+        "input_delivery_failed",
+        "input_marker_unavailable",
+        "input_too_large",
+        "input_unavailable",
+        "invalid_keys",
+        "msaa_action_failed",
+        "msaa_value_failed",
+        "observation_only",
+        "ocr_failed",
+        "ocr_unavailable",
+        "out_of_bounds",
+        "platform_unsupported",
+        "privileged_worker_cancelled",
+        "privileged_worker_failed",
+        "privileged_worker_launcher_failed",
+        "privileged_worker_ref_unsupported",
+        "privileged_worker_rejected",
+        "privileged_worker_unavailable",
+        "protocol_error",
+        "selection_not_exclusive",
+        "sequence_step_invalid",
+        "stale_element",
+        "unsafe_key",
+        "value_write_ignored",
+        "wayland_window_control_unavailable",
+        "wic",
+        "winrt_timeout",
+        "x11_unavailable",
+    ];
+
+    /// Every classification is the TS module's, code by code.
+    #[test]
+    fn each_code_the_helper_and_the_core_emit_is_classified_as_the_ts_module_does() {
+        let args = json!({ "action": "act", "input": { "window_id": "hwnd:0x1" } });
+        for code in WITH_RECOVERY {
+            assert!(tool_error_recovery(&format!("{code}: x"), &args).is_some_and(|found| found.code == code), "{code}");
+        }
+        for code in WITHOUT_RECOVERY {
+            assert_eq!(tool_error_recovery(&format!("{code}: x"), &args), None, "{code}");
+        }
+    }
+
+    /// Every `"code|` and `"code: ` literal in the helper's sources is in one of the two tables, so a new code cannot ship unclassified.
+    #[test]
+    fn every_code_in_the_helper_sources_is_classified() {
+        // Literals of that shape that are not failure codes.
+        const NOT_CODES: [&str; 8] = ["live", "focused", "ocr_image", "process_fate", "capture_", "capture_v2", "computer", "recording"];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../mixdog-computer/src");
+        let mut pending = vec![root.clone()];
+        let mut unclassified = std::collections::BTreeSet::new();
+        let mut seen = 0;
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|extension| extension != "rs") {
+                    continue;
+                }
+                let Ok(source) = std::fs::read_to_string(&path) else { continue };
+                for (at, _) in source.match_indices('"') {
+                    let rest = &source[at + 1..];
+                    let end = rest.find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')).unwrap_or(rest.len());
+                    let code = &rest[..end];
+                    let follows = rest[end..].starts_with('|') || rest[end..].starts_with(": ");
+                    if !follows || code.len() < 3 || !code.starts_with(|c: char| c.is_ascii_lowercase()) || NOT_CODES.contains(&code) {
+                        continue;
+                    }
+                    seen += 1;
+                    if !WITHOUT_RECOVERY.contains(&code) && recovery_for_code(code, &json!({})).is_none() {
+                        unclassified.insert(code.to_owned());
+                    }
+                }
+            }
+        }
+        assert!(seen > 100, "the helper sources were not found under {}: {seen}", root.display());
+        assert!(unclassified.is_empty(), "codes with no recovery classification: {unclassified:?}");
+    }
 }
