@@ -21,10 +21,11 @@ use mixdog_protocol::Origin;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::browser_validate::validate_ui_action;
 use crate::host_forward::forward;
 
 /// The host actions Node's phone table forwarded to (`browserRemote`'s `control`, the host's `input`, and the
-/// seven parity actions); their arguments are checked by the host with Node's own functions (`host/browser-command.ts`).
+/// seven parity actions); their arguments are checked by `browser_validate` (Node's own functions, `host/browser-command.ts`).
 const PHONE_ACTIONS: [&str; 8] = ["input", "tabOpen", "release", "history", "credentialSuggestions", "credentialFill", "importSources", "importStart"];
 
 /// Node's refusal as the phone read it: an `Error` with no code.
@@ -74,6 +75,8 @@ impl DomainService for BrowserService {
         if req.ctx.origin == Origin::Relay {
             relay_admit(action, &mut input)?;
         }
+        // Every origin's arguments are checked here with the desktop's own texts; the host keeps its check.
+        validate_ui_action(action, &mut input.clone().unwrap_or(Value::Null))?;
         let mut command = Map::new();
         command.insert("action".into(), Value::String(action.to_owned()));
         if let Some(input) = input {
