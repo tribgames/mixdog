@@ -329,7 +329,7 @@ fn abort_options(params: &Map<String, Value>) -> Checked {
     }
 }
 
-/// `requiredNewTaskDraft`. The route's model selection is the model group's (`ModelSelection`) to check beyond its shape.
+/// `requiredNewTaskDraft`. The route is held to `requiredModelSelection` (the model group's `model_selection`).
 fn new_task_draft(value: &Value, path: &str) -> Checked {
     let Some(input) = value.as_object() else {
         return Err(invalid(path, "new task draft is invalid."));
@@ -340,8 +340,8 @@ fn new_task_draft(value: &Value, path: &str) -> Checked {
     if let Some(project) = present(input, "projectPath") {
         required_string(project, &at("projectPath"), "projectPath", 32_768)?;
     }
-    if present(input, "route").is_some_and(|route| !route.is_object()) {
-        return Err(invalid(&at("route"), "model selection is invalid."));
+    if let Some(route) = present(input, "route") {
+        super::model::model_selection(route, &at("route"))?;
     }
     if let Some(workflow) = present(input, "workflowId") {
         required_string(workflow, &at("workflowId"), "workflowId", 256)?;
@@ -545,6 +545,24 @@ mod validate_prompt {
             turn("a".into(), serde_json::json!({"pastedTexts": pasted})),
             "/input/options",
             "structured input is too large.",
+        );
+    }
+
+    /// The draft's route is held to `requiredModelSelection`, not only to being an object.
+    #[test]
+    fn draft_route_is_a_model_selection() {
+        let draft = |route: Value| {
+            serde_json::json!({"kind": "task", "opId": "0190f3c2-7a31-7c00-8000-000000000900", "draft": {"route": route}})
+        };
+        assert_eq!(check("thread/start", Some(&draft(serde_json::json!({"provider": "p", "contextTokens": 8})))), Some(Ok(())));
+        let want = |path: &str, expected: &str| Some(Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() }));
+        assert_eq!(
+            check("thread/start", Some(&draft(serde_json::json!({"extra": 1})))),
+            want("/draft/route", "model selection contains an unsupported field.")
+        );
+        assert_eq!(
+            check("thread/start", Some(&draft(serde_json::json!({"contextTokens": 0})))),
+            want("/draft/route/contextTokens", "selection.contextTokens must be a positive integer.")
         );
     }
 }
