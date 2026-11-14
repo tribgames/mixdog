@@ -212,15 +212,16 @@ pub(super) enum AppInputOp {
     Type { text: String, point: Option<(f64, f64)> },
     Click { x: f64, y: f64, button: &'static str, clicks: u8 },
     Move { x: f64, y: f64 },
-    /// Signed wheel deltas in CSS pixels (`WHEEL_NOTCH` a notch), at a point or the middle of the window.
-    Wheel { point: Option<(f64, f64)>, dx: f64, dy: f64 },
+    /// Signed wheel deltas in CSS pixels (`WHEEL_NOTCH` a notch), at a point or the middle of the window, with the step's
+    /// `modifiers` text (`ctrl+shift`) held.
+    Wheel { point: Option<(f64, f64)>, dx: f64, dy: f64, modifiers: Option<String> },
 }
 
 impl AppInputOp {
     /// The input a step is, with its screen-physical points (`computer_frames::map_step`) moved to the window's origin; `None`
     /// for a step the renderer's channel does not take.
     fn from_step(step: &Map<String, Value>, window: &AppWindow) -> Option<AppInputOp> {
-        if text(step, "delivery") == "foreground" || step.get("ref").is_some_and(|reference| !reference.is_null()) {
+        if text(step, "delivery") == "foreground" || step.get("ref").is_some_and(|reference| !reference.is_null() && reference.as_str() != Some("")) {
             return None;
         }
         let point = || {
@@ -238,12 +239,15 @@ impl AppInputOp {
             "triple_click" => click("left", 3),
             "mouse_move" => point().map(|(x, y)| AppInputOp::Move { x, y }),
             "scroll" => {
-                // `wheelDeltas`: 1..100 notches, up and left negative.
-                let magnitude = step.get("amount").and_then(Value::as_f64).filter(|amount| amount.is_finite()).unwrap_or(3.0).abs().clamp(1.0, 100.0);
+                // `wheelDeltas`: 1..100 notches of `amount ?? dy ?? 3`, up and left negative, a step without a direction signed by `dy`.
+                let number = |key: &str| step.get(key).and_then(Value::as_f64);
+                let magnitude = number("amount").or_else(|| number("dy")).unwrap_or(3.0).abs().clamp(1.0, 100.0);
                 let direction = text(step, "direction");
-                let delta = if matches!(direction, "up" | "left") { -magnitude } else { magnitude } * WHEEL_NOTCH;
+                let negative = if direction.is_empty() { number("dy").unwrap_or(0.0) < 0.0 } else { matches!(direction, "up" | "left") };
+                let delta = if negative { -magnitude } else { magnitude } * WHEEL_NOTCH;
                 let horizontal = matches!(direction, "left" | "right");
-                Some(AppInputOp::Wheel { point: point(), dx: if horizontal { delta } else { 0.0 }, dy: if horizontal { 0.0 } else { delta } })
+                let modifiers = Some(text(step, "modifiers")).filter(|modifiers| !modifiers.is_empty()).map(str::to_string);
+                Some(AppInputOp::Wheel { point: point(), dx: if horizontal { delta } else { 0.0 }, dy: if horizontal { 0.0 } else { delta }, modifiers })
             }
             _ => None,
         }
@@ -268,10 +272,13 @@ impl AppInputOp {
             }
             AppInputOp::Click { x, y, button, clicks } => set(vec![("op", json!("click")), ("x", json!(x)), ("y", json!(y)), ("button", json!(button)), ("clicks", json!(clicks))]),
             AppInputOp::Move { x, y } => set(vec![("op", json!("move")), ("x", json!(x)), ("y", json!(y))]),
-            AppInputOp::Wheel { point, dx, dy } => {
+            AppInputOp::Wheel { point, dx, dy, modifiers } => {
                 set(vec![("op", json!("wheel")), ("dx", json!(dx)), ("dy", json!(dy))]);
                 if let Some((x, y)) = point {
                     set(vec![("x", json!(x)), ("y", json!(y))]);
+                }
+                if let Some(modifiers) = modifiers {
+                    set(vec![("modifiers", json!(modifiers))]);
                 }
             }
         }
@@ -348,6 +355,7 @@ pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_i
             result.insert("code".into(), json!("typing_target_unconfirmed"));
             result.insert("text".into(), json!("The requested editable target was not confirmed; no text was sent. Observe fresh state before continuing."));
             result.insert("delivery_accepted".into(), json!(false));
+            result.insert("path".into(), json!("electron_typing_target_check"));
             if matches!(&op, AppInputOp::Type { point: Some(_), .. }) {
                 result.insert("input_may_have_executed".into(), json!(true));
             }
@@ -448,8 +456,14 @@ mod tests {
         assert_eq!(op(json!({ "action": "double_click", "x": 130, "y": 90 })), Some(AppInputOp::Click { x: 30.0, y: 40.0, button: "left", clicks: 2 }));
         assert_eq!(op(json!({ "action": "right_click", "x": 100, "y": 50 })), Some(AppInputOp::Click { x: 0.0, y: 0.0, button: "right", clicks: 1 }));
         assert_eq!(op(json!({ "action": "click" })), None);
-        assert_eq!(op(json!({ "action": "scroll", "direction": "up", "amount": 500 })), Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -10_000.0 }));
-        assert_eq!(op(json!({ "action": "scroll", "direction": "left", "x": 110, "y": 60 })), Some(AppInputOp::Wheel { point: Some((10.0, 10.0)), dx: -300.0, dy: 0.0 }));
+        assert_eq!(op(json!({ "action": "scroll", "direction": "up", "amount": 500 })), Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -10_000.0, modifiers: None }));
+        assert_eq!(op(json!({ "action": "scroll", "direction": "left", "x": 110, "y": 60 })), Some(AppInputOp::Wheel { point: Some((10.0, 10.0)), dx: -300.0, dy: 0.0, modifiers: None }));
+        // No direction: `dy` gives the amount and the sign; the modifiers ride along.
+        assert_eq!(
+            op(json!({ "action": "scroll", "dy": -2, "modifiers": "ctrl" })),
+            Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -200.0, modifiers: Some("ctrl".into()) })
+        );
+        assert_eq!(op(json!({ "action": "key", "keys": "^A", "ref": "" })), Some(AppInputOp::Key { keys: "^A".into() }));
         assert_eq!(op(json!({ "action": "type", "text": "a", "x": 101, "y": 52 })), Some(AppInputOp::Type { text: "a".into(), point: Some((1.0, 2.0)) }));
         assert_eq!(op(json!({ "action": "key_down", "keys": "^A" })), None);
     }
@@ -498,6 +512,7 @@ mod tests {
         assert_eq!(unconfirmed["code"], "typing_target_unconfirmed");
         assert_eq!(unconfirmed["delivery_accepted"], false);
         assert_eq!(unconfirmed["input_may_have_executed"], true);
+        assert_eq!(unconfirmed["path"], "electron_typing_target_check");
         assert_eq!(unconfirmed["evidence"], json!({ "editable": false }));
         let gone = ask(json!({ "delivered": false, "effect": "window_gone" })).await.expect_err("gone");
         assert!(matches!(&gone, ComputerError::Failed { message, .. } if message.starts_with("computer_window_gone")));
