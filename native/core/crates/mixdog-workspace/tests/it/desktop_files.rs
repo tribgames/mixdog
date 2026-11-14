@@ -245,7 +245,7 @@ async fn a_page_asset_type_is_the_page_servers_mime_and_empty_where_it_would_not
     let env = env(true);
     let asset = |file: std::path::PathBuf| json!({ "root": env.root.to_string_lossy(), "file": file.to_string_lossy() });
     let css = local(&env, "projectFs/localPage/assetType", asset(env.root.join("style.css"))).await.unwrap();
-    assert_eq!(css["type"], "text/css");
+    assert_eq!(css["type"], "text/css; charset=utf-8");
     for file in [env.root.join(".cache").join("x.js"), env.base.join("outside.css"), env.root.join("blob.unknownext")] {
         let answer = local(&env, "projectFs/localPage/assetType", asset(file.clone())).await.unwrap();
         assert_eq!(answer["type"], "", "{}", file.display());
