@@ -56,7 +56,14 @@ fn open_read(path: &Path) -> io::Result<File> {
         use std::os::windows::fs::OpenOptionsExt;
         std::fs::OpenOptions::new().read(true).custom_flags(0x0200_0000).open(path)
     }
-    #[cfg(not(windows))]
+    // Non-blocking, as the desktop's opened-file check opened it (`O_RDONLY | O_NONBLOCK`): a FIFO swapped in for the file
+    // must not hold the open; a regular file reads the same either way.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)
+    }
+    #[cfg(not(any(windows, unix)))]
     {
         File::open(path)
     }
