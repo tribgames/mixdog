@@ -58,9 +58,35 @@ use crate::env::Clock;
 const SPAWN_PREP_DEADLINE: Duration = Duration::from_secs(120);
 const SPAWN_PREP_TIMED_OUT: &str = "agent spawn prep timed out before session bind";
 
+/// What `prepareWithDeadline` does with the work it stops waiting for: it goes on in its own task, and what it
+/// produces then goes to `late`, which tears it down.
+struct Unclaimed<T, W: Future<Output = Result<T, String>>, L> {
+    work: Option<std::pin::Pin<Box<W>>>,
+    late: Option<L>,
+}
+
+impl<T, W, L, F> Drop for Unclaimed<T, W, L>
+where
+    T: Send + 'static,
+    W: Future<Output = Result<T, String>> + Send + 'static,
+    L: FnOnce(T) -> F + Send + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
+    fn drop(&mut self) {
+        if let (Some(work), Some(late)) = (self.work.take(), self.late.take()) {
+            drop(mixdog_rt::spawn("agent-spawn-prep", TaskClass::Work, async move {
+                if let Ok(value) = work.await {
+                    late(value).await;
+                }
+            }));
+        }
+    }
+}
+
 /// `prepareWithDeadline`: `work`'s outcome, or the timeout's message once `deadline` passes. The
-/// work keeps running on its own task; what it produces after the caller stopped waiting (the
-/// deadline passed, or the caller was dropped) goes to `late`, which tears it down.
+/// work runs in the caller's own task, as Node's does (its continuation is the next microtask, not another
+/// task's turn); what it produces after the caller stopped waiting (the deadline passed, or the caller was
+/// dropped) goes to `late`, which tears it down.
 async fn within_deadline<T, W, L, F>(deadline: Duration, work: W, late: L) -> Result<T, String>
 where
     T: Send + 'static,
@@ -68,15 +94,13 @@ where
     L: FnOnce(T) -> F + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    drop(mixdog_rt::spawn("agent-spawn-prep", TaskClass::Work, async move {
-        if let Err(Ok(value)) = tx.send(work.await) {
-            late(value).await;
+    let mut pending = Unclaimed { work: Some(Box::pin(work)), late: Some(late) };
+    let waited = mixdog_rt::time::timeout(deadline, pending.work.as_mut().expect("the work is held until it ends")).await;
+    match waited {
+        Ok(outcome) => {
+            pending.work = None;
+            outcome
         }
-    }));
-    match mixdog_rt::time::timeout(deadline, rx).await {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(_)) => Err("agent spawn prep ended without a result".into()),
         Err(_) => Err(SPAWN_PREP_TIMED_OUT.into()),
     }
 }
