@@ -1,6 +1,6 @@
-//! The machine facts the feature gates read (`FeatureProbes`): which desktop bridges are up
-//! (`builtin-features.mjs` reads the bridge discovery files; the composition's one copy of them is
-//! `BridgeFeatures`) and whether a `git` executable is on PATH (`gitExecutablePresent`, remembered
+//! The machine facts the feature gates read (`FeatureProbes`): which desktop features exist (the composition's one
+//! fact is `BridgeFeatures`, decided in `mcp_surface::ToolBridges` from the host claims and the computer gate, not from
+//! the bridge discovery files) and whether a `git` executable is on PATH (`gitExecutablePresent`, remembered
 //! for 30 seconds per PATH value, `path-executable.mjs:115`). The PATH walk reads directories, so it
 //! runs as a job on the interactive lane; a job that cannot run is a typed failure, never "no git".
 
@@ -55,7 +55,7 @@ impl FeatureProbes for HostFeatureProbes {
                 present
             }
         };
-        // A bridge whose tool this core did not register (`computer` with no helper) is not up. The tool-deny gate still lets a
+        // A feature whose tool this core did not register (`computer` with no helper) is not up. The tool-deny gate still lets a
         // `MIXDOG_FEATURE_*` override outrank this fact, which allows a tool that does not exist.
         let up = |feature: &str| self.bridges.present(feature) && self.bridges.registered(feature);
         Ok(FeatureFacts { browser: up("browser"), computer: up("computer"), terminal: up("terminal"), visualize: up("visualize"), git })
