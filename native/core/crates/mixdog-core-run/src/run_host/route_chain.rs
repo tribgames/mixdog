@@ -157,7 +157,7 @@ pub fn resolve_session_mode(session: &Value) -> (&'static str, String) {
 /// `resolveSessionMode({ sessionId, profile })`: a session that has no record yet is resolved from its reserved id and the
 /// profile it is created with (`owner`, `visibility`, `ownerAgentId`, and the `homeAgent` the creation names as its agent).
 pub fn resolve_profile_mode(session_id: &str, profile: &Value) -> (&'static str, String) {
-    let owner_agent = if truthy(profile.get("ownerAgentId")) { profile.get("ownerAgentId") } else { profile.get("homeAgent") };
+    let owner_agent = truthy(profile.get("ownerAgentId")).or_else(|| profile.get("homeAgent"));
     resolve_session_mode(&json!({
         "id": session_id,
         "owner": profile.get("owner").cloned().unwrap_or(Value::Null),

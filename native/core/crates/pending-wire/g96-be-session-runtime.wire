@@ -1,8 +1,0 @@
-g96-be-session-runtime wiring
-
-[mixdog-app-server-daemon/src/compose_flip.rs]
-Anchor: real_core, the line that builds `session_turns`:
-  let session_turns = Arc::new(mixdog_core_session::session::agent_registry::flow::SessionTurns::new(directory.clone(), runtime_release).with_shells(b.shell_control.clone()).with_admission(agent_registry.clone()));
-Add `.with_mcp(mcp.glue.clone())` after `.with_admission(agent_registry.clone())` (the same glue `mcp_glue` is taken from near the `mcp_scopes: mcp_glue.clone()` line; if `mcp` is out of scope at that line, bind `let agent_mcp_scopes: Arc<dyn mixdog_mcp::mcp_glue::McpScopes> = mcp.glue.clone();` where it is in scope). Effect: a spawned agent's first turn waits up to 3 s for MCP servers still connecting (awaitMcpGrace, MIXDOG_MCP_AGENT_GRACE_MS default).
-No Cargo edge needed (mixdog-core-session already depends on mixdog-mcp).
-No SERVICE_PENDING names to remove.

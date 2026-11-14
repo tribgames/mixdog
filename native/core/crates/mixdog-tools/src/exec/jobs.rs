@@ -1968,6 +1968,7 @@ mod tests {
     /// `SHELL_OUTPUT_DISK_CAP`: the kill for writing past the cap ends the job failed, with the cap named, whatever the kill's exit said.
     #[test]
     fn a_job_killed_for_its_output_cap_fails_naming_the_cap() {
+        let exit = |status, killed| ProcessExit { status, killed };
         let mut f = exit_facts(&exit(ExitStatus::Signal(9), Some(KillReason::Requested)));
         assert_eq!(f.status, JobStatus::Cancelled);
         f.mark_output_capped();

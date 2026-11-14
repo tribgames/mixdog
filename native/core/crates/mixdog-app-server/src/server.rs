@@ -922,7 +922,7 @@ impl Shared {
                                 detail: "notDeclared".into(),
                             });
                         }
-                        shared.outgoing.claim(params.host_id, &conn, params.serves.map(|listed| listed.into_iter().collect()));
+                        shared.outgoing.claim(params.host_id, &conn, params.serves.map(|listed| listed.into_iter().collect()), params.resources);
                         Ok(Reply::Value(empty_result()))
                     }),
                 )

@@ -440,6 +440,15 @@ impl RemoteFileReaders for PoolFiles {
     }
 }
 
+/// The claim hook that gives [`ResourceClaims`] the resources of each `host/claim` (cleared when that claim is replaced or its connection closes).
+pub struct ResourceClaimHook(pub Arc<ResourceClaims>);
+
+impl mixdog_app_server::ClaimHook for ResourceClaimHook {
+    fn claimed(&self, _serves: &[HostCapability], resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn std::any::Any + Send>> {
+        Some(self.0.attach(resources.cloned()))
+    }
+}
+
 /// What `host/claim` `resources` the connections service reads (where the server runtimes and the askpass helper are): the claim that
 /// is recorded sets them and the claim that ends clears them.
 #[derive(Default)]

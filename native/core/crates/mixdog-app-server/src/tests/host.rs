@@ -44,7 +44,7 @@ async fn a_claim_that_runs_after_its_connection_closed_is_not_recorded() {
     let host = rig.ready(1, json!({ "host": { "browser": true } }));
     let conn = rig.outgoing.connection(ConnectionId(1)).unwrap();
     rig.outgoing.unregister(&conn);
-    rig.outgoing.claim(HostId::from("pc"), &conn, None);
+    rig.outgoing.claim(HostId::from("pc"), &conn, None, None);
     assert_eq!(
         rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await,
         Err(unavailable("noClaimant"))
@@ -624,7 +624,7 @@ impl Drop for Guard {
 }
 
 impl crate::ClaimHook for Attach {
-    fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn std::any::Any + Send>> {
+    fn claimed(&self, serves: &[HostCapability], _resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn std::any::Any + Send>> {
         if !serves.contains(&HostCapability::SystemProxy) {
             return None;
         }

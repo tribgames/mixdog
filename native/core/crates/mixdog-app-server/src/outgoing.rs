@@ -102,7 +102,7 @@ pub trait ClaimHook: Send + Sync {
     /// Called when a claim serving `serves` is recorded. The returned guard is held in the claim:
     /// a replaced claim, a closed connection and the end of the process drop it, which detaches
     /// what the hook attached.
-    fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn Any + Send>>;
+    fn claimed(&self, serves: &[HostCapability], resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn Any + Send>>;
 }
 
 impl mixdog_core_api::ClientEpoch for Outgoing {
@@ -309,7 +309,7 @@ impl Outgoing {
     /// connection holds one claim, and a `hostId` is held by one connection (a reconnecting
     /// desktop replaces its stale claim). `methods` is the `serves` list of `host/claim`: when given, the claimant is
     /// chosen only for the methods in it.
-    pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>, methods: Option<HashSet<String>>) {
+    pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>, methods: Option<HashSet<String>>, resources: Option<mixdog_app_protocol::v2::connections::HostClaimResources>) {
         // The claim is queued work: its connection may have closed (and been unregistered) before
         // it runs, and a claim recorded after that would never be forgotten.
         let mut hosts = lock(&self.hosts);
@@ -323,7 +323,7 @@ impl Outgoing {
             .unwrap_or_default();
         // The new claim attaches before the one it replaces is dropped, so the process is never left
         // between two claims of the same host with nothing attached.
-        let attached = self.claim_hook.get().and_then(|hook| hook.claimed(&serves));
+        let attached = self.claim_hook.get().and_then(|hook| hook.claimed(&serves, resources.as_ref()));
         hosts.retain(|claim| claim.host != host && claim.conn.id != conn.id);
         hosts.push(Claim {
             host,

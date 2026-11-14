@@ -1013,9 +1013,9 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     }
     lines.extend(warnings);
     let text = lines.join("\n");
-    if text.len() > OUTPUT_MAX_BYTES {
-        let kept = byte_prefix(&text, OUTPUT_MAX_BYTES);
-        return Ok(text_output(format!("{kept}\n{}", cap_marker(&format_cap_size(OUTPUT_MAX_BYTES), "", None, "narrow path or lower depth"))));
+    if text.len() > super::common::output_max_bytes() {
+        let kept = byte_prefix(&text, super::common::output_max_bytes());
+        return Ok(text_output(format!("{kept}\n{}", cap_marker(&format_cap_size(super::common::output_max_bytes()), "", None, "narrow path or lower depth"))));
     }
     Ok(text_output(text))
 }
