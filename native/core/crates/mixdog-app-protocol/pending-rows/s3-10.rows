@@ -1,0 +1,11 @@
+[type_edits]
+# native/core/crates/mixdog-app-protocol/src/v2/host.rs, struct HostComputerDisplay: two fields appended after `height`.
+# The display's origin in native desktop coordinates (`nativeDisplayGeometry`, physical pixels on Windows and Linux): the core needs it
+# for the union MIXDOG_COMPUTER_DESKTOP_BOUNDS and to judge a display frame's layout (session/frame-validity.ts assertDisplayUnchanged).
+# `default` keeps an older desktop's list (no origin) deserializing, as a display at 0,0.
+    #[serde(default)]
+    pub x: i32,
+    #[serde(default)]
+    pub y: i32,
+# The desktop's readDisplays (apps/desktop/src/main/computer/host/display-reads.ts, not owned by s3-10) answers x and y from
+# nativeDisplayGeometry(display).x / .y next to width/height; regenerate schema/*.json and packages/protocol/src/index.ts.

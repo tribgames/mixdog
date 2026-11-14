@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_app_protocol::v2::host::HostComputerDisplay;
+
 /// Helper actions that only read (`computerActionsWith('nativeRead')`). `list_apps` is the helper's own answer to
 /// `list kind="apps"`, which reads as `list_installed_apps` did.
 const READ_ACTIONS: [&str; 20] = [
@@ -69,6 +71,25 @@ pub(super) fn helper_env(inputs: &EnvInputs) -> Vec<(String, String)> {
     }
     set.extend(inputs.abort.iter().cloned());
     set
+}
+
+/// `MIXDOG_COMPUTER_DESKTOP_BOUNDS` (`desktopBoundsEnvironment`, `host/powershell-host.ts`): the union of every display in native
+/// coordinates, `left,top,width,height`, which the Wayland input device spans when the compositor cannot report its outputs
+/// (`platform/linux/wayland.rs`). Each display's rectangle is its origin and its size in physical pixels (the size the host reports
+/// times the scale, as `nativeDisplayGeometry`). `None` without a display: the helper then has no bounds to be told.
+#[cfg_attr(not(test), expect(dead_code, reason = "the spawn of a helper on Linux (the wiring of computer_pixels) adds it to helper_env"))]
+pub(super) fn desktop_bounds_env(displays: &[HostComputerDisplay]) -> Option<(String, String)> {
+    let area = |display: &HostComputerDisplay| {
+        let physical = |edge: u32| (f64::from(edge) * display.scale_factor).round() as i64;
+        let (x, y) = (i64::from(display.x), i64::from(display.y));
+        (x, y, x + physical(display.width), y + physical(display.height))
+    };
+    let areas: Vec<(i64, i64, i64, i64)> = displays.iter().map(area).collect();
+    let left = areas.iter().map(|area| area.0).min()?;
+    let top = areas.iter().map(|area| area.1).min()?;
+    let right = areas.iter().map(|area| area.2).max()?;
+    let bottom = areas.iter().map(|area| area.3).max()?;
+    Some(("MIXDOG_COMPUTER_DESKTOP_BOUNDS".to_owned(), format!("{left},{top},{},{}", right - left, bottom - top)))
 }
 
 /// A fresh input marker in `1..=i32::MAX`, the helper's range (`config.rs` `input_marker`), from the OS random source behind
@@ -163,6 +184,21 @@ mod tests {
             leftover_ledgers(dir.path()).into_iter().map(|(path, marker)| (path.file_name().unwrap().to_string_lossy().into_owned(), marker)).collect();
         assert_eq!(found, [("a-5.ledger".to_owned(), Some(5)), ("b_c-x.ledger".to_owned(), None), ("z-0.ledger".to_owned(), None)]);
         assert!(leftover_ledgers(&dir.path().join("missing")).is_empty());
+    }
+
+    fn display(index: u32, x: i32, y: i32, width: u32, height: u32, scale_factor: f64) -> HostComputerDisplay {
+        HostComputerDisplay { index, id: index.to_string(), primary: index == 0, scale_factor, width, height, x, y }
+    }
+
+    /// The union of the displays' native rectangles: a second display to the left and above widens it both ways, and a scaled display
+    /// counts in physical pixels.
+    #[test]
+    fn the_bounds_are_the_union_of_the_displays_in_native_pixels() {
+        let one = [display(0, 0, 0, 1920, 1080, 1.0)];
+        assert_eq!(desktop_bounds_env(&one), Some(("MIXDOG_COMPUTER_DESKTOP_BOUNDS".to_owned(), "0,0,1920,1080".to_owned())));
+        let two = [display(0, 0, 0, 1280, 720, 1.5), display(1, -1920, -200, 1920, 1080, 1.0)];
+        assert_eq!(desktop_bounds_env(&two).map(|(_, bounds)| bounds), Some("-1920,-200,3840,1280".to_owned()));
+        assert_eq!(desktop_bounds_env(&[]), None);
     }
 
     #[test]
