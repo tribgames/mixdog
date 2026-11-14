@@ -775,6 +775,7 @@ impl Shared {
             model_proxy: capabilities.model_proxy.unwrap_or(false),
             client,
             origin,
+            view: window.is_some(),
         };
         if conn.initialize(session).is_err() {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
@@ -811,7 +812,8 @@ impl Shared {
         // Eligibility starts only now, behind the response; what was published meanwhile is
         // delivered here, and an approvals-inbox connection gets every pending request.
         conn.finish_handshake();
-        if let Some(kind) = conn.session().map(|session| session.client.kind) {
+        // One registration per desktop: its own connection. A window's socket is a view of it.
+        if let Some(kind) = conn.session().filter(|session| !session.view).map(|session| session.client.kind) {
             self.outgoing.client_registered(kind);
         }
         if conn.session().is_some_and(|session| session.model_proxy) {
