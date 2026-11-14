@@ -8,6 +8,8 @@ The test module is declared inside remote_file_reader.rs (`remote_file_reader_te
 ## 2. Cargo
 mixdog-connections/Cargo.toml [dependencies], add (the workspace member exists in native/core/Cargo.toml as `mixdog-workspace = { path = "crates/mixdog-workspace" }`):
     mixdog-workspace = { workspace = true }
+mixdog-connections/Cargo.toml [dev-dependencies], add (the line every crate whose tests build mixdog-workspace carries, D:\mixdog-build\tools\unify-test-features.py):
+    mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 No reverse edge: no manifest under crates/ except mixdog-connections' own names mixdog-connections, so mixdog-workspace cannot reach it (no cycle).
 No new external crate. Cargo.lock: the `mixdog-connections` package gains `"mixdog-workspace"` in its dependency list.
 
