@@ -405,7 +405,7 @@ mod pg {
         f.collect();
         let text = format(&page);
         // This recorder's `roundTrip` also carries the text it parsed.
-        let Exact::Object(mut trip) = round_trip(&format!("{SET}: {label}"), &text, &page) else { unreachable!("a round trip is an object") };
+        let Exact::Object(mut trip) = round_trip(&text, &page) else { unreachable!("a round trip is an object") };
         trip.insert(0, ("formatted".to_owned(), string(text.clone())));
         let step = object(vec![
             ("label", string(label)),

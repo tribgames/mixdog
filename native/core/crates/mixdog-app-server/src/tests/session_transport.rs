@@ -844,6 +844,11 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
     })
     .await
     .expect("the call's row published within 20 s");
+    // The feed's number at the attach. How many frames the turn's start and the call's row made before it is the step timer's
+    // doing: the turn start's frame is flushed apart from the call's when the timer fires between the two commits and shared
+    // with it when it does not, so the number is read from the feed, not counted. Nothing publishes between this and the attach.
+    let attached_at = world.session.feeds.frames(world.id.as_str()).last().map(|(seq, _, _)| *seq).expect("the thread has published");
+    let base = attached_at - BEFORE_ATTACH; // the helpers below add BEFORE_ATTACH to what they are given
     world.call(&mut client, 2, "thread/resume", resume()).await;
     release.notify_one();
     client.until("the run's end", |frames| ran(frames, 1)).await;
@@ -861,17 +866,16 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         "meta": { "turnId": t, "at": 1000, "ext": { "outputTokens": 0, "thinkingElapsedMs": 0, "toolCount": 1, "completionVerb": "Mapped", "attemptId": uuid(4) } },
     });
     let mut expected = vec![started(1, &t)];
-    // Before the attach: the turn's start (five publications, [`turn_start`]) and the call's row with its step's frame. The thread
-    // was opened from the store, so it made one publication fewer before them than [`BEFORE_ATTACH`] counts.
-    expected.extend(resumed(1, 2, &world.id, 6, state(true, &["go"]), snapshot_items));
+    // Before the attach: the turn's start (five publications, [`turn_start`]) and the call's row with its step's frame.
+    expected.extend(resumed(1, 2, &world.id, base, state(true, &["go"]), snapshot_items));
     expected[2]["params"]["hasOlder"] = json!(true); // 1991 stored rows lie before the window
     expected.extend([
-        event(&world.id, 7, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),
-        event(&world.id, 8, "thread/context/updated", json!({ "threadId": world.id, "value": context })),
-        event(&world.id, 9, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": turn_end_item })),
-        event(&world.id, 10, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
-        event(&world.id, 11, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
-        frame(&world.id, 12, true),
+        event(&world.id, base + 1, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),
+        event(&world.id, base + 2, "thread/context/updated", json!({ "threadId": world.id, "value": context })),
+        event(&world.id, base + 3, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": turn_end_item })),
+        event(&world.id, base + 4, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
+        event(&world.id, base + 5, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
+        frame(&world.id, base + 6, true),
     ]);
     whole("state-lanes-48", &client.frames, &[world.id.as_str()], expected);
 }
