@@ -52,7 +52,8 @@ export interface ServerWindowsDeps {
 }
 
 export interface ServerWindows {
-  /** The `windows.open` of the host role (host/window/open): false when the window could not be made. */
+  /** The `windows.open` of the host role (host/window/open): true once the window is up; rejects (no record kept) when it
+   *  could not be made, which the window host answers as `opened: false`. */
   open(params: { connectionId: string; kind: 'ssh'; name: string }): Promise<boolean>;
   get(connectionId: string): ServerWindowRecord | undefined;
   /** The window is gone (or never came up): the record is dropped. */
