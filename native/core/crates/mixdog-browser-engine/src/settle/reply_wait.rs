@@ -32,6 +32,7 @@ use super::settle::throw_if_cancelled;
 use super::settle::try_join3;
 use crate::error::HostCallError;
 use crate::limits::POSTCONDITION_POLL;
+use crate::port::BrowserHost;
 
 /// The most text one read returns over the wire (`READ_MAX_CHARS_WIRE` of the host): a longer text is read in parts of this size.
 pub(crate) const POSTCONDITION_READ_CHARS: u32 = 120_000;
@@ -111,45 +112,72 @@ pub async fn postcondition_matches_page(page: &Page<'_>, expected: &Postconditio
     if expected.text.is_empty() && expected.text_gone.is_empty() {
         return Ok(true);
     }
-    let Some(text) = read_page_text(page, cancel).await? else { return Ok(false) };
+    let Some(text) = read_whole_text_for_condition(page, cancel).await? else { return Ok(false) };
     Ok(page.probe.state().url == url && matches(expected.expected(), PageSample { text: Some(&text), url: &url }))
 }
 
-/// The whole text of the page, read in parts when it is longer than one read returns; `None` when it could not be read through
-/// (a failed read, or a text the host refuses), which a postcondition takes as "not yet": a part of a text proves nothing about
-/// a phrase being gone.
-async fn read_page_text(page: &Page<'_>, cancel: &CancelView) -> Result<Option<String>, Cancelled> {
-    let mut text = String::new();
+/// A page's text as the host answers it, read in parts of one wire read each.
+pub(crate) struct PageText {
+    pub text: String,
+    pub url: String,
+    pub title: String,
+    /// The characters the page text holds in all (UTF-16 units).
+    pub total: usize,
+    /// The text could not be read to its end (the parts ran out, or an empty part came before the total): `text` is a prefix.
+    pub clipped: bool,
+}
+
+/// The whole text of the page, read in parts when it is longer than one read returns. The one reader of the postcondition polls
+/// (`wait`, `expect`) and of `read`; a failed read is the caller's to word, a cancelled one is `HostCallError::Cancelled`.
+pub(crate) async fn read_page_text(host: &dyn BrowserHost, page_id: &str, cancel: &CancellationToken) -> Result<PageText, HostCallError> {
+    let mut whole = PageText { text: String::new(), url: String::new(), title: String::new(), total: 0, clipped: false };
     // How much has been read, in the UTF-16 units the host counts in.
     let mut taken: u64 = 0;
-    for _ in 0..POSTCONDITION_READ_PARTS {
+    for part in 0..POSTCONDITION_READ_PARTS {
         let offset = (taken > 0).then(|| u32::try_from(taken).unwrap_or(u32::MAX));
         let params = HostBrowserPageReadParams {
-            page_id: page.id.to_string(),
+            page_id: page_id.to_owned(),
             kind: BrowserPageReadKind::Text,
             options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset, attributes: None, limit: None }),
         };
-        let read = page.host.page_read(params, cancel.token()).await;
-        throw_if_cancelled(cancel)?;
-        if matches!(read, Err(HostCallError::Cancelled)) {
-            return Err(super::settle::cancelled(cancel));
+        let read = host.page_read(params, cancel).await?;
+        let payload = &read.payload;
+        let Some(text) = payload.get("text").and_then(Value::as_str) else {
+            return Err(HostCallError::Failed { message: "the page answered no text".to_owned() });
+        };
+        if part == 0 {
+            whole.url = payload.get("url").and_then(Value::as_str).unwrap_or(&read.facts.url).to_owned();
+            whole.title = payload.get("title").and_then(Value::as_str).unwrap_or(&read.facts.title).to_owned();
         }
-        let Ok(read) = read else { return Ok(None) };
-        let Some(part) = read.payload.get("text").and_then(Value::as_str) else { return Ok(None) };
-        taken += mixdog_js::utf16_len(part) as u64;
-        text.push_str(part);
-        let finished = match read.payload.get("total").and_then(Value::as_u64) {
+        taken += mixdog_js::utf16_len(text) as u64;
+        whole.text.push_str(text);
+        let reported = payload.get("total").and_then(Value::as_u64);
+        whole.total = reported.map_or(taken as usize, |total| total as usize);
+        let finished = match reported {
             Some(total) => taken >= total,
             None => !read.truncated,
         };
         if finished {
-            return Ok(Some(text));
+            return Ok(whole);
         }
-        if part.is_empty() {
-            return Ok(None);
+        if text.is_empty() {
+            break;
         }
     }
-    Ok(None)
+    whole.clipped = true;
+    Ok(whole)
+}
+
+/// The text of the page for a postcondition; `None` when it could not be read through (a failed read, or a text the host refuses),
+/// which a postcondition takes as "not yet": a part of a text proves nothing about a phrase being gone.
+async fn read_whole_text_for_condition(page: &Page<'_>, cancel: &CancelView) -> Result<Option<String>, Cancelled> {
+    let read = read_page_text(page.host, page.id, cancel.token()).await;
+    throw_if_cancelled(cancel)?;
+    match read {
+        Err(HostCallError::Cancelled) => Err(super::settle::cancelled(cancel)),
+        Ok(whole) if !whole.clipped => Ok(Some(whole.text)),
+        _ => Ok(None),
+    }
 }
 
 /// Polls until the postcondition holds or its budget ends; `announce` is cancelled the moment it holds so the settle can stop

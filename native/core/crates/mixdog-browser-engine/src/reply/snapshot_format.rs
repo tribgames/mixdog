@@ -577,6 +577,22 @@ mod tests {
     }
 
     #[test]
+    fn two_independent_pages_failing_identically_each_report_their_own_failure_once() {
+        let sign_in = "POST https://example.test/login — net::ERR_FAILED";
+        let mut pages = [ledgers(), ledgers()];
+        for page in &mut pages {
+            page.push_failure(sign_in);
+            page.console.record_error("Error: sign-in failed");
+        }
+        for page in &mut pages {
+            let said = report(page, &SnapshotExtras::default());
+            assert!(said.contains("New console errors: Error: sign-in failed"), "{said}");
+            assert!(said.contains("New network failures: POST https://example.test/login"), "{said}");
+            assert_eq!(report(page, &SnapshotExtras::default()), "", "each is said once per page");
+        }
+    }
+
+    #[test]
     fn identical_diagnostic_lines_are_said_once_with_a_count() {
         let beacon = "GET https://example.test/beacon — net::ERR_FAILED";
         let mut page = ledgers();
