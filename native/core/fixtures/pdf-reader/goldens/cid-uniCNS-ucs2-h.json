@@ -1,0 +1,106 @@
+{
+  "bytes": 1104,
+  "file": "files/cid-uniCNS-ucs2-h.pdf",
+  "group": "assembled",
+  "name": "cid-uniCNS-ucs2-h",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "91ef98778363836be74dac8a39e25f921707e3d9cc182616aeec5876fcbc1ed0",
+  "withReadableDataUrls": {
+    "outcome": {
+      "numPages": 1,
+      "ok": true,
+      "pages": [
+        {
+          "number": 1,
+          "rotate": 0,
+          "text": {
+            "items": [
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 20,
+                "str": "繁體中文文字",
+                "transform": [
+                  20,
+                  0,
+                  0,
+                  20,
+                  60,
+                  700
+                ],
+                "width": 120
+              }
+            ],
+            "styles": {
+              "g_d#_f1": {
+                "ascent": 0.88,
+                "descent": -0.12,
+                "fontFamily": "monospace",
+                "vertical": false
+              }
+            }
+          },
+          "userUnit": 1,
+          "view": [
+            0,
+            0,
+            612,
+            792
+          ],
+          "viewport": {
+            "height": 792,
+            "offsetX": 0,
+            "offsetY": 0,
+            "rotation": 0,
+            "transform": [
+              1,
+              0,
+              0,
+              -1,
+              0,
+              792
+            ],
+            "width": 612
+          }
+        }
+      ]
+    },
+    "sameAsReference": false
+  }
+}

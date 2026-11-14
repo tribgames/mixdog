@@ -1,0 +1,101 @@
+{
+  "bytes": 1390,
+  "file": "files/type3-font-tounicode.pdf",
+  "group": "assembled",
+  "name": "type3-font-tounicode",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 24,
+              "str": "STTS",
+              "transform": [
+                24,
+                0,
+                0,
+                24,
+                60,
+                700
+              ],
+              "width": 76.8
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                650
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 12,
+              "str": "ST TS",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                650
+              ],
+              "width": 38.4
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": null,
+              "descent": null,
+              "fontFamily": "monospace"
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "7388f392c7d9e5ab424e2a6945143c7d7841c526a364deb4eb277202050934df",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

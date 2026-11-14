@@ -1,0 +1,83 @@
+%PDF-1.7
+%ÅÅÅÅ
+
+1 0 obj
+<<
+/Type /Pages
+/Kids [ 4 0 R ]
+/Count 1
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+>>
+endobj
+
+4 0 obj
+<<
+/Type /Page
+/Parent 1 0 R
+/Resources <<
+/Font <<
+/F1 3 0 R
+>>
+/XObject <<
+>>
+/ExtGState <<
+>>
+>>
+/MediaBox [ 0 0 612 792 ]
+/Annots [ ]
+/Contents 5 0 R
+>>
+endobj
+
+5 0 obj
+<<
+/Filter [ /ASCIIHexDecode /FlateDecode ]
+/Length 598
+>>
+stream
+789c7dd14b7382301405e07d7fc559eaaa0411d05db5da977d4a9fc32626a141
+30d12414db5fdf29d84d67e8e6eeee77eedc3349703c27203e920c818728f490
+70f4a69a0b0626052b50e64a402b31869302bb2a67055646d70a99def791ac31
+4b8e267fa1206ca0c5cfb2ab353ce20f826118c523a4bd2d35423929acb0691f
+547150a429569415b6a45676aa03bf5113991bde1e7632999ecee667e7179757
+8beb9bdbbbfb8765f2f8f4fcf2fa06ba625c64ef325f17e546e9edce58577dd4
+fbcfaf4e9fc48d3fd79571b20da8732761c4565027386a6db8fd7f76e25ed0e2
+7976b0c7b0625709c504087c0c1060881011628c403c90669b0c400290214808
+1281c45d01e1a82d6f99ef9d6cbe5a52eb0efd654d7b566ae3c035ab3642b95f
+e81b510c961f>
+endstream
+endobj
+
+xref
+0 6
+0000000000 65535 f 
+0000000016 00000 n 
+0000000076 00000 n 
+0000000126 00000 n 
+0000000224 00000 n 
+0000000397 00000 n 
+
+trailer
+<<
+/Size 6
+/Root 2 0 R
+>>
+
+startxref
+1088
+%%EOF

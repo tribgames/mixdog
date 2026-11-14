@@ -1,0 +1,86 @@
+{
+  "bytes": 660,
+  "file": "files/plain-classic-xref.pdf",
+  "group": "assembled",
+  "name": "plain-classic-xref",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 18,
+              "str": "Plain assembled document",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                40,
+                700
+              ],
+              "width": 216.09000000000003
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Second line of text",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                40,
+                670
+              ],
+              "width": 148.08599999999998
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "7aef18d2a8a79114aed940e84656f12d0b8e58a7651954ba0da362e92cc38083",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

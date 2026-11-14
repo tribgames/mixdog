@@ -1,0 +1,70 @@
+{
+  "bytes": 651,
+  "file": "files/text-render-modes.pdf",
+  "group": "assembled",
+  "name": "text-render-modes",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 14,
+              "str": "filledinvisiblestrokedclipped",
+              "transform": [
+                14,
+                0,
+                0,
+                14,
+                40,
+                700
+              ],
+              "width": 168.82600000000002
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "de39cfbec019447908f3f1739caa8871a1c676c183e3e2c5965b98c00d143b4d",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

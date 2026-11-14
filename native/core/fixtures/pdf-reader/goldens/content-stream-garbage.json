@@ -1,0 +1,70 @@
+{
+  "bytes": 650,
+  "file": "files/content-stream-garbage.pdf",
+  "group": "assembled",
+  "name": "content-stream-garbage",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 14,
+              "str": "before",
+              "transform": [
+                14,
+                0,
+                0,
+                14,
+                40,
+                700
+              ],
+              "width": 39.69
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "6401160c69ce59172b7df5f3f40f18f763d2be0f8f3e0d61d79e2012558b08af",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

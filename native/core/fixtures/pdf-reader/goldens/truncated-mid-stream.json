@@ -1,0 +1,18 @@
+{
+  "bytes": 297,
+  "file": "files/truncated-mid-stream.pdf",
+  "group": "assembled",
+  "name": "truncated-mid-stream",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "e19a684ae3e6d28558a31be9a1d7008599b668d68c0677366265adc32b98e868",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

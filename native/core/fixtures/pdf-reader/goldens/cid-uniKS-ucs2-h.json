@@ -1,0 +1,138 @@
+{
+  "bytes": 1125,
+  "file": "files/cid-uniKS-ucs2-h.pdf",
+  "group": "assembled",
+  "name": "cid-uniKS-ucs2-h",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "abf76cbe45b290bbae48e8879877a45b647b21cc2b7ac353f0240bdf3b263689",
+  "withReadableDataUrls": {
+    "outcome": {
+      "numPages": 1,
+      "ok": true,
+      "pages": [
+        {
+          "number": 1,
+          "rotate": 0,
+          "text": {
+            "items": [
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 20,
+                "str": "한국어",
+                "transform": [
+                  20,
+                  0,
+                  0,
+                  20,
+                  60,
+                  700
+                ],
+                "width": 60
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  20,
+                  0,
+                  0,
+                  20,
+                  120,
+                  700
+                ],
+                "width": 20
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 20,
+                "str": "문장",
+                "transform": [
+                  20,
+                  0,
+                  0,
+                  20,
+                  140,
+                  700
+                ],
+                "width": 40
+              }
+            ],
+            "styles": {
+              "g_d#_f1": {
+                "ascent": 0.88,
+                "descent": -0.12,
+                "fontFamily": "monospace",
+                "vertical": false
+              }
+            }
+          },
+          "userUnit": 1,
+          "view": [
+            0,
+            0,
+            612,
+            792
+          ],
+          "viewport": {
+            "height": 792,
+            "offsetX": 0,
+            "offsetY": 0,
+            "rotation": 0,
+            "transform": [
+              1,
+              0,
+              0,
+              -1,
+              0,
+              792
+            ],
+            "width": 612
+          }
+        }
+      ]
+    },
+    "sameAsReference": false
+  }
+}

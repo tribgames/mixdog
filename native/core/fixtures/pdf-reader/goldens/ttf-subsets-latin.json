@@ -1,0 +1,124 @@
+{
+  "bytes": 22421,
+  "file": "files/ttf-subsets-latin.pdf",
+  "group": "pdf-lib",
+  "name": "ttf-subsets-latin",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 14,
+              "str": "Embedded subset: naive café, Ünïcödé, üñí",
+              "transform": [
+                14,
+                0,
+                0,
+                14,
+                20,
+                250
+              ],
+              "width": 281.7079999999999
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 14,
+              "str": "Second line 0123456789 AV To",
+              "transform": [
+                14,
+                0,
+                0,
+                14,
+                20,
+                220
+              ],
+              "width": 200.046
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                20,
+                190
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Arial subset text with the same words",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                20,
+                190
+              ],
+              "width": 198.08203125
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 1.069,
+              "descent": -0.293,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f2": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          420,
+          300
+        ],
+        "viewport": {
+          "height": 300,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            300
+          ],
+          "width": 420
+        }
+      }
+    ]
+  },
+  "sha256": "df6945e4071524f47a2c0bc43cfe19e7da7fa1124fceb62a9fe5fb582ba8639c",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

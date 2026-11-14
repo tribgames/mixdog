@@ -1,0 +1,108 @@
+{
+  "bytes": 22955,
+  "file": "files/html-korean.pdf",
+  "group": "printed-html",
+  "name": "html-korean",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 19.4999991875,
+              "str": "야간 근무 보고서",
+              "transform": [
+                19.4999991875,
+                0,
+                0,
+                19.4999991875,
+                17.99999925,
+                802.919981625
+              ],
+              "width": 150.21093124121094
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                775.16998278125
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "한국어 문장입니다. 처리량이 증가했습니다. 숫자 12345와 English words 섞인 문장.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                775.16998278125
+              ],
+              "width": 365.45359593526626
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f2": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          595.91998,
+          841.91998
+        ],
+        "viewport": {
+          "height": 841.91998,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            841.91998
+          ],
+          "width": 595.91998
+        }
+      }
+    ]
+  },
+  "sha256": "bcbaf2aabd288593a8b2959dcd5d1a495412d0d8b494902e541ddadd9400ea9c",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}
