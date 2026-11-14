@@ -38,6 +38,7 @@ use crate::link_machine::{
 use crate::model_proxy_relay::{AllowedProviders, CallOutcome, LocalModelProxy, ModelProxyRelay, ProxyCallSettled};
 use crate::port_forward_store::PortForwardStore;
 use crate::port_forwards::{ContextSource, PortsSource, ServerPortForwards};
+use crate::restore::attempt_context;
 use crate::server_feed::ServerFeed;
 
 /// How long a server's tunnel may take to accept its first connection.
@@ -363,6 +364,8 @@ impl Follower {
 pub struct ServerLink {
     id: String,
     name: String,
+    /// The saved servers: what a changed setting is read from when the link restarts.
+    hosts: Arc<SshHostStore>,
     under: Arc<Under>,
     client: Arc<dyn ProtocolClient>,
     machine: LinkMachine,
@@ -524,6 +527,7 @@ impl ServerLink {
         let link = Arc::new(Self {
             id,
             name,
+            hosts: parts.hosts.clone(),
             under,
             client,
             machine,
@@ -625,7 +629,8 @@ impl ServerLink {
 
     /// The saved model login changed while attached: the server's daemon restarts in that mode (its running turns stop, the user
     /// confirmed it) and the client attaches to it again. Proxy work of the old mode ends here: none of it reads or answers
-    /// anything of this PC's after the switch.
+    /// anything of this PC's after the switch. The restart dials under the server's settings as saved now (a key file or folder
+    /// changed together with the login applies to it), in batch mode like any automatic reconnect.
     pub async fn apply_model_login(&self, login: ModelLogin) -> Result<(), ConnectError> {
         if self.closed.load(Ordering::SeqCst) || self.model_login() == login {
             return Ok(());
@@ -633,7 +638,13 @@ impl ServerLink {
         self.relay.revoke();
         self.relay.serving(login == ModelLogin::Pc);
         self.machine.set_model_login(login);
-        let stopped = self.under.replace_session(None, Some(login), true);
+        let context = self.hosts.get(&self.id).map(|record| {
+            let mut context = attempt_context(&record);
+            // A server whose settings were all cleared replaces the earlier ones with none.
+            context.settings.get_or_insert_with(Default::default);
+            context
+        });
+        let stopped = self.under.replace_session(context, Some(login), true);
         stopped.close().await;
         self.machine.reopening();
         self.redial().await
@@ -659,6 +670,11 @@ impl ServerLink {
         stopped.close().await;
         self.machine.reopening();
         self.redial().await
+    }
+
+    /// The user skips the countdown of a waiting reconnect: its attempt runs now. Nothing happens when none is waiting.
+    pub fn retry_now(&self) {
+        self.machine.retry_now();
     }
 
     /// This PC goes to sleep: not a failure, nothing is attempted.

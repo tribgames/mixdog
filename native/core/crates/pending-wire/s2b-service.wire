@@ -1,0 +1,52 @@
+# s2b-service core wiring
+
+`mixdog-connections/src/service.rs` (and `service_tests.rs`, included by `#[path]` from service.rs, so lib.rs needs no line for it) are written.
+It serves every `connections/*` and `remoteHosts/*` method and the client notification `host/window/closed`.
+
+## 1. Cargo
+- `mixdog-connections/Cargo.toml` `[dependencies]`: add `mixdog-core-base = { workspace = true }` (service.rs uses `mixdog_core_base::support::{decode, failed, wrong_method}`, the
+  helpers every domain service decodes and fails with). No other new edge: the rest is mixdog-core-api, mixdog-app-protocol, mixdog-ssh, mixdog-rt, serde, serde_json,
+  tokio, tokio-util, tracing, async-trait, which the crate has.
+- Workspace members: add `"crates/mixdog-connections",` (and `"crates/mixdog-ssh",` if not yet a member) now that all four modules lib.rs declares exist
+  (`cleanup_ops`, `diagnostics_ops`, `host_list_ops`, `service`); then `cargo update --workspace --offline`, unify-test-features, `cargo hakari generate`.
+- Daemon: `mixdog-app-server-daemon/Cargo.toml` depends on `mixdog-connections`.
+
+## 2. SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)
+Remove `"host/window/closed"` and the const `SERVICE_PENDING_NAMESPACES` (`["connections", "remoteHosts"]`) with its use: the service lists every one of those methods
+in `methods()` (the list is the policy table plus `host/window/closed`; the test `methods_are_the_policy_table_and_the_window_notification` pins it). Also take out of
+SERVICE_PENDING the names the earlier fragments listed for this service (they are all under `connections/ssh/*`, covered by the namespace entry).
+
+## 3. Composition (once per daemon, in this order)
+1. `windows: Arc<dyn WindowHost> = Arc::new(HostChannelWindows::new(host_channel))` (`host/window/open|close|focus` through the claimed host).
+2. The link pool: `LinkPool::new(ssh_env, LinkStores{hosts, port_forwards, payloads}, Arc::new(ServiceProxy(model_proxy.clone())))` (`model_proxy` is the `Arc<ModelProxyService>` compose_flip.rs already builds for `modelProxy/run`: the relay's calls go through its `run_local`, with the same admission and the same close; the relay composition, see the s2b-link-pool section of deferred-g7.md), then
+   `pool = Arc::new(PoolHandle::new(link_pool, windows.clone(), LinkWatchers{ sink, prefs, focus, texts }))`. `PoolHandle` is the one handle every module below takes:
+   it is `Links` (the service), `ServerLinks` (connect, attempts, cleanup: a link they close takes its window with it) and `HostLinks` (the model login restart).
+   `pool.pool()` is the `LinkPool` that `ServerLogins::new`, `ConnectionsFeed::start` (it is a `FeedLinks`) and `LinkPool::reader(&connection_id)` (for `ServerDownloads::begin`) take.
+   `LinkWatchers` are the notifier adapters of the s2b-reattach-notifier section of deferred-g7.md (`NotifySink` over `host.notify(HostCapability::Notifications, host/notification/show)`
+   with sound and volume from the `notify` domain's `ToastStyleReader`, `NotifyPrefs`, `WindowFocusSource`, `NotifyTexts`).
+3. `opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone()))` (the connect flow's `ServerWindows`; it also remembers the window for the reopening).
+4. `push = Arc::new(NotifierPush(connection_notifier))`; `attempts = Attempts::new(pool.clone(), push)`;
+   `connect = Connect::new(ConnectDeps{ attempts: attempts.clone(), machine: Arc::new(EnvMachine{ env, configs }), login, hosts, windows: opener, view: Arc::new(|r| ssh_host_view(r, <link attached>)), clock })`;
+   `cleanup = Cleanup::new(CleanupDeps{ hosts, attempts, cleaner: Arc::new(EnvCleaner{..}), login })`;
+   `diagnostics = DiagnosticsOps::new(hosts, Arc::new(EnvDiagnostics{..}))`; `host_list = HostList::new(hosts, pool.clone())`;
+   `logins = Arc::new(ServerLogins::new(pool.pool().clone(), ServerLoginStores{ hosts }, ssh_env))`; `restore = Arc::new(Restore::new(window_restore, hosts))`;
+   `feed = Arc::new(ConnectionsFeed::start(scoped_feeds, Arc::new(pool.pool().clone()), hosts, window_restore, &restore))`.
+5. `ConnectionsService::new(ConnectionsDeps{ hosts, remote_hosts, window_restore, links: pool, connect, cleanup, diagnostics, host_list, logins, restore, feed, windows,
+   notifier: connection_notifier, relay: Arc::new(RelayClient), relay_url, config_hosts: Arc::new(move || ssh_config_hosts(&env)), client_version })`, registered as a `DomainService`.
+   - `relay_url`: the relay address while remote access is on (`wss://...`, as `relay_http_origin` expects), `None` when it is off.
+   - `client_version`: the `clientInfo.version` the connection announced in its `initialize` (the server's `Session` has it; `CallContext` does not carry it).
+6. Calls the daemon makes on the service: `host_presence(true|false)` when the host claimant attaches / is gone (the 30 s grace and the reopening of remembered windows
+   hang on it), `power(PowerEvent)` from `host/power`, `connection_closed(ConnectionId)` from the server's connection-closed hook (cancels its connect attempts and
+   drops its feed subscriptions), `dispose().await` at quit.
+
+## 4. Behaviours the wiring should know
+- `connections/subscribe` replies `Reply::Subscribe` over the feed; the service records the subscriber's scope (a server window's subscription starts the sampling of that
+  server's ports, `ServerLink::view_ports`). `connections/unsubscribe` ends that record only: a service cannot detach a feed subscription by its id, so the server's own
+  unsubscribe of the `connections` feed must still run for the subscription to end. The desktop client sends only
+  `connections/unsubscribe {subscriptionId}` (apps/desktop/src/renderer/connections-core-api.ts), never `feed/unsubscribe`, so `mixdog-app-server`
+  server.rs needs an arm for `ClientRequest::ConnectionsUnsubscribe` beside `ThreadUnsubscribe`: `self.unsubscribe(conn, &FeedId::from("connections"))`
+  (the feed id `view.rs` publishes under, `FEED_ID`) and the request still reaches this service (it ends the record that drives the ports sampling).
+  Without it the feed keeps pushing to a window that stopped listening until its connection closes.
+- `remoteHosts/redeemCode` answers the saved host with `url` = its address plus `#pair=<ticket>` (the one-time ticket the window loads with, as the earlier desktop did);
+  the saved address has no ticket. The desktop's window code opens that `url`.
+- `ServerFeed::flush` (server_feed.rs) still has no caller: no connections method changes a server's session list itself.
