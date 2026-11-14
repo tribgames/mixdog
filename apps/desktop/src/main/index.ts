@@ -74,7 +74,10 @@ import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './qui
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
-import { isSessionOnScreen } from './screen-sessions';
+import type { WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
+import { isSessionOnScreen, screenSessionIds } from './screen-sessions';
+import { setForegroundLeaseLibrary } from './computer/backend/foreground-lock-host';
+import { micaLibraryPath } from './window-mica';
 import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';
 import { desktopIdentity } from './desktop-identity';
 import { notificationSoundPath, playWindowsNotificationSound, scaledNotificationSound } from './notification-sound';
@@ -371,6 +374,13 @@ if (!process.env.MIXDOG_COMPUTER_BIN) {
     ? join(process.resourcesPath, 'native-tools', computerHelperName)
     : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', computerHelperName);
   if (existsSync(computerBackend)) process.env.MIXDOG_COMPUTER_BIN = computerBackend;
+}
+// The foreground-lease owner (mixdog_window.node, the same module as Mica) is loaded from here before the first lease
+// ask (host/computer-lease.ts, computer/host/powershell-host.ts). Windows only.
+if (process.platform === 'win32') {
+  setForegroundLeaseLibrary(
+    micaLibraryPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
+  );
 }
 
 const gpuFallbackEnvironment: GpuFallbackEnvironment = {
@@ -1213,6 +1223,29 @@ const hostRole = createLocalHostRole({
     activate: () => primaryActivation.activate(),
     isSupported: () => Notification.isSupported(),
     idleSeconds: () => powerMonitor.getSystemIdleTime(),
+    // A click on a server's notification brings that server's window forward (on the thread it names).
+    focusConnection: (connectionId, threadId) => focusConnectionWindow(connectionId, threadId),
+  },
+  windows: {
+    // The core asks for a saved server's window: the server attaches (or is already attached) and its window opens.
+    open: async ({ connectionId, name }) => {
+      const attached = connectionPool.get(connectionId);
+      if (attached) {
+        await showConnectionWindow(attached);
+        return true;
+      }
+      const server = (await loadSshHostStore(desktopUserData)).list().find((entry) => entry.id === connectionId);
+      if (!server) return false;
+      await runWithSshContext({ ...(server.settings ? { settings: server.settings } : {}) }, () =>
+        sshConnections.open({ id: server.id, name, target: server.target })
+      );
+      return true;
+    },
+    close: (connectionId) => {
+      const window = connectionWindows.get(connectionId);
+      if (window && !window.isDestroyed()) window.close();
+    },
+    focus: (connectionId, sessionId) => focusConnectionWindow(connectionId, sessionId),
   },
   updater: {
     check: () => desktopUpdater.check(),
@@ -1224,6 +1257,46 @@ const hostRole = createLocalHostRole({
     diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
 });
 hostRoleReady = true;
+/** Shows a connection's window (`local` is the main window), on `sessionId` when one is named. */
+function focusConnectionWindow(connectionId: string, sessionId: string | undefined): void {
+  const window = connectionWindows.get(connectionId);
+  if (!window || window.isDestroyed()) {
+    const connection = connectionId === LOCAL_CONNECTION_ID ? localConnection : connectionPool.get(connectionId);
+    if (!connection) return;
+    void showConnectionWindow(connection)
+      .then(() => {
+        const shown = connectionWindows.get(connectionId);
+        if (sessionId && shown && !shown.isDestroyed()) openDesktopNotificationSession(shown, sessionId);
+      })
+      .catch(() => {});
+    return;
+  }
+  if (!sessionId || !openDesktopNotificationSession(window, sessionId)) activateDesktopWindow(window);
+}
+/** Every window's state for the core's server notifier (`host/state/set` windowFocus); only with CORE_WINDOWS. */
+function publishWindowFocus(): void {
+  const windowHost = hostRole.host.windowHost;
+  if (!windowHost) return;
+  const windows: WindowFocusEntry[] = [];
+  for (const [connectionId, window] of connectionWindows) {
+    if (window.isDestroyed()) continue;
+    const sessionId = screenSessionIds(window)[0];
+    windows.push({
+      connectionId,
+      visible: window.isVisible() && !window.isMinimized(),
+      focused: window.isFocused(),
+      ...(sessionId ? { sessionId } : {}),
+    });
+  }
+  windowHost.publishFocus(windows);
+}
+// Each host connection starts with nothing reported: the current windows once now and again whenever the link comes up.
+publishWindowFocus();
+localProtocol.onEvent((event) => {
+  if (event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') publishWindowFocus();
+});
+// A window's painted sessions changed (the per-window listener of ipc.ts stores them first).
+ipcMain.on(DESKTOP_IPC.reportScreenSessions, () => setImmediate(publishWindowFocus));
 // Paired browsers that have not chosen a theme or language follow this PC's window: its preferences are the core's
 // `hostState.displayPreferences`, sent whenever the link comes up and, by the operation lane, whenever a desktop
 // setting change is announced.
@@ -2482,6 +2555,14 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   // answered by this connection, and nothing else.
   windowRoutes.register(window.webContents, connection.id);
   connectionWindows.set(connection.id, window);
+  // The core's server notifier asks whether a window is on screen (windowFocus).
+  window.on('show', publishWindowFocus);
+  window.on('hide', publishWindowFocus);
+  window.on('focus', publishWindowFocus);
+  window.on('blur', publishWindowFocus);
+  window.on('minimize', publishWindowFocus);
+  window.on('restore', publishWindowFocus);
+  publishWindowFocus();
   installDesktopWindowMaterial(window, writeBootDiagnostic);
   // The user's operations in this window reach its connection's runtime.
   const inputReporter = createUserInputReporter({
@@ -2718,6 +2799,7 @@ function installWindowCloseCleanup(
     windowIpcDisposers.get(window)?.();
     windowIpcDisposers.delete(window);
     if (connectionWindows.get(connection.id) === window) connectionWindows.delete(connection.id);
+    publishWindowFocus();
     serverNotifiers.get(window)?.dispose();
     serverNotifiers.delete(window);
     // Closing a server window detaches: its tunnel closes, the server's
@@ -2725,6 +2807,8 @@ function installWindowCloseCleanup(
     // launch; quitting keeps it.
     if (connection.kind !== 'local') {
       if (!quitApproved) void serverWindowRestore.forget(connection.id).catch(() => {});
+      // The core is told its window is gone; by the user unless the app is quitting (the same rule as forget).
+      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved);
       void sshConnections.close(connection.id).catch((error: unknown) => {
         console.error(`Failed to detach from ${connection.name}:`, error);
       });

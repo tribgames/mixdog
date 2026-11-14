@@ -10,13 +10,13 @@ import type {
   HostWindowOpenResult,
   WindowFocusEntry,
 } from '../../../../../packages/protocol/src/index.ts';
-import { type HostConnection, HostRpcError, HOST_INVALID_PARAMS, objectParams } from '../host/connection';
+import { type HostConnection, HostRpcError, HOST_INVALID_PARAMS, HOST_METHOD, objectParams } from '../host/connection';
 
 export const WINDOW_HOST_METHOD = {
-  open: 'host/window/open',
-  close: 'host/window/close',
-  focus: 'host/window/focus',
-  closed: 'host/window/closed',
+  open: HOST_METHOD.hostWindowOpen,
+  close: HOST_METHOD.hostWindowClose,
+  focus: HOST_METHOD.hostWindowFocus,
+  closed: HOST_METHOD.hostWindowClosed,
   stateSet: 'host/state/set',
 } as const;
 
