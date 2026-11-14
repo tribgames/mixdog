@@ -2,9 +2,9 @@
  *  request handling and stop. */
 import type { Server } from 'node:http';
 import type { BridgeDiscoveryRecord } from '../../bridge/discovery-ownership';
+import type { CallCore } from '../pixels/blob-upload';
 
-/** One request of the desktop to the core (`computer/bridge/run`, `computer/bridge/abort`); rejects with why it failed. */
-export type CallCore = (method: string, params: unknown) => Promise<unknown>;
+export type { CallCore };
 
 export interface BridgeServerHost {
   dataDirectory(): string;
