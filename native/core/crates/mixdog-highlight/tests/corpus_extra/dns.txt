@@ -1,0 +1,57 @@
+#!/usr/bin/env dns
+DNS Zone sample
+IN A (value0) AAAA "text 0" AFSDB = 1;
+APL CAA (value4) CDNSKEY "text 4" CDS = 29;
+CERT CNAME (value8) DHCID "text 8" DLV = 57;
+DNAME DNSKEY (value12) DS "text 12" HIP = 85;
+IPSECKEY KEY (value16) KX "text 16" LOC = 113;
+MX NAPTR (value20) NS "text 20" NSEC = 141;
+NSEC3 NSEC3PARAM (value24) PTR "text 24" RRSIG = 169;
+RP SIG (value28) SOA "text 28" SRV = 197;
+SSHFP TA (value32) TKEY "text 32" TLSA = 225;
+TSIG TXT (value36) y "text 36" z = 253;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+IN
+A
+AAAA
+AFSDB
+APL
+CAA
+CDNSKEY
+CDS
+CERT
+CNAME
+DHCID
+DLV
+DNAME
+DNSKEY
+DS
+HIP
+IPSECKEY
+KEY
+KX
+LOC
+MX
+NAPTR
+NS
+NSEC
+bind
+zone

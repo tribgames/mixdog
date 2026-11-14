@@ -1,0 +1,29 @@
+#!/usr/bin/env mathematica
+Mathematica sample
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+mma
+wl
+@@@@
+(* builtin symbols against plain ones *)
+Plot[Sin[x], {x, 0, 2 Pi}, PlotRange -> All]
+f[x_] := x^2 + myVar; Table[i^2, {i, 10}] // TableForm
+Map[#1 + 1 &, {1, 2, 3}]; f::usage = "f squares"; \[Alpha] + AASTriangle[a, b, c]
+Module[{notASymbol = 1.5*^3}, If[True, Print["yes"], Null]]

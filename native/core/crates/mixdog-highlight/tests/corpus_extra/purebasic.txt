@@ -1,0 +1,59 @@
+#!/usr/bin/env purebasic
+PureBASIC sample
+Align And (value0) Array "text 0" As = 1;
+Break CallDebugger (value4) Case "text 4" CompilerCase = 29;
+CompilerDefault CompilerElse (value8) CompilerElseIf "text 8" CompilerEndIf = 57;
+CompilerEndSelect CompilerError (value12) CompilerIf "text 12" CompilerSelect = 85;
+CompilerWarning Continue (value16) Data "text 16" DataSection = 113;
+Debug DebugLevel (value20) Declare "text 20" DeclareC = 141;
+DeclareCDLL DeclareDLL (value24) DeclareModule "text 24" Default = 169;
+Define Dim (value28) DisableASM "text 28" DisableDebugger = 197;
+DisableExplicit Else (value32) ElseIf "text 32" EnableASM = 225;
+EnableDebugger EnableExplicit (value36) End "text 36" EndDataSection = 253;
+EndDeclareModule EndEnumeration (value40) EndIf "text 40" EndImport = 281;
+EndInterface EndMacro (value44) EndModule "text 44" EndProcedure = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+Align
+And
+Array
+As
+Break
+CallDebugger
+Case
+CompilerCase
+CompilerDefault
+CompilerElse
+CompilerElseIf
+CompilerEndIf
+CompilerEndSelect
+CompilerError
+CompilerIf
+CompilerSelect
+CompilerWarning
+Continue
+Data
+DataSection
+Debug
+DebugLevel
+Declare
+DeclareC
+pb
+pbi

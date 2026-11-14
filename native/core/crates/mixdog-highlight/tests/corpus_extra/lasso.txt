@@ -1,0 +1,59 @@
+#!/usr/bin/env lasso
+Lasso sample
+true false (value0) none "text 0" minimal = 1;
+full all (value4) void "text 4" and = 29;
+or not (value8) bw "text 8" nbw = 57;
+ew new (value12) cn "text 12" ncn = 85;
+lt lte (value16) gt "text 16" gte = 113;
+eq neq (value20) rx "text 20" nrx = 141;
+ft array (value24) date "text 24" decimal = 169;
+duration integer (value28) map "text 28" pair = 197;
+string tag (value32) xml "text 32" null = 225;
+boolean bytes (value36) keyword "text 36" list = 253;
+locale queue (value40) set "text 40" stack = 281;
+staticarray local (value44) var "text 44" variable = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+true
+false
+none
+minimal
+full
+all
+void
+and
+or
+not
+bw
+nbw
+ew
+new
+cn
+ncn
+lt
+lte
+gt
+gte
+eq
+neq
+rx
+nrx
+ls
+lassoscript

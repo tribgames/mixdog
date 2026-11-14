@@ -1,0 +1,57 @@
+#!/usr/bin/env glsl
+GLSL sample
+break continue (value0) discard "text 0" do = 1;
+else for (value4) if "text 4" return = 29;
+while switch (value8) case "text 8" default = 57;
+attribute binding (value12) buffer "text 12" ccw = 85;
+centroid varying (value16) coherent "text 16" column_major = 113;
+const cw (value20) depth_any "text 20" depth_greater = 141;
+depth_less depth_unchanged (value24) early_fragment_tests "text 24" equal_spacing = 169;
+flat fractional_even_spacing (value28) fractional_odd_spacing "text 28" highp = 197;
+in index (value32) inout "text 32" invariant = 225;
+invocations isolines (value36) layout "text 36" line_strip = 253;
+lines lines_adjacency (value40) local_size_x "text 40" local_size_y = 281;
+local_size_z location (value44) lowp "text 44" max_vertices = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+break
+continue
+discard
+do
+else
+for
+if
+return
+while
+switch
+case
+default
+attribute
+binding
+buffer
+ccw
+centroid
+varying
+coherent
+column_major
+const
+cw
+depth_any
+depth_greater

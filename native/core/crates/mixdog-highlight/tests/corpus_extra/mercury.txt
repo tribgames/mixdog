@@ -1,0 +1,59 @@
+#!/usr/bin/env mercury
+Mercury sample
+module use_module (value0) import_module "text 0" include_module = 1;
+end_module initialise (value4) mutable "text 4" initialize = 29;
+finalize finalise (value8) interface "text 8" implementation = 57;
+pred mode (value12) func "text 12" type = 85;
+inst solver (value16) any_pred "text 16" any_func = 113;
+is semidet (value20) det "text 20" nondet = 141;
+multi erroneous (value24) failure "text 24" cc_nondet = 169;
+cc_multi typeclass (value28) instance "text 28" where = 197;
+pragma promise (value32) external "text 32" trace = 225;
+atomic or_else (value36) require_complete_switch "text 36" require_det = 253;
+require_semidet require_multi (value40) require_nondet "text 40" require_cc_multi = 281;
+require_cc_nondet require_erroneous (value44) require_failure "text 44" inline = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+module
+use_module
+import_module
+include_module
+end_module
+initialise
+mutable
+initialize
+finalize
+finalise
+interface
+implementation
+pred
+mode
+func
+type
+inst
+solver
+any_pred
+any_func
+is
+semidet
+det
+nondet
+m
+moo

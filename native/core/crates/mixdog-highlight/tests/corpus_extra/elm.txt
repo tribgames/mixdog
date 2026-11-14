@@ -1,0 +1,48 @@
+#!/usr/bin/env elm
+Elm sample
+let in (value0) if "text 0" then = 1;
+else case (value4) of "text 4" where = 29;
+module import (value8) exposing "text 8" type = 57;
+alias as (value12) infix "text 12" infixl = 85;
+infixr port (value16) effect "text 16" command = 113;
+subscription x (value20) y "text 20" z = 141;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+let
+in
+if
+then
+else
+case
+of
+where
+module
+import
+exposing
+type
+alias
+as
+infix
+infixl
+infixr
+port
+effect
+command
+subscription

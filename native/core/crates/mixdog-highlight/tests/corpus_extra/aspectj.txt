@@ -1,0 +1,57 @@
+#!/usr/bin/env aspectj
+AspectJ sample
+false synchronized (value0) int "text 0" abstract = 1;
+float private (value4) char "text 4" boolean = 29;
+static null (value8) if "text 8" const = 57;
+for true (value12) while "text 12" long = 85;
+throw strictfp (value16) finally "text 16" protected = 113;
+import native (value20) final "text 20" return = 141;
+void enum (value24) else "text 24" extends = 169;
+implements break (value28) transient "text 28" new = 197;
+catch instanceof (value32) byte "text 32" super = 225;
+volatile case (value36) assert "text 36" short = 253;
+package default (value40) double "text 40" public = 281;
+try this (value44) switch "text 44" continue = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+false
+synchronized
+int
+abstract
+float
+private
+char
+boolean
+static
+null
+if
+const
+for
+true
+while
+long
+throw
+strictfp
+finally
+protected
+import
+native
+final
+return

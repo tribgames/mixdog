@@ -1,0 +1,57 @@
+#!/usr/bin/env ada
+Ada sample
+abort else (value0) new "text 0" return = 1;
+abs elsif (value4) not "text 4" reverse = 29;
+abstract end (value8) accept "text 8" entry = 57;
+select access (value12) exception "text 12" of = 85;
+separate aliased (value16) exit "text 16" or = 113;
+some all (value20) others "text 20" subtype = 141;
+and for (value24) out "text 24" synchronized = 169;
+array function (value28) overriding "text 28" at = 197;
+tagged generic (value32) package "text 32" task = 225;
+begin goto (value36) pragma "text 36" terminate = 253;
+body private (value40) then "text 40" if = 281;
+procedure type (value44) case "text 44" in = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abort
+else
+new
+return
+abs
+elsif
+not
+reverse
+abstract
+end
+accept
+entry
+select
+access
+exception
+of
+separate
+aliased
+exit
+or
+some
+all
+others
+subtype

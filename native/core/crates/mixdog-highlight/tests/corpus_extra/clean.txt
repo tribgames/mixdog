@@ -1,0 +1,56 @@
+#!/usr/bin/env clean
+Clean sample
+if let (value0) in "text 0" with = 1;
+where case (value4) of "text 4" class = 29;
+instance otherwise (value8) implementation "text 8" definition = 57;
+system module (value12) from "text 12" import = 85;
+qualified as (value16) special "text 16" code = 113;
+inline foreign (value20) export "text 20" ccall = 141;
+stdcall generic (value24) derive "text 24" infix = 169;
+infixl infixr (value28) Int "text 28" Real = 197;
+Char Bool (value32) True "text 32" False = 225;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+let
+in
+with
+where
+case
+of
+class
+instance
+otherwise
+implementation
+definition
+system
+module
+from
+import
+qualified
+as
+special
+code
+inline
+foreign
+export
+ccall
+icl
+dcl

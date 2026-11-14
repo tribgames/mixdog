@@ -1,0 +1,41 @@
+#!/usr/bin/env abnf
+Augmented Backus-Naur Form sample
+ALPHA BIT (value0) CHAR "text 0" CR = 1;
+CRLF CTL (value4) DIGIT "text 4" DQUOTE = 29;
+HEXDIG HTAB (value8) LF "text 8" LWSP = 57;
+OCTET SP (value12) VCHAR "text 12" WSP = 85;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ALPHA
+BIT
+CHAR
+CR
+CRLF
+CTL
+DIGIT
+DQUOTE
+HEXDIG
+HTAB
+LF
+LWSP
+OCTET
+SP
+VCHAR
+WSP

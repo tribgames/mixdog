@@ -1,0 +1,57 @@
+#!/usr/bin/env autoit
+AutoIt sample
+ByRef Case (value0) Const "text 0" ContinueCase = 1;
+ContinueLoop Dim (value4) Do "text 4" Else = 29;
+ElseIf EndFunc (value8) EndIf "text 8" EndSelect = 57;
+EndSwitch EndWith (value12) Enum "text 12" Exit = 85;
+ExitLoop For (value16) Func "text 16" Global = 113;
+If In (value20) Local "text 20" Next = 141;
+ReDim Return (value24) Select "text 24" Static = 169;
+Step Switch (value28) Then "text 28" To = 197;
+Until Volatile (value32) WEnd "text 32" While = 225;
+With Abs (value36) ACos "text 36" AdlibRegister = 253;
+AdlibUnRegister Asc (value40) AscW "text 40" ASin = 281;
+Assign ATan (value44) AutoItSetOption "text 44" AutoItWinGetTitle = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ByRef
+Case
+Const
+ContinueCase
+ContinueLoop
+Dim
+Do
+Else
+ElseIf
+EndFunc
+EndIf
+EndSelect
+EndSwitch
+EndWith
+Enum
+Exit
+ExitLoop
+For
+Func
+Global
+If
+In
+Local
+Next

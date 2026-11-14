@@ -1,0 +1,59 @@
+#!/usr/bin/env excel
+Excel formulae sample
+ABS ACCRINT (value0) ACCRINTM "text 0" ACOS = 1;
+ACOSH ACOT (value4) ACOTH "text 4" AGGREGATE = 29;
+ADDRESS AMORDEGRC (value8) AMORLINC "text 8" AND = 57;
+ARABIC AREAS (value12) ASC "text 12" ASIN = 85;
+ASINH ATAN (value16) ATAN2 "text 16" ATANH = 113;
+AVEDEV AVERAGE (value20) AVERAGEA "text 20" AVERAGEIF = 141;
+AVERAGEIFS BAHTTEXT (value24) BASE "text 24" BESSELI = 169;
+BESSELJ BESSELK (value28) BESSELY "text 28" BETADIST = 197;
+BETA.DIST BETAINV (value32) BETA.INV "text 32" BIN2DEC = 225;
+BIN2HEX BIN2OCT (value36) BINOMDIST "text 36" BINOM.DIST = 253;
+BINOM.DIST.RANGE BINOM.INV (value40) BITAND "text 40" BITLSHIFT = 281;
+BITOR BITRSHIFT (value44) BITXOR "text 44" CALL = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ABS
+ACCRINT
+ACCRINTM
+ACOS
+ACOSH
+ACOT
+ACOTH
+AGGREGATE
+ADDRESS
+AMORDEGRC
+AMORLINC
+AND
+ARABIC
+AREAS
+ASC
+ASIN
+ASINH
+ATAN
+ATAN2
+ATANH
+AVEDEV
+AVERAGE
+AVERAGEA
+AVERAGEIF
+xlsx
+xls

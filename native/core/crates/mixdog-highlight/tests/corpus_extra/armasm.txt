@@ -1,0 +1,58 @@
+#!/usr/bin/env armasm
+ARM Assembly sample
+ALIAS ALIGN (value0) ARM "text 0" AREA = 1;
+ASSERT ATTR (value4) CN "text 4" CODE = 29;
+CODE16 CODE32 (value8) COMMON "text 8" CP = 57;
+DATA DCB (value12) DCD "text 12" DCDU = 85;
+DCDO DCFD (value16) DCFDU "text 16" DCI = 113;
+DCQ DCQU (value20) DCW "text 20" DCWU = 141;
+DN ELIF (value24) ELSE "text 24" END = 169;
+ENDFUNC ENDIF (value28) ENDP "text 28" ENTRY = 197;
+EQU EXPORT (value32) EXPORTAS "text 32" EXTERN = 225;
+FIELD FILL (value36) FUNCTION "text 36" GBLA = 253;
+GBLL GBLS (value40) GET "text 40" GLOBAL = 281;
+IF IMPORT (value44) INCBIN "text 44" INCLUDE = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ALIAS
+ALIGN
+ARM
+AREA
+ASSERT
+ATTR
+CN
+CODE
+CODE16
+CODE32
+COMMON
+CP
+DATA
+DCB
+DCD
+DCDU
+DCDO
+DCFD
+DCFDU
+DCI
+DCQ
+DCQU
+DCW
+DCWU
+arm

@@ -1,0 +1,57 @@
+#!/usr/bin/env scheme
+Scheme sample
+case-lambda class (value0) define-class "text 0" exit-handler = 1;
+field import (value4) inherit "text 4" init-field = 29;
+interface let-values (value8) mixin "text 8" opt-lambda = 57;
+override protect (value12) provide "text 12" public = 85;
+rename require (value16) require-for-syntax "text 16" syntax = 113;
+syntax-case syntax-error (value20) unless "text 20" when = 141;
+with-syntax and (value24) begin "text 24" call-with-input-file = 169;
+call-with-output-file case (value28) cond "text 28" define = 197;
+define-syntax delay (value32) do "text 32" dynamic-wind = 225;
+else for-each (value36) if "text 36" lambda = 253;
+let let-syntax (value40) letrec "text 40" letrec-syntax = 281;
+map or (value44) syntax-rules "text 44" abs = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+case-lambda
+class
+define-class
+exit-handler
+field
+import
+inherit
+init-field
+interface
+let-values
+mixin
+opt-lambda
+override
+protect
+provide
+public
+rename
+require
+require-for-syntax
+syntax
+syntax-case
+syntax-error
+unless
+when

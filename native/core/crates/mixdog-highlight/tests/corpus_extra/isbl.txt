@@ -1,0 +1,57 @@
+#!/usr/bin/env isbl
+ISBL sample
+and else (value0) endexcept "text 0" endfinally = 1;
+endforeach endif (value4) endwhile "text 4" except = 29;
+exitfor finally (value8) foreach "text 8" if = 57;
+in not (value12) or "text 12" try = 85;
+while SYSRES_CONST_AUTH_NOVELL (value16) SYSRES_CONST_AUTH_WINDOWS "text 16" SYSRES_CONST_BTN_PART = 113;
+SYSRES_CONST_CARD_PART SYSRES_CONST_DET1_PART (value20) SYSRES_CONST_DET2_PART "text 20" SYSRES_CONST_DET3_PART = 141;
+SYSRES_CONST_DET4_PART SYSRES_CONST_DET5_PART (value24) SYSRES_CONST_DET6_PART "text 24" SYSRES_CONST_EXIST_CONST = 169;
+SYSRES_CONST_EXIST_VALUE SYSRES_CONST_HOUR_CHAR (value28) SYSRES_CONST_JOB_KIND_JOB "text 28" SYSRES_CONST_ME_VALUE = 197;
+SYSRES_CONST_MINUTE_CHAR SYSRES_CONST_NO (value32) SYSRES_CONST_NO_VALUE "text 32" SYSRES_CONST_OURFIRM_VAR = 225;
+SYSRES_CONST_SECOND_CHAR SYSRES_CONST_TASK_TITLE (value36) SYSRES_CONST_XML_ENCODING "text 36" SYSRES_CONST_YES = 253;
+SYSRES_CONST_YES_VALUE CR (value40) FALSE "text 40" nil = 281;
+NO_VALUE NULL (value44) TAB "text 44" TRUE = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+and
+else
+endexcept
+endfinally
+endforeach
+endif
+endwhile
+except
+exitfor
+finally
+foreach
+if
+in
+not
+or
+try
+while
+SYSRES_CONST_AUTH_NOVELL
+SYSRES_CONST_AUTH_WINDOWS
+SYSRES_CONST_BTN_PART
+SYSRES_CONST_CARD_PART
+SYSRES_CONST_DET1_PART
+SYSRES_CONST_DET2_PART
+SYSRES_CONST_DET3_PART

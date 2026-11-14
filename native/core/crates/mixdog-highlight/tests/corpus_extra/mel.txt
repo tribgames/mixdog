@@ -1,0 +1,57 @@
+#!/usr/bin/env mel
+MEL sample
+int float (value0) string "text 0" vector = 1;
+matrix if (value4) else "text 4" switch = 29;
+case default (value8) while "text 8" do = 57;
+for in (value12) break "text 12" continue = 85;
+global proc (value16) return "text 16" about = 113;
+abs addAttr (value20) addDynamic "text 20" addNewShelfTab = 141;
+addPP addPanelCategory (value24) addPrefixToName "text 24" advanceToNextDrivenKey = 169;
+affectedNet affects (value28) aimConstraint "text 28" air = 197;
+alias aliasAttr (value32) align "text 32" alignCtx = 225;
+alignCurve alignSurface (value36) allViewFit "text 36" ambientLight = 253;
+angle angleBetween (value40) animCone "text 40" animCurveEditor = 281;
+animDisplay animView (value44) annotate "text 44" appendStringArray = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+int
+float
+string
+vector
+matrix
+if
+else
+switch
+case
+default
+while
+do
+for
+in
+break
+continue
+global
+proc
+return
+about
+abs
+addAttr
+addDynamic
+addNewShelfTab

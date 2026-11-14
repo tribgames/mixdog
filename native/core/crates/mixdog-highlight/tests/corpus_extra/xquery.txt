@@ -1,0 +1,59 @@
+#!/usr/bin/env xquery
+XQuery sample
+module schema (value0) namespace "text 0" boundary-space = 1;
+preserve no-preserve (value4) strip "text 4" default = 29;
+collation base-uri (value8) ordering "text 8" context = 57;
+decimal-format decimal-separator (value12) copy-namespaces "text 12" empty-sequence = 85;
+except exponent-separator (value16) external "text 16" grouping-separator = 113;
+inherit no-inherit (value20) lax "text 20" minus-sign = 141;
+per-mille percent (value24) schema-attribute "text 24" schema-element = 169;
+strict unordered (value28) zero-digit "text 28" declare = 197;
+import option (value32) function "text 32" validate = 225;
+variable for (value36) at "text 36" in = 253;
+let where (value40) order "text 40" group = 281;
+by return (value44) if "text 44" then = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+module
+schema
+namespace
+boundary-space
+preserve
+no-preserve
+strip
+default
+collation
+base-uri
+ordering
+context
+decimal-format
+decimal-separator
+copy-namespaces
+empty-sequence
+except
+exponent-separator
+external
+grouping-separator
+inherit
+no-inherit
+lax
+minus-sign
+xpath
+xq

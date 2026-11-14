@@ -1,0 +1,58 @@
+#!/usr/bin/env mipsasm
+MIPS Assembly sample
+zero at (value0) v0 "text 0" v1 = 1;
+a0 a1 (value4) a2 "text 4" a3 = 29;
+a4 a5 (value8) a6 "text 8" a7 = 57;
+t0 t1 (value12) t2 "text 12" t3 = 85;
+t4 t5 (value16) t6 "text 16" t7 = 113;
+t8 t9 (value20) s0 "text 20" s1 = 141;
+s2 s3 (value24) s4 "text 24" s5 = 169;
+s6 s7 (value28) s8 "text 28" k0 = 197;
+k1 gp (value32) sp "text 32" fp = 225;
+ra Context (value36) Random "text 36" EntryLo0 = 253;
+EntryLo1 PageMask (value40) Wired "text 40" EntryHi = 281;
+HWREna BadVAddr (value44) Count "text 44" Compare = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+zero
+at
+v0
+v1
+a0
+a1
+a2
+a3
+a4
+a5
+a6
+a7
+t0
+t1
+t2
+t3
+t4
+t5
+t6
+t7
+t8
+t9
+s0
+s1
+mips

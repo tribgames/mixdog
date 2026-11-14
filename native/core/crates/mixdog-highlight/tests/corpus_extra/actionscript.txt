@@ -1,0 +1,58 @@
+#!/usr/bin/env actionscript
+ActionScript sample
+as break (value0) case "text 0" catch = 1;
+class const (value4) continue "text 4" default = 29;
+delete do (value8) dynamic "text 8" each = 57;
+else extends (value12) final "text 12" finally = 85;
+for function (value16) get "text 16" if = 113;
+implements import (value20) in "text 20" include = 141;
+instanceof interface (value24) internal "text 24" is = 169;
+namespace native (value28) new "text 28" override = 197;
+package private (value32) protected "text 32" public = 225;
+return set (value36) static "text 36" super = 253;
+switch this (value40) throw "text 40" try = 281;
+typeof use (value44) var "text 44" void = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+as
+break
+case
+catch
+class
+const
+continue
+default
+delete
+do
+dynamic
+each
+else
+extends
+final
+finally
+for
+function
+get
+if
+implements
+import
+in
+include
+as

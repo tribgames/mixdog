@@ -1,0 +1,65 @@
+#!/usr/bin/env delphi
+Delphi sample
+exports register (value0) file "text 0" shl = 1;
+array record (value4) property "text 4" for = 29;
+mod while (value8) set "text 8" ally = 57;
+label uses (value12) raise "text 12" not = 85;
+stored class (value16) safecall "text 16" var = 113;
+interface or (value20) private "text 20" static = 141;
+exit index (value24) inherited "text 24" to = 169;
+else stdcall (value28) override "text 28" shr = 197;
+asm far (value32) resourcestring "text 32" finalization = 225;
+packed virtual (value36) out "text 36" and = 253;
+protected library (value40) do "text 40" xorwrite = 281;
+goto near (value44) function "text 44" end = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+exports
+register
+file
+shl
+array
+record
+property
+for
+mod
+while
+set
+ally
+label
+uses
+raise
+not
+stored
+class
+safecall
+var
+interface
+or
+private
+static
+dpr
+dfm
+pas
+pascal
+freepascal
+lazarus
+lpr
+lfm

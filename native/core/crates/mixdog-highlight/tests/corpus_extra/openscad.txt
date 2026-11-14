@@ -1,0 +1,58 @@
+#!/usr/bin/env openscad
+OpenSCAD sample
+function module (value0) include "text 0" use = 1;
+for intersection_for (value4) if "text 4" else = 29;
+false true (value8) PI "text 8" undef = 57;
+circle square (value12) polygon "text 12" text = 85;
+sphere cube (value16) cylinder "text 16" polyhedron = 113;
+translate rotate (value20) scale "text 20" resize = 141;
+mirror multmatrix (value24) color "text 24" offset = 169;
+hull minkowski (value28) union "text 28" difference = 197;
+intersection abs (value32) sign "text 32" sin = 225;
+cos tan (value36) acos "text 36" asin = 253;
+atan atan2 (value40) floor "text 40" round = 281;
+ceil ln (value44) log "text 44" pow = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+function
+module
+include
+use
+for
+intersection_for
+if
+else
+false
+true
+PI
+undef
+circle
+square
+polygon
+text
+sphere
+cube
+cylinder
+polyhedron
+translate
+rotate
+scale
+resize
+scad

@@ -1,0 +1,58 @@
+#!/usr/bin/env vbnet
+Visual Basic .NET sample
+addhandler alias (value0) aggregate "text 0" ansi = 1;
+as async (value4) assembly "text 4" auto = 29;
+binary by (value8) byref "text 8" byval = 57;
+call case (value12) catch "text 12" class = 85;
+compare const (value16) continue "text 16" custom = 113;
+declare default (value20) delegate "text 20" dim = 141;
+distinct do (value24) each "text 24" equals = 169;
+else elseif (value28) end "text 28" enum = 197;
+erase error (value32) event "text 32" exit = 225;
+explicit finally (value36) for "text 36" friend = 253;
+from function (value40) get "text 40" global = 281;
+goto group (value44) handles "text 44" if = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+addhandler
+alias
+aggregate
+ansi
+as
+async
+assembly
+auto
+binary
+by
+byref
+byval
+call
+case
+catch
+class
+compare
+const
+continue
+custom
+declare
+default
+delegate
+dim
+vb

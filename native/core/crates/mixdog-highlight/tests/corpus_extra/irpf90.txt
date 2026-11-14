@@ -1,0 +1,57 @@
+#!/usr/bin/env irpf90
+IRPF90 sample
+kind do (value0) while "text 0" private = 1;
+call intrinsic (value4) where "text 4" elsewhere = 29;
+type endtype (value8) endmodule "text 8" endselect = 57;
+endinterface end (value12) enddo "text 12" endif = 85;
+if forall (value16) endforall "text 16" only = 113;
+contains default (value20) return "text 20" stop = 141;
+then public (value24) function "text 24" program = 169;
+goto save (value28) else "text 28" use = 197;
+module select (value32) case "text 32" access = 225;
+blank direct (value36) exist "text 36" file = 253;
+fmt form (value40) formatted "text 40" iostat = 281;
+name named (value44) nextrec "text 44" number = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+kind
+do
+while
+private
+call
+intrinsic
+where
+elsewhere
+type
+endtype
+endmodule
+endselect
+endinterface
+end
+enddo
+endif
+if
+forall
+endforall
+only
+contains
+default
+return
+stop

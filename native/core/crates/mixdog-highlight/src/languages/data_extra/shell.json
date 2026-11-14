@@ -1,0 +1,1 @@
+{"registeredAs":"shell","root":0,"objects":[{"frozen":false,"f":[["name","Shell Session"],["aliases",["console"]],["contains",[{"o":1}]]]},{"frozen":false,"f":[["className","meta"],["begin",{"re":"^\\s{0,3}[/~\\w\\d[\\]()@-]*[>%$#]","fl":""}],["starts",{"o":2}]]},{"frozen":false,"f":[["end",{"re":"[^\\\\](?=\\s*$)","fl":""}],["subLanguage","bash"]]}]}

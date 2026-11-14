@@ -1,0 +1,59 @@
+#!/usr/bin/env stata
+Stata sample
+if else (value0) in "text 0" foreach = 1;
+for forv (value4) forva "text 4" forval = 29;
+forvalu forvalue (value8) forvalues "text 8" by = 57;
+bys bysort (value12) xi "text 12" quietly = 85;
+qui capture (value16) about "text 16" ac = 113;
+ac_7 acprplot (value20) acprplot_7 "text 20" adjust = 141;
+ado adopath (value24) adoupdate "text 24" alpha = 169;
+ameans an (value28) ano "text 28" anov = 197;
+anova anova_estat (value32) anova_terms "text 32" anovadef = 225;
+aorder ap (value36) app "text 36" appe = 253;
+appen append (value40) arch "text 40" arch_dr = 281;
+arch_estat arch_p (value44) archlm "text 44" areg = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+else
+in
+foreach
+for
+forv
+forva
+forval
+forvalu
+forvalue
+forvalues
+by
+bys
+bysort
+xi
+quietly
+qui
+capture
+about
+ac
+ac_7
+acprplot
+acprplot_7
+adjust
+do
+ado

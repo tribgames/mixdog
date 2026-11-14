@@ -1,0 +1,46 @@
+#!/usr/bin/env gcode
+G-code (ISO 6983) sample
+IF DO (value0) WHILE "text 0" ENDWHILE = 1;
+CALL ENDIF (value4) SUB "text 4" ENDSUB = 29;
+GOTO REPEAT (value8) ENDREPEAT "text 8" EQ = 57;
+LT GT (value12) NE "text 12" GE = 85;
+LE OR (value16) XOR "text 16" z = 113;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+IF
+DO
+WHILE
+ENDWHILE
+CALL
+ENDIF
+SUB
+ENDSUB
+GOTO
+REPEAT
+ENDREPEAT
+EQ
+LT
+GT
+NE
+GE
+LE
+OR
+XOR
+nc

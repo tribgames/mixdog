@@ -1,0 +1,57 @@
+#!/usr/bin/env rsl
+RenderMan RSL sample
+float color (value0) point "text 0" normal = 1;
+vector matrix (value4) while "text 4" for = 29;
+if do (value8) return "text 8" else = 57;
+break extern (value12) continue "text 12" abs = 85;
+acos ambient (value16) area "text 16" asin = 113;
+atan atmosphere (value20) attribute "text 20" calculatenormal = 141;
+ceil cellnoise (value24) clamp "text 24" comp = 169;
+concat cos (value28) degrees "text 28" depth = 197;
+Deriv diffuse (value32) distance "text 32" Du = 225;
+Dv environment (value36) exp "text 36" faceforward = 253;
+filterstep floor (value40) format "text 40" fresnel = 281;
+incident length (value44) lightsource "text 44" log = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+float
+color
+point
+normal
+vector
+matrix
+while
+for
+if
+do
+return
+else
+break
+extern
+continue
+abs
+acos
+ambient
+area
+asin
+atan
+atmosphere
+attribute
+calculatenormal

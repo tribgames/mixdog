@@ -1,0 +1,56 @@
+#!/usr/bin/env capnproto
+Cap’n Proto sample
+struct enum (value0) interface "text 0" union = 1;
+group import (value4) using "text 4" const = 29;
+annotation extends (value8) in "text 8" of = 57;
+on as (value12) with "text 12" from = 85;
+fixed Void (value16) Bool "text 16" Int8 = 113;
+Int16 Int32 (value20) Int64 "text 20" UInt8 = 141;
+UInt16 UInt32 (value24) UInt64 "text 24" Float32 = 169;
+Float64 Text (value28) Data "text 28" AnyPointer = 197;
+AnyStruct Capability (value32) List "text 32" true = 225;
+false x (value36) y "text 36" z = 253;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+struct
+enum
+interface
+union
+group
+import
+using
+const
+annotation
+extends
+in
+of
+on
+as
+with
+from
+fixed
+Void
+Bool
+Int8
+Int16
+Int32
+Int64
+UInt8
+capnp
