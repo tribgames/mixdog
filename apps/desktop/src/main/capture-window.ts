@@ -52,6 +52,7 @@ import {
   type LiveCaptureAssertions,
 } from './capture-assertions';
 import { CaptureService, jitterProbeEnabled } from './capture-host';
+import { loadJitterProbe } from './jitter-probe-gate';
 
 /** Shipped sidebar geometry, from its sources: the 48px activity rail
  *  (06-activity-rail.css), the titlebar plus the desktop body's 1px top
@@ -141,7 +142,9 @@ async function loadCaptureRenderer(window: BrowserWindow): Promise<void> {
 /** Jitter probe mode: measure streaming follow, warm compositor handoff,
  *  and session/panel transition stability, then exit — no capture passes. */
 async function runCaptureJitterProbe(window: BrowserWindow, host: CaptureService): Promise<void> {
-  const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
+  const probe = await loadJitterProbe();
+  if (!probe) return;
+  const { runJitterProbe, jitterProbeOutPath } = probe;
   await runJitterProbe({
     window,
     stateChannel: DESKTOP_IPC.state,
