@@ -1,0 +1,18 @@
+[package]
+name = "mixdog-xlsx-formula"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-js = { workspace = true }
+mixdog-office-base = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+# The helpers of the twin test (`twin`): locate the Node source, run a recorder, load a golden.
+mixdog-office-base = { workspace = true, features = ["test-support"] }
