@@ -2468,6 +2468,42 @@
       ],
       "type": "object"
     },
+    "HostBrowserRevisionParams": {
+      "description": "`host/browser/revision`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRevisionResult": {
+      "description": "`revision` is the number a snapshot answers as its `revision` (the sum of every frame's DOM-change counter); `observation` is the whole revision string, as a snapshot answers it.",
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "observation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "facts",
+        "revision"
+      ],
+      "type": "object"
+    },
     "HostBrowserScreenshotParams": {
       "description": "`host/browser/screenshot`.",
       "properties": {
@@ -7447,6 +7483,14 @@
       },
       "result": {
         "$ref": "#/definitions/HostBrowserRefMintResult"
+      }
+    },
+    "host/browser/revision": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserRevisionParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserRevisionResult"
       }
     },
     "host/browser/screenshot": {

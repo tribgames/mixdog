@@ -33,6 +33,7 @@ use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_rooms::rooms::catalog_rows::MemberNames;
 use mixdog_core_session::session::secret_input::CardHolds;
+use mixdog_core_session::session::shell_jobs::OwnedShells;
 use mixdog_core_session::session::secret_input::CardScope;
 use mixdog_core_session::session::secret_input::HumanOnlyCard;
 use mixdog_core_session::session::secret_input::Redact;
@@ -270,32 +271,60 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
 }
 
 /// The session deps' `TurnSnapshots` with the browser engine told beside it: where an agent turn settles the engine ends its running
-/// turn (the host forgets what it remembered of the turn, and the untouched blank page the agent left behind is closed), and where a
-/// session's runtime ends the engine lets go of the pages it tracked for it.
+/// turn, as aborted when the session said the turn did not complete (the host forgets what it remembered of the turn, the pages an
+/// aborted turn opened for itself and the untouched blank page are closed). A runtime that stops (an unload, a parked idle agent) is not a
+/// release: the engine's session ends in [`EngineSessionRelease`].
 pub struct EngineTurnSnapshots {
     inner: Arc<dyn TurnSnapshots>,
     turns: Arc<dyn TurnEvents>,
+    /// The threads whose settling turn did not complete.
+    aborted: std::sync::Mutex<std::collections::HashSet<ThreadId>>,
 }
 
 impl EngineTurnSnapshots {
     pub fn new(inner: Arc<dyn TurnSnapshots>, turns: Arc<dyn TurnEvents>) -> Self {
-        Self { inner, turns }
+        Self { inner, turns, aborted: Default::default() }
     }
 }
 
 impl TurnSnapshots for EngineTurnSnapshots {
+    fn turn_aborted(&self, thread: &ThreadId) {
+        self.aborted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.clone());
+        self.inner.turn_aborted(thread);
+    }
+
     fn turn_settled(&self, thread: &ThreadId) {
-        self.turns.turn_ended(thread, false);
+        let aborted = self.aborted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread);
+        self.turns.turn_ended(thread, aborted);
         self.inner.turn_settled(thread);
     }
 
     fn runtime_stopped(&self, thread: &ThreadId) {
-        self.turns.session_ended(thread);
         self.inner.runtime_stopped(thread);
     }
 
     fn dispose(&self) {
         self.inner.dispose();
+    }
+}
+
+/// `OwnedShells` that also tells the engine its session was released: a close or a delete of a session (an unload never cancels
+/// shells), where TS ran `releaseSession` (the pages the session owned are forgotten, the desktop drops its turn marks).
+pub struct EngineSessionRelease {
+    inner: Arc<dyn OwnedShells>,
+    turns: Arc<dyn TurnEvents>,
+}
+
+impl EngineSessionRelease {
+    pub fn new(inner: Arc<dyn OwnedShells>, turns: Arc<dyn TurnEvents>) -> Self {
+        Self { inner, turns }
+    }
+}
+
+impl OwnedShells for EngineSessionRelease {
+    fn cancel_owned(&self, owner: &ThreadId) {
+        self.inner.cancel_owned(owner);
+        self.turns.session_ended(owner);
     }
 }
 
@@ -336,14 +365,32 @@ mod turn_tests {
         }
     }
 
+    struct Shells(Arc<Log>);
+
+    impl OwnedShells for Shells {
+        fn cancel_owned(&self, owner: &ThreadId) {
+            self.0.0.lock().unwrap().push(format!("cancel {}", owner.as_str()));
+        }
+    }
+
     #[test]
-    fn the_engine_is_told_where_a_turn_settles_and_a_runtime_ends_and_the_snapshots_still_are() {
+    fn the_engine_is_told_how_a_turn_ended_and_a_stopped_runtime_is_no_release() {
         let log = Arc::new(Log::default());
         let both = EngineTurnSnapshots::new(Arc::new(Snapshots(log.clone())), Arc::new(Events(log.clone())));
         let thread = ThreadId::from("s1");
+        both.turn_aborted(&thread);
+        both.turn_settled(&thread);
         both.turn_settled(&thread);
         both.runtime_stopped(&thread);
         both.dispose();
-        assert_eq!(*log.0.lock().unwrap(), ["ended s1 false", "settled s1", "session s1", "stopped s1", "dispose"]);
+        assert_eq!(*log.0.lock().unwrap(), ["ended s1 true", "settled s1", "ended s1 false", "settled s1", "stopped s1", "dispose"]);
+    }
+
+    #[test]
+    fn a_released_session_reaches_the_engine_after_its_shells() {
+        let log = Arc::new(Log::default());
+        let release = EngineSessionRelease::new(Arc::new(Shells(log.clone())), Arc::new(Events(log.clone())));
+        release.cancel_owned(&ThreadId::from("s1"));
+        assert_eq!(*log.0.lock().unwrap(), ["cancel s1", "session s1"]);
     }
 }

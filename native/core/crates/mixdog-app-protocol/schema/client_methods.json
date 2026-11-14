@@ -25467,6 +25467,14 @@
         "$ref": "#/definitions/RemoteHost"
       }
     },
+    "remoteHosts/touch": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
     "review/diff/get": {
       "params": {
         "$ref": "#/definitions/ReviewDiffGetParams"

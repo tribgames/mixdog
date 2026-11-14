@@ -1003,6 +1003,28 @@ pub struct HostBrowserSnapshotResult {
     pub facts: PageFacts,
 }
 
+/// `host/browser/revision`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserRevisionParams {
+    pub page_id: String,
+}
+
+/// `revision` is the number a snapshot answers as its `revision` (the sum of every frame's DOM-change counter); `observation` is the
+/// whole revision string, as a snapshot answers it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserRevisionResult {
+    pub revision: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<String>,
+    pub facts: PageFacts,
+}
+
 /// `host/browser/ref/call`: a function called on the element a snapshot ref names.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

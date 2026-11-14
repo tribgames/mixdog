@@ -26,6 +26,10 @@ use mixdog_scm::worktree::manager::Worktrees;
 use super::worktree::SnapshotCleanups;
 
 pub trait TurnSnapshots: Send + Sync {
+    /// The turn that settles next did not complete (it failed or was stopped): said on `SessionDeps.snapshots` itself, right before
+    /// `turn_settled`. A decorator that holds another `TurnSnapshots` forwards it when the one it holds needs it.
+    fn turn_aborted(&self, _thread: &ThreadId) {}
+
     /// `turn.releaseWorkspace()`: the settled turn's snapshots are removed, off the caller.
     fn turn_settled(&self, thread: &ThreadId);
     /// The thread's runtime ended: its cleanups stop (the runtime's `dispose`).

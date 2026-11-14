@@ -55,7 +55,7 @@ rcgen = { version = "0.14" }
 regex = { version = "1" }
 regex-automata = { version = "0.4" }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.12", default-features = false, features = ["brotli", "charset", "cookies", "deflate", "gzip", "http2", "json", "macos-system-configuration", "rustls-tls-native-roots", "socks", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["brotli", "charset", "cookies", "deflate", "gzip", "http2", "json", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots", "socks", "stream"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order", "raw_value"] }

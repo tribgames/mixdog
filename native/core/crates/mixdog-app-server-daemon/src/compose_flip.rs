@@ -1579,7 +1579,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let folder_releases = mixdog_workspace::release::FolderReleases::new();
     folder_releases.add(Arc::new(crate::terminal_folder_release::TerminalFolderRelease::new(terminal.tabs().clone())));
     // Browser/handoff host: the desktop channel, its replies redacted, and the runtime-only secret actions served by the fill (compose-seams.md 'secret redaction in tool replies').
-    let browser_channel = match browser_timing {
+    let browser_channel = match browser_timing.clone() {
         Some(timing) => mixdog_tools::desktop::host::ChannelHostCommands::with_timing(b.host.clone(), timing),
         None => mixdog_tools::desktop::host::ChannelHostCommands::new(b.host.clone()),
     };
@@ -1626,7 +1626,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let engine_sink = engine.sink(Arc::new(mixdog_browser_engine::lane::sink::EngineSinkImpl::new(engine_lane.mirror().clone(), engine_lane.hold().clone())));
     let pool_host: Arc<dyn mixdog_tools::desktop::host::HostCommands> = Arc::new(mixdog_core_session::session::secret_input::SecretHostCommands::new(
         Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(
-            mixdog_tools::desktop::browser_engine::EngineHostCommands::new(browser_channel, engine.clone(), b.host.clone()),
+            match browser_timing {
+                Some(timing) => mixdog_tools::desktop::browser_engine::EngineHostCommands::with_timing(browser_channel, engine.clone(), b.host.clone(), timing),
+                None => mixdog_tools::desktop::browser_engine::EngineHostCommands::new(browser_channel, engine.clone(), b.host.clone()),
+            },
             redactor.clone(),
         )),
         fill.clone(),
@@ -2025,6 +2028,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Some(pool) => Arc::new(mixdog_core::run_host::native_tools::ReapingShells::new(b.shell_control.clone(), pool.clone())),
         None => b.shell_control.clone(),
     };
+    // A released session (a close or a delete) reaches the browser engine too.
+    let owned_shells: Arc<dyn mixdog_core_session::session::shell_jobs::OwnedShells> = Arc::new(crate::compose_browser_engine::EngineSessionRelease::new(owned_shells, engine.clone()));
     let shell_strips: Arc<dyn mixdog_core_session::session::shell_jobs::ShellStrips> = b.shell_control.clone();
     // The one archive retention (`desktop.retentionState`): `ThreadSettingsParts.retention` and `PurgeOwners.retention` (wp-session-33/-40).
     let archive_retention = Arc::new(mixdog_core_session::session::thread_settings::ConfigArchiveRetention::new(config.clone(), Arc::new(|| mixdog_rt::utc_now!().timestamp_millis())));
@@ -2468,7 +2473,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
                 draft_settings: late_draft_settings.clone(), // the new task's draft workflow and mode, through `thread/setWorkflow` / `thread/setOrchestrationMode` (bound below)
-        snapshots: Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new(Arc::new(crate::compose_browser_engine::EngineTurnSnapshots::new({ let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, engine.clone())), saved_login_turns.clone())), // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
+        snapshots: Arc::new(crate::compose_browser_engine::EngineTurnSnapshots::new(Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new({ let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, saved_login_turns.clone())), engine.clone())), // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
                 gateway_usage,

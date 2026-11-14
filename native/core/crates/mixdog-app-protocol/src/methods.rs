@@ -4554,6 +4554,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
+    /// A window for a saved remote PC finished loading: its last-connected time is now (`remote-host-windows.ts` touch). An id no longer saved changes nothing. Caller: H.
+    RemoteHostsTouch => "remoteHosts/touch" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// Which of the saved hosts' desktops are connected to their relay right now. Caller: H.
     RemoteHostsPresence => "remoteHosts/presence" {
         params: RemoteHostPresenceParams,

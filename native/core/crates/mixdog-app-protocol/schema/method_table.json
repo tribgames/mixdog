@@ -10960,6 +10960,24 @@
     },
     {
       "class": "C2",
+      "method": "remoteHosts/touch",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "remoteHosts/presence",
       "mutation": {
         "kind": "none"
@@ -12992,6 +13010,12 @@
       "params": "HostBrowserSnapshotParams",
       "requires": "host.browserEngine",
       "result": "HostBrowserSnapshotResult"
+    },
+    {
+      "method": "host/browser/revision",
+      "params": "HostBrowserRevisionParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserRevisionResult"
     },
     {
       "method": "host/browser/ref/call",

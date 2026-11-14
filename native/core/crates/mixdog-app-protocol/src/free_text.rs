@@ -439,6 +439,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     ),
     (
         Kind::Answer,
+        "host/browser/revision",
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
         "host/browser/credentials/fill",
         &["/reason", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
