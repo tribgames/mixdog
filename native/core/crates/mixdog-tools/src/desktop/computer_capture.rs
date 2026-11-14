@@ -155,7 +155,12 @@ impl ProcessComputerBackend {
         if let Some(pixels) = pixels {
             let idle = settle_input(before.as_ref(), after.as_ref());
             let id = format!("frame-{}", uuid::Uuid::new_v4().simple());
-            let frame = frame_of(&pixels.result, &id, &window_id, related, idle);
+            // A child window the helper read through its owner (`captureThroughOwner`) is a frame of the owner's window.
+            let (frame_window, frame_related) = match pixels.result.get("window_id").and_then(Value::as_str) {
+                Some(owner) if pixels.result.contains_key("requested_window_id") => (owner.to_string(), vec![owner.to_string()]),
+                _ => (window_id.clone(), related),
+            };
+            let frame = frame_of(&pixels.result, &id, &frame_window, frame_related, idle);
             let capture = computer_ocr::Capture { command, mode, ask: ocr.as_ref(), accessibility: read.result.as_ref().filter(|_| read.error.is_empty()), budget };
             let marked = frame.clone().filter(|_| mode == "som");
             let from = parts.len();
@@ -271,8 +276,10 @@ impl ProcessComputerBackend {
         }
         match reply {
             Ok(result) => Ok(result),
-            Err(_) if unconfirmed => Err(cleanup_failed()),
-            Err(failure) => Err(failure.into_error()),
+            Err(failure) => {
+                self.note_failed_capture(&failure);
+                Err(if unconfirmed { cleanup_failed() } else { failure.into_error() })
+            }
         }
     }
 

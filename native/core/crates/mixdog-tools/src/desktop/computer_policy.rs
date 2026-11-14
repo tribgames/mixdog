@@ -164,6 +164,11 @@ pub(super) fn narrow_window_list(session_id: &str, result: &mut Map<String, Valu
     }
 }
 
+/// `visibleWindowRecords` over window rows: those a restricted session may see.
+pub(super) fn narrow_rows(session_id: &str, rows: &mut Vec<Value>) {
+    visible_rows(authorization(), session_id, rows, now_ms());
+}
+
 /// A `window_transition` as a restricted session reads it: the windows it opened, closed or changed are only those the session may see
 /// (the successor, `next_target`, is authorized on its own).
 pub(super) fn narrow_transition(session_id: &str, mut transition: Value) -> Value {
