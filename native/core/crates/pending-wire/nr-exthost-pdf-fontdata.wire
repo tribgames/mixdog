@@ -1,0 +1,6 @@
+# nr-exthost-pdf-fontdata: font data of mixdog-pdf (src/fonts/data/*), no wiring needed.
+
+Nothing to apply: no Cargo.toml, Cargo.lock, workspace-hack or protocol edit. The code uses only `tracing`, which
+mixdog-pdf already depends on. Regenerate the tables with
+`node benchmarks/rust-core/recorders/gen-pdfjs-font-data.mjs --tree <tree with node_modules/pdfjs-dist 6.4.299>`;
+the test `generated_files_match_the_recorded_hash` fails when the files and `GENERATED_FNV1A64` in data/mod.rs differ.
