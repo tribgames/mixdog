@@ -554,6 +554,7 @@ impl ToolFailureLog for RunFailureLog {
             "cacheWriteTokens": usage.cache_write_tokens,
             "rawUsage": usage.raw,
             "model": model,
+            "requestKind": source_type,
         });
         let identity = json!({
             "provider": provider,

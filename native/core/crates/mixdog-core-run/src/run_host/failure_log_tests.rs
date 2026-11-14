@@ -241,11 +241,12 @@ async fn a_requests_usage_raw_row_joins_the_agent_trace() {
         let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
         let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
         let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 100, output_tokens: 7, cache_read_tokens: 60, ..Default::default() };
-        log.request_usage(RequestUsage { iteration: 3, provider: provider.into(), model: "m".into(), requested_model: "m".into(), source_type: None, usage });
+        log.request_usage(RequestUsage { iteration: 3, provider: provider.into(), model: "m".into(), requested_model: "m".into(), source_type: Some("compaction".into()), usage });
         writer.flush().await;
         let written = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"));
         let row: Value = serde_json::from_str(written.lines().next().expect("a row")).unwrap();
         assert_eq!((row["kind"].as_str(), row["session_id"].as_str(), row["iteration"].as_u64()), (Some("usage_raw"), Some("s"), Some(3)), "{provider}");
         assert_eq!((row["input_tokens"].as_u64(), row["output_tokens"].as_u64(), row["cached_tokens"].as_u64(), row["prompt_tokens"].as_u64()), (Some(100), Some(7), Some(60), Some(prompt)), "{provider}");
+        assert_eq!((row["request_kind"].as_str(), row["payload"]["source_type"].as_str()), (Some("compaction"), Some("compaction")), "{provider}");
     }
 }
