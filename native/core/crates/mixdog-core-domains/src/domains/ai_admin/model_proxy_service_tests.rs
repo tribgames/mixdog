@@ -271,3 +271,84 @@ async fn a_cancel_stops_only_the_named_run_of_the_asking_connection() {
     service.notify(Method(CANCEL), json!({ "runId": "r1" }), ConnectionId(7));
     assert!((mine.is_cancelled(), other_run.is_cancelled(), other_connection.is_cancelled()) == (true, false, false));
 }
+
+#[derive(Default)]
+struct Seen(Mutex<Vec<w::ProxyEvent>>);
+
+impl ProxyEvents for Seen {
+    fn emit(&self, event: w::ProxyEvent) {
+        self.0.lock().unwrap().push(event);
+    }
+}
+
+fn local_call(provider: &str) -> Value {
+    run(provider, 0).params["call"].clone()
+}
+
+#[tokio::test]
+async fn run_local_admits_like_run() {
+    let (served, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let events = Arc::new(Seen::default());
+    let answer = served.run_local(local_call("mock"), None, events.clone(), CancellationToken::new()).await;
+    assert!(matches!(answer, w::ProxyAnswer::Sent { .. }), "{answer:?}");
+    assert!(!events.0.lock().unwrap().is_empty(), "the events of the run reach the caller's sink");
+    assert!(served.runs.lock().unwrap().is_empty());
+    assert_eq!(*served.held.lock().unwrap(), 0);
+    // Too large: refused as Node's host refuses, before any provider is looked up.
+    let length = claimed_chars(&local_call("mock"));
+    let (refused, _) = service(Vec::new()).await;
+    let refused = refused.with_request_bound(length - 1);
+    let answer = refused.run_local(local_call("mock"), None, Arc::new(Seen::default()), CancellationToken::new()).await;
+    let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
+    assert_eq!(failure.code.as_deref(), Some("MODEL_PROXY_REQUEST_TOO_LARGE"));
+    // Busy: the data in flight leaves no room.
+    let (busy, _) = service(Vec::new()).await;
+    let busy = busy.with_inflight_bound(length);
+    *busy.held.lock().unwrap() = 1;
+    let answer = busy.run_local(local_call("mock"), None, Arc::new(Seen::default()), CancellationToken::new()).await;
+    let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
+    assert_eq!(failure.code.as_deref(), Some("MODEL_PROXY_BUSY"));
+    // The provider list is honoured, and a call that does not decode is a failed answer.
+    let (listed, _) = service(Vec::new()).await;
+    let answer = listed.run_local(local_call("mock"), Some(vec!["other".into()]), Arc::new(Seen::default()), CancellationToken::new()).await;
+    let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
+    assert_eq!(failure.code.as_deref(), Some("MODEL_PROXY_PROVIDER_NOT_ALLOWED"));
+    let answer = listed.run_local(json!({ "method": "nope" }), None, Arc::new(Seen::default()), CancellationToken::new()).await;
+    assert!(matches!(answer, w::ProxyAnswer::Failed { .. }));
+}
+
+#[tokio::test]
+async fn run_local_cancel() {
+    let (service, _) = service(Vec::new()).await;
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let answer = service.run_local(local_call("mock"), None, Arc::new(Seen::default()), cancel).await;
+    let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
+    assert_eq!(failure.message, "The remote session cancelled the model call.");
+    assert!(service.runs.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn run_local_closing() {
+    let (service, _) = service(Vec::new()).await;
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    service.close().await;
+    let answer = service.run_local(local_call("mock"), None, Arc::new(Seen::default()), cancel).await;
+    let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
+    assert_eq!(failure.message, APP_CLOSING);
+}
+
+/// The events of a local run are those of `modelProxy/run` for the same call, in the same order.
+#[tokio::test]
+async fn run_local_events_are_those_of_run_in_order() {
+    let (remote, notes) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    remote.call(run("mock", 7)).await.unwrap();
+    let relayed: Vec<Value> = notes.0.lock().unwrap().iter().map(|(_, _, params)| params["event"].clone()).collect();
+    let (local, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let events = Arc::new(Seen::default());
+    local.run_local(local_call("mock"), None, events.clone(), CancellationToken::new()).await;
+    let seen: Vec<Value> = events.0.lock().unwrap().iter().map(|event| serde_json::to_value(event).unwrap()).collect();
+    assert!(!seen.is_empty());
+    assert_eq!(seen, relayed);
+}
