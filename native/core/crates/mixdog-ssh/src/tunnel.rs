@@ -256,6 +256,11 @@ impl Supervisor {
         self.state.send_replace(state);
     }
 
+    /// A line of the tunnel's account of itself, into the server's diagnostics ring.
+    fn log(&self, text: &str) {
+        self.env.diagnostics.log(self.ctx.as_ref().and_then(|attempt| attempt.diagnostics_key.as_deref()), text);
+    }
+
     fn choose_ports(&mut self) -> io::Result<()> {
         for index in 0..self.locals.len() {
             while self.locals[index] == 0 {
@@ -280,10 +285,12 @@ impl Supervisor {
                     return;
                 }
                 Ended::Fatal(error) => {
+                    self.log(&format!("ssh tunnel stopped: {error}"));
                     self.set(TunnelState::Stopped { failure: Some(error) });
                     return;
                 }
                 Ended::Restart => {
+                    self.log("ssh tunnel restarting now (health probes failed)");
                     backoff.reset();
                     self.attempt = 0;
                 }
@@ -292,6 +299,7 @@ impl Supervisor {
                     if classify_failure(&stderr) == FailureClass::Terminal {
                         let reason = if tail.is_empty() { status } else { tail.clone() };
                         let error = SshError::new(format!("ssh tunnel to {} failed:\n{reason}", self.target.display), FailureClass::Terminal).with_stderr(tail, code);
+                        self.log(&format!("ssh tunnel stopped: {error}"));
                         self.set(TunnelState::Stopped { failure: Some(error) });
                         return;
                     }
@@ -300,6 +308,7 @@ impl Supervisor {
                     }
                     if !self.auto_restart && !healthy_for.is_zero() {
                         // A link that was up dropped: the host does not redial on its own.
+                        self.log(&format!("ssh tunnel exited ({status}); automatic reconnection is off"));
                         self.set(TunnelState::Stopped { failure: None });
                         if matches!(self.pause(None).await, Pause::Now) {
                             backoff.reset();
@@ -309,6 +318,8 @@ impl Supervisor {
                         return;
                     }
                     let delay = backoff.next(healthy_for);
+                    let detail = if tail.is_empty() { String::new() } else { format!(": {}", tail.replace('\n', " | ")) };
+                    self.log(&format!("ssh tunnel exited ({status}); restarting in {} ms{detail}", delay.as_millis()));
                     self.attempt += 1;
                     self.set(TunnelState::Backoff { attempt: self.attempt, next_ms: u64::try_from(delay.as_millis()).unwrap_or(u64::MAX) });
                     match self.pause(Some(delay)).await {
@@ -357,6 +368,7 @@ impl Supervisor {
             Err(error) => return Ended::Fatal(SshError::new(format!("Could not start ssh: {error}"), FailureClass::Terminal)),
         };
         drop(child.take_stdin());
+        self.log(&format!("ssh tunnel starting 127.0.0.1:{} -> {}:127.0.0.1:{}", self.locals[0], self.target.display, self.remotes[0]));
         let kept = Arc::new(Mutex::new(Vec::new()));
         let stderr_reader = pump(child.take_stderr(), Some(kept.clone()));
         pump(child.take_stdout(), None);
@@ -392,6 +404,7 @@ impl Supervisor {
                 accepts = async { sleep(poll).await; local_port_accepts(port).await }, if ready_at.is_none() && pending.is_none() && !timed_out => {
                     if accepts {
                         ready_at = Some(Instant::now());
+                        self.log(&format!("ssh tunnel ready on 127.0.0.1:{port}"));
                         self.attempt = 0;
                         self.set(TunnelState::Up);
                     }

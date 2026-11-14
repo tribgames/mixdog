@@ -412,6 +412,7 @@ pub fn resolve_placement(params: DesktopPetPlacementResolveParams) -> Value {
                 "window": { "width": g.window.width, "height": g.window.height },
                 "sprite": { "left": g.sprite.left, "bottom": g.sprite.bottom, "size": g.sprite.size },
                 "coreWidth": g.core_width,
+                "pinInset": PIN_INSET,
             })
         }
         Op::Pinned(p) => point_json(pinned_pet_position(rect_of(p.content), &composer_of(p.composer), p.zoom, &pet_geometry(p.scale))),
