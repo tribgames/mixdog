@@ -1795,7 +1795,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
     // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
     // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
-    // The first start downloads the database runtime and the embedding model: each is a `notice` entry while it runs, so the app says so instead of looking hung (`runtime-fetcher.mjs` progress hooks).
+    // The first start downloads the database runtime and the embedding model: each is a desktop notice while it runs, so the app says so instead of looking hung (Node reported no progress here; the nothing-lost finding mem.pg-progress asks for it).
     let start_notices = MemoryStartNotices::new(desktop_notices.clone());
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
