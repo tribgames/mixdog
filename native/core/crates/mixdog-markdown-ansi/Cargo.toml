@@ -1,0 +1,18 @@
+[package]
+name = "mixdog-markdown-ansi"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-js = { workspace = true }
+regress = { workspace = true }
+serde = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
