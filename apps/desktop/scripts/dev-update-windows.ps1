@@ -82,6 +82,10 @@ trap {
     [Console]::Error.WriteLine(($_ | Out-String))
     exit 1
 }
+# A prebuilt core that is not there fails now, before a snapshot, a build or a swap has started.
+if ($CoreBinary -and -not (Test-Path -LiteralPath $CoreBinary -PathType Leaf)) {
+    throw "-CoreBinary $CoreBinary is not a file."
+}
 $desktopDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $desktopDir '..\..')).Path
 $distDir = Join-Path $desktopDir 'dist'
