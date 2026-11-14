@@ -1001,6 +1001,8 @@ mod saved_login_backend {
         assert!(registry.remember(&second, &[PASSWORD.to_owned()]));
         snapshots.runtime_stopped(&thread);
         until("the session to be forgotten", || registry.spellings().is_empty()).await;
+        assert_eq!(clock.turn(&thread), Some(3), "the turn the runtime stopped in is over: a new runtime's fills are admitted");
+        assert!(registry.admit(&SavedLoginTurn { session: SESSION.to_owned(), turn: 3 }).is_ok());
         assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("stopped S1"));
         // Another session counts its own turns.
         assert_eq!(clock.turn(&ThreadId::from("S2")), Some(1));

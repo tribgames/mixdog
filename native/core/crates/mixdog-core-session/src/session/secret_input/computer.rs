@@ -115,6 +115,8 @@ impl SavedLoginTurnClock {
     }
 
     fn runtime_stopped(&self, thread: &ThreadId) {
+        // A turn the runtime stopped in is over: `forget` settles it, so the next runtime's first turn is a new number.
+        *self.settled.lock().unwrap_or_else(PoisonError::into_inner).entry(thread.as_str().to_owned()).or_insert(0) += 1;
         let (registry, session) = (self.registry.clone(), thread.as_str().to_owned());
         drop(tokio::spawn(async move { registry.forget(&session).await }));
     }
