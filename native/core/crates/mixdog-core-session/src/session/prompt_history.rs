@@ -397,7 +397,7 @@ impl CwdCache {
 
 impl FilePromptHistory {
     pub fn new(data_dir: &Path) -> Self {
-        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT").ok().and_then(|raw| raw.trim().parse::<f64>().ok()).filter(|n| n.is_finite() && *n != 0.0).map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
+        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT").ok().and_then(|raw| raw.trim().parse::<f64>().ok()).filter(|n| !n.is_nan() && *n != 0.0).map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
         Self::with_cache_limit(data_dir, limit)
     }
 
@@ -527,8 +527,15 @@ impl PromptHistoryStore for FilePromptHistory {
         let held = self.cache().touch(&path);
         let entries = held.unwrap_or_else(|| {
             let read = peek_entries(lane, &path);
-            self.cache().remember(&path, read.clone());
-            read
+            // An append that ran while the file was read has remembered its own list, which is newer than this read.
+            let mut cache = self.cache();
+            match cache.touch(&path) {
+                Some(newer) => newer,
+                None => {
+                    cache.remember(&path, read.clone());
+                    read
+                }
+            }
         });
         last_fifty(entries)
     }
@@ -881,6 +888,16 @@ mod tests {
 
     /// Reads after the first come from memory; an append replaces the held list; the least recently used cwd leaves
     /// once more than the limit are held (a limit under 8 is 8).
+    /// `Math.max(8, Number(raw) || 128)`: an infinite value keeps every cwd, a fraction is floored by the comparison.
+    #[test]
+    fn an_infinite_cache_limit_keeps_every_cwd() {
+        let mut cache = CwdCache::new(f64::INFINITY as usize);
+        for n in 0..300 {
+            cache.remember(Path::new(&format!("cwd-{n}")), s(&["x"]));
+        }
+        assert_eq!(cache.lists.len(), 300);
+    }
+
     #[test]
     fn the_cwd_cache_is_bounded_and_least_recently_used_first() {
         let mut cache = CwdCache::new(2);

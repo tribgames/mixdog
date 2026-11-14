@@ -237,6 +237,12 @@ pub trait ManualCompaction: Send + Sync {
     /// The saved configuration's change counter (`announceSettingsChange`, providers.mjs): it moves when a settings change is applied, and
     /// a thread then announces `setupChanged`. `None`: no configuration.
     fn settings_changes(&self, thread: &ThreadId) -> Option<SettingsFeed>;
+    /// `lastCacheWarmUseAt(sessionId)` (idle-auto-clear-gate.mjs): when a successful cache warm last used the thread's prompt
+    /// cache (epoch ms), or 0. Idleness for the idle auto-clear is measured from the last use of the cached prompt, and a warm
+    /// that read the cache without writing used it. A host with no warmer has none.
+    fn cache_warm_use_at(&self, _thread: &ThreadId) -> f64 {
+        0.0
+    }
 }
 
 /// A thread's feed of the settings change counter, and where it reports the count it has shown (published in its state).

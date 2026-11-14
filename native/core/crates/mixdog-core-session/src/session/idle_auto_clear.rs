@@ -1,19 +1,12 @@
 //! Idle auto-clear (`tui/session/session-flow/auto-clear.mjs` and `runtime/shared/idle-auto-clear-gate.mjs`): before a
-//! submit or a completion wake, a thread that has sat idle past its window, with a context of some size, is compacted
+//! user's turn or a completion wake, a thread that has sat idle past its window, with a context of some size, is compacted
 //! (never cleared after the compaction: that would discard what the compactor kept). The compaction is awaited for at
-//! most a minute, which bounds how long the input stays blocked, not the compaction: one that outlasts it keeps
-//! running, and the late result is applied once the thread is not busy, with a notice.
+//! most a minute, which bounds how long the turn waits, not the compaction.
 //!
-//! The driver works against an [`AutoClearHost`], which is the thread: its busy state, its queue, its compaction and
-//! what is shown of the clear.
+//! The thread actor drives it (`SessionActor::idle_gate`, in `actor/turn_ops.rs`) on the compaction it already runs for a
+//! manual `compact` (trigger `auto_clear`, a reduction required); this module holds the decisions it takes: the window, the
+//! context meter and the activity stamp.
 
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
-use std::sync::PoisonError;
-use std::time::Duration;
-
-use async_trait::async_trait;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use serde_json::Value;
@@ -23,9 +16,6 @@ use super::gateway_usage::event::truthy;
 /// `AUTO_CLEAR_COMPACT_TIMEOUT_MS`: the bound on the awaited idle compaction. Without one a stalled compaction wedges
 /// the thread's command state and suppresses the input drain. Not to be raised to cover compaction worst cases.
 pub const AUTO_CLEAR_COMPACT_TIMEOUT_MS: u64 = 60_000;
-
-/// `LATE_COMPLETION_NOTICE`.
-pub const LATE_COMPLETION_NOTICE: &str = "auto-clear completed late; compacted conversation retained";
 
 /// The auto-clear state of the config (`autoClearState()`): `enabled`, `idleMs` and `minContextPercent`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,10 +59,39 @@ fn context_usage_below_threshold(status: &ContextStatus, min_percent: f64) -> bo
 /// `at`: auto-clear on, idle at least the window since the activity stamp, and a context not below the minimum share of
 /// the compaction trigger. The submit gate adds its own transient conditions (busy, queued input, a clear running).
 pub fn idle_auto_clear_due(config: &IdleConfig, activity_at: f64, at: f64, status: &ContextStatus) -> bool {
-    if !config.enabled || activity_at == 0.0 || at - activity_at < config.idle_ms {
-        return false;
+    idle_window_elapsed(config, activity_at, at) && !context_usage_below_threshold(status, config.min_context_percent.unwrap_or(10.0))
+}
+
+/// The part of [`idle_auto_clear_due`] that needs no context meter: auto-clear on, and idle at least the window since the
+/// activity stamp (0: no model-visible conversation). Cheap, so a start that fails it never reads the meter.
+pub fn idle_window_elapsed(config: &IdleConfig, activity_at: f64, at: f64) -> bool {
+    config.enabled && activity_at != 0.0 && !(at - activity_at < config.idle_ms)
+}
+
+/// `autoClearState()` from the route's `autoClear` value (`getAutoClear`): `enabled`, `idleMs` and `minContextPercent` (null
+/// is the default). `None` when the value carries no usable window, which never clears.
+pub fn idle_config_of(auto_clear: &Value) -> Option<IdleConfig> {
+    let idle_ms = auto_clear.get("idleMs").map(mixdog_js::to_number).filter(|ms| !ms.is_nan())?;
+    let min_context_percent = auto_clear.get("minContextPercent").filter(|value| !value.is_null()).map(mixdog_js::to_number);
+    Some(IdleConfig { enabled: truthy(auto_clear.get("enabled")), idle_ms, min_context_percent })
+}
+
+/// `runtime.contextStatus()` as the gate reads it: `Number(x) || 0` of each meter field (a missing or non-numeric one is 0);
+/// the session's own limit rides in `session.autoCompactTokenLimit`.
+pub fn context_status_of(status: &Value) -> ContextStatus {
+    let number = |value: Option<&Value>| {
+        let n = value.map_or(0.0, mixdog_js::to_number);
+        if n.is_nan() { 0.0 } else { n }
+    };
+    let compaction = status.get("compaction");
+    ContextStatus {
+        used_tokens: number(status.get("usedTokens")),
+        current_estimated_tokens: number(status.get("currentEstimatedTokens")),
+        compaction_current_estimated_tokens: number(compaction.and_then(|c| c.get("currentEstimatedTokens"))),
+        compaction_trigger_tokens: number(compaction.and_then(|c| c.get("triggerTokens"))),
+        compaction_auto_compact_token_limit: number(compaction.and_then(|c| c.get("autoCompactTokenLimit"))),
+        session_auto_compact_token_limit: number(status.get("session").and_then(|s| s.get("autoCompactTokenLimit"))),
     }
-    !context_usage_below_threshold(status, config.min_context_percent.unwrap_or(10.0))
 }
 
 /// `timestampMs(value)`: a positive number or a date string as epoch ms, else 0.
@@ -154,209 +173,8 @@ pub fn session_activity_timestamp(session: &Value, fallback: f64, warm_use_at: f
     own.max(warm_use_at)
 }
 
-/// What is shown while the clear runs (`commandStatus`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct CommandStatus {
-    pub verb: &'static str,
-    pub started_at: i64,
-    pub mode: &'static str,
-}
-
-/// The thread an idle auto-clear works on.
-#[async_trait]
-pub trait AutoClearHost: Send + Sync + 'static {
-    /// What a compaction returns.
-    type Outcome: Send + 'static;
-    /// The id of the thread shown now (`runtime.session?.id`).
-    fn session_id(&self) -> Option<String>;
-    /// Whether a turn is in flight (`getState().busy`).
-    fn busy(&self) -> bool;
-    /// How many inputs are queued (`pending.length`).
-    fn pending_len(&self) -> usize;
-    fn now_ms(&self) -> i64;
-    /// `autoClearState()`.
-    fn config(&self) -> IdleConfig;
-    /// `sessionActivityTimestamp(runtime.session, fallback)`.
-    fn activity_at(&self, fallback: i64) -> i64;
-    /// `runtime.contextStatus()`.
-    fn context_status(&self) -> ContextStatus;
-    /// `runtime.compact({ requireReduction: true })`: an error covers a rejected call, no active session and an error
-    /// result alike, so neither normal nor late completion can reset the UI over one.
-    async fn compact(&self) -> Result<Self::Outcome, String>;
-    /// `applyAutoClearUi(result)`: only an actual compaction resets the visible activity (the compacted rows stay in view,
-    /// archived above the divider; the model transcript belongs to the compaction); false when nothing changed.
-    fn apply_cleared_ui(&self, outcome: &Self::Outcome) -> bool;
-    /// Blocks concurrent session commands and new submits while the clear runs (the compaction swaps the live session,
-    /// so racing commands could act on the wrong one); `None` lifts it.
-    fn set_command_status(&self, status: Option<CommandStatus>);
-    /// `pushNotice(text, level)`.
-    fn push_notice(&self, text: &str, level: &str);
-    /// The `Auto-clear skipped` status row.
-    fn push_skipped(&self, detail: &str);
-    /// `presentErrorText(error, { surface: 'compact' })`.
-    fn present_error(&self, error: &str) -> String;
-    /// `kickDrain()`: the queued input may go now.
-    fn kick_drain(&self);
-}
-
-struct Flags<O> {
-    auto_clear_running: bool,
-    /// A compaction the timeout abandoned is still running or its result waits for the turn to settle.
-    auto_clear_in_flight: bool,
-    /// `pendingClearedSessionUi`: a late result and the thread it belongs to.
-    pending_cleared_session_ui: Option<(O, String)>,
-    last_user_activity_at: i64,
-}
-
-/// The idle auto-clear of one thread.
-pub struct AutoClear<H: AutoClearHost> {
-    host: Arc<H>,
-    flags: Arc<Mutex<Flags<H::Outcome>>>,
-}
-
-impl<H: AutoClearHost> Clone for AutoClear<H> {
-    fn clone(&self) -> Self {
-        Self { host: self.host.clone(), flags: self.flags.clone() }
-    }
-}
-
-fn lock<O>(flags: &Mutex<Flags<O>>) -> MutexGuard<'_, Flags<O>> {
-    flags.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-impl<H: AutoClearHost> AutoClear<H> {
-    pub fn new(host: Arc<H>) -> Self {
-        let flags = Flags { auto_clear_running: false, auto_clear_in_flight: false, pending_cleared_session_ui: None, last_user_activity_at: 0 };
-        Self { host, flags: Arc::new(Mutex::new(flags)) }
-    }
-
-    /// `flags.lastUserActivityAt = at`: the user was active.
-    pub fn note_user_activity(&self, at: i64) {
-        lock(&self.flags).last_user_activity_at = at;
-    }
-
-    /// `flushDeferredClearedSessionUi`: a cleared-session UI deferred while a turn ran is applied once it has settled.
-    /// Never forces the thread idle mid-turn: it waits while one is in flight.
-    pub fn flush_deferred_cleared_session_ui(&self) {
-        if self.host.busy() {
-            return;
-        }
-        let pending = {
-            let mut flags = lock(&self.flags);
-            let Some(pending) = flags.pending_cleared_session_ui.take() else { return };
-            flags.auto_clear_in_flight = false;
-            pending
-        };
-        let (outcome, session_id) = pending;
-        if self.host.session_id().as_deref() != Some(session_id.as_str()) {
-            return;
-        }
-        if self.host.apply_cleared_ui(&outcome) {
-            self.host.push_notice(LATE_COMPLETION_NOTICE, "info");
-        }
-    }
-
-    /// `onLateCompact(lateResult, sessionId)`: a compaction the timeout abandoned has finished. When the shown thread
-    /// changed meanwhile the result belongs to one no longer shown; during a turn it is held, never wiping the items
-    /// or the queue mid-turn.
-    fn on_late_compact(&self, outcome: H::Outcome, session_id: String) {
-        if self.host.session_id().as_deref() != Some(session_id.as_str()) {
-            return;
-        }
-        if self.host.busy() {
-            lock(&self.flags).pending_cleared_session_ui = Some((outcome, session_id));
-        } else if self.host.apply_cleared_ui(&outcome) {
-            self.host.push_notice(LATE_COMPLETION_NOTICE, "info");
-        }
-    }
-
-    /// `compactWithinTimeout`: the compaction awaited for `timeout`; one that outlasts it keeps running, and its late
-    /// result is applied by [`Self::on_late_compact`].
-    async fn compact_within_timeout(&self, timeout: Duration, session_id: String) -> Result<H::Outcome, String> {
-        let host = self.host.clone();
-        let mut compaction = tokio::spawn(async move { host.compact().await });
-        match mixdog_rt::time::timeout(timeout, &mut compaction).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => Err(format!("compaction task failed: {error}")),
-            Err(_) => {
-                lock(&self.flags).auto_clear_in_flight = true;
-                let this = self.clone();
-                tokio::spawn(async move {
-                    if let Ok(Ok(late)) = compaction.await {
-                        this.on_late_compact(late, session_id);
-                    }
-                    let mut flags = lock(&this.flags);
-                    if flags.pending_cleared_session_ui.is_none() {
-                        flags.auto_clear_in_flight = false;
-                    }
-                });
-                Err(format!("compaction timed out after {}ms; auto-clear deferred to next idle", timeout.as_millis()))
-            }
-        }
-    }
-
-    /// `autoClearBeforeSubmit({ ignorePending })`: compacts the idle thread before a submit. `ignore_pending`: a
-    /// completion-wake drain has already dequeued its own batch, so other queued entries must not veto the idle check.
-    pub async fn auto_clear_before_submit(&self, ignore_pending: bool) -> bool {
-        self.flush_deferred_cleared_session_ui();
-        let config = self.host.config();
-        let now = self.host.now_ms();
-        let fallback = lock(&self.flags).last_user_activity_at;
-        let activity_at = self.host.activity_at(fallback);
-        let blocked = {
-            let flags = lock(&self.flags);
-            self.host.busy() || (!ignore_pending && self.host.pending_len() > 0) || flags.auto_clear_running || flags.auto_clear_in_flight
-        };
-        if blocked || !idle_auto_clear_due(&config, activity_at as f64, now as f64, &self.host.context_status()) {
-            if activity_at == 0 {
-                lock(&self.flags).last_user_activity_at = now;
-            }
-            return false;
-        }
-        self.perform_auto_clear(Duration::from_millis(AUTO_CLEAR_COMPACT_TIMEOUT_MS)).await
-    }
-
-    /// `autoClearBeforeWake()`: the same eligibility as a user submit, run before a completion wake turn so a cold cache
-    /// after a long idle is compacted first. A skipped or failed auto-clear still lets the wake run.
-    pub async fn auto_clear_before_wake(&self) -> bool {
-        self.auto_clear_before_submit(true).await
-    }
-
-    /// `performAutoClear({ compactTimeoutMs })`: the idle cleanup keeps the compactor's complete result, rules-only
-    /// results without a summary included; a plain `/clear` remains a separate explicit wipe.
-    pub async fn perform_auto_clear(&self, timeout: Duration) -> bool {
-        lock(&self.flags).auto_clear_running = true;
-        let session_id = self.host.session_id().unwrap_or_default();
-        self.host.set_command_status(Some(CommandStatus { verb: "Auto-clearing idle conversation", started_at: self.host.now_ms(), mode: "auto-clear" }));
-        // One scheduler turn for the status to be painted before the compaction starts its synchronous session work.
-        tokio::task::yield_now().await;
-        let cleared = match self.compact_within_timeout(timeout, session_id).await {
-            Ok(outcome) => self.host.apply_cleared_ui(&outcome),
-            Err(error) => {
-                let message = self.host.present_error(&error);
-                self.host.push_skipped(&format!("conversation kept · {message}"));
-                self.host.push_notice(&format!("auto-clear skipped: {message}"), "error");
-                false
-            }
-        };
-        {
-            let mut flags = lock(&self.flags);
-            flags.last_user_activity_at = self.host.now_ms();
-            flags.auto_clear_running = false;
-        }
-        self.host.set_command_status(None);
-        self.host.kick_drain();
-        cleared
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicI64;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
     use serde_json::json;
 
     use super::*;
@@ -387,6 +205,23 @@ mod tests {
     }
 
     #[test]
+    fn the_route_value_and_the_meter_are_read_as_nodes_gate_reads_them() {
+        let config = idle_config_of(&json!({ "enabled": true, "idleMs": 120000, "minContextPercent": null })).unwrap();
+        assert_eq!(config, IdleConfig { enabled: true, idle_ms: 120_000.0, min_context_percent: None });
+        assert_eq!(idle_config_of(&json!({ "enabled": false, "idleMs": "60000", "minContextPercent": 25 })), Some(IdleConfig { enabled: false, idle_ms: 60_000.0, min_context_percent: Some(25.0) }));
+        assert_eq!(idle_config_of(&json!({ "enabled": true })), None);
+        assert!(idle_window_elapsed(&IDLE, 5000.0, 6000.0), "exactly the window is idle enough");
+        assert!(!idle_window_elapsed(&IDLE, 5000.0, 5999.0));
+        assert!(!idle_window_elapsed(&IDLE, 0.0, 6000.0));
+        let status = context_status_of(&json!({ "usedTokens": "7", "currentEstimatedTokens": null, "compaction": { "currentEstimatedTokens": 3, "triggerTokens": 100, "autoCompactTokenLimit": "x" }, "session": { "autoCompactTokenLimit": 50 } }));
+        assert_eq!(
+            status,
+            ContextStatus { used_tokens: 7.0, current_estimated_tokens: 0.0, compaction_current_estimated_tokens: 3.0, compaction_trigger_tokens: 100.0, compaction_auto_compact_token_limit: 0.0, session_auto_compact_token_limit: 50.0 }
+        );
+        assert_eq!(context_status_of(&Value::Null), ContextStatus::default());
+    }
+
+    #[test]
     fn activity_is_the_latest_use_of_a_session_with_a_visible_conversation() {
         let no_attachments = |_: &Value| -> Option<String> { None };
         let reminder_only = json!({ "lastUsedAt": 500, "messages": [{ "role": "user", "content": "<system-reminder>x</system-reminder>" }, { "role": "assistant", "content": "." }] });
@@ -399,190 +234,5 @@ mod tests {
         let by_attachment = json!({ "lastUsedAt": 4, "messages": [{ "role": "user", "content": [{ "type": "text", "ref": "a" }, { "type": "image" }] }] });
         assert_eq!(prompt_content_text(&by_attachment["messages"][0]["content"], &|part: &Value| part.get("ref").map(|_| "attached".to_owned())), "attached\n[Image]");
         assert_eq!(prompt_content_text(&json!(7), &no_attachments), "7");
-    }
-
-    struct Host {
-        session: Mutex<String>,
-        busy: AtomicBool,
-        pending: AtomicUsize,
-        now: AtomicI64,
-        activity: AtomicI64,
-        compaction_ms: u64,
-        fail: Option<&'static str>,
-        compactions: AtomicUsize,
-        applied: AtomicUsize,
-        drains: AtomicUsize,
-        statuses: Mutex<Vec<bool>>,
-        notices: Mutex<Vec<(String, String)>>,
-        skipped: Mutex<Vec<String>>,
-    }
-
-    impl Host {
-        fn new(compaction_ms: u64, fail: Option<&'static str>) -> Arc<Self> {
-            Arc::new(Self {
-                session: Mutex::new("thread-1".into()),
-                busy: AtomicBool::new(false),
-                pending: AtomicUsize::new(0),
-                now: AtomicI64::new(100_000),
-                activity: AtomicI64::new(1000),
-                compaction_ms,
-                fail,
-                compactions: AtomicUsize::new(0),
-                applied: AtomicUsize::new(0),
-                drains: AtomicUsize::new(0),
-                statuses: Mutex::new(Vec::new()),
-                notices: Mutex::new(Vec::new()),
-                skipped: Mutex::new(Vec::new()),
-            })
-        }
-
-        fn notices(&self) -> Vec<(String, String)> {
-            self.notices.lock().unwrap().clone()
-        }
-    }
-
-    #[async_trait]
-    impl AutoClearHost for Host {
-        type Outcome = u32;
-        fn session_id(&self) -> Option<String> {
-            Some(self.session.lock().unwrap().clone())
-        }
-        fn busy(&self) -> bool {
-            self.busy.load(Ordering::SeqCst)
-        }
-        fn pending_len(&self) -> usize {
-            self.pending.load(Ordering::SeqCst)
-        }
-        fn now_ms(&self) -> i64 {
-            self.now.load(Ordering::SeqCst)
-        }
-        fn config(&self) -> IdleConfig {
-            IDLE
-        }
-        fn activity_at(&self, fallback: i64) -> i64 {
-            let own = self.activity.load(Ordering::SeqCst);
-            if own != 0 { own } else { fallback }
-        }
-        fn context_status(&self) -> ContextStatus {
-            half_full()
-        }
-        async fn compact(&self) -> Result<u32, String> {
-            self.compactions.fetch_add(1, Ordering::SeqCst);
-            mixdog_rt::time::sleep(Duration::from_millis(self.compaction_ms)).await;
-            self.fail.map_or(Ok(7), |error| Err(error.to_owned()))
-        }
-        fn apply_cleared_ui(&self, _outcome: &u32) -> bool {
-            self.applied.fetch_add(1, Ordering::SeqCst);
-            true
-        }
-        fn set_command_status(&self, status: Option<CommandStatus>) {
-            self.statuses.lock().unwrap().push(status.is_some());
-        }
-        fn push_notice(&self, text: &str, level: &str) {
-            self.notices.lock().unwrap().push((text.to_owned(), level.to_owned()));
-        }
-        fn push_skipped(&self, detail: &str) {
-            self.skipped.lock().unwrap().push(detail.to_owned());
-        }
-        fn present_error(&self, error: &str) -> String {
-            error.to_owned()
-        }
-        fn kick_drain(&self) {
-            self.drains.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    #[tokio::test]
-    async fn an_idle_thread_is_compacted_before_a_submit_and_the_input_drains_after() {
-        let host = Host::new(0, None);
-        let clear = AutoClear::new(host.clone());
-        assert!(clear.auto_clear_before_submit(false).await);
-        assert_eq!((host.compactions.load(Ordering::SeqCst), host.applied.load(Ordering::SeqCst), host.drains.load(Ordering::SeqCst)), (1, 1, 1));
-        assert_eq!(*host.statuses.lock().unwrap(), vec![true, false]);
-        assert!(host.notices().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_busy_thread_or_queued_input_blocks_it_unless_the_wake_drained_its_own_batch() {
-        let host = Host::new(0, None);
-        let clear = AutoClear::new(host.clone());
-        host.busy.store(true, Ordering::SeqCst);
-        assert!(!clear.auto_clear_before_submit(false).await);
-        host.busy.store(false, Ordering::SeqCst);
-        host.pending.store(2, Ordering::SeqCst);
-        assert!(!clear.auto_clear_before_submit(false).await);
-        assert_eq!(host.compactions.load(Ordering::SeqCst), 0);
-        assert!(clear.auto_clear_before_wake().await);
-        // A thread with no activity stamp is stamped now, so it is idle from here on.
-        host.activity.store(0, Ordering::SeqCst);
-        let fresh = AutoClear::new(host.clone());
-        assert!(!fresh.auto_clear_before_submit(true).await);
-        assert_eq!(lock(&fresh.flags).last_user_activity_at, 100_000);
-    }
-
-    #[tokio::test]
-    async fn a_failed_compaction_keeps_the_conversation_and_says_why() {
-        let host = Host::new(0, Some("nothing to reduce"));
-        let clear = AutoClear::new(host.clone());
-        assert!(!clear.auto_clear_before_submit(false).await);
-        assert_eq!(*host.skipped.lock().unwrap(), vec!["conversation kept · nothing to reduce".to_owned()]);
-        assert_eq!(host.notices(), vec![("auto-clear skipped: nothing to reduce".to_owned(), "error".to_owned())]);
-        assert_eq!((host.applied.load(Ordering::SeqCst), host.drains.load(Ordering::SeqCst)), (0, 1));
-        assert_eq!(*host.statuses.lock().unwrap(), vec![true, false]);
-    }
-
-    #[tokio::test]
-    async fn a_compaction_that_outlasts_the_timeout_is_applied_late_with_a_notice() {
-        let host = Host::new(80, None);
-        let clear = AutoClear::new(host.clone());
-        assert!(!clear.perform_auto_clear(Duration::from_millis(10)).await);
-        assert_eq!(host.notices()[0].0, "auto-clear skipped: compaction timed out after 10ms; auto-clear deferred to next idle");
-        // The abandoned compaction blocks another clear while it runs.
-        assert!(!clear.auto_clear_before_submit(false).await);
-        assert_eq!(host.compactions.load(Ordering::SeqCst), 1);
-        let waited = mixdog_rt::time::timeout(Duration::from_secs(5), async {
-            while host.notices().len() < 2 || lock(&clear.flags).auto_clear_in_flight {
-                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await;
-        assert!(waited.is_ok());
-        assert_eq!(host.applied.load(Ordering::SeqCst), 1);
-        assert_eq!(host.notices()[1], (LATE_COMPLETION_NOTICE.to_owned(), "info".to_owned()));
-    }
-
-    #[tokio::test]
-    async fn a_late_result_waits_for_the_turn_and_is_dropped_for_another_thread() {
-        let host = Host::new(40, None);
-        let clear = AutoClear::new(host.clone());
-        host.busy.store(true, Ordering::SeqCst);
-        assert!(!clear.perform_auto_clear(Duration::from_millis(5)).await);
-        mixdog_rt::time::timeout(Duration::from_secs(5), async {
-            while lock(&clear.flags).pending_cleared_session_ui.is_none() {
-                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .expect("held");
-        // Still busy: nothing applied, nothing forced.
-        clear.flush_deferred_cleared_session_ui();
-        assert_eq!(host.applied.load(Ordering::SeqCst), 0);
-        host.busy.store(false, Ordering::SeqCst);
-        clear.flush_deferred_cleared_session_ui();
-        assert_eq!(host.applied.load(Ordering::SeqCst), 1);
-        assert!(!lock(&clear.flags).auto_clear_in_flight);
-        // The shown thread changed while a compaction ran: its result belongs to one no longer shown.
-        let other = Host::new(30, None);
-        let clear = AutoClear::new(other.clone());
-        assert!(!clear.perform_auto_clear(Duration::from_millis(5)).await);
-        *other.session.lock().unwrap() = "thread-2".into();
-        mixdog_rt::time::timeout(Duration::from_secs(5), async {
-            while lock(&clear.flags).auto_clear_in_flight {
-                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .expect("settled");
-        assert_eq!(other.applied.load(Ordering::SeqCst), 0);
     }
 }

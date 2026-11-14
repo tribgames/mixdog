@@ -308,6 +308,9 @@ pub struct CallOptions {
     /// The calling session's model sees no images (Node `pdfReadModes`' `pdfPageMode` is `'ocr'`): `read` gives it a PDF's
     /// scanned pages as OCR text. A caller with no session leaves it `false` and gets the page images.
     pub pdf_page_ocr: bool,
+    /// The name the model called the tool by, when it is not the canonical one (a declared alias, or the same name in
+    /// another case): the adapters of other CLIs' tools word their refusals with the name the model wrote.
+    pub called_as: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
