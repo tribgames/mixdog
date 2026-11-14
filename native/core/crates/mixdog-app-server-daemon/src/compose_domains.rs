@@ -168,6 +168,8 @@ pub struct DomainSeams {
     pub notification_clicks: Arc<dyn NotificationClicks>,
     /// Publishes the host's browser surface requests as `ui/openRequested` (`host/browser/surface`).
     pub browser_surfaces: Arc<dyn mixdog_core_domains::domains::host::BrowserSurfaces>,
+    /// What the desktop reports about this PC's screen (`host/screen/displaysChanged`, `host/screen/indicator/stop`): the phone's screen sessions (`compose_screen`).
+    pub screen_events: Arc<dyn mixdog_core_domains::domains::host::ScreenEvents>,
     /// The visualize tabs the desktop sets (`host/state/set`), folded for the phone's pane pages (`document/previewPages`).
     pub visualize_panes: Arc<mixdog_exthost::VisualizePanes>,
     /// Drops the prompt-rules and context-status caches and publishes the profile change: WP-SESSION.

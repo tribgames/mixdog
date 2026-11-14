@@ -1,0 +1,40 @@
+# g9-screen-switch: the core half of the phone's screen control (compose_screen.rs, compose_screen_service.rs, the live view's `PhoneScreens`, the
+# desktop's screen reports in `HostService`). Already applied by this task: the lines of compose_flip.rs it was allowed (listed in section 3).
+
+## 1. lib.rs (module line, beside `pub mod compose_computer_bridge;`)
+
+    pub mod compose_screen;
+
+Needs the protocol line of pending-rows/g9-screen-switch.rows (`pub mod screen_indicator;` in v2/mod.rs): host.rs of mixdog-core-domains uses
+`mixdog_app_protocol::v2::screen_indicator::ScreenIndicatorStopParams`. No Cargo edge: every crate it uses is already a dependency of
+mixdog-app-server-daemon (mixdog-tools, mixdog-core, mixdog-remote, mixdog-core-domains, mixdog-app-protocol, bytes, futures, tokio `sync`, tracing).
+
+## 2. SERVICE_PENDING (compose_flip.rs)
+
+Nothing to remove or add: `host/screen/displaysChanged` and `host/screen/indicator/stop` are notifications of HostService (methods()), and
+`host/screen/indicator` is a core -> desktop request that no service claims.
+
+## 3. What this task already changed in the lead's files (each a few lines; read them in the diff)
+
+- compose_flip.rs: `let screen_events = Arc::new(ScreenEventsCell::default())` before `let seams = DomainSeams {` and `screen_events: screen_events.clone()`
+  in it; `crate::compose_screen::installer(secure_desktop_exe)` instead of `production_installer(..)` (it gives the helper of
+  `production_installer_with_helper`, the lease's InstallPort, so the screen control and PC access share one installer instance) and
+  `builder.register(pc_access.clone())`; after `builder.register(live_view.clone())` the call of `compose_screen(ScreenInputs { .. }).await` and
+  `live_view.bind_screens(phone)`; the `screens` field of `Real` and `self.screens.stop_step()` first in `runtime_stop_steps`.
+- compose_domains.rs / compose_domains/rows.rs / compose_domains/tests.rs: the `screen_events` seam (`DomainSeams.screen_events`, the new argument of
+  `HostService::new`, the test double's impl). (These are CORE-WIRE-G9 files: take the lines as they are.)
+- mixdog-core-domains domains/host.rs (+ host/tests.rs): trait `ScreenEvents { displays_changed, indicator_stopped }`, the two methods in `methods()`
+  and in `notify` (the plan's `DisplayChanges` port of g75-fu-screen-displays.wire section 2 and the pill's Stop in one port).
+
+## 4. g75-fu-screen-displays.wire section 2 and deferred-g7.md item 4 (s3-screen-source / s3-screen-input / g55-fu-cu-ssh)
+
+Section 2 (the display-change port, the live view's `RelayDeps::screen_displays`) is done by this task: delete that fragment. deferred-g7.md item 4:
+done: ScreenSources composed (compose_screen_service.rs) with the claimed desktop's `HostDisplays`, `HostPixels` (`host/computer/pixels` + the blob store),
+the grant / withdraw of a paired connection (`PhoneScreens` in live_view.rs: granted in `screen_authorized`, withdrawn at `unpaired` as Revoked and at
+`connection_closed` as ViewerLeft), `ScreenInputHost` over `ScreenInput` (one process per session, the session's own pointer mapping: no `ScreenGeometry`),
+`ScreenPcAccessPort` over `PcAccessService` + `AccountAdmin`, `production_installer_with_helper`, the indicator over `host/screen/indicator` and
+`host/screen/indicator/stop`, `stop_for_quit` as the first stop step, `host/screen/displaysChanged` -> `displays_changed()`.
+NOT done (owned by nobody yet, see the result file of g9-screen-switch): `LiveHost::signal` still answers SOURCE_NOT_STREAMED for `Source::Screen`
+(mixdog-remote webrtc host.rs, viewer.rs, signal.rs `ChannelMessage::Screen`), so `ScreenSources::resolve` has no caller and its `ScreenSink` is a sink
+that says once, at error level, that the live view cannot carry a screen viewer. The InputDesktop unification of g55-fu-cu-ssh is also open
+(the adapter converts between the two three-field structs; both live in files of g85-fu-computer).
