@@ -77,6 +77,24 @@ const CAPTURE_SIDEBAR_GEOMETRY = {
 /** The updater state the capture shows: an installed, ready update (the old capture host's answer). */
 const CAPTURE_UPDATER_STATE = { status: 'ready', version: '0.2.0' } as const;
 
+/** The host channels the renderer invokes on its own (settings pages, the browser panel's lists, the connections list)
+ *  that a capture window has nothing behind: each answers what an empty profile answers, so the page paints its
+ *  empty state and no invoke ends in "No handler registered". */
+const CAPTURE_EMPTY_HOST_REPLIES: ReadonlyArray<readonly [string, unknown]> = [
+  [DESKTOP_IPC.computerReadiness, { platform: process.platform, screen_capture: 'granted', accessibility: 'granted', input: 'granted' }],
+  [DESKTOP_IPC.listRemoteHosts, []],
+  [DESKTOP_IPC.takeoverReady, false],
+  [DESKTOP_IPC.serverTrashInfo, { available: false, path: '' }],
+  [DESKTOP_IPC.browserProfileImportSources, []],
+  [DESKTOP_IPC.browserCookieAutoImportStatus, { enabled: false, profileId: '', keySaved: false, keyStorageAvailable: false, running: false }],
+  [DESKTOP_IPC.browserHistorySearch, []],
+  [DESKTOP_IPC.browserCredentialSuggestions, []],
+  [DESKTOP_IPC.browserSignedInSites, []],
+  [DESKTOP_IPC.browserVaultLogins, []],
+  [DESKTOP_IPC.browserLinkedSignIns, []],
+  [DESKTOP_IPC.browserPageIdentity, null],
+];
+
 /** What only this process can answer a capture window: the Electron host methods its renderer calls beside the core
  *  (updater, title bar, zoom, pane layout, screen sessions) and the window's own port to the core. Everything else the
  *  renderer asks goes to the core over that port. */
@@ -118,6 +136,11 @@ function registerCaptureHostIpc(window: BrowserWindow, relay: CorePortRelay): ()
     );
   });
   handle(DESKTOP_IPC.visualizeState, () => []);
+  for (const [channel, reply] of CAPTURE_EMPTY_HOST_REPLIES) handle(channel, () => reply);
+  handle(DESKTOP_IPC.setZoomFactor, (factor) => {
+    if (typeof factor === 'number' && Number.isFinite(factor) && factor > 0) window.webContents.setZoomFactor(factor);
+    return window.webContents.getZoomFactor();
+  });
   const disposePaneLayout = registerPaneLayoutIpc({ window, ipcMain });
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const sendUpdaterState = (): void => window.webContents.send(DESKTOP_IPC.updaterState, CAPTURE_UPDATER_STATE);
@@ -906,7 +929,7 @@ async function captureWindow(): Promise<void> {
       captureEnvironment: {
         rendererAssets: 'built',
         packaged: app.isPackaged,
-        host: 'CaptureService',
+        host: 'mixdogd',
         sessionMode: 'empty-session',
       },
       captureMethod,
