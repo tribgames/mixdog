@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  normalizeBrowserCredentialId,
+  normalizeBrowserHistoryQuery,
+  normalizeBrowserImportRequest,
   normalizeRemoteBrowserControl,
+  normalizeRemoteBrowserTabId,
   normalizeRemoteBrowserStreamOptions,
   remoteBrowserDriveViewport,
   remoteBrowserImagePoint,
@@ -245,4 +250,43 @@ test('remote browser taps map through contain sizing and ignore letterbox space'
     ),
     null
   );
+});
+
+// The host's own argument table (main/host/browser-command.ts REMOTE_ACTIONS and its `input` branch), with
+// the two checks that live in modules this test cannot load (requiredSessionId, normalizeRemoteTabUrl).
+function hostRefusal(action, input) {
+  const { session_id: session, ...fields } = input ?? {};
+  const sessionId = () => {
+    if (typeof session !== 'string') throw new TypeError('session id must be a string.');
+    const id = session.trim();
+    if (!id || id.length > 256 || !/^[A-Za-z0-9_-]+$/u.test(id)) throw new TypeError('session id is invalid.');
+  };
+  try {
+    if (action === 'input') normalizeRemoteBrowserControl(fields);
+    else if (action === 'history') normalizeBrowserHistoryQuery(fields.query);
+    else if (action === 'tabOpen') {
+      if (typeof fields.url !== 'string' || fields.url.length < 1 || fields.url.length > 4_096) {
+        throw new TypeError('remote browser url is invalid.');
+      }
+    } else if (action === 'release') normalizeRemoteBrowserTabId(fields.id);
+    else if (action === 'credentialSuggestions') sessionId();
+    else if (action === 'credentialFill') {
+      sessionId();
+      normalizeBrowserCredentialId(fields.credentialId);
+    } else if (action === 'importStart') normalizeBrowserImportRequest(fields);
+    return null;
+  } catch (error) {
+    return error.message;
+  }
+}
+
+// The corpus the core's browser_validate tests read too (native/core/fixtures/browser-parity/remote-browser.json).
+test('the UI action corpus is refused with the same text the core gives', () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../../native/core/fixtures/browser-parity/remote-browser.json', import.meta.url), 'utf8')
+  );
+  assert.ok(corpus.rows.length > 100);
+  for (const row of corpus.rows) {
+    assert.equal(hostRefusal(row.action, row.input), row.error, JSON.stringify(row));
+  }
 });
