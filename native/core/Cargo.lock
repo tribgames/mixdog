@@ -4101,12 +4101,21 @@ name = "mixdog-browser-policy"
 version = "1.5.0"
 dependencies = [
  "async-trait",
+ "mixdog-browser-rules",
  "mixdog-js",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
  "tokio",
+ "url",
+]
+
+[[package]]
+name = "mixdog-browser-rules"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
  "url",
 ]
 
@@ -4894,7 +4903,6 @@ dependencies = [
  "libc",
  "mixdog-js",
  "mixdog-testkit",
- "mixdog-workspace-hack",
  "regress",
  "serde_json",
  "sha2 0.10.9",

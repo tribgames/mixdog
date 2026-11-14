@@ -553,6 +553,10 @@ impl HostChannel for Outgoing {
         self.claimant(capability, None).is_ok()
     }
 
+    fn serves_method(&self, capability: HostCapability, method: Method) -> bool {
+        self.claimant(capability, Some(method)).is_ok()
+    }
+
     async fn request(
         &self,
         capability: HostCapability,
