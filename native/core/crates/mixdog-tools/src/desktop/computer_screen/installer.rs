@@ -70,7 +70,7 @@ const INVALID_KEY_OP_DETAIL: &str = "a controller key is invalid";
 /// Whether the installed service matches the bundled bridge, from its unelevated `check`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum InstallState {
+pub enum InstallState {
     Installed,
     Outdated,
     NotInstalled,
@@ -152,7 +152,7 @@ pub(super) enum KeyVerb {
 
 /// The PC account's Windows password a phone typed, for the no-prompt batch-logon path.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Credential {
+pub struct Credential {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     pub password: String,
@@ -179,7 +179,7 @@ pub(super) struct KeyOp {
 
 /// Options of an explicit key-set operation (PC access).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-pub(super) struct KeyChangeOptions {
+pub struct KeyChangeOptions {
     /// Keys to also revoke in the same elevation (pending revokes).
     #[serde(default)]
     pub revoke: Vec<String>,
@@ -193,7 +193,7 @@ pub(super) struct KeyChangeOptions {
 /// refusals and the app-delegated path's PC-side refusals.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum KeyChangeOutcome {
+pub enum KeyChangeOutcome {
     Installed,
     Updated,
     Declined,
@@ -215,7 +215,7 @@ pub(super) enum KeyChangeOutcome {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct KeyChangeResult {
+pub struct KeyChangeResult {
     pub outcome: KeyChangeOutcome,
     pub state: InstallState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
