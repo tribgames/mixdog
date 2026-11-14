@@ -3,8 +3,8 @@
 //! this PC's notification preferences (`mixdog_core_domains::notify::decision`); the toast itself is `host/notification/show`
 //! with the connection id, so a click brings that server's window (and session) to the front.
 //!
-//! The notifier reads the server's session list, agent pool and per-session states from the link's feed and the link's own
-//! view; it never answers or sends anything to the server.
+//! The notifier reads the server's session list, agent pool and held approvals from the link's feed and the link's own view; it
+//! never answers or sends anything to the server.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostNotificationShowParams;
+use mixdog_app_server_client::api::RequestId;
 use mixdog_core_domains::notify::decision::{
     allows_device_notice, decide, Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView,
     SessionFields,
@@ -19,14 +20,15 @@ use mixdog_core_domains::notify::decision::{
 use mixdog_core_domains::notify::preview::notification_preview;
 use mixdog_rt::CancellationToken;
 use mixdog_services::bots::routine::is_routine_quiet_reply;
+use mixdog_services::task_reports::chain::sessions_with_pending_work;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::link::ServerLink;
 use crate::link_machine::{LinkState, LinkViewState};
 use crate::server_feed::{
-    is_session_missing, AgentRowLite, FinalAnswer, FinalAnswerStatus, SessionRunState, SessionStateChange, SessionSummaryLite,
+    is_session_missing, AgentRowLite, ApprovalKind, FinalAnswer, FinalAnswerStatus, PendingApproval, SessionSummaryLite,
 };
 
 /// A drop shorter than this is not worth a notification.
@@ -52,6 +54,8 @@ const READ_FAILURE_LIMIT: u32 = 6;
 /// One answer read gets this long before it is counted as a transient failure, so a read that never settles cannot hold the
 /// single read slot (and with it every notification) forever.
 const READ_DEADLINE: Duration = Duration::from_secs(30);
+/// How many told approvals are remembered, so the same request held again after a reconnect is not told twice.
+const TOLD_APPROVALS: usize = 256;
 
 /// Where a toast goes: this PC's desktop host (`host/notification/show`).
 pub trait NotifySink: Send + Sync {
@@ -141,7 +145,8 @@ pub struct NotifierEnv {
 pub struct NotifierSources {
     pub sessions: watch::Receiver<Vec<SessionSummaryLite>>,
     pub agent_pool: watch::Receiver<Vec<AgentRowLite>>,
-    pub states: broadcast::Receiver<SessionStateChange>,
+    /// The approvals and questions the server holds (a thread's state does not carry them).
+    pub approvals: watch::Receiver<Vec<PendingApproval>>,
     pub view: watch::Receiver<LinkViewState>,
     pub answers: Arc<dyn FinalAnswers>,
 }
@@ -164,7 +169,7 @@ impl ServerNotifier {
         let sources = NotifierSources {
             sessions: link.feed().sessions(),
             agent_pool: link.feed().agent_pool(),
-            states: link.feed().session_states(),
+            approvals: link.feed().pending_approvals(),
             view: link.view(),
             answers: Arc::new(LinkAnswers(link.clone())),
         };
@@ -204,79 +209,6 @@ pub fn bounded_notification(title: &str, body: &str) -> (String, String) {
 
 fn named(template: &str, name: &str) -> String {
     template.replacen("{{name}}", name, 1)
-}
-
-// ---- agent rows: which Lead sessions still wait on agent work they started
-
-fn status_values(row: &AgentRowLite) -> Vec<String> {
-    let mut values: Vec<String> = Vec::new();
-    for text in [&row.stage, &row.status] {
-        let text = text.trim();
-        if !text.is_empty() && !values.iter().any(|value| value == text) {
-            values.push(text.to_owned());
-        }
-    }
-    values
-}
-
-fn is_cancelled_status(status: &str) -> bool {
-    let status = status.to_lowercase();
-    ["cancel", "killed", "aborted", "interrupted"].iter().any(|word| status.contains(word))
-}
-
-fn is_cancel_unconfirmed_status(status: &str) -> bool {
-    let status = status.to_lowercase();
-    if status.contains("cancelling") || status.contains("canceling") {
-        return true;
-    }
-    status.match_indices("cancel").any(|(at, word)| {
-        let rest = &status[at + word.len()..];
-        let rest = rest.strip_prefix(|c: char| c == '-' || c == '_' || c.is_whitespace()).unwrap_or(rest);
-        rest.starts_with("unconfirmed") || rest.starts_with("pending")
-    })
-}
-
-fn is_terminal_status(status: &str) -> bool {
-    ["idle", "done", "complete", "success", "closed", "error", "fail", "cancel", "killed", "timeout"]
-        .iter()
-        .any(|word| status.contains(word))
-}
-
-fn is_active_status(status: &str) -> bool {
-    if matches!(status, "connecting" | "requesting" | "streaming" | "running" | "queued" | "pending" | "starting" | "resource_wait") {
-        return true;
-    }
-    status.strip_prefix("tool").is_some_and(|rest| {
-        let rest = rest.strip_prefix(|c: char| c == '-' || c == '_' || c.is_whitespace()).unwrap_or(rest);
-        rest == "running"
-    })
-}
-
-/// `status` decides alone; the stage decides only for a row that carries no status. A cancel in either field ends the row's
-/// work.
-fn is_active_agent(row: &AgentRowLite) -> bool {
-    let statuses = status_values(row);
-    if statuses.is_empty() || statuses.iter().any(|status| is_cancelled_status(status)) {
-        return false;
-    }
-    let lifecycle = (if row.status.trim().is_empty() { statuses[0].clone() } else { row.status.trim().to_owned() }).to_lowercase();
-    !is_terminal_status(&lifecycle) && is_active_status(&lifecycle)
-}
-
-/// Lead sessions still waiting on agent work they started: a running or queued child agent, or a cancel not yet proven. The
-/// Lead's own row is skipped: its turn state comes from the roster.
-fn sessions_with_pending_work(agents: &[AgentRowLite]) -> HashSet<String> {
-    let mut pending = HashSet::new();
-    for agent in agents {
-        let owner = agent.owner_session_id.clone().filter(|id| !id.is_empty()).unwrap_or_else(|| agent.session_id.clone());
-        if owner.is_empty() || agent.session_id == owner {
-            continue;
-        }
-        if is_active_agent(agent) || status_values(agent).iter().any(|status| is_cancel_unconfirmed_status(status)) {
-            pending.insert(owner);
-        }
-    }
-    pending
 }
 
 // ---- the session roster: which turns just finished
@@ -420,8 +352,8 @@ struct Notifier {
     reading: bool,
     titles: HashMap<String, String>,
     conversations: HashMap<String, Conversation>,
-    /// The approval each session shows.
-    approvals: HashMap<String, String>,
+    /// The approvals already told (or already showing when the notifier started), newest last.
+    told: VecDeque<RequestId>,
     lost_timer: Option<u64>,
     lost_shown: bool,
     previous: Status,
@@ -506,7 +438,8 @@ impl Notifier {
 
     fn on_agent_pool(&mut self, agents: &[AgentRowLite]) {
         // Background work settling with no new Lead turn means the answer the Lead already gave was the final one.
-        self.pending_work = sessions_with_pending_work(agents);
+        let rows: Vec<Value> = agents.iter().map(|agent| agent.row.clone()).collect();
+        self.pending_work = sessions_with_pending_work(&rows);
         self.observe();
     }
 
@@ -665,46 +598,43 @@ impl Notifier {
         self.show(&title, &body, Some(&completion.session_id));
     }
 
-    // -- approvals: a session that STARTS waiting on a tool approval needs the user
+    // -- approvals: a session that STARTS waiting on a tool approval or a question needs the user
 
-    fn on_state(&mut self, change: SessionStateChange) {
-        let session_id = change.session_id;
-        let approval = if change.state == SessionRunState::Gone {
-            None
-        } else {
-            change.snapshot.get("toolApproval").filter(|approval| approval.is_object())
-        };
-        let key = approval.map(|approval| match approval.get("id") {
-            Some(Value::String(id)) => id.clone(),
-            Some(Value::Number(id)) => id.to_string(),
-            Some(Value::Null) | None => "pending".to_owned(),
-            Some(other) => other.to_string(),
-        });
-        let previous = self.approvals.get(&session_id).cloned();
-        match &key {
-            Some(key) => {
-                self.approvals.insert(session_id.clone(), key.clone());
-            }
-            None => {
-                self.approvals.remove(&session_id);
-                return;
+    /// `rows` is every request the server holds; a session shows the lowest `order` of its own. A request told is not told
+    /// again (the server holds it again after a reconnect); the ones showing when the notifier starts are what the window
+    /// already shows (`baseline`). Browser and computer requests have their own dialogs, which tell them.
+    fn on_approvals(&mut self, rows: &[PendingApproval], baseline: bool) {
+        let mut heads: HashMap<&str, &PendingApproval> = HashMap::new();
+        for row in rows.iter().filter(|row| matches!(row.kind, ApprovalKind::Tool | ApprovalKind::Question | ApprovalKind::Permissions)) {
+            let head = heads.entry(row.session_id.as_str()).or_insert(row);
+            if row.order < head.order {
+                *head = row;
             }
         }
-        if key == previous {
+        let mut heads: Vec<&PendingApproval> = heads.into_values().filter(|head| !self.told.contains(&head.request_id)).collect();
+        heads.sort_by_key(|head| head.order);
+        for head in heads {
+            self.told.push_back(head.request_id.clone());
+            if self.told.len() > TOLD_APPROVALS {
+                self.told.pop_front();
+            }
+            if !baseline {
+                self.tell_approval(head);
+            }
+        }
+    }
+
+    fn tell_approval(&self, approval: &PendingApproval) {
+        let session_id = approval.session_id.as_str();
+        let event = if approval.kind == ApprovalKind::Question { Event::Question } else { Event::Approval };
+        let conversation =
+            self.conversations.get(session_id).cloned().unwrap_or_else(|| Conversation::of(session_id, &SessionFields::default()));
+        if !self.allowed(session_id, event, &conversation) {
             return;
         }
-        let event = if approval.and_then(|approval| approval.get("kind")).and_then(Value::as_str) == Some("question") {
-            Event::Question
-        } else {
-            Event::Approval
-        };
-        let conversation = self.conversations.get(&session_id).cloned().unwrap_or_else(|| Conversation::of(&session_id, &SessionFields::default()));
-        if !self.allowed(&session_id, event, &conversation) {
-            return;
-        }
-        let name = self.titles.get(&session_id).filter(|title| !title.is_empty()).unwrap_or(&self.env.server_name);
+        let name = self.titles.get(session_id).filter(|title| !title.is_empty()).unwrap_or(&self.env.server_name);
         let title = self.label(&self.session_title_label(name));
-        self.show(&title, &self.env.texts.approval_waiting(), Some(&session_id));
+        self.show(&title, &self.env.texts.approval_waiting(), Some(session_id));
     }
 
     // -- the link: a drop that lasts, and the recovery after a drop that was told
@@ -804,7 +734,7 @@ async fn run(env: NotifierEnv, mut sources: NotifierSources) {
         reading: false,
         titles: HashMap::new(),
         conversations: HashMap::new(),
-        approvals: HashMap::new(),
+        told: VecDeque::new(),
         lost_timer: None,
         lost_shown: false,
         previous: Status::Connected,
@@ -813,6 +743,8 @@ async fn run(env: NotifierEnv, mut sources: NotifierSources) {
     notifier.on_sessions(initial);
     let pool = sources.agent_pool.borrow_and_update().clone();
     notifier.on_agent_pool(&pool);
+    let held = sources.approvals.borrow_and_update().clone();
+    notifier.on_approvals(&held, true);
     let view = sources.view.borrow_and_update().clone();
     notifier.on_link(&view);
     loop {
@@ -838,11 +770,13 @@ async fn run(env: NotifierEnv, mut sources: NotifierSources) {
                 let view = sources.view.borrow_and_update().clone();
                 notifier.on_link(&view);
             }
-            state = sources.states.recv() => match state {
-                Ok(change) => notifier.on_state(change),
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => return,
-            },
+            changed = sources.approvals.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let held = sources.approvals.borrow_and_update().clone();
+                notifier.on_approvals(&held, false);
+            }
             Some(wake) = woken.recv() => notifier.on_wake(wake),
         }
     }
