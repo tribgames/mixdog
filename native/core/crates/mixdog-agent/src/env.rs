@@ -1296,6 +1296,22 @@ pub struct ProviderSend {
     pub message_count: usize,
 }
 
+/// A completed request's usage, as `traceAgentUsage` reports it: the `usage_raw` row of the agent trace, which the memory
+/// service's trace stats read each model call from.
+#[derive(Clone, Debug)]
+pub struct RequestUsage {
+    /// The iteration the send completed.
+    pub iteration: u32,
+    pub provider: String,
+    /// The model that answered (the response's, else the run's).
+    pub model: String,
+    /// The model the run asked for.
+    pub requested_model: String,
+    /// `opts.sourceType`: the kind of request, when it is not a plain turn.
+    pub source_type: Option<String>,
+    pub usage: Usage,
+}
+
 /// The host's tool log: the agent trace's `batch` and `tool` rows (`agent-trace.jsonl`) and the failure log
 /// (`tool-failures.jsonl`). Called in call order, before a call's result is cached or committed. Never blocks and never fails
 /// the run.
@@ -1321,6 +1337,8 @@ pub trait ToolFailureLog: Send + Sync {
     /// `traceProviderSend(...)`: a completed send's `loop` row (`traceAgentLoop`), which the host writes only under
     /// `MIXDOG_AGENT_TRACE_VERBOSE` / `_TIMING`. A host without the trace writes nothing.
     fn provider_send(&self, _send: ProviderSend) {}
+    /// `traceAgentUsage(...)`: a completed request's `usage_raw` row. A host without the trace writes nothing.
+    fn request_usage(&self, _usage: RequestUsage) {}
 }
 
 /// Everything a run borrows from its host.
