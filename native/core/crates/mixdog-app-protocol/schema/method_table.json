@@ -1124,6 +1124,26 @@
     },
     {
       "class": "C1",
+      "method": "statusline/read",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::statusline::StatuslineReadParams",
+      "result": "v2::statusline::StatuslineReadResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "thread/getSessionUsage",
       "mutation": {
         "kind": "none"

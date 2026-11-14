@@ -2169,6 +2169,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 config: Arc::new({ let config = config.clone(); move || prompt_config_slice(&config.full()) }),
                 core_memory: core_memory.clone(),
                 skills: Arc::new(mixdog_core::run_host::prompt_rebuild::CatalogPromptSkills(mcp.catalog.clone())),
+                user_cwd: mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
             }),
             skills: Arc::new(mixdog_core::run_host::mcp_seams::CatalogSkillsListed(mcp.catalog.clone())),
             tool_host: hub_surface_host.clone(),
@@ -2945,6 +2946,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
     builder.register(Arc::new(mixdog_core_session::session::secret_input::HumanOnlyService::new(human_only)))?; // `host/humanOnly/*`: the desktop's holds on the one human-only lock
     builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone()).with_secret_slots(secret.slots.clone())))?; // `takeover/ready`: the takeover card and the sign-in window ask whether the person may act
+    builder.register(Arc::new(crate::statusline_port::StatuslineService::new(
+        b.data_dir.clone(),
+        crate::statusline_port::StatuslineService::claude_config_dir(&|name| (b.env)(name).map(std::ffi::OsString::from), std::env::home_dir()),
+        b.catalog.clone(),
+        gateway_usage.clone(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64),
+    )))?; // `statusline/read`: the footer's route status and limits (the one `GatewayUsage` the route spend is shared with)
     builder.register(Arc::new(mixdog_tools::orch::status::ToolsService::new(tool_surface.clone())))?; // `tools/*`
     let scm_service = mixdog_scm::service::ScmService::new(
         scm.clone(),

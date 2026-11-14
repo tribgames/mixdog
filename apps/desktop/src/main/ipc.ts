@@ -28,7 +28,8 @@ import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
 import type { PaneLayoutFile } from './pane-layout-file';
 import { registerProjectIpc } from './ipc-projects';
-import { requestLinuxInputAccess } from './linux-input-access';
+import { coreErrorForWindow } from './protocol/core-error';
+import type { DesktopComputerInputAccess } from '../shared/contract-computer';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
 import { registerNotificationIpc } from './ipc-notifications';
@@ -258,6 +259,8 @@ export function registerDesktopIpc(
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
+  // This PC's core: what reads or writes this computer (a saved file, an attachment, a chat link, the input-access rule) is answered by it.
+  const localCore = pcCore ?? protocol ?? null;
   const assertSender = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
       throw new Error('IPC call rejected.');
@@ -350,9 +353,18 @@ export function registerDesktopIpc(
     invokeDesktopOperation,
     nativeT,
     describeLocalPaths,
+    core: localCore,
   });
-  registerProjectIpc({ handle, host, shell, invokeDesktopOperation, operations: serviceOperations });
-  handle(DESKTOP_IPC.requestLinuxInputAccess, () => requestLinuxInputAccess());
+  registerProjectIpc({ handle, host, shell, invokeDesktopOperation, operations: serviceOperations, core: localCore });
+  handle(DESKTOP_IPC.requestLinuxInputAccess, async () => {
+    if (!localCore) throw new Error('The core connection is not available.');
+    try {
+      // `desktop/computer/inputAccess/request`: the core installs the /dev/uinput rule once (one polkit prompt) and answers the outcome.
+      return (await localCore.call('desktop/computer/inputAccess/request', {})) as DesktopComputerInputAccess;
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
+  });
   registerProjectFileIpc({
     app: serviceApp,
     handle,
@@ -479,6 +491,7 @@ export function registerDesktopIpc(
     grantedFile,
     describeLocalPaths,
     stageAttachment,
+    core: localCore,
   });
   const eventChannels = new Set<string>([
     DESKTOP_IPC.state,

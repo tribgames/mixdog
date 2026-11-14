@@ -42,6 +42,8 @@ fn expansion_bound(method: &str) -> u64 {
         "turn/start" | "thread/start" | "room/send" => 1_000_000 + 30_000_000 + 28_000_000 + MAX_STRUCTURED_STRING_TOTAL,
         // Up to 100 files, each with content and expected content (`requiredWorkspaceTextWrites`).
         "projectFs/writeTextBatch" => 100 * 2 * MAX_TEXT_FILE_LENGTH,
+        // A "Save as" source: at most 64 MiB of characters (`requiredSaveSource`), the base64 of the file.
+        "desktop/userFile/write" => 64 * 1024 * 1024,
         _ => MAX_STRUCTURED_STRING_TOTAL,
     }
 }

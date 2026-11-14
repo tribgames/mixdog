@@ -16,4 +16,6 @@ export const BLOB_REF_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'projectFs/replaceText': ['/replacement'],
   'lsp/document': ['/document/content'],
   'git/applyPatch': ['/patch'],
+  'desktop/attachment/write': ['/dataUrl'],
+  'desktop/userFile/write': ['/dataBase64'],
 };

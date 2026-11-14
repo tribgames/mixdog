@@ -484,6 +484,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// What a front end's footer shows of a thread's route: the route with its cached quota windows and context share (`loadGatewayStatus`), and the limits of that route: quota windows, balance and the route's spend (`buildGatewayLimits`). Both are null when the thread has no route.
+    StatuslineRead => "statusline/read" {
+        params: v2::statusline::StatuslineReadParams,
+        result: v2::statusline::StatuslineReadResult,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's session read action `getSessionUsage`.
     ThreadGetSessionUsage => "thread/getSessionUsage" {
         params: ThreadGetSessionUsageParams,

@@ -166,7 +166,9 @@ impl Inner {
         let quota_cache = read_json(&self.data_dir.join(QUOTA_CACHE_FILE));
         let own = read_aged(&self.data_dir.join(CLAUDE_CURRENT_FILE));
         let last = read_aged(&self.claude_dir.join(CLAUDE_LAST_FILE));
-        let aged = |file: &Option<(Value, f64)>| file.as_ref().map(|(value, mtime_ms)| AgedFile { value, mtime_ms: *mtime_ms });
+        fn aged(file: &Option<(Value, f64)>) -> Option<AgedFile<'_>> {
+            file.as_ref().map(|(value, mtime_ms)| AgedFile { value, mtime_ms: *mtime_ms })
+        }
         let world = World { catalog: &self.catalog, settings: settings.as_ref(), own: aged(&own), last: aged(&last), now };
         let host_pid = params.client_host_pid.map(Value::from);
         let input = StatusInput {

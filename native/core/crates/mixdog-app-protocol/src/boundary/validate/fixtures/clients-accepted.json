@@ -1429,6 +1429,55 @@
   },
   {
     "client": "desktop",
+    "method": "browser/bridge/run",
+    "params": {
+      "command": {},
+      "signalId": "signalId-1"
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/run",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/bridge/turn",
+    "params": {
+      "phase": "begin",
+      "turnId": 1
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/turn",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/bridge/abort",
+    "params": {
+      "signalId": "signalId-1"
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/abort",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/command",
+    "params": {
+      "action": "action-1"
+    },
+    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:browser/command",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "test/browserEngine/run",
+    "params": {
+      "args": {},
+      "threadId": "threadId-1",
+      "tool": "browser"
+    },
+    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:test/browserEngine/run",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "host/browser/surface",
     "params": {
       "sessionId": "sessionId-1"
@@ -1447,22 +1496,39 @@
   },
   {
     "client": "desktop",
-    "method": "browser/command",
+    "method": "host/browser/events",
     "params": {
-      "action": "action-1"
+      "events": [
+        {
+          "method": "method-1",
+          "params": {},
+          "t": 1
+        }
+      ],
+      "pageId": "pageId-1",
+      "seq": 1
     },
-    "source": "apps/desktop/src/main/browser/test-support/core-harness.ts:browser/command",
+    "source": "apps/desktop/src/main/browser/latency-scenarios.ts:host/browser/events",
     "case": "required fields"
   },
   {
     "client": "desktop",
-    "method": "test/browserEngine/run",
+    "method": "computer/bridge/run",
     "params": {
-      "args": {},
-      "threadId": "threadId-1",
-      "tool": "browser"
+      "command": {},
+      "sessionKey": "sessionKey-1",
+      "signalId": "signalId-1"
     },
-    "source": "apps/desktop/src/main/browser/test-support/core-harness.ts:test/browserEngine/run",
+    "source": "apps/desktop/src/main/computer/bridge/bridge-command-dispatch.ts:computer/bridge/run",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/bridge/abort",
+    "params": {
+      "sessionKey": "sessionKey-1"
+    },
+    "source": "apps/desktop/src/main/computer/bridge/bridge-command-dispatch.ts:computer/bridge/abort",
     "case": "required fields"
   },
   {
@@ -1668,23 +1734,6 @@
   },
   {
     "client": "desktop",
-    "method": "host/browser/events",
-    "params": {
-      "events": [
-        {
-          "method": "method-1",
-          "params": {},
-          "t": 1
-        }
-      ],
-      "pageId": "pageId-1",
-      "seq": 1
-    },
-    "source": "apps/desktop/src/main/host/browser-engine/context.ts:host/browser/events",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "host/browser/page/facts",
     "params": {
       "facts": {
@@ -1745,7 +1794,7 @@
     "params": {
       "hostId": "hostId-1"
     },
-    "source": "apps/desktop/src/main/host/connection.ts:host/claim",
+    "source": "apps/desktop/src/main/host/claim-resources.ts:host/claim",
     "case": "required fields"
   },
   {
@@ -1825,6 +1874,26 @@
   },
   {
     "client": "desktop",
+    "method": "desktop/nativeToolCache/gc",
+    "params": {
+      "bundledKinds": [
+        "bundledKinds-1"
+      ]
+    },
+    "source": "apps/desktop/src/main/index.ts:desktop/nativeToolCache/gc",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/userFile/write",
+    "params": {
+      "path": "path-1"
+    },
+    "source": "apps/desktop/src/main/ipc-file-dialogs.ts:desktop/userFile/write",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "remoteAccess/state",
     "params": {},
     "source": "apps/desktop/src/main/ipc-notifications.ts:remoteAccess/state",
@@ -1848,12 +1917,62 @@
   },
   {
     "client": "desktop",
+    "method": "feedback/upload",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000236"
+    },
+    "source": "apps/desktop/src/main/ipc-projects.ts:feedback/upload",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/localLink/open",
+    "params": {
+      "href": "href-1",
+      "projectPath": "projectPath-1"
+    },
+    "source": "apps/desktop/src/main/ipc-projects.ts:desktop/localLink/open",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "desktop/attachment/resolve",
     "params": {
       "attachmentId": "attachmentId-1",
       "sessionId": "sessionId-1"
     },
     "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/resolve",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/attachment/thumbnail",
+    "params": {
+      "attachmentRef": "attachmentRef-1"
+    },
+    "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/thumbnail",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "agent/memory/delete",
+    "params": {
+      "agentId": "agentId-1",
+      "entryId": "entryId-1",
+      "indexRevision": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000237"
+    },
+    "source": "apps/desktop/src/main/ipc-sessions.ts:agent/memory/delete",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/attachment/write",
+    "params": {
+      "dataUrl": "dataUrl-1"
+    },
+    "source": "apps/desktop/src/main/ipc-source-control.ts:desktop/attachment/write",
     "case": "required fields"
   },
   {
@@ -1870,6 +1989,13 @@
     "method": "desktop/fonts/list",
     "params": {},
     "source": "apps/desktop/src/main/ipc-window-settings.ts:desktop/fonts/list",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/computer/inputAccess/request",
+    "params": {},
+    "source": "apps/desktop/src/main/ipc.ts:desktop/computer/inputAccess/request",
     "case": "required fields"
   },
   {
@@ -2025,7 +2151,7 @@
     "client": "desktop",
     "method": "account/refreshProviderSetup",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000236"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000238"
     },
     "source": "apps/desktop/src/main/protocol/section-capability-lane.ts:account/refreshProviderSetup",
     "case": "required fields"
@@ -2494,16 +2620,6 @@
   },
   {
     "client": "desktop",
-    "method": "feedback/upload",
-    "params": {
-      "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000237"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-files.ts:feedback/upload",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "projectFs/captureSnapshot",
     "params": {
       "rel": "rel-1",
@@ -2528,7 +2644,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000238",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000239",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2539,7 +2655,7 @@
     "client": "desktop",
     "method": "approval/provideSecret",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000239",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000240",
       "requestId": "requestId-1",
       "secret": "secret-1"
     },
@@ -2561,7 +2677,7 @@
     "method": "thread/start",
     "params": {
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000240"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000241"
     },
     "source": "apps/desktop/src/renderer/remote-capability-lane.ts:thread/start",
     "case": "required fields"
@@ -2606,7 +2722,7 @@
     "method": "projectFs/recovery",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000241",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000242",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:projectFs/recovery",
@@ -2617,7 +2733,7 @@
     "method": "room/remove",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000242"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000243"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-chat.ts:room/remove",
     "case": "required fields"
@@ -2673,7 +2789,7 @@
     "client": "desktop",
     "method": "project/create",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000243",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000244",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/create",
@@ -2684,7 +2800,7 @@
     "method": "project/update",
     "params": {
       "alias": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000244",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000245",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/update",
@@ -2694,7 +2810,7 @@
     "client": "desktop",
     "method": "project/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000245",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000246",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/delete",
@@ -2725,7 +2841,7 @@
     "params": {
       "directory": true,
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000246",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000247",
       "relDir": "relDir-1",
       "root": "root-1"
     },
@@ -2737,7 +2853,7 @@
     "method": "projectFs/rename",
     "params": {
       "newName": "newName-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000247",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000248",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2748,7 +2864,7 @@
     "client": "desktop",
     "method": "projectFs/move",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000248",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000249",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -2760,7 +2876,7 @@
     "client": "desktop",
     "method": "projectFs/copy",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000249",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000250",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -2772,7 +2888,7 @@
     "client": "desktop",
     "method": "projectFs/trash",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000250",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000251",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2822,7 +2938,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000251",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000252",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/write",
@@ -2832,7 +2948,7 @@
     "client": "desktop",
     "method": "projectFs/backup/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000252",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000253",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/delete",
@@ -2843,7 +2959,7 @@
     "method": "projectFs/workspaceFile/write",
     "params": {
       "folders": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000253",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000254",
       "workspaceFile": "workspaceFile-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/workspaceFile/write",
@@ -2874,7 +2990,7 @@
     "client": "desktop",
     "method": "projectFs/replaceText",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000254",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000255",
       "options": {},
       "replacement": "replacement-1",
       "root": "root-1"
@@ -2897,7 +3013,7 @@
     "client": "desktop",
     "method": "lsp/request",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000255",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000256",
       "projectPath": "projectPath-1",
       "request": {},
       "root": "root-1"
@@ -2910,7 +3026,7 @@
     "method": "projectFs/writeTextBatch",
     "params": {
       "files": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000256",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000257",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/writeTextBatch",
@@ -2951,7 +3067,7 @@
     "method": "remoteAccess/registerNativePush",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000257"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000258"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
     "case": "required fields"
@@ -2960,7 +3076,7 @@
     "client": "desktop",
     "method": "remoteAccess/removeNativePush",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000258"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000259"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
     "case": "required fields"
@@ -2990,7 +3106,7 @@
     "method": "update/desktop/command",
     "params": {
       "action": "check",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000259"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000260"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:update/desktop/command",
     "case": "required fields"
@@ -3026,7 +3142,7 @@
     "client": "desktop",
     "method": "terminal/dispose",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000260",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000261",
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/dispose",
@@ -3077,7 +3193,7 @@
       "input": {
         "prompt": "prompt-1"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000261",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000262",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:turn/start",
@@ -3088,7 +3204,7 @@
     "method": "room/send",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000262"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000263"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:room/send",
     "case": "required fields"
@@ -3098,7 +3214,7 @@
     "method": "thread/stageAttachmentOriginal",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000263"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000264"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/stageAttachmentOriginal",
     "case": "required fields"
@@ -3108,7 +3224,7 @@
     "method": "thread/resizeImage",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000264"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000265"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/resizeImage",
     "case": "required fields"
@@ -3118,7 +3234,7 @@
     "method": "media/startMediaJob",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000265"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000266"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/startMediaJob",
     "case": "required fields"
@@ -3129,7 +3245,7 @@
     "params": {
       "id": "id-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000266"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000267"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/cacheMediaThumbnail",
     "case": "required fields"
@@ -3139,7 +3255,7 @@
     "method": "voice/transcribeAudio",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000267"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000268"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:voice/transcribeAudio",
     "case": "required fields"
@@ -3149,7 +3265,7 @@
     "method": "git/applyPatch",
     "params": {
       "cwd": "cwd-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000268",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000269",
       "patch": "patch-1",
       "path": "path-1"
     },
@@ -3167,7 +3283,7 @@
     "client": "desktop",
     "method": "config/setBotOrder",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000269",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000270",
       "order": [
         "order-1"
       ]
@@ -3179,7 +3295,7 @@
     "client": "desktop",
     "method": "route/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000270",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000271",
       "route": {}
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:route/set",
@@ -3189,7 +3305,7 @@
     "client": "desktop",
     "method": "thread/queue/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000271",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000272",
       "restore": true,
       "threadId": "threadId-1"
     },
@@ -3209,7 +3325,7 @@
     "client": "desktop",
     "method": "thread/clear",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000272",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000273",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/clear",
@@ -3219,7 +3335,7 @@
     "client": "desktop",
     "method": "thread/name/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000273",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000274",
       "threadId": "threadId-1",
       "title": "title-1"
     },
@@ -3230,7 +3346,7 @@
     "client": "desktop",
     "method": "thread/metadata/update",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000274",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000275",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/metadata/update",
@@ -3240,7 +3356,7 @@
     "client": "desktop",
     "method": "thread/archive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000275",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000276",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/archive",
@@ -3250,7 +3366,7 @@
     "client": "desktop",
     "method": "thread/unarchive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000276",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000277",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/unarchive",
@@ -3260,7 +3376,7 @@
     "client": "desktop",
     "method": "thread/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000277",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000278",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/delete",
@@ -3270,7 +3386,7 @@
     "client": "desktop",
     "method": "thread/backgroundTerminals/terminate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000278",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000279",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -3423,7 +3539,7 @@
     "method": "remoteAccess/setEnabled",
     "params": {
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000279"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000280"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setEnabled",
     "case": "required fields"
@@ -3433,7 +3549,7 @@
     "method": "remoteAccess/setName",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000280"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000281"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setName",
     "case": "required fields"
@@ -3444,7 +3560,7 @@
     "params": {
       "alias": "alias-1",
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000281"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000282"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setClientAlias",
     "case": "required fields"
@@ -3453,7 +3569,7 @@
     "client": "desktop",
     "method": "remoteAccess/rotate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000282"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000283"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/rotate",
     "case": "required fields"
@@ -3478,7 +3594,7 @@
     "params": {
       "approve": true,
       "claimId": "claimId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000283"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000284"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/resolveClaim",
     "case": "required fields"
@@ -3488,7 +3604,7 @@
     "method": "remoteAccess/pairCode",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000284"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000285"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/pairCode",
     "case": "required fields"
@@ -3498,7 +3614,7 @@
     "method": "remoteAccess/revokeClient",
     "params": {
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000285"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000286"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/revokeClient",
     "case": "required fields"
@@ -3508,7 +3624,7 @@
     "method": "remoteAccess/settleOwedControllerKeys",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000286"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000287"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/settleOwedControllerKeys",
     "case": "required fields"
@@ -3517,7 +3633,7 @@
     "client": "desktop",
     "method": "transfer/beginWrite",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000287",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000288",
       "size": 1
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/beginWrite",
@@ -3527,7 +3643,7 @@
     "client": "desktop",
     "method": "transfer/trash/entry",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000288",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000289",
       "path": "path-1",
       "rel": "rel-1"
     },
@@ -3549,7 +3665,7 @@
     "client": "desktop",
     "method": "transfer/commit",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000289",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000290",
       "transferId": "transferId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/commit",
@@ -3626,7 +3742,7 @@
     "method": "mcp/beginMcpOAuthLogin",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000290"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000291"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:mcp/beginMcpOAuthLogin",
     "case": "required fields"
@@ -3635,7 +3751,7 @@
     "client": "desktop",
     "method": "account/beginOAuthProviderLogin",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000291",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000292",
       "providerId": "providerId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:account/beginOAuthProviderLogin",
@@ -3645,7 +3761,7 @@
     "client": "desktop",
     "method": "github/login/start",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000292"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000293"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/start",
     "case": "required fields"
@@ -3655,7 +3771,7 @@
     "method": "mcp/cancelMcpOAuthLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000293"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000294"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:mcp/cancelMcpOAuthLogin",
     "case": "required fields"
@@ -3665,7 +3781,7 @@
     "method": "account/cancelOAuthProviderLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000294"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000295"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:account/cancelOAuthProviderLogin",
     "case": "required fields"
@@ -3675,7 +3791,7 @@
     "method": "github/login/cancel",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000295"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000296"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/cancel",
     "case": "required fields"
@@ -3684,7 +3800,7 @@
     "client": "desktop",
     "method": "remoteAccess/activate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000296"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000297"
     },
     "source": "apps/desktop/src/shared/core-lanes/remote-reads.ts:remoteAccess/activate",
     "case": "required fields"
@@ -3710,7 +3826,7 @@
     "method": "thread/readState/update",
     "params": {
       "messageCount": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000297",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000298",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/readState/update",
@@ -3736,7 +3852,7 @@
     "client": "desktop",
     "method": "thread/continueInModel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000298",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000299",
       "route": {
         "model": "model-1",
         "provider": "provider-1"
@@ -3750,7 +3866,7 @@
     "client": "desktop",
     "method": "thread/quotaResume/schedule",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000299",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000300",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/schedule",
@@ -3760,7 +3876,7 @@
     "client": "desktop",
     "method": "thread/quotaResume/cancel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000300",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000301",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/cancel",
@@ -3770,7 +3886,7 @@
     "client": "desktop",
     "method": "thread/backgroundTerminals/release",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000301",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000302",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -3792,7 +3908,7 @@
     "method": "agent/home/open",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000302"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000303"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/open",
     "case": "required fields"
@@ -3802,7 +3918,7 @@
     "method": "agent/home/reset",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000303"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000304"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/reset",
     "case": "required fields"
@@ -3814,18 +3930,6 @@
       "agentId": "agentId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/memory/list",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "agent/memory/delete",
-    "params": {
-      "agentId": "agentId-1",
-      "entryId": "entryId-1",
-      "indexRevision": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000304"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/memory/delete",
     "case": "required fields"
   },
   {
@@ -5441,6 +5545,58 @@
   },
   {
     "client": "desktop",
+    "method": "browser/bridge/run",
+    "params": {
+      "command": {},
+      "signalId": "signalId-1"
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/run",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/bridge/turn",
+    "params": {
+      "aborted": true,
+      "phase": "begin",
+      "sessionId": "sessionId-1",
+      "turnId": 1
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/turn",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/bridge/abort",
+    "params": {
+      "signalId": "signalId-1"
+    },
+    "source": "apps/desktop/src/main/browser/bridge-forward.ts:browser/bridge/abort",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/command",
+    "params": {
+      "action": "action-1",
+      "input": {}
+    },
+    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:browser/command",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "test/browserEngine/run",
+    "params": {
+      "args": {},
+      "threadId": "threadId-1",
+      "tool": "browser"
+    },
+    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:test/browserEngine/run",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "host/browser/surface",
     "params": {
       "error": "error-1",
@@ -5467,23 +5623,41 @@
   },
   {
     "client": "desktop",
-    "method": "browser/command",
+    "method": "host/browser/events",
     "params": {
-      "action": "action-1",
-      "input": {}
+      "events": [
+        {
+          "method": "method-1",
+          "params": {},
+          "sessionId": "sessionId-1",
+          "t": 1
+        }
+      ],
+      "pageId": "pageId-1",
+      "seq": 1
     },
-    "source": "apps/desktop/src/main/browser/test-support/core-harness.ts:browser/command",
+    "source": "apps/desktop/src/main/browser/latency-scenarios.ts:host/browser/events",
     "case": "every optional field"
   },
   {
     "client": "desktop",
-    "method": "test/browserEngine/run",
+    "method": "computer/bridge/run",
     "params": {
-      "args": {},
-      "threadId": "threadId-1",
-      "tool": "browser"
+      "command": {},
+      "sessionKey": "sessionKey-1",
+      "signalId": "signalId-1"
     },
-    "source": "apps/desktop/src/main/browser/test-support/core-harness.ts:test/browserEngine/run",
+    "source": "apps/desktop/src/main/computer/bridge/bridge-command-dispatch.ts:computer/bridge/run",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/bridge/abort",
+    "params": {
+      "sessionKey": "sessionKey-1",
+      "signalId": "signalId-1"
+    },
+    "source": "apps/desktop/src/main/computer/bridge/bridge-command-dispatch.ts:computer/bridge/abort",
     "case": "every optional field"
   },
   {
@@ -5705,24 +5879,6 @@
   },
   {
     "client": "desktop",
-    "method": "host/browser/events",
-    "params": {
-      "events": [
-        {
-          "method": "method-1",
-          "params": {},
-          "sessionId": "sessionId-1",
-          "t": 1
-        }
-      ],
-      "pageId": "pageId-1",
-      "seq": 1
-    },
-    "source": "apps/desktop/src/main/host/browser-engine/context.ts:host/browser/events",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "host/browser/page/facts",
     "params": {
       "facts": {
@@ -5820,7 +5976,7 @@
         "serves-1"
       ]
     },
-    "source": "apps/desktop/src/main/host/connection.ts:host/claim",
+    "source": "apps/desktop/src/main/host/claim-resources.ts:host/claim",
     "case": "every optional field"
   },
   {
@@ -5904,12 +6060,64 @@
   },
   {
     "client": "desktop",
+    "method": "desktop/nativeToolCache/gc",
+    "params": {
+      "bundledKinds": [
+        "bundledKinds-1"
+      ]
+    },
+    "source": "apps/desktop/src/main/index.ts:desktop/nativeToolCache/gc",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/userFile/write",
+    "params": {
+      "dataBase64": "dataBase64-1",
+      "path": "path-1",
+      "text": "text-1"
+    },
+    "source": "apps/desktop/src/main/ipc-file-dialogs.ts:desktop/userFile/write",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/localLink/open",
+    "params": {
+      "confirmedPath": "confirmedPath-1",
+      "href": "href-1",
+      "projectPath": "projectPath-1"
+    },
+    "source": "apps/desktop/src/main/ipc-projects.ts:desktop/localLink/open",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "desktop/attachment/resolve",
     "params": {
       "attachmentId": "attachmentId-1",
       "sessionId": "sessionId-1"
     },
     "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/resolve",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/attachment/thumbnail",
+    "params": {
+      "attachmentRef": "attachmentRef-1"
+    },
+    "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/thumbnail",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/attachment/write",
+    "params": {
+      "dataUrl": "dataUrl-1",
+      "name": "name-1"
+    },
+    "source": "apps/desktop/src/main/ipc-source-control.ts:desktop/attachment/write",
     "case": "every optional field"
   },
   {
@@ -5926,6 +6134,13 @@
     "method": "desktop/fonts/list",
     "params": {},
     "source": "apps/desktop/src/main/ipc-window-settings.ts:desktop/fonts/list",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/computer/inputAccess/request",
+    "params": {},
+    "source": "apps/desktop/src/main/ipc.ts:desktop/computer/inputAccess/request",
     "case": "every optional field"
   },
   {
