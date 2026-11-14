@@ -14,7 +14,7 @@ import { attachNeedsRedraw, TerminalFeedPositions, type TerminalFeedPosition } f
 import { createTerminalOutputDecoder, terminalActivityChanges, terminalReply, terminalSizeOwnerChanges } from '../../shared/terminal-protocol';
 import { requiredString } from '../../shared/scm-input';
 import type { TerminalSizeOwner, TerminalSizeOwnerEvent } from '../../shared/terminal-size-owner';
-import { TerminalDataBufferer, type TerminalDataEvent } from '../../main/terminal-data-buffer';
+import { TerminalDataBufferer, type TerminalDataEvent } from './terminal-data-buffer';
 import type { DirectContext } from './context';
 
 /** What the pane gets of a tab: its id, the screen up to the feed's position and who owns the size (never this window). */

@@ -16,7 +16,7 @@ interface TerminalProducerFlowControl {
   resume(id: string): void;
 }
 
-/** Coalesce bursty node-pty output before it crosses Electron IPC. */
+/** Coalesce bursty terminal output before the page's listeners get it, holding the core's producer back while the page has not parsed it. */
 export class TerminalDataBufferer {
   private readonly pending = new Map<string, PendingTerminalData>();
   private readonly inFlightChars = new Map<string, number>();
