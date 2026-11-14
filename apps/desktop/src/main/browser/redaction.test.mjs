@@ -1,21 +1,29 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import {
-  browserUrlContainsSecret,
-  redactBrowserText,
-  redactBrowserKnownSecrets,
-  redactBrowserUrl,
-} from './redaction.ts';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-test('browser URL secret detection covers encoded token shapes without blocking ordinary keys', () => {
+import { micaLibraryPath } from '../window-mica.ts';
+
+// The rules are Rust, served by mixdog_window.node: these tests run against the built module and are skipped, not
+// failed, while it is absent (cargo build --release in native/mixdog-window; they never build it).
+const built = existsSync(
+  micaLibraryPath({ isPackaged: false, resourcesPath: '', appPath: fileURLToPath(new URL('../../..', import.meta.url)) })
+);
+const skip = built ? false : 'mixdog_window.node is not built (cargo build --release in native/mixdog-window)';
+
+const { browserUrlContainsSecret, redactBrowserText, redactBrowserKnownSecrets, redactBrowserUrl } = built
+  ? await import('./redaction.ts')
+  : {};
+
+test('browser URL secret detection covers encoded token shapes without blocking ordinary keys', { skip }, () => {
   assert.equal(browserUrlContainsSecret('https://example.com/?api_key=value'), true);
   assert.equal(browserUrlContainsSecret('https://example.com/%67%68%70%5Fabcdefghijklmnopqrstuvwxyz'), true);
   assert.equal(browserUrlContainsSecret('https://example.com/docs?key=keyboard'), false);
 });
 
-test('browser URL secret decoding stays bounded and tolerates malformed escapes', () => {
+test('browser URL secret decoding stays bounded and tolerates malformed escapes', { skip }, () => {
   assert.equal(browserUrlContainsSecret('https://example.test/%2567%2568%2570%255Fabcdefghijklmnopqrstuvwxyz'), true);
   assert.equal(
     browserUrlContainsSecret('https://example.test/%252567%252568%252570%25255Fabcdefghijklmnopqrstuvwxyz'),
@@ -27,7 +35,7 @@ test('browser URL secret decoding stays bounded and tolerates malformed escapes'
   assert.equal(browserUrlContainsSecret(''), false);
 });
 
-test('browser output redacts URL credentials and common token shapes', () => {
+test('browser output redacts URL credentials and common token shapes', { skip }, () => {
   const redacted = redactBrowserText(
     'https://alice:secret@example.com/?access_token=abc123 sk-proj-abcdefghijklmnop ghp_abcdefghijklmnopqrstuvwxyz'
   );
@@ -37,14 +45,14 @@ test('browser output redacts URL credentials and common token shapes', () => {
   assert.doesNotMatch(redactBrowserUrl('https://example.test/callback?code=opaque-code&state=public'), /opaque-code/);
 });
 
-test('known browser credential redaction never amplifies short secrets', () => {
+test('known browser credential redaction never amplifies short secrets', { skip }, () => {
   const source = 'a password can be short: a';
   const redacted = redactBrowserKnownSecrets(source, ['a', '*']);
   assert.equal(redacted.includes('a'), false);
   assert.ok(redacted.length <= source.length);
 });
 
-test('auth assignments redact the entire opaque credential and repeated redaction is stable', () => {
+test('auth assignments redact the entire opaque credential and repeated redaction is stable', { skip }, () => {
   for (const value of [
     'Authorization: Bearer MIXDOG_SYNTHETIC_ONLY_0123456789',
     'authorization = Basic QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=',
@@ -62,20 +70,4 @@ test('auth assignments redact the entire opaque credential and repeated redactio
     redactBrowserText('Authorization: Bearer MIXDOG_SYNTHETIC_ONLY_0123456789'),
     'Authorization: [REDACTED]'
   );
-});
-
-/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
-const corpus = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/redaction.json', import.meta.url), 'utf8')
-);
-
-test('every case of the shared corpus gets the same answer as the Rust twin', () => {
-  assert.ok(corpus.length > 80);
-  for (const { case: name, input, expect } of corpus) {
-    let got;
-    if (input.fn === 'containsSecret') got = browserUrlContainsSecret(input.value);
-    else if (input.fn === 'redactUrl') got = redactBrowserUrl(input.value);
-    else got = redactBrowserKnownSecrets(redactBrowserText(input.value), input.secrets || []);
-    assert.equal(got, expect, name);
-  }
 });
