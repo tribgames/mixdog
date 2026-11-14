@@ -17,6 +17,12 @@ test('provideSecretInput sends approval/provideSecret and answers true', async (
   assert.deepEqual(calls, [{ method: 'approval/provideSecret', params: { requestId: 'secret_abcdefgh1234', secret: 'hunter2' } }]);
 });
 
+test('provideSecretInput trims the request id as the main handler did', async () => {
+  const { calls, api } = setup();
+  assert.equal(await api.provideSecretInput(' secret_abcdefgh1234 ', 'v'), true);
+  assert.equal(calls[0].params.requestId, 'secret_abcdefgh1234');
+});
+
 test('provideSecretInput takes the sign-in card suffix slots', async () => {
   const { calls, api } = setup();
   assert.equal(await api.provideSecretInput('secret_abcdefgh1234-username', 'me'), true);
@@ -53,5 +59,6 @@ test('takeoverReady refuses a missing id without a request', async () => {
   const { calls, api } = setup();
   await assert.rejects(() => api.takeoverReady('', 't1'), TypeError);
   await assert.rejects(() => api.takeoverReady('s1', 5), TypeError);
+  await assert.rejects(() => api.takeoverReady('not a session', 't1'), TypeError);
   assert.deepEqual(calls, []);
 });
