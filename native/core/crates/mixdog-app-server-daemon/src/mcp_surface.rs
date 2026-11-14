@@ -366,7 +366,8 @@ impl BridgeFeatures for SharedBridgeFiles {
 
 /// The composition's one bridge fact, decided here for the skill gate, the setup status, the doctor and the feature probes: what the
 /// core itself knows, not a file the desktop wrote. `terminal` exists whenever the core composed its terminal (it always does);
-/// `browser` and `visualize` exist while a connection holds the host claim that declared the capability; `computer` exists while
+/// `browser` exists while `desktop.browserControl` is on (the desktop published `browser-bridge.json` only then) and a connection
+/// holds the host claim that declared it; `visualize` exists while a claim declared it; `computer` exists while
 /// `desktop.computerControl` is on and a claimed host or a resolved helper can serve it (`computer_gate`). The `<id>-bridge.json`
 /// files ([`BridgeFiles`]) are not read for these facts.
 pub struct ToolBridges {
@@ -398,7 +399,7 @@ impl HostPresence for Presence {
 fn feature_up(feature: &str, serves: &dyn Fn(HostCapability) -> bool, desktop: &DesktopSettings, helper: bool) -> bool {
     match feature {
         "terminal" => true,
-        "browser" => serves(HostCapability::Browser),
+        "browser" => desktop.browser_control && serves(HostCapability::Browser),
         "visualize" => serves(HostCapability::Visualize),
         "computer" => computer_feature_present(desktop, &Presence { claimed: serves(HostCapability::Computer), helper }),
         _ => false,
@@ -721,19 +722,21 @@ mod tests {
         assert_eq!(wsl[1].1[3], "Start-Process -FilePath 'it''s'");
     }
 
-    fn desktop(computer_control: bool) -> DesktopSettings {
-        let doc = serde_json::json!({ "desktop": { "computerControl": computer_control } });
+    fn desktop(control: bool) -> DesktopSettings {
+        let doc = serde_json::json!({ "desktop": { "computerControl": control, "browserControl": control } });
         mixdog_core_config::config::desktop_settings(doc.as_object().unwrap())
     }
 
-    /// Terminal needs no bridge file and no claim; browser and visualize follow the claim that declared them, each its own.
+    /// Terminal needs no bridge file and no claim; browser and visualize follow the claim that declared them, each its own, and
+    /// browser also the `desktop.browserControl` switch.
     #[test]
     fn terminal_is_present_and_browser_follows_its_claim() {
         let none = |_: HostCapability| false;
         let browser_only = |capability: HostCapability| capability == HostCapability::Browser;
         assert!(feature_up("terminal", &none, &desktop(false), false));
         assert!(!feature_up("browser", &none, &desktop(true), true));
-        assert!(feature_up("browser", &browser_only, &desktop(false), false));
+        assert!(feature_up("browser", &browser_only, &desktop(true), false));
+        assert!(!feature_up("browser", &browser_only, &desktop(false), true));
         assert!(!feature_up("visualize", &browser_only, &desktop(true), true));
         assert!(feature_up("visualize", &|capability| capability == HostCapability::Visualize, &desktop(false), false));
         assert!(!feature_up("unknown", &|_| true, &desktop(true), true));
