@@ -406,13 +406,21 @@ async fn a_relay_backup_is_kept_under_the_file_that_was_admitted() {
 #[tokio::test(flavor = "multi_thread")]
 async fn host_only_file_calls_answer_the_missing_desktop_capability_without_a_window() {
     let env = env();
-    for (method, extra) in [("projectFs/captureSnapshot", json!({})), ("projectFs/localPageUrl", json!({})), ("projectFs/trash", json!({ "viaHost": true }))] {
+    for (method, extra) in [("projectFs/captureSnapshot", json!({})), ("projectFs/trash", json!({ "viaHost": true }))] {
         let mut params = json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" });
         params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         let answered = call(&env, method, params).await;
         assert!(matches!(&answered, Err(CoreError::CapabilityUnavailable { capability, .. }) if &**capability == "desktopHost"), "{method}: {answered:?}");
     }
     assert!(env.root.join("a.txt").exists(), "nothing was trashed");
+}
+
+/// The page server is the core's: without the desktop's files enabled the call is refused as unsupported, never sent to a window.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_local_page_url_without_the_page_server_is_unsupported() {
+    let env = env();
+    let answered = call(&env, "projectFs/localPageUrl", json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" })).await;
+    assert!(answered.is_err() && !matches!(&answered, Err(CoreError::CapabilityUnavailable { .. })), "{answered:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
