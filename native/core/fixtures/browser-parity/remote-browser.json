@@ -1,0 +1,3210 @@
+{
+ "description": "UI browser/command actions of the desktop (shared/remote-browser.ts, shared/browser-page-control.ts, main/host/browser-command.ts REMOTE_ACTIONS): the input the core receives and the refusal text the desktop gives (null: admitted). Read by remote-browser.test.mjs and the mixdog-exthost browser_validate tests.",
+ "rows": [
+  {
+   "action": "input",
+   "error": "unknown remote browser control \"(none)\"."
+  },
+  {
+   "action": "input",
+   "input": {},
+   "error": "unknown remote browser control \"(none)\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": null
+   },
+   "error": "unknown remote browser control \"(none)\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": 5
+   },
+   "error": "unknown remote browser control \"5\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "evaluate",
+    "script": "x"
+   },
+   "error": "unknown remote browser control \"evaluate\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": [
+     "a",
+     "b"
+    ]
+   },
+   "error": "unknown remote browser control \"a,b\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": {}
+   },
+   "error": "unknown remote browser control \"[object Object]\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": 0
+   },
+   "error": "unknown remote browser control \"(none)\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": false
+   },
+   "error": "unknown remote browser control \"(none)\"."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "reload",
+    "extra": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "back",
+    "extra": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "forward",
+    "extra": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "stop",
+    "extra": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "new-tab",
+    "extra": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate",
+    "url": "https://example.com"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate"
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate",
+    "url": ""
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate",
+    "url": 5
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate",
+    "url": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "navigate",
+    "url": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p3",
+    "follow": "agent"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p12"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": 3
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": ""
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "main-browser-a"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p1x"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "x1"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p1\n"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p11111111111111111111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "select-tab",
+    "tabId": "p1111111111111111111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p3",
+    "follow": "agent"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p12"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": 3
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": ""
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "main-browser-a"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p1x"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "x1"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p1\n"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p11111111111111111111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": "remote browser tab id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "close-tab",
+    "tabId": "p1111111111111111111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": 2.625
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390.5,
+    "height": 780,
+    "deviceScaleFactor": 3
+   },
+   "error": "remote browser viewport size is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 199,
+    "height": 780,
+    "deviceScaleFactor": 3
+   },
+   "error": "remote browser viewport size is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 3841,
+    "deviceScaleFactor": 3
+   },
+   "error": "remote browser viewport size is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": "390",
+    "height": 780,
+    "deviceScaleFactor": 3
+   },
+   "error": "remote browser viewport size is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "height": 780,
+    "deviceScaleFactor": 3
+   },
+   "error": "remote browser viewport size is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 200,
+    "height": 3840,
+    "deviceScaleFactor": 0.5
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": 4
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": 0.4
+   },
+   "error": "remote browser viewport scale is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": 4.1
+   },
+   "error": "remote browser viewport scale is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": "3"
+   },
+   "error": "remote browser viewport scale is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780
+   },
+   "error": "remote browser viewport scale is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": null
+   },
+   "error": "remote browser viewport scale is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "viewport",
+    "width": 390,
+    "height": 780,
+    "deviceScaleFactor": 2
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": -1,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser x is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 0,
+    "y": 100001,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser y is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 100000,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mouseDragged",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser pointer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser pointer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "back",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser pointer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "none",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 4
+   },
+   "error": "Browser clickCount is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 3
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 8,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser buttons is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 7,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 16,
+    "clickCount": 1
+   },
+   "error": "Browser modifiers is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 15,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": "1",
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser x is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "Browser x is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p0:1",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17\n",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": 17,
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": null,
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:1111111111111111111111111111111111111111111111111111111111111",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:111111111111111111111111111111111111111111111111111111111111",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p10:0",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p02:1",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mouseMoved",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mouseReleased",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "none",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "middle",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "right",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "pointer",
+    "documentId": "p2:17",
+    "phase": "mousePressed",
+    "x": 120.5,
+    "y": 44,
+    "button": "left",
+    "buttons": 1,
+    "modifiers": 0,
+    "clickCount": 1,
+    "session_id": "abc"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": 0,
+    "deltaY": -40
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": 0,
+    "deltaY": 20001
+   },
+   "error": "Browser deltaY is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": 0,
+    "deltaY": 20000
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": -20001,
+    "deltaY": -40
+   },
+   "error": "Browser deltaX is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": -20000,
+    "deltaY": -40
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": -1,
+    "y": 2,
+    "deltaX": 0,
+    "deltaY": -40
+   },
+   "error": "Browser x is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "deltaX": 0,
+    "deltaY": -40
+   },
+   "error": "Browser y is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "bad",
+    "x": 1,
+    "y": 2,
+    "deltaX": 0,
+    "deltaY": -40
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "documentId": "p2:17",
+    "x": 1,
+    "y": 2,
+    "deltaX": "a",
+    "deltaY": -40
+   },
+   "error": "Browser deltaX is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "wheel",
+    "x": 1
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17",
+    "text": ""
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17"
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17",
+    "text": 5
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17",
+    "text": null
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition-end",
+    "documentId": "p2:17",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": "p2:17"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": ""
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": "p0:1"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": "p2"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": "p2:17\n"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": 17
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": null
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "text": "hello",
+    "documentId": "p2:1111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": "p2:17"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": ""
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": "p0:1"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": "p2"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": "p2:17\n"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": 17
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": null
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "key": "Backspace",
+    "documentId": "p2:1111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": "p2:17"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": ""
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": "p0:1"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": "p2"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": "p2:17\n"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": 17
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": null
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "text": "ab",
+    "selectionStart": 1,
+    "selectionEnd": 2,
+    "documentId": "p2:1111111111111111111111111111111111111111111111111111111111111111"
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "documentId": "p2:17",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "documentId": "p2:17",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "documentId": "p2:17",
+    "text": ""
+   },
+   "error": "Browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "documentId": "p2:17"
+   },
+   "error": "remote browser text is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "text",
+    "documentId": "p2:17",
+    "text": "한글😀"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "documentId": "p2:17",
+    "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+   },
+   "error": "Browser key is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "documentId": "p2:17",
+    "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "documentId": "p2:17",
+    "key": ""
+   },
+   "error": "Browser key is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "key",
+    "documentId": "p2:17"
+   },
+   "error": "Browser key is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 3,
+    "selectionEnd": 3
+   },
+   "error": "Browser selectionStart is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 0,
+    "selectionEnd": 2
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 2,
+    "selectionEnd": 1
+   },
+   "error": "Browser selectionEnd is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": -1,
+    "selectionEnd": 1
+   },
+   "error": "Browser selectionStart is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 0,
+    "selectionEnd": 3
+   },
+   "error": "Browser selectionEnd is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 0.5,
+    "selectionEnd": 1
+   },
+   "error": "Browser composition selection is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 0,
+    "selectionEnd": 1.5
+   },
+   "error": "Browser composition selection is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": "a",
+    "selectionEnd": 1
+   },
+   "error": "Browser selectionStart is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab",
+    "selectionStart": 0
+   },
+   "error": "Browser selectionEnd is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "ab"
+   },
+   "error": "Browser selectionStart is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "",
+    "selectionStart": 0,
+    "selectionEnd": 0
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "😀",
+    "selectionStart": 0,
+    "selectionEnd": 2
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "composition",
+    "documentId": "p2:17",
+    "text": "😀",
+    "selectionStart": 0,
+    "selectionEnd": 3
+   },
+   "error": "Browser selectionEnd is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "requestId": "leave_3",
+    "accept": true
+   },
+   "error": "remote browser document id is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "",
+    "accept": true
+   },
+   "error": "Browser requestId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "accept": true
+   },
+   "error": "Browser requestId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "accept": true
+   },
+   "error": "Browser requestId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "accept": true
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": "yes"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": false
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "promptText": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "promptText": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "promptText": 5
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "promptText": null
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "promptText": "name",
+    "keepDefault": true
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "keepDefault": "y"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "keepDefault": false
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "remember": "site"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "remember": "all"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "remember": "never"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "remember": null
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": "d1"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": ""
+   },
+   "error": "Browser deviceId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": 5
+   },
+   "error": "Browser deviceId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": null
+   },
+   "error": "Browser deviceId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+   },
+   "error": "Browser deviceId is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "leave_3",
+    "accept": true,
+    "deviceId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+   },
+   "error": null
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "",
+    "accept": "yes"
+   },
+   "error": "Browser dialog answer is invalid."
+  },
+  {
+   "action": "input",
+   "input": {
+    "type": "answer-dialog",
+    "documentId": "p2:17",
+    "requestId": "",
+    "accept": true,
+    "deviceId": 5
+   },
+   "error": "Browser requestId is invalid."
+  },
+  {
+   "action": "history",
+   "input": {},
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": null
+   },
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": ""
+   },
+   "error": null
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": "a b"
+   },
+   "error": null
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": 5
+   },
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+   },
+   "error": null
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+   },
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+   },
+   "error": null
+  },
+  {
+   "action": "history",
+   "input": {
+    "query": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+   },
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "history",
+   "input": {},
+   "error": "Browser history query is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {},
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": null
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": ""
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": "https://example.com"
+   },
+   "error": null
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": 5
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+   },
+   "error": null
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+   },
+   "error": null
+  },
+  {
+   "action": "tabOpen",
+   "input": {
+    "url": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+   },
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "tabOpen",
+   "input": {},
+   "error": "remote browser url is invalid."
+  },
+  {
+   "action": "release",
+   "input": {},
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": null
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": 5
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": ""
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-"
+   },
+   "error": null
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-a"
+   },
+   "error": null
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-A_b-9"
+   },
+   "error": null
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-a b"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-a\n"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-é"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "error": null
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "main-browser-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "p1"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {
+    "id": "x-main-browser-a"
+   },
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "release",
+   "input": {},
+   "error": "Browser page is not a main tab page."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": null,
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": 5,
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "   ",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": " abc ",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "a b",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "a_b-1",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "é",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {
+    "session_id": "a\n",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": null,
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": 5,
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "   ",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": " abc ",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "a b",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "a_b-1",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "é",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": "session id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "a\n",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialSuggestions",
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialSuggestions",
+   "input": {},
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": null
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": 5
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": ""
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef0"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef012"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "ABCDEF0123456789ABCDEF01"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef0g"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "abcdef0123456789abcdef01\n"
+   },
+   "error": "Stored browser credential id is invalid."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "000000000000000000000000"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": "abc",
+    "credentialId": "ffffffffffffffffffffffff"
+   },
+   "error": null
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": 5,
+    "credentialId": 5
+   },
+   "error": "session id must be a string."
+  },
+  {
+   "action": "credentialFill",
+   "input": {
+    "session_id": " abc ",
+    "credentialId": "abcdef0123456789abcdef01"
+   },
+   "error": null
+  },
+  {
+   "action": "importSources",
+   "error": null
+  },
+  {
+   "action": "importSources",
+   "input": {},
+   "error": null
+  },
+  {
+   "action": "importSources",
+   "input": {
+    "anything": 1
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": null,
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": 0,
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": 12345678,
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "short",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "sevench",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "eight888",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job 12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-1234\n",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "jób-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": [
+     "job-1234",
+     "x"
+    ],
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": {},
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import source id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import source id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import source id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": 5,
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": true,
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": [
+     "a"
+    ],
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import source id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import profile id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import profile id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import profile id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": null,
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import profile id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": 7,
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default"
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": []
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": "passwords"
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": null
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "cookies",
+     "history"
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history",
+     "passwords"
+    ]
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "bookmarks"
+    ]
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "x"
+    ]
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     null
+    ]
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     [
+      "passwords"
+     ]
+    ]
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     5
+    ]
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": {
+     "length": 1
+    }
+   },
+   "error": "Browser import items are invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ],
+    "administratorApproved": true
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ],
+    "administratorApproved": "yes"
+   },
+   "error": null
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "short",
+    "sourceId": "",
+    "profileId": "Default",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "",
+    "profileId": "",
+    "items": [
+     "passwords",
+     "cookies",
+     "history"
+    ]
+   },
+   "error": "Browser import source id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {
+    "jobId": "job-12345",
+    "sourceId": "chrome",
+    "profileId": "",
+    "items": []
+   },
+   "error": "Browser import profile id is invalid."
+  },
+  {
+   "action": "importStart",
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "importStart",
+   "input": {},
+   "error": "Browser import job id is invalid."
+  },
+  {
+   "action": "navigate",
+   "input": {
+    "url": 5
+   },
+   "error": null
+  },
+  {
+   "action": "click",
+   "input": {
+    "url": 5
+   },
+   "error": null
+  },
+  {
+   "action": "hide",
+   "input": {
+    "url": 5
+   },
+   "error": null
+  },
+  {
+   "action": "snapshot",
+   "input": {
+    "url": 5
+   },
+   "error": null
+  },
+  {
+   "action": "",
+   "input": {
+    "url": 5
+   },
+   "error": null
+  },
+  {
+   "action": "navigate",
+   "error": null
+  }
+ ]
+}
