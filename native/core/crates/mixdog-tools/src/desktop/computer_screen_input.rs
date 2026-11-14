@@ -938,11 +938,21 @@ mod tests {
         cleanup_exits: bool,
         /// Exits before it says `ready`.
         exit_on_spawn: bool,
+        /// The binary cannot be run: every spawn fails.
+        missing_binary: bool,
     }
 
     impl Behaviour {
         fn serving() -> Self {
-            Self { auto_ready: true, answer: true, error: None, release_on_eof: true, cleanup_exits: true, exit_on_spawn: false }
+            Self {
+                auto_ready: true,
+                answer: true,
+                error: None,
+                release_on_eof: true,
+                cleanup_exits: true,
+                exit_on_spawn: false,
+                missing_binary: false,
+            }
         }
     }
 
@@ -1014,6 +1024,9 @@ mod tests {
     #[async_trait]
     impl ProcessManager for Fake {
         async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            if self.behaviour.missing_binary {
+                return Err(ProcessError::ProgramNotFound { program: "mixdog-computer".to_owned() });
+            }
             let (tx, rx) = mpsc::unbounded_channel();
             let handle = request.handle.clone();
             let args = match &request.command {
@@ -1508,6 +1521,49 @@ mod tests {
         assert!(fake.killed(0));
         assert_eq!(fake.spawned(), 2);
         assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_second_kill_of_the_same_process_shares_its_one_cleanup() {
+        let (fake, input) = started(Behaviour::serving()).await;
+        let ((), ()) = tokio::join!(input.kill(), input.kill());
+        // The process and one `--abort-cleanup`, not two.
+        assert_eq!(fake.spawned(), 2);
+        assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_cleanup_is_cut_at_its_bound() {
+        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
+        let began = mixdog_rt::time::Instant::now();
+        input.kill().await;
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert!(fake.killed(1), "the cleanup run is killed at its bound");
+        assert!(began.elapsed() >= ABORT_CLEANUP_TIMEOUT);
+        assert_eq!(*input.inner.cleanups.borrow(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_restart_waits_for_the_cleanup_of_the_process_before_it() {
+        let (fake, input) = started(Behaviour { cleanup_exits: false, ..Behaviour::serving() }).await;
+        let mut exits = input.exit_watch();
+        fake.exit(0, ExitStatus::Signal(9));
+        exits.changed().await.expect("the exit is reported");
+        // Its cleanup runs under the same marker: the next process starts only once it is over (here: cut at its bound).
+        input.start().await.expect("serves again");
+        assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
+        assert!(fake.killed(1));
+        assert_eq!(fake.args(2), vec![SCREEN_INPUT_MODE.to_owned()]);
+        assert!(input.alive());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_the_helper_binary_the_start_fails_and_nothing_else_runs() {
+        let (fake, input) = setup(Behaviour { missing_binary: true, ..Behaviour::serving() });
+        assert_eq!(input.start().await, Err(ScreenInputError::new("start_failed")));
+        assert_eq!(fake.spawned(), 0);
+        assert!(!input.alive());
+        assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
     }
 
     // -----------------------------------------------------------------------------------------------------------
