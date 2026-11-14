@@ -471,8 +471,8 @@ impl WorkspaceService {
         &self.catalog
     }
 
-    /// Connects the host channel `projectFs/captureSnapshot` and `projectFs/localPageUrl` go
-    /// through; without one they answer `capabilityUnavailable`. Set once.
+    /// Connects the host channel `projectFs/captureSnapshot` goes through; without one it answers
+    /// `capabilityUnavailable`. Set once.
     pub fn set_host(&self, host: Arc<dyn HostChannel>) {
         let _ = self.host.set(host);
     }
@@ -541,7 +541,7 @@ impl WorkspaceService {
 
     /// Turns on the desktop's file grants (`projectFs/grant/*`, a one-file token on a Local call) and the core's page server
     /// (`projectFs/localPageUrl`, `projectFs/localPage/*`). The grants persist at `grants_file`, the page server keeps its port in
-    /// `page_port_file`. Without this the four methods answer `unsupported` and `projectFs/localPageUrl` goes to the host window.
+    /// `page_port_file`. Without this the four methods answer `unsupported`.
     /// Set once.
     pub fn enable_desktop_files(&self, grants_file: PathBuf, page_port_file: PathBuf) {
         let grants = crate::desktop_grants::DesktopGrantStore::new(grants_file, self.lanes);
@@ -1799,30 +1799,20 @@ impl DomainService for WorkspaceService {
         if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
             return this.with_op(&req, scope, op.to_string()).await;
         }
-        if req.method.as_str() == "projectFs/localPageUrl"
-            && let Some(server) = this.page_server.get()
-        {
-            return this.local_page_url(&req, server).await.map(Reply::Value).map_err(|e| this.map_error(&req, e));
+        if req.method.as_str() == "projectFs/localPageUrl" {
+            let leased = async { this.local_page_url(&req, this.page_server()?).await };
+            return leased.await.map(Reply::Value).map_err(|e| this.map_error(&req, e));
         }
-        let host_method = match req.method.as_str() {
-            "projectFs/captureSnapshot" => Some("host/capture/fileSnapshot"),
-            "projectFs/localPageUrl" => Some("host/localPage/url"),
-            _ => None,
-        };
-        if let Some(host_method) = host_method {
+        if req.method.as_str() == "projectFs/captureSnapshot" {
             // The path is confined here; the window only renders it. A one-file grant names the granted file alone.
             let confined = async {
                 let (root, rel) = this.file_target(&req, &req.params).await?;
                 project_entry_path(&root, &rel)?;
                 let granted = req.params.get("accessToken").is_some();
-                Ok::<_, WsError>(if host_method == "host/capture/fileSnapshot" {
-                    json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted })
-                } else {
-                    json!({ "root": root.to_string_lossy(), "rel": rel, "scope": if granted { "file" } else { "project" } })
-                })
+                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted }))
             };
             let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
-            return this.host_files(host_method, host_params).await.map(Reply::Value);
+            return this.host_files("host/capture/fileSnapshot", host_params).await.map(Reply::Value);
         }
         this.dispatch(&req, None).await.map_err(|e| this.map_error(&req, e))
     }

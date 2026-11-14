@@ -1,0 +1,27 @@
+# s1-del-proto for PROTO-WIRE-G11 / DELETE-HOT-G11. Merge with s1-del-grants-page (host/files.ts stops importing HostLocalPageUrlParams).
+# Applied only together with that task: the core no longer sends host/localPage/url (WorkspaceService answers projectFs/localPageUrl
+# through the core page server only; without enable_desktop_files it answers unsupported).
+# Parity checklist (project page, granted file page, owner, refusal codes) is answered by projectFs/localPageUrl and the page server
+# (mixdog-workspace tests/it/desktop_files.rs).
+
+[remove]
+# src/server_requests.rs, in server_request_definitions!: delete the whole row
+HostLocalPageUrl => "host/localPage/url" {
+    params: HostLocalPageUrlParams,
+    result: String,
+    requires: Some("host.files"),
+},
+# src/v2/host.rs: delete the doc-commented enum LocalPageScope (File, Project) and struct HostLocalPageUrlParams (root, rel, scope)
+# src/inventory.rs: no row names host/localPage/url (nothing to remove)
+# tests/it/free_text_fields.json: delete the line  "answer host/localPage/url ",
+# crates/mixdog-app-server/src/tests/inventory_rule.rs, in the answer capability match: change
+#   "host/capture/fileSnapshot" | "host/localPage/url" => HostCapability::Files,
+# to
+#   "host/capture/fileSnapshot" => HostCapability::Files,
+# schema/{method_table,server_request,server_request_methods,client_request}.json (client_request.json carries the methods.rs doc comment below), packages/protocol/src/index.ts: regenerate (codegen).
+
+[type_edits]
+# src/methods.rs, ProjectFsLocalPageUrl doc comment: replace
+#   /// URL of the desktop host's local page server (`host/localPage/url`).
+# with
+#   /// URL of the core's local page server for a file or a project's pages.
