@@ -68,6 +68,20 @@ pub(super) fn now_ms() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
 }
 
+/// The host's admission of the helper command a call became, before anything is spawned or sent: `assertObservationInputAllowed`
+/// first (while observation-only mode is on, a command that is not a read is refused in the desktop host's words), then the launch
+/// policy (`assertPolicyAdmits`), which with no policy file admits everything.
+pub(super) fn admit(command: &Map<String, Value>, observe_only: bool) -> Result<(), ComputerError> {
+    let action = text(command, "action");
+    if observe_only && !OBSERVE_ONLY_ALLOWED_ACTIONS.contains(&action) {
+        let refusal = format!(
+            "observation_only: Computer Use is observing only, so '{action}' input is blocked. Turn off \"Observation only\" in Settings to allow input."
+        );
+        return Err(HelperFailure { text: refusal, result: None }.into_error());
+    }
+    admit_launch(authorization(), command, now_ms())
+}
+
 /// `assertAction` and `assertWindow` for the helper command a call became: refused when the launch policy (and its narrowing) does
 /// not admit its action, its window or its launch target. A step of a sequence carries no window of its own: the sequence it
 /// belongs to was admitted with its window.
@@ -202,7 +216,7 @@ mod tests {
     }
 
     fn refused_with(result: Result<(), ComputerError>, code: &str) {
-        assert!(matches!(result, Err(ComputerError::Failed { code: got, .. }) if got == code), "{result:?}");
+        assert!(matches!(&result, Err(ComputerError::Failed { code: got, .. }) if got == code), "{result:?}");
     }
 
     /// With no launch policy nothing is refused and a request carries nothing more; with one, only what it names is admitted.
