@@ -5,18 +5,18 @@
 mixdog-app-server-client = { workspace = true }
 mixdog-rt = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time"] }
 
 (mixdog-protocol is already listed: server_feed.rs uses mixdog_protocol::ThreadSummary.)
 
 ## native/core/crates/mixdog-connections/Cargo.toml, [dev-dependencies] (new section)
 
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time"] }
 mixdog-rt = { workspace = true }
 
-(server_feed_tests.rs implements ProtocolClient over a scripted stub; it starts no cargo, binary or window. It uses no timer:
- no tokio::time call, so no test-support / virtual-clock feature is needed.)
+(server_feed_tests.rs implements ProtocolClient over a scripted stub; it starts no cargo, binary or window. Timer:
+ the feed itself sleeps (tokio::time::sleep, hence the "time" feature above); the tests wait on the real 400 ms / 2 s clock, no virtual-clock feature.)
 
 ## Module line
 

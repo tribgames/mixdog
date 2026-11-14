@@ -30,13 +30,39 @@ pub fn client_install_command(platform: Platform) -> Option<&'static str> {
     platform.is_windows().then_some(WINDOWS_SSH_CLIENT_COMMAND)
 }
 
+/// Node's `path.join(directory, file)` of the platform: separators are the platform's, `.` and `..` segments collapse.
 fn join(platform: Platform, directory: &str, file: &str) -> String {
-    let separator = if platform.is_windows() { '\\' } else { '/' };
-    let trimmed = directory.trim_end_matches(['/', '\\']);
-    if trimmed.is_empty() && !directory.is_empty() {
-        return format!("{separator}{file}");
+    let windows = platform.is_windows();
+    let separator = if windows { '\' } else { '/' };
+    let text = format!("{directory}{separator}{file}");
+    let text = if windows { text.replace('/', "\\") } else { text };
+    let bytes = text.as_bytes();
+    let (prefix, rest) = if windows && bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        text.split_at(2)
+    } else if windows && text.starts_with("\\\\") {
+        text.split_at(2)
+    } else {
+        ("", text.as_str())
+    };
+    let rooted = rest.starts_with(separator);
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in rest.split(separator) {
+        match segment {
+            "" | "." => {}
+            ".." => match parts.last() {
+                Some(last) if *last != ".." => {
+                    parts.pop();
+                }
+                _ if !rooted => parts.push(".."),
+                _ => {}
+            },
+            other => parts.push(other),
+        }
     }
-    format!("{trimmed}{separator}{file}")
+    let body = parts.join(&separator.to_string());
+    let root = if rooted { separator.to_string() } else { String::new() };
+    let joined = format!("{prefix}{root}{body}");
+    if joined.is_empty() { ".".to_owned() } else { joined }
 }
 
 /// Full path of the tool: PATH first, then (Windows) %SystemRoot%\System32\OpenSSH. None when the client is not

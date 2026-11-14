@@ -2,6 +2,7 @@
 //! stored here, never a key, password or token. The list is kept in memory and published on every change;
 //! `allowed_providers` answers from that copy without touching the file.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -163,6 +164,25 @@ struct TargetId {
     label: String,
 }
 
+/// The server of one connection attempt; a first-time target keeps its id until this is dropped.
+pub struct HostReservation {
+    pub record: SshHostRecord,
+    held: Option<(Arc<Inner>, String)>,
+}
+
+impl Drop for HostReservation {
+    fn drop(&mut self) {
+        let Some((inner, key)) = self.held.take() else { return };
+        let mut reservations = inner.reservations.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(held) = reservations.get_mut(&key) {
+            held.1 -= 1;
+            if held.1 == 0 {
+                reservations.remove(&key);
+            }
+        }
+    }
+}
+
 fn target_id(target: &str) -> Result<TargetId, StoreError> {
     let parsed = mixdog_ssh::command::parse_ssh_target(target).map_err(|error| StoreError::new(error.to_string()))?;
     Ok(TargetId { key: parsed.key(), label: parsed.label().to_string(), display: parsed.display })
@@ -211,6 +231,8 @@ struct Inner {
     state: watch::Sender<Hosts>,
     /// One change at a time, from the edit of the list to the end of its write.
     gate: Mutex<()>,
+    /// The id each target being connected for the first time holds, with the attempts that share it.
+    reservations: std::sync::Mutex<HashMap<String, (String, usize)>>,
 }
 
 /// The saved SSH servers; clones share one list.
@@ -232,7 +254,7 @@ impl SshHostStore {
             }
         };
         let (state, _) = watch::channel(Arc::new(hosts));
-        Self { inner: Arc::new(Inner { io, file, state, gate: Mutex::new(()) }) }
+        Self { inner: Arc::new(Inner { io, file, state, gate: Mutex::new(()), reservations: std::sync::Mutex::new(HashMap::new()) }) }
     }
 
     /// The saved servers, newest first.
@@ -265,6 +287,25 @@ impl SshHostStore {
             last_connected_at: None,
             settings: None,
         })
+    }
+
+    /// The server of this target for one connection attempt. A saved server is answered as it is. A target that is connected
+    /// for the first time gets one id while any attempt holds a reservation of it: concurrent attempts (two windows, a retry
+    /// beside a slow first try) share the id, so the same server is never saved twice under different ids. The reservation ends
+    /// when the returned guard is dropped.
+    pub fn reserve_for_target(&self, target: &str) -> Result<HostReservation, StoreError> {
+        let parsed = target_id(target)?;
+        if let Some(saved) = self.find_by_target(&parsed.display) {
+            return Ok(HostReservation { record: saved, held: None });
+        }
+        let id = {
+            let mut reservations = self.inner.reservations.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let held = reservations.entry(parsed.key.clone()).or_insert_with(|| (uuid::Uuid::new_v4().to_string(), 0));
+            held.1 += 1;
+            held.0.clone()
+        };
+        let record = SshHostRecord { id, name: parsed.label, target: parsed.display, last_connected_at: None, settings: None };
+        Ok(HostReservation { record, held: Some((self.inner.clone(), parsed.key)) })
     }
 
     /// The model providers this server may use: `None` for every provider enabled on this PC, a list for those the
