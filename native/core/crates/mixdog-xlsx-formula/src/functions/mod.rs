@@ -5,7 +5,9 @@
 
 use crate::registry::Table;
 
+mod statistical;
+
 // Library modules, one line each: `mod math;`
 
 /// The tables of the library modules, one line each: `math::FUNCTIONS,`
-pub const TABLES: &[Table] = &[];
+pub const TABLES: &[Table] = &[statistical::FUNCTIONS];
