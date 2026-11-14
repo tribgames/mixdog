@@ -15,7 +15,7 @@ Beside `pub mod takeover_port;` add:
 
     builder.register(Arc::new(crate::statusline_port::StatuslineService::new(
         b.data_dir.clone(),
-        crate::statusline_port::StatuslineService::claude_config_dir(&|name| std::env::var_os(name), std::env::home_dir()),
+        crate::statusline_port::StatuslineService::claude_config_dir(&|name| (b.env)(name).map(std::ffi::OsString::from), std::env::home_dir()),
         b.catalog.clone(),
         gateway_usage.clone(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64),
