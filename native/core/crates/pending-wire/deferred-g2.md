@@ -1,27 +1,10 @@
 # Core wire lines deferred by CORE-WIRE-G2
 
 Every other line of the G2 core fragments (g2x-pcaccess-installer, s1-page-http, s2a-core-blob-refs, s2b-link-machine,
-s2b-model-proxy-relay, s2b-server-feed, s2b-ssh-base, s2b-stores, s3-03, s3-04 except the part below, s3-05, s3-06 re-exports,
+s2b-model-proxy-relay, s2b-server-feed, s2b-ssh-base, s2b-stores, s3-03, s3-04, s3-05, s3-06 re-exports,
 s3-07, s3-08 module lines, s3-09, s3-10, s3-11, s3-12, s3-13 except the registration, s3-14, s3-15, s4-engine-skeleton,
 x-migrate-adopt-core, x-notify-parity) and the G2 items of deferred-g1.md (pageserver module line, mixdog-askpass member,
 pcAccess registration) is applied; the fragment files are deleted. The lines below are kept for the task named.
-
-## s3-04 -> CORE-WIRE-G3 (once jpeg-encoder 0.6 is in the local registry cache)
-
-g25-fu-cu-c replaced the `png` crate with a PNG reader/writer on flate2 (in Cargo.lock), but nothing in the lock encodes JPEG:
-`computer_marks_draw.rs` `encode()` answers an error naming jpeg-encoder 0.6 for a JPEG frame, and every real capture is JPEG
-(som-overlay.ts toJPEG), so set-of-marks burn-in would be off in use. The module stays unwired until the crate exists offline.
-Needed first: the lead fetches **jpeg-encoder 0.6** (crates.io `jpeg-encoder = "0.6"`, no default features needed) into the
-registry cache (owner direction 12 keeps it). Not in the cache as of G2.5-WIRE (cached and also not in the lock: image 0.25.9,
-zune-jpeg 0.4.21/0.5.12, png 0.17/0.18). Then:
-
-- `native/core/Cargo.toml` `[workspace.dependencies]`, next to `jpeg-decoder`: `jpeg-encoder = "0.6"`
-- `native/core/crates/mixdog-tools/Cargo.toml` `[dependencies]`: `flate2 = { workspace = true }`, `jpeg-decoder = { workspace = true }`, `jpeg-encoder = { workspace = true }`
-- `computer_marks_draw.rs` `encode()`: the JPEG arm takes the one `jpeg_encoder::Encoder::new(&mut out, quality).encode(..)` call back
-- `native/core/crates/mixdog-tools/src/desktop/mod.rs`, after `pub mod computer_linux;`: `mod computer_marks_draw;` (`pub mod` if its caller sits outside mixdog-tools)
-- then `cargo update --workspace --offline` and `cargo hakari generate`.
-  (`pub mod computer_image_output;` is applied, `pub` because nothing calls it before s3-18.)
-- Compose call: none; the capture reply (SOM mode, `image_output: "file"`) is s3-03's / s3-17's wiring.
 
 ## s2b-install-wire -> CORE-WIRE-G5 (with the mixdog-ssh workspace member)
 

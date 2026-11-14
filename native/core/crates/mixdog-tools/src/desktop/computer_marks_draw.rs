@@ -1,8 +1,8 @@
 //! The set-of-marks burn-in (`observation/som-overlay.ts`): the captured frame with one outlined rectangle and one numbered
 //! badge per element, drawn into the pixels the model will point at. The Electron offscreen renderer is gone; the rectangles
 //! and badges are rasterised here with a 5x7 digit bitmap font, so the marks land on the same pixels without a window.
-//! PNG is read and written here on `flate2` (no PNG crate is in the offline lock); JPEG is read by `jpeg-decoder` and cannot
-//! be written until `jpeg-encoder` 0.6 is vendored, so a JPEG frame is left unmarked with the reason reported.
+//! PNG is read and written here on `flate2` (no PNG crate is in the offline lock); JPEG is read by `jpeg-decoder` and written
+//! by `image`'s JPEG encoder (`jpeg-encoder` 0.6 is not in the offline registry cache; `image` with only its `jpeg` feature is).
 
 use std::io::Cursor;
 
@@ -235,7 +235,7 @@ fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
     }
 }
 
-/// Reads a non-interlaced PNG (every colour type and bit depth, palettes expanded, 16-bit stripped, alpha dropped). The
+/// Reads a PNG, Adam7-interlaced or not (every colour type and bit depth, palettes expanded, 16-bit stripped, alpha dropped). The
 /// workspace has no PNG crate (`png` is not in Cargo.lock), so the container is read here on `flate2`, which it has.
 fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
     use std::io::Read;
@@ -262,8 +262,8 @@ fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
     let width = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
     let height = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
     let (depth, color, interlace) = (usize::from(header[8]), header[9], header[12]);
-    if interlace != 0 {
-        return Err(fail("interlaced png is not drawn on"));
+    if interlace > 1 {
+        return Err(fail("png interlace method is unknown"));
     }
     let channels = match (color, depth) {
         (0, 1 | 2 | 4 | 8 | 16) => 1,
@@ -279,30 +279,69 @@ fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
     let bits = channels * depth;
     let stride = (width * bits).div_ceil(8);
     let step = bits.div_ceil(8);
-    let mut raw = Vec::with_capacity((stride + 1) * height);
+    let passes: Vec<(usize, usize, usize, usize)> = if interlace == 0 {
+        vec![(0, 0, 1, 1)]
+    } else {
+        // Adam7: (first column, first row, column step, row step) of the seven passes.
+        vec![(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+    };
+    let sizes: Vec<(usize, usize)> = passes
+        .iter()
+        .map(|&(x0, y0, dx, dy)| ((width.saturating_sub(x0)).div_ceil(dx), (height.saturating_sub(y0)).div_ceil(dy)))
+        .collect();
+    let expected: usize = sizes.iter().filter(|&&(w, h)| w > 0 && h > 0).map(|&(w, h)| ((w * bits).div_ceil(8) + 1) * h).sum();
+    let mut raw = Vec::with_capacity(expected);
     flate2::read::ZlibDecoder::new(data.as_slice())
-        .take(((stride + 1) * height) as u64)
+        .take(expected as u64)
         .read_to_end(&mut raw)
         .map_err(|error| PaintError::Decode(error.to_string()))?;
-    if raw.len() != (stride + 1) * height {
+    if raw.len() != expected {
         return Err(fail("png pixel data is short"));
     }
     let mut rows = vec![0u8; stride * height];
-    for row in 0..height {
-        let filter = raw[row * (stride + 1)];
-        let line = &raw[row * (stride + 1) + 1..(row + 1) * (stride + 1)];
-        for i in 0..stride {
-            let left = if i >= step { rows[row * stride + i - step] } else { 0 };
-            let up = if row > 0 { rows[(row - 1) * stride + i] } else { 0 };
-            let upper_left = if row > 0 && i >= step { rows[(row - 1) * stride + i - step] } else { 0 };
-            rows[row * stride + i] = line[i].wrapping_add(match filter {
-                0 => 0,
-                1 => left,
-                2 => up,
-                3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
-                4 => paeth(left, up, upper_left),
-                _ => return Err(fail("png filter type is unknown")),
-            });
+    let mut offset = 0usize;
+    for (&(x0, y0, dx, dy), &(pass_width, pass_height)) in passes.iter().zip(&sizes) {
+        if pass_width == 0 || pass_height == 0 {
+            continue;
+        }
+        let pass_stride = (pass_width * bits).div_ceil(8);
+        let mut lines = vec![0u8; pass_stride * pass_height];
+        for row in 0..pass_height {
+            let filter = raw[offset + row * (pass_stride + 1)];
+            let line = &raw[offset + row * (pass_stride + 1) + 1..offset + (row + 1) * (pass_stride + 1)];
+            for i in 0..pass_stride {
+                let left = if i >= step { lines[row * pass_stride + i - step] } else { 0 };
+                let up = if row > 0 { lines[(row - 1) * pass_stride + i] } else { 0 };
+                let upper_left = if row > 0 && i >= step { lines[(row - 1) * pass_stride + i - step] } else { 0 };
+                lines[row * pass_stride + i] = line[i].wrapping_add(match filter {
+                    0 => 0,
+                    1 => left,
+                    2 => up,
+                    3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
+                    4 => paeth(left, up, upper_left),
+                    _ => return Err(fail("png filter type is unknown")),
+                });
+            }
+        }
+        offset += (pass_stride + 1) * pass_height;
+        if interlace == 0 {
+            rows = lines;
+            continue;
+        }
+        // Scatter the pass's pixels to their places in the full image.
+        for py in 0..pass_height {
+            for px in 0..pass_width {
+                let (x, y) = (x0 + px * dx, y0 + py * dy);
+                if bits >= 8 {
+                    let from = py * pass_stride + px * step;
+                    let to = y * stride + x * step;
+                    rows[to..to + step].copy_from_slice(&lines[from..from + step]);
+                } else {
+                    let per_byte = 8 / bits;
+                    let value = (lines[py * pass_stride + px / per_byte] >> (8 - bits * (px % per_byte + 1))) & ((1u8 << bits) - 1);
+                    rows[y * stride + x / per_byte] |= value << (8 - bits * (x % per_byte + 1));
+                }
+            }
         }
     }
     let sample = |row: usize, index: usize| -> u8 {
@@ -369,17 +408,28 @@ fn encode_png(raster: &Raster) -> Result<Vec<u8>, PaintError> {
     Ok(out)
 }
 
-fn encode(raster: &Raster, mime: &str, _quality: u8) -> Result<PaintedImage, PaintError> {
+fn encode(raster: &Raster, mime: &str, quality: u8) -> Result<PaintedImage, PaintError> {
     if is_png(mime) {
         return Ok(PaintedImage { bytes: encode_png(raster)?, mime: "image/png".to_owned() });
     }
-    // Nothing in the offline lock encodes JPEG: `jpeg-encoder` 0.6 must be fetched into the registry cache and added to
-    // Cargo.lock before a JPEG frame can carry the burn-in. Until then the frame goes out unmarked and this is reported.
-    Err(PaintError::Encode("jpeg output needs the jpeg-encoder 0.6 crate, which is not in the offline Cargo.lock".to_owned()))
+    // `toJPEG(quality)` of the original: the same quality number, always an 8-bit RGB JPEG. The encoder is `image`'s
+    // baseline encoder (4:4:4, standard tables), not Chromium's libjpeg-turbo, so the bytes differ at the same quality.
+    let (width, height) = (u32::try_from(raster.width), u32::try_from(raster.height));
+    let (Ok(width), Ok(height)) = (width, height) else {
+        return Err(PaintError::Encode("image is too large for a jpeg".to_owned()));
+    };
+    if width == 0 || height == 0 || width > 65_535 || height > 65_535 || raster.rgb.len() != raster.width * raster.height * 3 {
+        return Err(PaintError::Encode("image size is not a jpeg size".to_owned()));
+    }
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100))
+        .encode(&raster.rgb, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|error| PaintError::Encode(error.to_string()))?;
+    Ok(PaintedImage { bytes: out, mime: "image/jpeg".to_owned() })
 }
 
 /// Burns the marks into the image and re-encodes it in the input's format (`image/png` stays PNG, anything else is JPEG at
-/// `quality`, which fails with the reason until `jpeg-encoder` is vendored). `width` and `height` are the frame's size the bounds are in; a decoded image of another size has the bounds
+/// `quality`). `width` and `height` are the frame's size the bounds are in; a decoded image of another size has the bounds
 /// scaled onto it. A mark with a non-finite bound is skipped, as `renderSomOverlay` did.
 pub fn paint_marks(
     image: &[u8],
@@ -484,10 +534,60 @@ mod tests {
     }
 
     #[test]
-    fn a_jpeg_frame_is_left_unmarked_with_the_reason_until_the_encoder_is_vendored() {
-        let raster = Raster { width: 4, height: 4, rgb: vec![0x80; 48] };
-        let reason = encode(&raster, "image/jpeg", 92).unwrap_err().to_string();
-        assert!(reason.contains("jpeg-encoder"), "{reason}");
+    fn a_jpeg_frame_is_marked_and_stays_a_jpeg_of_the_same_size() {
+        let source = blank(200, 120, "image/jpeg");
+        assert_eq!(&source[..2], &[0xff, 0xd8]);
+        let marks = [mark(5, [40.0, 50.0, 60.0, 30.0], MarkSource::Ocr)];
+        let painted = paint_marks(&source, "image/jpeg", 200, 120, &marks, 92).unwrap();
+        assert_eq!(painted.mime, "image/jpeg");
+        assert_eq!(&painted.bytes[..2], &[0xff, 0xd8]);
+        let raster = decode(&painted.bytes, &painted.mime).unwrap();
+        assert_eq!((raster.width, raster.height), (200, 120));
+        assert!(near(pixel(&painted, 40, 65), [0x72, 0xe0, 0x6a]), "{:?}", pixel(&painted, 40, 65));
+        assert!(near(pixel(&painted, 70, 80), [0x72, 0xe0, 0x6a]));
+        assert!(near(pixel(&painted, 150, 100), [0x80, 0x80, 0x80]));
+    }
+
+    #[test]
+    fn a_degenerate_raster_is_an_encode_error_not_a_panic() {
+        let raster = Raster { width: 0, height: 0, rgb: Vec::new() };
+        assert!(encode(&raster, "image/jpeg", 92).is_err());
+    }
+
+    #[test]
+    fn an_interlaced_png_is_read() {
+        // 11x9 RGB, Adam7: filter 0 on every row of every pass.
+        let (w, h) = (11usize, 9usize);
+        let px = |x: usize, y: usize| [(x * 20) as u8, (y * 25) as u8, ((x + y) * 9) as u8];
+        let passes = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)];
+        let mut raw = Vec::new();
+        for (x0, y0, dx, dy) in passes {
+            let (pw, ph) = ((w - x0).div_ceil(dx), (h - y0).div_ceil(dy));
+            if pw == 0 || ph == 0 {
+                continue;
+            }
+            for py in 0..ph {
+                raw.push(0);
+                for pxi in 0..pw {
+                    raw.extend_from_slice(&px(x0 + pxi * dx, y0 + py * dy));
+                }
+            }
+        }
+        use std::io::Write;
+        let mut zlib = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        zlib.write_all(&raw).unwrap();
+        let deflated = zlib.finish().unwrap();
+        let mut header = Vec::new();
+        header.extend_from_slice(&(w as u32).to_be_bytes());
+        header.extend_from_slice(&(h as u32).to_be_bytes());
+        header.extend_from_slice(&[8, 2, 0, 0, 1]);
+        let mut bytes = PNG_SIGNATURE.to_vec();
+        png_chunk(&mut bytes, b"IHDR", &header);
+        png_chunk(&mut bytes, b"IDAT", &deflated);
+        png_chunk(&mut bytes, b"IEND", &[]);
+        let raster = decode_png(&bytes).unwrap();
+        let expected: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |x| px(x, y))).collect();
+        assert_eq!(raster.rgb, expected);
     }
 
     #[test]
