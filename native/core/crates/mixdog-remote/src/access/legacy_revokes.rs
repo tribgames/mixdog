@@ -63,8 +63,9 @@ fn parse(bytes: &[u8]) -> Record {
 
 /// Merges the old record under `data_dir` into the roster's owed access and renames it to `.folded`;
 /// true when there was a record. A missing record changes nothing. The roster is written before the
-/// rename, so a rename that fails leaves the record to be merged again (every key is held already, so
-/// nothing is owed twice); an unreadable record is owed as unknown revocations, like a damaged one.
+/// rename, so a rename that fails is only logged: the record is merged again at the next start (every
+/// key is held already, so nothing is owed twice) and remote access is not held up by it. An unreadable
+/// record is owed as unknown revocations, like a damaged one.
 pub fn fold<L: WriteLane>(data_dir: &Path, roster: &mut Roster, lane: &InLane<L>) -> Result<bool, SecretError> {
     let path = data_dir.join(DIR).join(FILE);
     let record = match read_raw(lane, &path) {
@@ -73,7 +74,9 @@ pub fn fold<L: WriteLane>(data_dir: &Path, roster: &mut Roster, lane: &InLane<L>
         Err(_) => Record::damaged(),
     };
     roster.owe_access(lane, &record.keys, record.unknown)?;
-    std::fs::rename(&path, path.with_file_name(FOLDED))?;
+    if let Err(error) = std::fs::rename(&path, path.with_file_name(FOLDED)) {
+        tracing::warn!(?error, "pc access: the old pending-revoke record was merged but could not be renamed");
+    }
     Ok(true)
 }
 
@@ -81,7 +84,7 @@ pub fn fold<L: WriteLane>(data_dir: &Path, roster: &mut Roster, lane: &InLane<L>
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use mixdog_rt::CancellationToken;
+    use mixdog_rt::{CancellationToken, LaneToken};
 
     use super::*;
     use crate::e2ee::generate_claim_key_pair;

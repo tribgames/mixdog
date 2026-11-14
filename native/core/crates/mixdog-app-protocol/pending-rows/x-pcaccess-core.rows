@@ -39,7 +39,8 @@
 # none: neither method takes a string.
 
 [type_edits]
-# none beyond the module line above.
+# file: src/v2/mod.rs, the `pub mod` list (alphabetical among its neighbours)
+pub mod pc_access;
 
 [remove]
 # none
