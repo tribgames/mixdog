@@ -20,7 +20,7 @@ SettlingSavedLogins) are in the tree. What is left is the daemon composition, al
     Arc::new(mixdog_core_session::session::secret_input::SavedLoginComputerBackend::new(
         gated,
         mixdog_core_api::ids::ThreadId::from(session),
-        Arc::new(mixdog_tools::desktop::host::ChannelHostCommands::new(host.clone())),
+        mixdog_tools::desktop::host::ChannelHostCommands::new(host.clone()),  // `new` returns Arc<Self> already
         Arc::new(mixdog_core_session::session::secret_input::HostComputerCommands::new(late_computer_hosts.clone(), human_only.clone())),
         saved_logins.clone(),
         redactor.clone(),

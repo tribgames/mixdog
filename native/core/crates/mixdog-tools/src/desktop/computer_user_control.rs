@@ -394,7 +394,11 @@ impl UserControlState {
             // The whole desktop is now held, which covers every yielded session.
             inner.yielded.clear();
             inner.takeovers += 1;
-            let paused = inner.open.clone();
+            // `pauseForUser`: the sessions an earlier hold waited for stay paused along with every open one.
+            let mut paused = inner.open.clone();
+            if let Some(earlier) = inner.takeover.take() {
+                paused.extend(earlier.paused);
+            }
             inner.takeover = Some(Takeover { reason: reason.to_owned(), idle_resumable, paused });
         }
         self.changed();
@@ -414,8 +418,8 @@ impl UserControlState {
     }
 
     /// The pause the pill takes when its control renderer dies (`takeOver('user_pause')`): the desktop is held like a Stop's, but
-    /// the reason is `user_pause`, so a waiting `wait_for_user` keeps waiting (the task is not cancelled) and the hold outlives
-    /// the sessions' executions until Resume. False when no session is using the computer.
+    /// the reason is `user_pause`, so a waiting `wait_for_user` keeps waiting (the task is not cancelled), and the hold lasts until
+    /// Resume or until the last session it waits for ends (`releaseEndedPause`). False when no session is using the computer.
     pub fn pause(&self) -> bool {
         self.take_over(USER_PAUSE, false)
     }
@@ -538,6 +542,10 @@ impl UserControlState {
     /// the other sessions' requests and a Release are not held behind it for the pause's budget. `None` leaves the request to go
     /// on (to the lane and the gate); a reply ends it.
     pub(super) async fn park_before_lane(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+        // Any other hold is met at the gate in the lane, so its recovery and idle resume run once (`recoverBeforeCommand`).
+        if !self.paused_by_user() {
+            return Ok(None);
+        }
         match self.blocked_now(backend, command, cancel).await? {
             Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await,
             _ => Ok(None),
@@ -565,6 +573,12 @@ impl UserControlState {
                 Ok(true) => blocked = self.blocked(session, action),
                 _ => {}
             }
+        }
+        // `queueCommand`: a session that asks while the desktop is held is one of the sessions the hold waits for.
+        if matches!(blocked, Some(Block::Takeover))
+            && let Some(takeover) = locked(&self.inner).takeover.as_mut()
+        {
+            takeover.paused.insert(session.to_owned());
         }
         Ok(blocked)
     }
@@ -1490,6 +1504,26 @@ mod tests {
         assert_eq!(cancelled.await.unwrap(), Err(ComputerError::Cancelled));
         assert!(control.stop());
         assert_eq!(stopped.await.unwrap(), Err(takeover_refusal()));
+    }
+
+    /// A session that asks while the pause holds is one the pause waits for (`queueCommand`), though it began after the pause.
+    #[tokio::test(start_paused = true)]
+    async fn a_session_that_asks_during_the_pause_keeps_it() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        control.session_began("a");
+        assert!(control.pause());
+        let late = Arc::new(session(&manager, &control, "late"));
+        let parked = {
+            let (control, late) = (control.clone(), late.clone());
+            tokio::spawn(async move { control.park_before_lane(&late, &click_in_background(), &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(1)).await;
+        control.session_ended("a");
+        assert!(control.section().is_some(), "the late session's request still waits for the pause");
+        control.session_ended("late");
+        assert_eq!(control.section(), None, "the pause ends with the last session it waits for");
+        assert!(parked.await.unwrap().unwrap().is_some(), "the parked request is answered with the pending work");
     }
 
     /// A request meeting the pause parks before the desktop's lane, so another session's request takes the lane meanwhile.
