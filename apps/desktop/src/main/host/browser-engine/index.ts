@@ -35,6 +35,7 @@ import { createLeases, type Leases } from './lease';
 import { type PageHost, registerPage } from './page';
 import { type PagesHost, registerPages } from './pages';
 import { registerRefCall } from './ref-call';
+import { registerRefMint } from './ref-mint';
 import { registerScreenshot } from './screenshot';
 import { registerSession, type SessionDeps } from './session';
 import { registerSnapshot } from './snapshot';
@@ -85,6 +86,7 @@ export function registerBrowserEngine(connection: HostConnection, ctx: EngineCon
   registerInputBatch(connection, ctx);
   registerSnapshot(connection, ctx, deps.snapshot);
   registerRefCall(connection, ctx, deps.refCall);
+  registerRefMint(connection, ctx);
   registerScreenshot(connection, ctx, deps.screenshot);
   registerSession(connection, ctx, deps.session);
   registerUpload(connection, ctx, deps.upload);
@@ -120,6 +122,7 @@ export const ENGINE_REQUEST_METHODS: readonly string[] = [
   'host/browser/pages/surface',
   'host/browser/performance',
   'host/browser/ref/call',
+  'host/browser/ref/mint',
   'host/browser/screenshot',
   'host/browser/snapshot',
   'host/browser/storage',
