@@ -7,6 +7,8 @@
    "`host/visualize/command` (visualize.ts), `host/capture/fileSnapshot` and `host/files/trashItem` (files.ts), `host/update/command` (lifecycle.ts)."
 3. packages/protocol/src/index.ts: `HostLocalPageUrlParams` (and the scope type it uses) has no consumer once the Rust row below is removed; delete it.
 4. apps/desktop/src/main/project-files.ts (owned by s1-del-files, same wave) imports `comparablePath` from './opened-file-authorization', which this task deletes:
-   s1-del-files deletes project-files.ts; if it is kept for any reason import `comparablePath` from './project-entry-path' instead.
+   s1-del-files (G11) is blocked and keeps project-files.ts, so this line is REQUIRED with this task's merge: in project-files.ts replace
+   `import { comparablePath } from './opened-file-authorization';` with `import { comparablePath } from './project-entry-path';`
+   (the same function, byte for byte). Without it tsc and chat-file-ipc.test.mjs fail on the deleted module.
    apps/desktop/src/main/chat-file-ipc.test.mjs imports project-files, so it follows that decision (this task already made it independent of the deleted grant
    store and page server: it carries a small grant stand-in and no longer fetches a served page).
