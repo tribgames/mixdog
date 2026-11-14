@@ -1,0 +1,3 @@
+# s3-hold-fixes: no lines to apply.
+registerHumanOnlyHolds(connection) is already called in host/index.ts (createHostRuntime) and humanOnly.redeclare() is
+already the first line of claim(); HOST_METHOD.humanOnlyBegin / humanOnlyEnd are already in host/connection.ts.
