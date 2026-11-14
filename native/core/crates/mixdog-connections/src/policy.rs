@@ -121,6 +121,7 @@ const TABLE: &[(&str, Callers)] = &[
     ("remoteHosts/redeemCode", Callers::Host),
     ("remoteHosts/rename", Callers::Host),
     ("remoteHosts/forget", Callers::Host),
+    ("remoteHosts/touch", Callers::Host),
     ("remoteHosts/presence", Callers::Host),
 ];
 
