@@ -140,4 +140,14 @@ mod tests {
         ok("class A extends B { constructor() { super() } m() { return super.m() } }");
         bad("class A { constructor() { super() } }");
     }
+
+    #[test]
+    fn names_bound_by_the_function_or_object_method_itself() {
+        bad("({ [await 1]() {} })");
+        bad("class A { #x; m() { return { #x() {} } } }");
+        bad("(function* yield() {})");
+        bad("(async function await() {})");
+        bad("(function enum() {})");
+        ok("({ m() {}, [k]() {} })");
+    }
 }
