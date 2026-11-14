@@ -67,7 +67,6 @@ const TAIL_MODE_LINES_MAX: u64 = 2000;
 const PUBLIC_BATCH_LIMIT: usize = 10;
 /// A file over this many bytes is streamed, not buffered (`READ_STREAM_RANGE_MIN_BYTES`).
 const READ_STREAM_RANGE_MIN_BYTES: u64 = 128 * 1024;
-/// One line is collected up to this many bytes (`READ_MAX_LINE_COLLECT_BYTES`).
 /// A glob survey shares this many output bytes.
 const SURVEY_BUDGET: usize = 10 * 1024;
 /// A past-the-cap file is read this many bytes at a time.
