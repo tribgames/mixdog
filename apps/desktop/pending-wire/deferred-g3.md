@@ -289,3 +289,42 @@ unchanged).
   must read `accessibilityRefs ?? refSet` there too.
 - s4-host-lease review: registry.ts must run handlers under `leases.beginCall` before a person's input can abort an
   in-flight engine call.
+
+## G3.5 desktop fragments (deferred by G3.5-WIRE; the .wire files are deleted)
+
+### g35-fu-host -> s4-wire-desktop (G6) / DESKTOP-WIRE-G7: nothing builds an EngineContext yet
+
+The four lines need the engine context and host that s4-wire-desktop builds (registerBrowserEngine) and DESKTOP-WIRE-G7 calls; none
+of `createLeases`, `createPageFacts`, `registerSession` or a PagesHost is called outside tests today, so there is no place to put them.
+
+1. EngineContext: `leases` is a member (context.ts, `leases?: Pick<Leases, 'beginCall'>`). Where the context is built, after
+   `const leases = createLeases(connection, ctx)`, set `ctx.leases = leases` (late-bound member, or assign it right after). registry.ts
+   then runs every page method as a call on its page: the person's input ends it with -32012 and a held page refuses a new one.
+2. PagesHost.lifecycle gains `reportOpenFailure` (createBrowserGuestLifecycle already returns it) and PagesHost.store needs `redactText`
+   (the BrowserGuestStateStore has it): pass the same lifecycle and store objects, nothing new to build.
+3. registerSession deps gain `traceDirectory: () => join(app.getPath('userData'), 'browser-traces')` (the folder command-toolkit.ts
+   passes the old trace export). It serves `performance` start with `saveTrace: true` (protocol field applied by G3.5-WIRE).
+4. Visibility facts: where the facts source is built (`createPageFacts({ source: { background, visible, ... } })`), call
+   `facts.changed(guest)` whenever display-tracking reports the page shown or hidden and when a page moves to or from the background.
+   The popup case is done (guest-background-pages.ts `state.changed(opener, 'popup')`).
+5. The scan test host/browser-engine/secret-precondition.test.mjs lists the engine methods from packages/protocol's ServerRequest
+   union: a method the wiring or the protocol adds must be registered in that test too (it fails until it is).
+
+Note for G7: the line above "declares the capability (unless MIXDOG_BROWSER_ENGINE=host)" is an environment switch between two
+implementations, which the owner's direction forbids: choose from what the connected core serves instead.
+
+### g35-fu-x -> x-screen-source-desktop / s3-screen-source (DESKTOP-WIRE-G8): pcAccess leftover
+
+index.ts still builds a second PcAccess queue for the phone password path only: `import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access'`,
+`let pcAccess: PcAccess | null` / `function windowsPcAccess()` and the `pcAccess: { ... approveWithCredential: ... windowsPcAccess()!.approveWithCredential(request) }`
+option of createScreenSourceHost. When x-screen-source-desktop routes the phone screen to the core source (the core's
+approve_with_credential), delete those four things from index.ts in the same wiring, then pc-access.ts and its test. Not now: the
+phone password path still runs through it.
+
+### g35-fu-x -> x-rs-desktop-pet-client (wave 4): placement
+
+`desktopPet/placement/resolve` (op geometry | pinned | clamp | clampFree | hereAnchor | herePosition | displayFor | positionOn; protocol row
+applied by G3.5-WIRE, served by DesktopPetService) answers every placement rule of desktop-pet-store.ts; desktop-pet-window.ts must call
+it (with scale from prefs) instead of importing pinnedPetPosition, clampPetPosition, clampFreePetPosition, petHereAnchor,
+petHerePosition, displayForPetPosition, petPositionOn, desktopPetGeometry, so that desktop-pet-store.ts can be deleted. Review note:
+desktop-pet-window.ts also imports clampToRange and DESKTOP_PET_PIN_INSET from the store (hereSpot clamp, pin inset); place those too.
