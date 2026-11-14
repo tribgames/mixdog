@@ -1,30 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { TerminalManager } from '../main/terminal-manager.ts';
 import { createTerminalConnectGate } from './terminal-connect-gate.ts';
 
-// A terminal pane's connects (TerminalPane) against the real PTY manager, whose
-// spawns the test counts: a warm-up attaches only, the real open ensures.
+// A terminal pane's connects (TerminalPane) against a fake host with the same
+// contract as the PTY host (attach never spawns, ensure spawns a dead or
+// missing shell), whose spawns the test counts: a warm-up attaches only, the
+// real open ensures.
 
 function managerWithCountedSpawns() {
-  const manager = new TerminalManager();
   const shell = { spawns: 0, exit: null };
-  manager.loadPtyBindings = async () => ({
-    spawn: () => {
-      shell.spawns += 1;
-      return {
-        onData() {},
-        onExit(listener) {
-          shell.exit = listener;
-        },
-        write() {},
-        resize() {},
-        kill() {},
-      };
+  const live = new Map();
+  const known = new Set();
+  const manager = {
+    terminals: { get size() { return known.size; } },
+    async attach(id) {
+      return live.get(id) === true ? { id } : null;
     },
-  });
-  const running = (id) => manager.terminals.get(id)?.disposed === false;
+    async ensure(id) {
+      if (live.get(id) !== true) {
+        shell.spawns += 1;
+        live.set(id, true);
+        known.add(id);
+        shell.exit = () => live.set(id, false);
+      }
+      return { id };
+    },
+  };
+  const running = (id) => live.get(id) === true;
   return { manager, shell, running };
 }
 
