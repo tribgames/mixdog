@@ -30,7 +30,7 @@ remain owned by formula-core and are not duplicate table entries.
 ## Reference recording and tests
 Executed, read-only reference tree, output only inside this task worktree:
 node benchmarks/rust-core/recorders/record-office-stats.mjs --tree C:/Project/mixdog --out native/core/fixtures/office-stats/golden.json
-3,223 cases. The recorder rejects a package version other than 4.6.1.
+3,226 cases. The recorder rejects a package version other than 4.6.1.
 Golden outcomes compare f64 bits (including signed zero/NaN), errors, exception
 messages, arrays, undefined/null and dates. Cases include missing arguments,
 empty/nested/mixed arrays, numeric strings, whitespace, dates, booleans, multiple
@@ -60,3 +60,5 @@ very large finite positive factorial arguments; negative/infinite nonterminating
 arguments retain the thrown message. The fixture is bounded to factorial 1000;
 no claim is made about reproducing Node's version/cache-dependent stack threshold.
 The four-library engine gate remains incomplete until the other tasks land.
+
+Lead correction: LOGEST reparses both numeric arrays through LINEST, including NaN x; non-progressing positive factorial recursion (n - 1 == n) retains Node's thrown error. Three new Node cases record these paths.
