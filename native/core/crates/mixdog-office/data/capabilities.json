@@ -1,0 +1,3413 @@
+{
+  "actions": [
+    "detect",
+    "transactions",
+    "recover",
+    "describe",
+    "author",
+    "create",
+    "attach",
+    "open",
+    "secure",
+    "begin",
+    "snapshot",
+    "get",
+    "query",
+    "batch",
+    "diff",
+    "commit",
+    "rollback",
+    "issues",
+    "qa",
+    "validate",
+    "render",
+    "save",
+    "finalize",
+    "close"
+  ],
+  "common": {
+    "actions": [
+      "detect",
+      "transactions",
+      "recover",
+      "describe",
+      "author",
+      "create",
+      "attach",
+      "open",
+      "secure",
+      "begin",
+      "snapshot",
+      "get",
+      "query",
+      "batch",
+      "diff",
+      "commit",
+      "rollback",
+      "issues",
+      "qa",
+      "validate",
+      "render",
+      "save",
+      "finalize",
+      "close"
+    ],
+    "observation": {
+      "selection": "attached and visible Microsoft Office snapshots include the active range, paragraph, slide, or shapes; background and portable sessions report document state only"
+    },
+    "batch": {
+      "atomic": "all modes roll back failed batches; Word uses an Office Undo record, a background PowerPoint deck reloads the copy the batch started from (a visible one uses Undo), and Excel restores a checkpoint without saving",
+      "operationShape": "{ op, target-specific fields, properties?, allowNoChange? }; silent no-op results roll back unless requireChanges:false",
+      "initialOperations": "create/open accept known operations; their results prove the edit without a redundant snapshot unless snapshotAfter:true"
+    }
+  },
+  "catalog": {
+    "docx": {
+      "paths": [
+        "/body/p[N]",
+        "/body/p[N]/run[N]",
+        "/body/tbl[N]/row[N]/cell[N]",
+        "/body/comment[N]",
+        "/body/comment-thread[N]",
+        "/body/revision[N]",
+        "/body/footnote[N]",
+        "/body/endnote[N]",
+        "/body/content-control[N]"
+      ],
+      "operations": {
+        "common": [
+          "replace_text",
+          "fill_template",
+          "compose_document",
+          "append_text",
+          "set_paragraph_text",
+          "set_table_cell",
+          "remove_paragraph",
+          "move_paragraph",
+          "add_table",
+          "set_table_style",
+          "merge_table_cells",
+          "set_table_cell_style",
+          "set_paragraph_format",
+          "set_font",
+          "set_document_font",
+          "define_styles",
+          "add_image",
+          "add_chart",
+          "set_header_footer",
+          "set_page",
+          "add_page_numbers",
+          "insert_break",
+          "set_list",
+          "add_hyperlink",
+          "insert_table_row",
+          "delete_table_row",
+          "insert_table_column",
+          "delete_table_column",
+          "insert_toc",
+          "add_bookmark",
+          "add_note",
+          "set_content_control",
+          "add_comment",
+          "delete_comment",
+          "add_provenance",
+          "fit_table",
+          "resolve_revision",
+          "resolve_revisions",
+          "track_changes",
+          "add_comment_reply",
+          "set_comment_resolved",
+          "normalize_runs"
+        ],
+        "office": [
+          "set_paragraph_style"
+        ],
+        "portable": [
+          "set_paragraph_style",
+          "set_run_text"
+        ]
+      },
+      "properties": {
+        "paragraph": [
+          "style"
+        ],
+        "font": [
+          "name",
+          "nameEastAsia",
+          "size",
+          "bold",
+          "italic",
+          "underline",
+          "color",
+          "hidden"
+        ],
+        "documentFont": [
+          "name",
+          "nameEastAsia",
+          "size",
+          "color"
+        ],
+        "page": [
+          "pageSize",
+          "orientation",
+          "topMargin",
+          "bottomMargin",
+          "leftMargin",
+          "rightMargin",
+          "columns",
+          "columnSpacing"
+        ],
+        "headerFooter": [
+          "section",
+          "kind",
+          "header",
+          "text",
+          "name",
+          "nameEastAsia",
+          "size",
+          "color",
+          "bold",
+          "alignment"
+        ],
+        "table": [
+          "style",
+          "textStyle",
+          "fontName",
+          "fontNameEastAsia",
+          "fontSize",
+          "color",
+          "spacingAfter",
+          "columnWidths",
+          "rowHeights",
+          "borders",
+          "shading",
+          "alignment",
+          "columnAlignments",
+          "repeatHeader",
+          "headerBold",
+          "headerRows",
+          "keepWithNext",
+          "rowStyles",
+          "totalRow"
+        ],
+        "tableStyle": [
+          "style",
+          "alignment",
+          "columnAlignments",
+          "columnWidths",
+          "borders",
+          "shading"
+        ],
+        "tableCell": [
+          "fillColor",
+          "horizontalAlignment",
+          "verticalAlignment",
+          "width",
+          "fontName",
+          "fontNameEastAsia",
+          "fontSize",
+          "bold",
+          "italic",
+          "color"
+        ],
+        "paragraphFormat": [
+          "alignment",
+          "spacingBefore",
+          "spacingAfter",
+          "lineSpacing",
+          "lineSpacingRule",
+          "keepWithNext",
+          "keepTogether",
+          "widowControl",
+          "pageBreakBefore",
+          "border",
+          "shading",
+          "indentLeft",
+          "indentRight",
+          "indentFirstLine",
+          "tabStops",
+          "listKind",
+          "listLevel",
+          "listContinue",
+          "listNumbering"
+        ],
+        "comment": [
+          "author",
+          "initials",
+          "date",
+          "text",
+          "anchoredText",
+          "resolved",
+          "replies"
+        ],
+        "contentControl": [
+          "tag",
+          "title",
+          "lock",
+          "text"
+        ],
+        "revision": [
+          "author",
+          "date",
+          "type",
+          "text",
+          "resolution"
+        ],
+        "fields": [
+          "toc",
+          "page",
+          "numPages",
+          "pageBreak",
+          "sectionBreak"
+        ],
+        "links": [
+          "address",
+          "subAddress",
+          "display",
+          "bookmark"
+        ],
+        "provenance": [
+          "source.document",
+          "source.target",
+          "source.label"
+        ],
+        "design": [
+          "profile",
+          "purpose",
+          "expressionMode",
+          "intent",
+          "audience",
+          "tone",
+          "density",
+          "palette",
+          "typography",
+          "signature",
+          "content.packageId",
+          "content.audience",
+          "content.objective",
+          "content.decision",
+          "content.period",
+          "content.facts",
+          "content.claims",
+          "review"
+        ]
+      }
+    },
+    "xlsx": {
+      "paths": [
+        "/sheet[NAME]",
+        "/sheet[NAME]/cell[A1]",
+        "/sheet[NAME]/range[A1:C10]"
+      ],
+      "operations": {
+        "common": [
+          "replace_text",
+          "set_cell",
+          "set_formula",
+          "set_range",
+          "append_row",
+          "clear_cell",
+          "compose_sheet",
+          "add_sheet",
+          "delete_sheet",
+          "rename_sheet",
+          "set_style",
+          "merge_cells",
+          "unmerge_cells",
+          "freeze_panes",
+          "autofit_range",
+          "set_page_setup",
+          "set_sheet_view",
+          "add_chart",
+          "set_drawing",
+          "delete_drawing",
+          "add_table",
+          "insert_rows",
+          "delete_rows",
+          "insert_columns",
+          "delete_columns",
+          "set_autofilter",
+          "sort_range",
+          "set_sheet_visibility",
+          "set_row_visibility",
+          "set_column_visibility",
+          "set_row_height",
+          "set_column_width",
+          "set_header_footer",
+          "define_name",
+          "delete_name",
+          "copy_sheet",
+          "add_image",
+          "set_hyperlink",
+          "protect_sheet",
+          "unprotect_sheet",
+          "add_validation",
+          "add_conditional_format",
+          "delete_conditional_formats",
+          "add_note",
+          "delete_note",
+          "add_provenance",
+          "add_pivot_table"
+        ],
+        "office": [],
+        "portable": []
+      },
+      "properties": {
+        "cellStyle": [
+          "fontName",
+          "fontSize",
+          "bold",
+          "italic",
+          "color",
+          "fillColor",
+          "numberFormat",
+          "horizontalAlignment",
+          "verticalAlignment",
+          "wrapText",
+          "indent",
+          "locked",
+          "borders"
+        ],
+        "chart": [
+          "chartType",
+          "left",
+          "top",
+          "width",
+          "height",
+          "title",
+          "seriesColors",
+          "showValues",
+          "showLegend",
+          "zeroBaseline",
+          "valueNumberFormat",
+          "dataLabelPosition",
+          "dataLabelColor",
+          "highlight",
+          "mutedColor",
+          "gridlines",
+          "valueAxis",
+          "fontName"
+        ],
+        "table": [
+          "name",
+          "style"
+        ],
+        "pivot": [
+          "source",
+          "destination",
+          "name",
+          "rows",
+          "columns",
+          "values"
+        ],
+        "note": [
+          "text",
+          "author"
+        ],
+        "structure": [
+          "row",
+          "column",
+          "count",
+          "range",
+          "referenceAware"
+        ],
+        "links": [
+          "address",
+          "text"
+        ],
+        "protection": [
+          "password",
+          "allowFormattingCells",
+          "allowSorting",
+          "allowFiltering"
+        ],
+        "audit": [
+          "conditionalFormats",
+          "formulaLineage",
+          "checksSheet",
+          "hardcodeSource",
+          "rogueHardcode"
+        ],
+        "pageSetup": [
+          "printArea",
+          "printTitleRows",
+          "fitToContent",
+          "orientation",
+          "fitToPagesWide",
+          "fitToPagesTall",
+          "centerHorizontally",
+          "centerVertically",
+          "topMargin",
+          "bottomMargin",
+          "leftMargin",
+          "rightMargin"
+        ],
+        "sheetView": [
+          "showGridlines",
+          "zoom"
+        ],
+        "provenance": [
+          "source.document",
+          "source.target",
+          "source.label"
+        ],
+        "design": [
+          "profile",
+          "purpose",
+          "expressionMode",
+          "intent",
+          "audience",
+          "tone",
+          "density",
+          "palette",
+          "typography",
+          "signature",
+          "content.packageId",
+          "content.audience",
+          "content.objective",
+          "content.decision",
+          "content.period",
+          "content.facts",
+          "content.claims",
+          "review"
+        ]
+      }
+    },
+    "pptx": {
+      "paths": [
+        "/slide[N]",
+        "/slide[N]/shape[N]"
+      ],
+      "stableTargets": "Portable batch operations may replace slide/shape indices with slideId/shapeId from snapshot. IDs survive ordering changes; conflicting indices fail rather than edit a different element. COM continues to use indices.",
+      "operations": {
+        "common": [
+          "replace_text",
+          "fill_template",
+          "set_text",
+          "add_textbox",
+          "delete_shape",
+          "add_slide",
+          "delete_slide",
+          "move_slide",
+          "set_notes",
+          "add_image",
+          "add_shape",
+          "add_table",
+          "set_shape",
+          "set_slide_background",
+          "import_slides",
+          "use_template_page",
+          "replace_image",
+          "set_table_data",
+          "set_table_cell_style",
+          "fit_text",
+          "add_chart",
+          "set_chart_data",
+          "duplicate_slide",
+          "z_order",
+          "align_shapes",
+          "distribute_shapes",
+          "keep_slides",
+          "set_hyperlink",
+          "add_provenance",
+          "set_layout",
+          "crop_image",
+          "set_transition",
+          "set_footer",
+          "set_slide_number",
+          "set_slide_visibility",
+          "set_chart_axis",
+          "set_chart_data_labels",
+          "group_shapes",
+          "ungroup_shape",
+          "set_chart_trendline",
+          "set_chart_error_bars",
+          "set_chart_series",
+          "add_comment",
+          "delete_comment",
+          "apply_theme",
+          "add_media",
+          "add_animation"
+        ],
+        "office": [],
+        "portable": []
+      },
+      "properties": {
+        "shape": [
+          "left",
+          "top",
+          "width",
+          "height",
+          "rotation",
+          "fillColor",
+          "fillTransparency",
+          "lineColor",
+          "lineTransparency",
+          "lineWidth",
+          "shadow",
+          "marginLeft",
+          "marginTop",
+          "marginRight",
+          "marginBottom",
+          "fontName",
+          "fontSize",
+          "bold",
+          "italic",
+          "color",
+          "alignment",
+          "verticalAlignment",
+          "paragraphSpacing",
+          "altText"
+        ],
+        "chart": [
+          "chartType",
+          "left",
+          "top",
+          "width",
+          "height",
+          "title",
+          "series",
+          "axis",
+          "dataLabels",
+          "seriesType",
+          "secondaryAxis",
+          "trendline",
+          "errorBars",
+          "showValues",
+          "showLegend",
+          "zeroBaseline",
+          "valueNumberFormat",
+          "dataLabelPosition",
+          "dataLabelColor"
+        ],
+        "slide": [
+          "background",
+          "layout",
+          "layoutName"
+        ],
+        "placeholder": [
+          "type",
+          "index"
+        ],
+        "table": [
+          "rows",
+          "columns",
+          "values",
+          "fontName",
+          "fontSize",
+          "color",
+          "headerFillColor",
+          "headerColor",
+          "bodyFillColor",
+          "headerRowHeight",
+          "bodyRowHeight",
+          "columnWidths"
+        ],
+        "tableCell": [
+          "fillColor",
+          "horizontalAlignment",
+          "verticalAlignment",
+          "fontName",
+          "fontSize",
+          "bold",
+          "italic",
+          "color"
+        ],
+        "template": [
+          "tokens",
+          "strict"
+        ],
+        "authoring": [
+          "shapeType",
+          "paragraphs",
+          "bullet",
+          "level",
+          "hyperlink",
+          "zOrder",
+          "align",
+          "distribute",
+          "group",
+          "crop",
+          "theme",
+          "footer",
+          "slideNumber"
+        ],
+        "transition": [
+          "effect",
+          "duration",
+          "advanceOnTime",
+          "advanceTime"
+        ],
+        "animation": [
+          "effect",
+          "trigger",
+          "duration",
+          "delay"
+        ],
+        "media": [
+          "kind",
+          "link",
+          "embed",
+          "poster"
+        ],
+        "comment": [
+          "author",
+          "initials",
+          "left",
+          "top"
+        ],
+        "provenance": [
+          "source.document",
+          "source.target",
+          "source.label"
+        ],
+        "design": [
+          "profile",
+          "purpose",
+          "expressionMode",
+          "intent",
+          "audience",
+          "tone",
+          "density",
+          "palette",
+          "typography",
+          "signature",
+          "content.packageId",
+          "content.audience",
+          "content.objective",
+          "content.decision",
+          "content.period",
+          "content.facts",
+          "content.claims",
+          "template",
+          "deck.backgroundMode",
+          "deck.dominantColorRole",
+          "deck.motif",
+          "deck.spacingScale",
+          "deck.sectionSlides",
+          "deck.roles",
+          "deck.requireSlidePlan",
+          "deck.templateMode",
+          "review",
+          "reviewed",
+          "reviewToken",
+          "critique"
+        ]
+      }
+    },
+    "pdf": {
+      "paths": [
+        "/page[N]",
+        "/field[N]",
+        "/outline[N]",
+        "/attachments[N]",
+        "/metadata"
+      ],
+      "operations": {
+        "common": [
+          "add_text",
+          "watermark",
+          "highlight",
+          "add_link",
+          "stamp_image",
+          "ocr_pages",
+          "rotate_pages",
+          "crop_pages",
+          "delete_pages",
+          "move_page",
+          "extract_pages",
+          "split_pages",
+          "fill_form",
+          "add_form_field",
+          "flatten_form",
+          "preview_fields",
+          "merge_pdf",
+          "add_bookmark",
+          "add_attachment",
+          "extract_attachment",
+          "compress",
+          "set_metadata"
+        ],
+        "office": [],
+        "portable": []
+      },
+      "properties": {
+        "text": [
+          "x",
+          "y",
+          "size",
+          "color",
+          "opacity",
+          "rotation",
+          "align"
+        ],
+        "metadata": [
+          "title",
+          "author",
+          "subject",
+          "keywords",
+          "creator"
+        ],
+        "form": [
+          "name",
+          "type",
+          "page",
+          "x",
+          "y",
+          "width",
+          "height",
+          "options",
+          "value",
+          "multiline",
+          "multiselect",
+          "editable",
+          "maxLength",
+          "fontSize",
+          "required",
+          "readOnly",
+          "fontPath"
+        ],
+        "attachment": [
+          "path",
+          "name",
+          "mimeType",
+          "description",
+          "index",
+          "output"
+        ],
+        "textFont": [
+          "fontPath"
+        ],
+        "create": [
+          "blocks",
+          "fields",
+          "properties.pageSize",
+          "properties.orientation",
+          "properties.margin",
+          "properties.fontPath",
+          "properties.pageNumbers",
+          "properties.footer",
+          "properties.title",
+          "properties.author",
+          "properties.subject",
+          "properties.keywords"
+        ],
+        "units": [
+          "points; origin bottom-left; 1 inch = 72 pt; A4 = 595.28 x 841.89"
+        ],
+        "unsupportedSecurity": [
+          "secureRedaction",
+          "digitalSignature",
+          "PDF/A"
+        ]
+      }
+    },
+    "csv": {
+      "paths": [
+        "/sheet[NAME]",
+        "/sheet[NAME]/cell[A1]",
+        "/sheet[NAME]/range[A1:C10]"
+      ],
+      "operations": {
+        "common": [
+          "replace_text",
+          "set_cell",
+          "set_formula",
+          "set_range",
+          "append_row",
+          "clear_cell",
+          "insert_rows",
+          "delete_rows",
+          "insert_columns",
+          "delete_columns"
+        ],
+        "office": [],
+        "portable": []
+      },
+      "properties": {
+        "cell": [
+          "value",
+          "formula"
+        ],
+        "structure": [
+          "row",
+          "column",
+          "count",
+          "range"
+        ],
+        "safety": [
+          "formulaLikeValue",
+          "raggedRow",
+          "utf8"
+        ]
+      }
+    },
+    "tsv": {
+      "paths": [
+        "/sheet[NAME]",
+        "/sheet[NAME]/cell[A1]",
+        "/sheet[NAME]/range[A1:C10]"
+      ],
+      "operations": {
+        "common": [
+          "replace_text",
+          "set_cell",
+          "set_formula",
+          "set_range",
+          "append_row",
+          "clear_cell",
+          "insert_rows",
+          "delete_rows",
+          "insert_columns",
+          "delete_columns"
+        ],
+        "office": [],
+        "portable": []
+      },
+      "properties": {
+        "cell": [
+          "value",
+          "formula"
+        ],
+        "structure": [
+          "row",
+          "column",
+          "count",
+          "range"
+        ],
+        "safety": [
+          "formulaLikeValue",
+          "raggedRow",
+          "utf8"
+        ]
+      }
+    }
+  },
+  "backends": [
+    "microsoft-office-com",
+    "mixdog-ooxml",
+    "mixdog-tabular",
+    "mixdog-pdf"
+  ],
+  "virtualOperations": [
+    "compose_document",
+    "compose_sheet",
+    "use_template_page",
+    "docx:add_chart"
+  ],
+  "commonSignatures": {
+    "replace_text": {
+      "required": [
+        "find",
+        "replace"
+      ],
+      "optional": [
+        "author"
+      ],
+      "oneOf": [],
+      "propertySets": [],
+      "propertyBackends": {},
+      "notes": "In a Word document with track_changes on, only the matched characters are wrapped as a deletion plus an insertion (a match across a tab, break, or field rewrites that paragraph whole) and author labels the change."
+    },
+    "fill_template": {
+      "required": [
+        "tokens"
+      ],
+      "optional": [
+        "strict",
+        "author"
+      ],
+      "oneOf": [],
+      "propertySets": [],
+      "propertyBackends": {},
+      "notes": "Use strict:true to fail when a token is missing or left unresolved. In a Word document with track_changes on, each token is filled as a tracked deletion plus insertion and author labels the change."
+    }
+  },
+  "formatSignatures": {
+    "docx": {
+      "compose_document": {
+        "required": [
+          "title"
+        ],
+        "optional": [
+          "claimId",
+          "purpose",
+          "expressionMode",
+          "variant",
+          "subtitle",
+          "summary",
+          "summaryLabel",
+          "eyebrow",
+          "titleSize",
+          "language",
+          "nameEastAsia",
+          "meta",
+          "metrics",
+          "sections",
+          "footer",
+          "orientation",
+          "pageNumbers"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "design"
+        ],
+        "propertyBackends": {},
+        "notes": "Optional preset, not the default authoring path. It chooses typography, summary emphasis and spacing. For an authored design use set_page and native append_text/table/image operations with explicit properties. summaryLabel draws the summary as a labelled box. Each section takes heading (or title), eyebrow, level (2 for a subheading), pageBreak, accent, kind, paragraphs (or body), bullets, steps ({ title, detail } or \"Label: text\"), quote with quoteBy (its speaker), table (rows, the first the header) with source (its 자료 line, set under it), callout with calloutLabel and calloutTone; any other field is refused."
+      },
+      "append_text": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "style",
+          "properties",
+          "author"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "paragraph",
+          "font",
+          "paragraphFormat"
+        ],
+        "propertyBackends": {},
+        "notes": "Creates one real paragraph. With track_changes on the paragraph is inserted as a tracked change; author labels it, as it does on every other tracked edit. On an item listKind puts in a list, indentLeft places its mark and the text hangs 18 pt after it, so a list inside a callout takes the callout's own indentLeft; a negative indentFirstLine hangs a first line out, \"①\\t\" before words that wrap under the words."
+      },
+      "set_paragraph_text": {
+        "required": [
+          "paragraph",
+          "text"
+        ],
+        "optional": [
+          "author"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "With track_changes on, the old runs are marked deleted and one inserted run carries the new text; author labels the change."
+      },
+      "set_run_text": {
+        "required": [
+          "paragraph",
+          "run",
+          "text"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "normalize_runs": {
+        "required": [],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Portable backend: merges adjacent runs with identical formatting, drops proofing marks and rsid attributes, and never crosses a tracked-change boundary; run it first on a document Word fragmented so replace_text and fill_template match whole phrases. An already-clean document, and every Microsoft Office session (Word searches across runs itself), returns changed:false — pass allowNoChange:true when running it routinely."
+      },
+      "set_table_cell": {
+        "required": [
+          "table",
+          "row",
+          "col",
+          "text"
+        ],
+        "optional": [
+          "author"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_table": {
+        "required": [
+          "values"
+        ],
+        "optional": [
+          "paragraph",
+          "rows",
+          "columns",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "table"
+        ],
+        "propertyBackends": {},
+        "notes": "properties.alignment places the table on the page (left, center, right); properties.columnAlignments sets the text of each column (one of left, center, right, justify per column); without it a column of figures (184,200, 2.1%, 2.6억 원) sets right and the rest left. Without style, borders, or shading the table takes a bold header row with a rule under it and hairlines between rows; headerBold:false keeps the header plain. properties.headerRows (default 1) is how many rows the header takes: a two-level header, its group label merged across the columns it spans (merge_table_cells), is headerRows:2, and every header row is set bold on its bottom edge and repeats on a continuation page. properties.totalRow:true sets the last row as the total (bold over a rule). properties.rowStyles gives rows their own type, one entry per row from the first (null keeps the table's): [{ fontSize: 22, color: \"1F5E4B\" }, { fontSize: 9, color: \"6B7280\", bold: false }] is a stat strip — figures over their labels in one table."
+      },
+      "set_table_style": {
+        "required": [
+          "table",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "tableStyle"
+        ],
+        "propertyBackends": {
+          "columnWidths": [
+            "microsoft-office-com"
+          ]
+        },
+        "notes": "Replaces table-level properties; columnAlignments re-aligns existing cells. columnWidths is Microsoft Office only. For existing cell fonts or fills use set_table_cell_style, not set_table_style."
+      },
+      "merge_table_cells": {
+        "required": [
+          "table",
+          "row",
+          "col"
+        ],
+        "optional": [
+          "rowSpan",
+          "colSpan"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "row and col count the cells as the table stands: a merge across columns joins them, and the cells after it in that row move left (a five-column header row merged at col 2 with colSpan 3 holds cells 1 to 3). Merge a row from its right end first, or name the later cells by their new positions."
+      },
+      "set_table_cell_style": {
+        "required": [
+          "table",
+          "row",
+          "col",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "tableCell"
+        ],
+        "propertyBackends": {},
+        "notes": "Patches the named properties only: the width and the bottom alignment a new table's cells carry stay unless set. fillColor: null takes the shading away and bold:false / italic:false set the weight back, as a data row inserted above a total needs. fontSize also repitches the cell's lines (1.3× the size, at least), so a 9 pt label row under a 22 pt value row sits close to it."
+      },
+      "set_paragraph_format": {
+        "required": [
+          "paragraph",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "paragraphFormat"
+        ],
+        "propertyBackends": {},
+        "notes": "Patches supplied properties only; lineSpacing is a minimum in points on both backends, and lineSpacingRule:'exact' holds the line at it (a display title's leading). listKind and listLevel put the paragraph in a list ('none' takes it out) and it keeps its style; indentLeft given with listKind places the mark, as on append_text."
+      },
+      "remove_paragraph": {
+        "required": [
+          "paragraph"
+        ],
+        "optional": [
+          "author"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "The only paragraph between two tables keeps them two tables: its words go and it stays empty (keptBetweenTables), since Word joins tables with nothing between them."
+      },
+      "move_paragraph": {
+        "required": [
+          "paragraph",
+          "index"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_paragraph_style": {
+        "required": [
+          "paragraph",
+          "style"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_document_font": {
+        "required": [
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "documentFont"
+        ],
+        "propertyBackends": {},
+        "notes": "The document's own face, size, and ink — what every paragraph without its own reads, and what a paragraph added later in Word or by append_text starts from. properties: name, nameEastAsia, size, color."
+      },
+      "define_styles": {
+        "required": [
+          "styles"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "styles maps a style name to its fields — { \"Title\": { size: 24, bold: true, spacingAfter: 8 }, \"Heading 1\": { size: 15, bold: true, color: \"1F5E4B\", spacingBefore: 18, spacingAfter: 6, keepWithNext: true }, \"Normal\": { lineSpacing: 18, spacingAfter: 8, alignment: \"left\" }, \"Caption\": { size: 9, color: \"6B7280\" } } — fields: name, nameEastAsia, size, bold, italic, color, alignment, spacingBefore, spacingAfter, lineSpacing, lineSpacingRule, keepWithNext, keepTogether. Built-in styles are reached by their English name in any Word language. Define them before the paragraphs: append_text style:\"Heading 1\" then takes the definition with no properties of its own, and a paragraph the reader adds in Word under that style matches."
+      },
+      "set_font": {
+        "required": [
+          "find",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "font"
+        ],
+        "propertyBackends": {},
+        "notes": "Formats only the first matching body phrase across runs; excludes headers/footers and preserves unrelated formatting. nameEastAsia sets the East Asian font independently."
+      },
+      "add_image": {
+        "required": [
+          "path"
+        ],
+        "optional": [
+          "paragraph",
+          "width",
+          "height",
+          "altText",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "paragraphFormat"
+        ],
+        "propertyBackends": {},
+        "notes": "altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text. The picture's paragraph keeps with the next one (its caption) unless properties.keepWithNext is false; properties.alignment:'center' centres it."
+      },
+      "add_chart": {
+        "required": [
+          "categories",
+          "values"
+        ],
+        "optional": [
+          "chartType",
+          "title",
+          "unit",
+          "highlight",
+          "forecast",
+          "accent",
+          "height",
+          "width",
+          "altText",
+          "paragraph",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "paragraphFormat"
+        ],
+        "propertyBackends": {},
+        "notes": "One series drawn as a picture, the way a PDF chart block draws it, identical on both backends: chartType bar lays the bars across (a ranking, its names on the left), column stands them up (periods left to right, height the plot's points); every bar carries its value (unit follows the number: '건', '%'), there is no grid, and highlight (an index or a category) takes the accent while the other bars recede. accent (hex) colours the highlighted bar in the document's own accent, as a brand's report sets its headings and callouts; without it the writer's teal. forecast (an index, a category, or a list of them) draws projected bars pale inside a dashed outline, their values muted, so a plan or an estimate never reads as a counted figure. values are zero or more, one per category. It lands as add_image does (width in points, 420 by default; paragraph; properties.alignment), keeps with its caption, and altText names each figure unless given. Word cannot edit its bars: a chart the reader should edit belongs in a workbook."
+      },
+      "add_comment": {
+        "required": [
+          "find",
+          "text"
+        ],
+        "optional": [
+          "author",
+          "initials"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "find is the body phrase the comment anchors to — the snapshot reports it back as anchoredText, which this operation also accepts."
+      },
+      "add_comment_reply": {
+        "required": [
+          "comment",
+          "text"
+        ],
+        "optional": [
+          "author",
+          "initials"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_comment": {
+        "required": [
+          "comment"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_comment_resolved": {
+        "required": [
+          "comment",
+          "resolved"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "insert_table_row": {
+        "required": [
+          "table",
+          "row"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "row is the position the new row takes: it goes in before the row there now and copies that row, and one past the last row adds it at the end. A row the table does not have is refused with the table's size and first words, so a metric strip taken for the results table shows at once."
+      },
+      "delete_table_row": {
+        "required": [
+          "table",
+          "row"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "insert_table_column": {
+        "required": [
+          "table",
+          "column"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "column is the position the new column takes: it goes in before the column there now and copies it, and one past the last column adds it at the end, copying the last. A column the table does not have is refused with the table's size and first words."
+      },
+      "delete_table_column": {
+        "required": [
+          "table",
+          "column"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_header_footer": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "section",
+          "kind",
+          "variant",
+          "header",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "headerFooter"
+        ],
+        "propertyBackends": {},
+        "notes": "kind names what to write — 'header' or 'footer' (header:false means the footer too). variant picks the page it applies to: default, first (also sets titlePg), or even."
+      },
+      "track_changes": {
+        "required": [
+          "enabled"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "resolve_revision": {
+        "required": [
+          "resolution"
+        ],
+        "optional": [
+          "revision",
+          "id"
+        ],
+        "oneOf": [
+          [
+            "revision"
+          ],
+          [
+            "id"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "revision is the ordinal of the snapshot revisions list on both backends; id is the w:id the snapshot reports and is honoured by the portable backend only (Word exposes no revision id)."
+      },
+      "resolve_revisions": {
+        "required": [
+          "resolution"
+        ],
+        "optional": [
+          "author"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "author settles only that reviewer's revisions (text wrappers, paragraph marks, table rows, formatting records) on both backends and leaves the other reviewers' changes tracked; without it every revision resolves."
+      },
+      "set_page": {
+        "required": [
+          "properties"
+        ],
+        "optional": [
+          "section"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "page"
+        ],
+        "propertyBackends": {},
+        "notes": "pageSize names the sheet ('a4' default, 'letter', 'legal', 'a3', 'a5', 'tabloid', or [width, height] in points) and orientation turns it; without orientation the section keeps the way it lies. Margins and columnSpacing are points. columns lays the section out in that many even columns and the text flows through them (1 returns it to a single column), so a newsletter page needs no text boxes."
+      },
+      "fit_table": {
+        "required": [
+          "table"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "insert_toc": {
+        "required": [],
+        "optional": [
+          "paragraph",
+          "lowerHeadingLevel",
+          "upperHeadingLevel"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Lands in a paragraph of its own after paragraph (or at the end of the document, where the batch has reached) on both backends, and is rebuilt from the Heading 1..3 paragraphs at every save. lowerHeadingLevel and upperHeadingLevel bound the heading levels it lists (1 and 3 unless given) and are read in either order. The list carries no title of its own: write one before it as a bold paragraph, never as a Heading, or the contents would list themselves."
+      },
+      "add_page_numbers": {
+        "required": [],
+        "optional": [
+          "section",
+          "kind",
+          "variant",
+          "prefix",
+          "separator",
+          "includeTotal",
+          "alignment"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Writes into the footer unless kind:'header' asks otherwise; variant picks default, first, or even, as for set_header_footer. The number alone, centred, on both backends; prefix ('Page') adds to it, and a separator (' / ') or includeTotal:true adds the total ('3 / 12'; includeTotal:false keeps the number alone). A cover without the running line: set_header_footer variant:'first' text:'' (and the same for the footer) after the default ones."
+      },
+      "insert_break": {
+        "required": [],
+        "optional": [
+          "paragraph",
+          "kind"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "kind: page (default) | column | section_next (a new section on the next page, which set_page can then turn landscape or lay in columns) | section_continuous (a new section on the same page)."
+      },
+      "set_list": {
+        "required": [
+          "paragraph",
+          "kind"
+        ],
+        "optional": [
+          "level",
+          "numbering"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "kind: bullet | number | none. level counts from 0 (the outermost) to 2, on both backends. A numbered list counts 1. a. i., or 1. 가. 1) when it opens on Korean text; numbering ('global' | 'korean') names it."
+      },
+      "add_hyperlink": {
+        "required": [],
+        "optional": [
+          "find",
+          "paragraph",
+          "address",
+          "subAddress",
+          "display"
+        ],
+        "oneOf": [
+          [
+            "find"
+          ],
+          [
+            "paragraph"
+          ]
+        ],
+        "propertySets": [
+          "links"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_bookmark": {
+        "required": [
+          "name"
+        ],
+        "optional": [
+          "find",
+          "paragraph"
+        ],
+        "oneOf": [
+          [
+            "find"
+          ],
+          [
+            "paragraph"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_content_control": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "tag",
+          "control"
+        ],
+        "oneOf": [
+          [
+            "tag"
+          ],
+          [
+            "control"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Fills a Word content control the snapshot lists under contentControls (tag, or its 1-based control ordinal), across the body, headers, and footers. The value replaces the placeholder outright and the control stops showing prompt text; a control locked against editing is reported rather than silently skipped."
+      },
+      "add_note": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "kind",
+          "find",
+          "paragraph"
+        ],
+        "oneOf": [
+          [
+            "find"
+          ],
+          [
+            "paragraph"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "kind: footnote (default) | endnote. The superscript mark follows the cited phrase (anchor: \"phrase\"), or the end of the paragraph when the phrase is split by a tab, field, or drawing; the note text lands at the foot of the page or the end of the document, where a reader expects a source."
+      },
+      "add_provenance": {
+        "required": [
+          "paragraph",
+          "source"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "provenance"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      }
+    },
+    "xlsx": {
+      "compose_sheet": {
+        "required": [
+          "rows"
+        ],
+        "optional": [
+          "claimId",
+          "purpose",
+          "expressionMode",
+          "variant",
+          "sheet",
+          "kind",
+          "eyebrow",
+          "title",
+          "subtitle",
+          "source",
+          "headers",
+          "metrics",
+          "insights",
+          "decision",
+          "gates",
+          "actions",
+          "columnFormats",
+          "tableName",
+          "tableStyle",
+          "chart"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "design"
+        ],
+        "propertyBackends": {},
+        "notes": "Optional layout preset. For a model-authored report use native ranges, styles, merges and charts with explicit placement; choose this composer only when its built-in arrangement fits."
+      },
+      "set_cell": {
+        "required": [
+          "cell",
+          "value"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_formula": {
+        "required": [
+          "formula"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [
+          [
+            "cell"
+          ],
+          [
+            "range"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "cell writes one formula. range fills it as Excel does: the formula is written for the top-left cell and every other cell takes it moved — relative references follow the cell, $-pinned ones stay, a table column (Ops[처리량 (건)]) stays — so range:\"C6:C9\" with =SUMIFS(Ops[처리량 (건)],Ops[월],B6) writes B7, B8, B9 into the rows below."
+      },
+      "set_range": {
+        "required": [
+          "range",
+          "values"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "append_row": {
+        "required": [
+          "values"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Writes the row under the last used row, formatted as that row is (number formats, fonts, fills, borders, height), as an inserted row takes the row above's — so an appended figure reads 1,200 under a #,##0 column. A row appended under a total takes the total's look: insert_rows above the total instead."
+      },
+      "clear_cell": {
+        "required": [
+          "cell"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_sheet": {
+        "required": [
+          "name"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Appends the sheet after the last one on both backends, so the order the batch names is the order the workbook opens in."
+      },
+      "copy_sheet": {
+        "required": [
+          "sheet"
+        ],
+        "optional": [
+          "name"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "The copy has its own charts, notes and print area, and its formulas, charts and sheet-level names read the copy, as Excel's copy does; a workbook name that reads the source gains a copy-level twin."
+      },
+      "delete_sheet": {
+        "required": [
+          "sheet"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Every formula, name, rule, validation and chart series that named the sheet reads #REF! afterwards, as Excel saves it."
+      },
+      "rename_sheet": {
+        "required": [
+          "name"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Every formula, name, rule, validation, chart series and pivot source that names the sheet follows the new name."
+      },
+      "insert_rows": {
+        "required": [
+          "row"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Excel's insert on both backends: every formula, name (the print area among them), rule, validation, chart series, pivot source, filter, merge, note and drawing that names the moved rows follows them — a range the insert lands inside grows — and the new rows take the row above's format. What cannot be rewritten (a table's columns, an array formula it would split) refuses the edit, listed."
+      },
+      "delete_rows": {
+        "required": [
+          "row"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Excel's delete on both backends: references to the deleted rows read #REF! (Data!#REF! from another sheet), a range that loses some rows closes up, and a rule, validation, merge or note whose cells are all deleted goes."
+      },
+      "set_style": {
+        "required": [
+          "properties"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [
+          [
+            "cell"
+          ],
+          [
+            "range"
+          ]
+        ],
+        "propertySets": [
+          "cellStyle"
+        ],
+        "propertyBackends": {},
+        "notes": "fillColor: null takes the fill away and bold:false / italic:false set the weight back, on both backends."
+      },
+      "add_note": {
+        "required": [
+          "cell",
+          "text"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_note": {
+        "required": [
+          "cell"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_drawing": {
+        "required": [
+          "drawing"
+        ],
+        "optional": [
+          "sheet",
+          "left",
+          "top",
+          "width",
+          "height"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Moves or resizes a chart or picture already on the sheet. drawing is the name the snapshot reports or its 1-based index on that sheet; left/top/width/height are points, the unit add_chart places one with. This is the answer to drawing_overlap, drawing_covers_cells, and drawing_outside_print_area."
+      },
+      "delete_drawing": {
+        "required": [
+          "drawing"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Removes a chart or picture from the sheet along with the parts only it owned, such as its chart part and embedded workbook."
+      },
+      "add_image": {
+        "required": [
+          "path"
+        ],
+        "optional": [
+          "sheet",
+          "cell",
+          "left",
+          "top",
+          "width",
+          "height",
+          "altText"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "cell (H2) anchors the top-left corner where the snapshot reports it; left/top are points from the sheet origin and win when both are given. altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text."
+      },
+      "add_table": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "name",
+          "style"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "table"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_chart": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "cell",
+          "toColumn",
+          "chartType",
+          "title",
+          "left",
+          "top",
+          "width",
+          "height",
+          "seriesColors",
+          "showValues",
+          "showLegend",
+          "zeroBaseline",
+          "valueNumberFormat",
+          "dataLabelPosition",
+          "dataLabelColor",
+          "plotBy",
+          "highlight",
+          "mutedColor",
+          "gridlines",
+          "valueAxis",
+          "fontName"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "highlight (a 0-based index or a category) sets one bar or slice-free point in the series colour and the rest in mutedColor (C9CED6), so the chart says which one it is about — one series only. gridlines:false and valueAxis:false quiet the plot when every bar carries its value (showValues). fontName sets every text in the chart in the sheet's face (a Korean workbook's Malgun Gothic), where it otherwise takes the workbook default. plotBy:'rows' reads one bounded range the other way — the first row supplies the categories and every other row is a series named by its first cell — for a sheet that grows a column per period. The first source column supplies categories; remaining columns become series. A series that is not beside its categories joins by comma the way Excel reads it (range:'A7:A12,D7:D12', same rows in every area). A source on another sheet names it on every area (range:\"'Calc'!A1:A7,'Calc'!D1:D7\"); sheet is where the frame stands. cell (H2) places the frame's top-left corner on the grid; left/top are points and win when both are given; width/height are points (420 × 260 at F5 reaches about N22), and the print area has to reach past the frame. toColumn (F) with cell ends the frame at that column's right edge in place of width, so a chart spans a table exactly: a column's points depend on the workbook's font (a Korean Excel's is wider), which a width cannot know."
+      },
+      "add_conditional_format": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "type",
+          "formula",
+          "color",
+          "fillColor",
+          "minColor",
+          "midColor",
+          "maxColor"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Default rule: formula (B2<0.9, relative to the range's top-left cell) with color/fillColor for the cells it picks. type: 'colorScale' shades every cell by where its value sits (minColor, midColor, maxColor) and type: 'dataBar' draws a bar in the cell (color); neither takes a formula."
+      },
+      "delete_conditional_formats": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_validation": {
+        "required": [
+          "range",
+          "formula1"
+        ],
+        "optional": [
+          "sheet",
+          "type",
+          "operator",
+          "formula2",
+          "inputMessage",
+          "errorMessage"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "type: list, whole, decimal, date, time, textLength, custom. Without type, choices (\"a,b,c\" or $A$1:$A$9) mean list; other formulas mean custom. Numeric/date/time/textLength rules take operator: between, notBetween, equal, notEqual, greaterThan, lessThan, greaterThanOrEqual, lessThanOrEqual (default between). between/notBetween require formula2; other operators use formula1. Example: type:\"whole\", operator:\"greaterThanOrEqual\", formula1:\"0\". Under protect_sheet unlock entry cells with set_style properties:{ locked:false }."
+      },
+      "freeze_panes": {
+        "required": [],
+        "optional": [
+          "sheet",
+          "row",
+          "column"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "row and column are the first row and column that scroll, as Excel freezes at the selected cell: row:2 keeps row 1 in view, column:2 keeps column A; neither unfreezes. cell:\"B2\" names the same cell, and column also takes a letter."
+      },
+      "add_pivot_table": {
+        "required": [
+          "source",
+          "destination"
+        ],
+        "optional": [
+          "sheet",
+          "destinationSheet",
+          "name",
+          "rows",
+          "columns",
+          "values"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "pivot"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "autofit_range": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "rows",
+          "minWidth"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Accepts cell, whole-column, or whole-row ranges such as A1:D5, A:D, or 2:8. minWidth (characters) is a floor for a composed layout: columns still grow to their content, and every column in the range reaches that width, so the block keeps its width on the printed page (fit-to-page only scales down)."
+      },
+      "set_page_setup": {
+        "required": [],
+        "optional": [
+          "sheet",
+          "printArea",
+          "printTitleRows",
+          "fitToContent",
+          "orientation",
+          "fitToPagesWide",
+          "fitToPagesTall",
+          "centerHorizontally",
+          "centerVertically",
+          "topMargin",
+          "bottomMargin",
+          "leftMargin",
+          "rightMargin"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "pageSetup"
+        ],
+        "propertyBackends": {},
+        "notes": "Margins are inches, as Excel's Page Setup shows them. printTitleRows repeats header rows on every printed page: \"1\" or \"4:5\"."
+      },
+      "set_sheet_view": {
+        "required": [],
+        "optional": [
+          "sheet",
+          "showGridlines",
+          "zoom"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "sheetView"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_sheet_visibility": {
+        "required": [
+          "sheet"
+        ],
+        "optional": [
+          "visibility",
+          "visible"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "visibility is visible, hidden, or very_hidden; visible: true/false works too, as it does for rows and columns. Keep at least one worksheet visible."
+      },
+      "insert_columns": {
+        "required": [
+          "column"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_columns": {
+        "required": [
+          "column"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "merge_cells": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "unmerge_cells": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_autofilter": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "enabled"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "sort_range": {
+        "required": [
+          "range"
+        ],
+        "optional": [
+          "sheet",
+          "by",
+          "order",
+          "hasHeader"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "by names the key column by letter (C) or by its header text; without it the range's first column sorts. order is asc (default) or desc, and hasHeader (default true) keeps the first row in place. The rows move with their formats and formulas as Excel moves them: a reference on the formula's own sheet follows the row where it is relative (=C6/B6-1 moved to row 2 reads =C2/B2-1) and stays where it is pinned ($C$2:$C$6), and a reference that names a sheet keeps naming its cell — so a formula reading another row of the range reads whatever row lands at the same distance. Formulas outside the range keep naming the same cells, whatever moved into them."
+      },
+      "set_hyperlink": {
+        "required": [
+          "cell"
+        ],
+        "optional": [
+          "sheet",
+          "address",
+          "subAddress",
+          "text",
+          "screenTip"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "links"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_header_footer": {
+        "required": [
+          "kind",
+          "text"
+        ],
+        "optional": [
+          "sheet",
+          "alignment"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "What every printed page of the sheet carries. kind is 'header' or 'footer'; alignment places the text left, center (default), or right. {page}, {pages}, {date}, and {time} print the page number, the page count, and the print date and time (text: '{page} / {pages}'); an '&' is printed as written, so Excel's own &P codes are not the way to number pages. The snapshot reports both under pageSetup."
+      },
+      "set_row_visibility": {
+        "required": [
+          "row",
+          "visible"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "A hidden row keeps its values and the sheet stops showing them; the snapshot reports the same state as hiddenRows."
+      },
+      "set_row_height": {
+        "required": [
+          "row",
+          "height"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "height is points (0-409). A merged title band never grows to its wrapped lines on its own, so a report sets the band rows it wraps; count extends the span."
+      },
+      "set_column_width": {
+        "required": [
+          "column",
+          "width"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "column takes a letter (D) or a 1-based number; width is Excel's characters (0-255) — a narrow gutter, a label column set to its report width. autofit_range sizes to the content instead."
+      },
+      "set_column_visibility": {
+        "required": [
+          "column",
+          "visible"
+        ],
+        "optional": [
+          "sheet",
+          "count"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "column takes a letter (D) or a 1-based number. A hidden column keeps its values; the snapshot reports it as hiddenColumns."
+      },
+      "define_name": {
+        "required": [
+          "name",
+          "refersTo"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_name": {
+        "required": [
+          "name"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "protect_sheet": {
+        "required": [],
+        "optional": [
+          "sheet",
+          "password",
+          "allowFormattingCells",
+          "allowSorting",
+          "allowFiltering"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "protection"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "unprotect_sheet": {
+        "required": [],
+        "optional": [
+          "sheet",
+          "password"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_provenance": {
+        "required": [
+          "cell",
+          "source"
+        ],
+        "optional": [
+          "sheet"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "provenance"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      }
+    },
+    "pptx": {
+      "replace_text": {
+        "required": [
+          "find",
+          "replace"
+        ],
+        "optional": [
+          "slide"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Replaces every match on every slide and in the speaker notes; slide limits it to that one page (and its notes). A space in find matches a space or a soft line break, never a paragraph end, and only the matched characters change, so the runs around them keep their formatting."
+      },
+      "set_text": {
+        "required": [
+          "slide",
+          "shape",
+          "text"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Replaces the shape's whole text with one paragraph in the formatting of the paragraph that held its first text, as PowerPoint does; the other paragraphs go. To change one bullet of several, use replace_text; to rebuild a list, add_textbox paragraphs."
+      },
+      "add_textbox": {
+        "required": [
+          "slide"
+        ],
+        "optional": [
+          "text",
+          "paragraphs",
+          "left",
+          "top",
+          "width",
+          "height",
+          "fontName",
+          "fontSize",
+          "color",
+          "name",
+          "properties"
+        ],
+        "oneOf": [
+          [
+            "text"
+          ],
+          [
+            "paragraphs"
+          ]
+        ],
+        "propertySets": [
+          "shape",
+          "authoring"
+        ],
+        "propertyBackends": {},
+        "notes": "left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillTransparency and lineTransparency are percentages (0-100); properties.shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points."
+      },
+      "delete_shape": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_slide": {
+        "required": [],
+        "optional": [
+          "index",
+          "layout"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_slide": {
+        "required": [
+          "slide"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "move_slide": {
+        "required": [
+          "slide",
+          "index"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "duplicate_slide": {
+        "required": [
+          "slide"
+        ],
+        "optional": [
+          "index"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "import_slides": {
+        "required": [
+          "path"
+        ],
+        "optional": [
+          "after",
+          "slides"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "use_template_page": {
+        "required": [
+          "path",
+          "after"
+        ],
+        "optional": [
+          "role",
+          "slide",
+          "title",
+          "eyebrow",
+          "subtitle",
+          "body",
+          "source",
+          "items",
+          "notes"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; eyebrow, subtitle, body (the page's lead prose), and source (its 출처/Source line) fill their own, and text given for a box the page lacks is refused; items[] fill the page's repeated group in order, each { title, body } (a metric page reads them as { value, label }). A template's sidecar (<path>.mixdog.json) names the roles when it has one. Fewer items than slots empties the unused ones, and an eyebrow, subtitle, body, or detail line given no text is emptied rather than left in the template's words; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type. The page's chart, table, or picture still holds the template's data: the result's templateData names each with the operation that replaces it, and a chart's title (the template's words) for set_chart_data's title to replace."
+      },
+      "keep_slides": {
+        "required": [
+          "slides"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_notes": {
+        "required": [
+          "slide",
+          "text"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_footer": {
+        "required": [
+          "slide",
+          "text"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_slide_number": {
+        "required": [
+          "slide",
+          "visible"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_slide_visibility": {
+        "required": [
+          "slide",
+          "visible"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "A hidden slide (visible: false) stays in the file and is skipped when the deck is presented — how an appendix travels with its deck. The snapshot reports it as slide.hidden."
+      },
+      "add_comment": {
+        "required": [
+          "slide",
+          "text"
+        ],
+        "optional": [
+          "author",
+          "initials",
+          "left",
+          "top"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "comment"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "delete_comment": {
+        "required": [
+          "slide",
+          "comment"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_image": {
+        "required": [
+          "slide",
+          "path"
+        ],
+        "optional": [
+          "left",
+          "top",
+          "width",
+          "height",
+          "fit",
+          "focusX",
+          "focusY",
+          "altText"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "fit is stretch (legacy), contain (letterbox without distortion), or cover (crop without distortion). focusX/focusY are 0-1 focal points for cover. altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text."
+      },
+      "replace_image": {
+        "required": [
+          "slide",
+          "shape",
+          "path"
+        ],
+        "optional": [
+          "altText"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "The frame keeps the replaced picture's description until altText renames it, so a swapped photo is otherwise announced as the old one."
+      },
+      "crop_image": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "left",
+          "top",
+          "right",
+          "bottom"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_media": {
+        "required": [
+          "slide",
+          "path",
+          "poster"
+        ],
+        "optional": [
+          "kind",
+          "link",
+          "embed",
+          "left",
+          "top",
+          "width",
+          "height",
+          "altText"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "media",
+          "shape"
+        ],
+        "propertyBackends": {},
+        "notes": "A slide shows a video or sound as a picture with the clip attached, so poster (the preview image) is what the audience sees before playback and the file cannot omit it."
+      },
+      "set_shape": {
+        "required": [
+          "slide",
+          "shape",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "shape"
+        ],
+        "propertyBackends": {},
+        "notes": "properties.left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillColor: null and lineColor: null take the fill and the outline away; fillTransparency and lineTransparency are percentages (0-100); shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points; paragraphSpacing is the space before each paragraph in points."
+      },
+      "group_shapes": {
+        "required": [
+          "slide",
+          "shapes"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "ungroup_shape": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_slide_background": {
+        "required": [
+          "slide",
+          "color"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_layout": {
+        "required": [
+          "slide",
+          "layout"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "apply_theme": {
+        "required": [
+          "path"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_transition": {
+        "required": [
+          "slide"
+        ],
+        "optional": [
+          "effect",
+          "duration",
+          "advanceOnTime",
+          "advanceTime"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "transition"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_animation": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "effect",
+          "trigger",
+          "duration",
+          "delay"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "animation"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_chart": {
+        "required": [
+          "slide"
+        ],
+        "optional": [
+          "chartType",
+          "title",
+          "categories",
+          "series",
+          "left",
+          "top",
+          "width",
+          "height",
+          "showValues",
+          "showLegend",
+          "zeroBaseline",
+          "valueNumberFormat",
+          "dataLabelPosition",
+          "dataLabelColor"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "series[] is { name, values, color?, pointColors? }: color fills the series, pointColors[] one bar or slice each. A chart added to an existing deck takes the deck's colours from the page it joins — the snapshot reports each shape's font.color and fill.color — rather than the neutral default blue, so it does not read as pasted in. left/top/width/height are points (960 × 540 on the wide canvas)."
+      },
+      "fit_text": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "minFontSize",
+          "allowNoChange"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_shape": {
+        "required": [
+          "slide",
+          "shapeType"
+        ],
+        "optional": [
+          "text",
+          "paragraphs",
+          "left",
+          "top",
+          "width",
+          "height",
+          "fillColor",
+          "lineColor",
+          "name",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "shape",
+          "authoring"
+        ],
+        "propertyBackends": {},
+        "notes": "left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillTransparency and lineTransparency are percentages (0-100); properties.shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points."
+      },
+      "add_table": {
+        "required": [
+          "slide",
+          "values"
+        ],
+        "optional": [
+          "rows",
+          "columns",
+          "left",
+          "top",
+          "width",
+          "height",
+          "properties"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "table"
+        ],
+        "propertyBackends": {},
+        "notes": "properties.columnWidths (points, one per column) share the table width in their proportions; without them the columns are equal on both backends, so a short label column beside long text, or right-aligned figures beside a left-aligned word (\"29,000 채택\"), wants widths that follow the text."
+      },
+      "set_table_data": {
+        "required": [
+          "slide",
+          "shape",
+          "values"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "table"
+        ],
+        "propertyBackends": {},
+        "notes": "The table takes the shape of the data on both backends: a row or column past its edge repeats the last one's formatting, and rows past the data are removed — so a toned cell the new row copied (a verdict's fill and ink) is retoned with set_table_cell_style. The table grows down by the rows it gains; its width is the page's, so the columns it gains share that width with the others rather than push its edge past the slide's."
+      },
+      "set_table_cell_style": {
+        "required": [
+          "slide",
+          "shape",
+          "row",
+          "col",
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "tableCell"
+        ],
+        "propertyBackends": {},
+        "notes": "One cell of a slide table, counted as the table stands (row 1 is the header): fillColor (null leaves the cell unfilled), the text color, bold, italic, fontSize, fontName, horizontalAlignment (left, center, right) and verticalAlignment (top, middle, bottom). Only the named properties change."
+      },
+      "set_chart_data": {
+        "required": [
+          "slide",
+          "shape",
+          "series"
+        ],
+        "optional": [
+          "categories",
+          "title",
+          "chartType",
+          "showValues",
+          "showLegend",
+          "zeroBaseline",
+          "valueNumberFormat",
+          "dataLabelPosition",
+          "dataLabelColor",
+          "categoryOrder"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "New numbers keep the chart as it stands — labels, number format, legend, base line, series colours, and title — unless a field here overrides one; title:'' removes the title. categoryOrder:'topDown' lists a horizontal bar chart's categories from the top in the order given (the runtime's own bar charts read so); 'bottomUp' is PowerPoint's default, which a template's bar chart usually carries. Omitted, the order stays as the chart was authored, and the result says readingOrder:'bottomUp' when the first category sits lowest."
+      },
+      "set_chart_series": {
+        "required": [
+          "slide",
+          "shape",
+          "series"
+        ],
+        "optional": [
+          "name",
+          "categories",
+          "values",
+          "chartType",
+          "secondaryAxis"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_chart_axis": {
+        "required": [
+          "slide",
+          "shape",
+          "axis"
+        ],
+        "optional": [
+          "title",
+          "minimum",
+          "maximum",
+          "majorUnit",
+          "numberFormat",
+          "secondaryAxis"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "set_chart_data_labels": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "series",
+          "showValue",
+          "showCategoryName",
+          "position",
+          "numberFormat"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "Without series every series is labelled. position is center, inside_end, inside_base, outside_end, or best_fit, as add_chart takes dataLabelPosition; a stacked bar sets outside_end at the center and a pie or doughnut keeps its own placement."
+      },
+      "set_chart_trendline": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "series",
+          "type",
+          "displayEquation",
+          "displayRSquared"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "type is linear (default), exponential, logarithmic, polynomial, power, or moving_average (the file codes exp, log, poly, movingAvg also read); without series every series takes one."
+      },
+      "set_chart_error_bars": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "series",
+          "amount",
+          "direction",
+          "endStyle"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "chart"
+        ],
+        "propertyBackends": {},
+        "notes": "amount is a positive fixed value; direction is y (default) or x; endStyle is which side the bars reach: both (default), plus, or minus. Without series every series takes them."
+      },
+      "set_hyperlink": {
+        "required": [
+          "slide",
+          "shape"
+        ],
+        "optional": [
+          "address",
+          "subAddress"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "authoring"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "z_order": {
+        "required": [
+          "slide",
+          "shape",
+          "command"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "align_shapes": {
+        "required": [
+          "slide",
+          "shapes",
+          "align"
+        ],
+        "optional": [
+          "relativeToSlide"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "distribute_shapes": {
+        "required": [
+          "slide",
+          "shapes",
+          "direction"
+        ],
+        "optional": [
+          "relativeToSlide"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "add_provenance": {
+        "required": [
+          "slide",
+          "shape",
+          "source"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "provenance"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      }
+    },
+    "pdf": {
+      "add_text": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "page",
+          "pages",
+          "x",
+          "y",
+          "size",
+          "color",
+          "opacity",
+          "rotation",
+          "align",
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "text",
+          "textFont"
+        ],
+        "propertyBackends": {},
+        "notes": "x, y are the baseline start in points from the bottom-left; align center|right places the run between the margins when x is omitted, and with x puts the run's centre or right end at x. {page} and {pages} in text become each page's number and the page count. Non-Latin text embeds an installed Unicode font (fontPath chooses)."
+      },
+      "highlight": {
+        "required": [],
+        "optional": [
+          "find",
+          "wholeWord",
+          "regex",
+          "first",
+          "page",
+          "pages",
+          "x",
+          "y",
+          "width",
+          "height",
+          "color",
+          "opacity"
+        ],
+        "oneOf": [
+          [
+            "find"
+          ],
+          [
+            "page",
+            "x",
+            "y",
+            "width",
+            "height"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "find marks every case-insensitive match on the selected pages, including 90/180/270-degree page rotations and shifted page origins; wholeWord:true skips matches inside longer words, regex:true treats find as a pattern, first:true marks only the first match. A box in bottom-left PDF points marks one region. Yellow at 45% with multiply blend unless told otherwise; text remains extractable: this is not redaction."
+      },
+      "add_link": {
+        "required": [],
+        "optional": [
+          "find",
+          "wholeWord",
+          "regex",
+          "first",
+          "page",
+          "pages",
+          "x",
+          "y",
+          "width",
+          "height",
+          "url",
+          "toPage",
+          "urls"
+        ],
+        "oneOf": [
+          [
+            "url"
+          ],
+          [
+            "toPage"
+          ],
+          [
+            "urls"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Lays an invisible link over every find match (or one box) that opens url (http, https, mailto) or toPage in the same document; urls:true instead links every http(s) address in the text to itself and reports them as urls."
+      },
+      "watermark": {
+        "required": [
+          "text"
+        ],
+        "optional": [
+          "page",
+          "pages",
+          "x",
+          "y",
+          "size",
+          "color",
+          "opacity",
+          "rotation",
+          "align",
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "text",
+          "textFont"
+        ],
+        "propertyBackends": {},
+        "notes": "Centred, 48 pt, 25% opacity, rotated 45° unless told otherwise. Non-Latin text embeds an installed Unicode font (fontPath chooses)."
+      },
+      "stamp_image": {
+        "required": [
+          "path"
+        ],
+        "optional": [
+          "page",
+          "pages",
+          "x",
+          "y",
+          "width",
+          "height",
+          "opacity"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "PNG, JPEG, or SVG (rasterized at high resolution, placed at the vector's own size); x, y are the bottom-left corner in points."
+      },
+      "ocr_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages",
+          "languages",
+          "minConfidence",
+          "maxWidth",
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Adds an invisible searchable text layer in place; a Unicode font is resolved from the system when the text is non-Latin."
+      },
+      "rotate_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages",
+          "rotation",
+          "absolute"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "rotation (multiple of 90) is added to each page's current rotation; absolute:true sets it instead."
+      },
+      "crop_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages",
+          "left",
+          "right",
+          "top",
+          "bottom",
+          "margin"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Trims points from the sides as the page is displayed (rotation handled); margin trims all four. The trimmed content is hidden, not removed, so a crop is never redaction."
+      },
+      "delete_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "At least one page must remain."
+      },
+      "move_page": {
+        "required": [
+          "page",
+          "index"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "extract_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages",
+          "output"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "With output the selected pages are written to that file and the session document is unchanged; without it the document becomes that subset."
+      },
+      "split_pages": {
+        "required": [],
+        "optional": [
+          "page",
+          "pages",
+          "every",
+          "output"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Writes <name>-001.pdf, -002.pdf … beside the document (or into output), one file per page or per `every` pages; the session document is unchanged."
+      },
+      "fill_form": {
+        "required": [
+          "values"
+        ],
+        "optional": [
+          "flatten",
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "values maps field name → value: text string, checkbox true/false, radio/dropdown by option text, optionlist an array. Unknown names or options fail listing what exists; non-Latin values embed a Unicode font automatically when one is installed."
+      },
+      "add_form_field": {
+        "required": [
+          "name",
+          "type",
+          "page",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "optional": [
+          "options",
+          "value",
+          "multiline",
+          "multiselect",
+          "editable",
+          "maxLength",
+          "fontSize",
+          "required",
+          "readOnly",
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "form"
+        ],
+        "propertyBackends": {},
+        "notes": "type: text | checkbox | radio | dropdown | optionlist; the box is linted (name, page bounds, overlap, minimum size) before it is added."
+      },
+      "flatten_form": {
+        "required": [],
+        "optional": [
+          "fontPath"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Bakes every field into page content; fill first, then flatten only when the form must stop being editable."
+      },
+      "preview_fields": {
+        "required": [
+          "output"
+        ],
+        "optional": [
+          "boxes"
+        ],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Writes a copy beside the document with every form field outlined and named, plus any boxes:[{ page, x, y, width, height, label }] you propose, for a render to check placement; the document is unchanged."
+      },
+      "merge_pdf": {
+        "required": [],
+        "optional": [
+          "sources",
+          "path",
+          "index",
+          "bookmarks"
+        ],
+        "oneOf": [
+          [
+            "sources"
+          ],
+          [
+            "path"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "sources: [path | { path, pages, title }] appended in order (or inserted before page index); bookmarks:true adds an outline entry per source; encrypted sources must be decrypted first."
+      },
+      "add_bookmark": {
+        "required": [
+          "title",
+          "page"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Appends an outline entry that opens the page; the snapshot lists them under outline."
+      },
+      "add_attachment": {
+        "required": [
+          "path"
+        ],
+        "optional": [
+          "name",
+          "mimeType",
+          "description"
+        ],
+        "oneOf": [],
+        "propertySets": [
+          "attachment"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      },
+      "extract_attachment": {
+        "required": [],
+        "optional": [
+          "name",
+          "index",
+          "output"
+        ],
+        "oneOf": [
+          [
+            "name"
+          ],
+          [
+            "index"
+          ]
+        ],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Writes an embedded file beside the document (or to output); the document is unchanged."
+      },
+      "compress": {
+        "required": [],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [],
+        "propertyBackends": {},
+        "notes": "Re-serializes with object streams and reports bytesBefore/bytesAfter; images are not resampled, so savings are small."
+      },
+      "set_metadata": {
+        "required": [
+          "properties"
+        ],
+        "optional": [],
+        "oneOf": [],
+        "propertySets": [
+          "metadata"
+        ],
+        "propertyBackends": {},
+        "notes": ""
+      }
+    }
+  },
+  "fieldAliases": {
+    "docx": {
+      "add_comment": {
+        "anchoredText": "find"
+      },
+      "add_hyperlink": {
+        "url": "address"
+      },
+      "set_table_cell": {
+        "column": "col"
+      },
+      "merge_table_cells": {
+        "column": "col"
+      },
+      "set_table_cell_style": {
+        "column": "col"
+      }
+    },
+    "xlsx": {
+      "set_hyperlink": {
+        "url": "address"
+      },
+      "set_formula": {
+        "value": "formula"
+      }
+    },
+    "pptx": {
+      "set_hyperlink": {
+        "url": "address"
+      },
+      "distribute_shapes": {
+        "distribute": "direction"
+      },
+      "set_table_cell_style": {
+        "column": "col"
+      }
+    }
+  },
+  "propertyAliases": {
+    "fontName": "name",
+    "fontSize": "size",
+    "fontNameEastAsia": "nameEastAsia",
+    "nameEastAsia": "fontNameEastAsia"
+  },
+  "operationAliases": {
+    "docx": {
+      "add_paragraph": "append_text",
+      "insert_paragraph": "append_text",
+      "add_text": "append_text",
+      "add_link": "add_hyperlink",
+      "set_hyperlink": "add_hyperlink",
+      "add_footnote": "add_note"
+    },
+    "xlsx": {
+      "add_row": "append_row",
+      "add_link": "set_hyperlink",
+      "add_hyperlink": "set_hyperlink"
+    },
+    "pptx": {
+      "add_link": "set_hyperlink",
+      "add_hyperlink": "set_hyperlink",
+      "add_notes": "set_notes",
+      "set_note": "set_notes"
+    },
+    "pdf": {
+      "add_hyperlink": "add_link",
+      "set_hyperlink": "add_link"
+    }
+  },
+  "xlsxValidation": {
+    "operators": [
+      "between",
+      "notBetween",
+      "equal",
+      "notEqual",
+      "greaterThan",
+      "lessThan",
+      "greaterThanOrEqual",
+      "lessThanOrEqual"
+    ],
+    "types": [
+      "list",
+      "whole",
+      "decimal",
+      "date",
+      "time",
+      "textLength",
+      "custom"
+    ]
+  }
+}

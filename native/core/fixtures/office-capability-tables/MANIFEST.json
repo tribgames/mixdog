@@ -1,0 +1,14 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-capability-tables.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 120098,
+      "path": "golden.json",
+      "sha256": "dab0c53b2d3b453a9832224788cf4e057641e4e29c0e655eebb73ba5a26de480"
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-office-capability-tables.mjs",
+  "set": "office-capability-tables",
+  "totalBytes": 120098
+}
