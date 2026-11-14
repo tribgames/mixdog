@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { createHostScriptPublisher } from './host-script';
 import { createElevatedRequests } from './elevated-requests';
 import { type HostForegroundLock, nextLeaseInstance } from './foreground-lock-host';
-import { launchHostProcess, watchHostWorker, type WindowsWorker } from './host-worker-process';
+import { launchHostProcess, watchHostWorker } from './host-worker-process';
 import { createResidentWorkers } from './resident-workers';
 import { createWorkerLedgers } from './worker-ledgers';
 import { COMMAND_TIMEOUT_MS, createWorkerRequests, type PendingWorkerRequest } from './worker-requests';
@@ -137,9 +137,6 @@ export interface WorkerPoolHost {
   /** Leases the foreground lock to a worker Windows refuses it to
    *  (foreground-lock-host.ts); its facts are filed with the request's reply. */
   foregroundLock?: HostForegroundLock;
-  /** Which program a Windows worker runs; the helper unless the PowerShell
-   *  host is selected as the rollback path. */
-  windowsWorker?: WindowsWorker;
 }
 
 /** The mutations the desktop host may still send its Windows helper: each
@@ -148,7 +145,6 @@ const HOST_RELEASE_ACTIONS = new Set(['release_held_input', 'release_sequence_ho
 
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
-  const windowsWorker: WindowsWorker = host.windowsWorker ?? 'helper';
 
   const hostScript = createHostScriptPublisher(dataDirectory);
   let nextId = 1;
@@ -185,9 +181,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
     elevated.assertClear();
     assertComputerWorkerCapacity(residents.liveCount() + elevated.slots(), maxWorkers);
     const child = launchHostProcess({
-      dataDirectory,
-      hostScript,
-      windowsWorker,
       ledgers,
       inputMarker,
       nativeEnvironment: () => host.nativeEnvironment?.(),
@@ -259,11 +252,9 @@ export function createWorkerPool(host: WorkerPoolHost) {
   /** The Windows helper this host starts never injects input a core helper
    *  would read as the user's (the core's own helper does every action): each
    *  request is read_only, whatever it says, except the releases of what this
-   *  helper itself holds, which lift nothing when it holds nothing. The
-   *  PowerShell host is the program that always did the input, so it is sent
-   *  the request as it stands. */
+   *  helper itself holds, which lift nothing when it holds nothing. */
   function hostRequestScope(request: Record<string, unknown>): { read_only?: boolean } {
-    if (process.platform !== 'win32' || windowsWorker === 'powershell') return {};
+    if (process.platform !== 'win32') return {};
     return { read_only: !HOST_RELEASE_ACTIONS.has(String(request.action)) };
   }
 
@@ -320,7 +311,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
 
   return {
     inputMarker,
-    windowsWorker,
     powerShellBySession,
     workerLastUsedAt,
     residentWorkerPids: residents.pids,
