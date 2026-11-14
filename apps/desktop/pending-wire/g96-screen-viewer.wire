@@ -1,0 +1,25 @@
+# g96-screen-viewer: desktop wire (apply with the real-screen check of the phone screen; one switch, no flag)
+
+The core now carries the phone's whole-PC screen viewer (mixdog-remote LiveHost serves `Source::Screen`; the live view resolves it through
+`ScreenSources`, takes the track from `ScreenSources::capture` or the helper's drawn frames, and carries the screen channel messages).
+When the lead accepts the parity table of results/g96/impl-g96-screen-viewer.json, the Electron screen source is removed, all of it:
+
+- apps/desktop/src/main/browser/host.ts: `createRemoteScreenSources`, `parseRemoteScreenAccess`, `RemoteScreenSources`,
+  `RemoteScreenSourcesDeps` and `RemoteScreenDisplaySummary` imports; the `screens` let and the option `remoteWebrtc.screens`; the
+  `if (options.remoteWebrtc.screens) { ... }` block (sink, `browserHost.remoteScreenDisplays`, `browserHost.remoteScreenAccess`); the
+  screen branch of `sources:` (`if (source.kind === 'screen') return screens?.resolve(...)`); `screens?.dispose()` of `dispose`; the
+  `stopRemoteScreens` member and its line (`screens?.stopForQuit()`); the interface members `remoteScreenDisplays`, `remoteScreenAccess`,
+  `stopRemoteScreens`.
+- apps/desktop/src/main/index.ts (hot): the line `screens: process.platform === 'win32' ? windowsRemoteScreens() : undefined,` and
+  `windowsRemoteScreens` with its imports; `const screensStopped = browserHost?.stopRemoteScreens() ?? Promise.resolve();` and its use in
+  the quit sequence (the core stops the sessions first: `Screens::stop_step`).
+- apps/desktop/src/main/remote-browser-methods.ts: the `remoteScreenDisplays` and `remoteScreenAccess` members (the core answers
+  `browser/screenDisplays` itself and grants access to a paired connection itself).
+- apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts, screen-webrtc-source.ts (+ their tests) and the parts of
+  remote-webrtc/{host,viewer,source,sender-window}.ts that only a screen source used: with the Electron WebRTC host and sender window
+  themselves they are the Electron live view, removed by the live-view deletion task once nothing reaches them.
+- Kept: the input host and injector, the indicator pill (`screen-indicator*.ts`, `host/screen-indicator.ts`) and the display list of the
+  desktop (`host/computer/displays`, `host/computer/pixels`): the core drives them.
+
+Gap to close first (see the core wire, item 5): the picture of the phone's screen is read from the desktop at about 10 fps and at most
+1920 px wide; the Electron track ran at 30 fps at the display's size.

@@ -1,4 +1,4 @@
-//! One viewer (paired client × browser source) of the WebRTC live view
+//! One viewer (paired client × browser or screen source) of the WebRTC live view
 //! (`apps/desktop/src/main/remote-webrtc/viewer.ts` at b6f10295a): the transport state machine of
 //! [`TransportState`], desktop-authoritative. It keeps the JPEG relay view as the fallback that is
 //! never torn down first, moves input ownership only across an epoch barrier, and never applies a
@@ -26,8 +26,10 @@ use super::signal::ConnectionRef;
 use super::signal::DesktopSignal;
 use super::signal::Fingerprint;
 use super::signal::Geometry;
+use super::signal::HelperCredential;
 use super::signal::ICE_TRANSPORT_POLICY;
 use super::signal::IceTransportPolicy;
+use super::signal::ScreenMessage;
 use super::signal::Source;
 use super::signal::TransportState;
 use super::signal::certificate_value_matches;
@@ -75,6 +77,18 @@ pub trait ViewerEffects: Send + Sync {
     fn receiver_stats(&self, stats: &Value);
     /// The connection was promoted: its channel is open for desktop pushes.
     fn promoted(&self);
+    /// What a promoted channel is told at once, as channel text (a screen's status, run and cursor), before any later push.
+    fn channel_state(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// The phone rendered a frame of the screen's video run `epoch`.
+    fn frame_seen(&self, _epoch: u64) {}
+    /// The phone signed a screen's helper challenge.
+    fn helper_grant(&self, _epoch: u64, _challenge: String, _signature: String) {}
+    /// The phone asks for a screen's secure-desktop helper, with its controller key.
+    fn helper_install(&self, _controller_key: String) {}
+    /// The same with the Windows password it typed: no UAC prompt on the PC.
+    fn helper_credential(&self, _controller_key: String, _credential: HelperCredential) {}
 }
 
 struct Connection {
@@ -281,12 +295,10 @@ fn lock(inner: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
 }
 
 impl<E: ViewerEffects> Viewer<E> {
-    /// A viewer of a browser source; a screen source's viewer is not ported (its helper and
-    /// input messages are the screen contract, not this one).
+    /// A viewer of a browser or a screen source. A screen's helper and input messages are read by
+    /// [`ScreenMessage`], a browser's by [`ChannelMessage`]: each source's viewer ends the connection on the
+    /// other's.
     pub fn new(source: Source, effects: E) -> Result<Self, String> {
-        if !matches!(source, Source::Browser { .. }) {
-            return Err("a screen source has no viewer here.".to_owned());
-        }
         Ok(Self {
             source,
             effects,
@@ -426,8 +438,9 @@ impl<E: ViewerEffects> Viewer<E> {
                     }
                     let page = m.e.page();
                     let Some(geometry) = page.geometry else { return Ok(()) };
-                    // An absent document id never equals the page's, whatever that is.
-                    if document_id.is_none()
+                    // An absent document id never equals a browser page's, whatever that is; a screen has no documents.
+                    let screen = matches!(m.source, Source::Screen { .. });
+                    if (document_id.is_none() && !screen)
                         || *document_id != page.document_id
                         || *geometry_generation != geometry.generation
                         || m.i.acked_geometry != geometry.generation
@@ -441,9 +454,13 @@ impl<E: ViewerEffects> Viewer<E> {
                     m.i.last_seq = 0;
                     m.move_to(TransportState::Promoting)?;
                     let connection = m.connection_ref();
+                    let id = connection.connection_id.clone();
                     m.e.signal(&DesktopSignal::Promote { connection, input_epoch: m.i.epoch, geometry_generation: geometry.generation });
                     // Both ends' channel is open (the phone sends media-ready only then).
                     m.e.promoted();
+                    for text in m.e.channel_state() {
+                        m.e.channel_send(&id, &text);
+                    }
                     Ok(())
                 }
                 ClientSignal::PromoteAck { input_epoch, .. } => {
@@ -537,15 +554,44 @@ impl<E: ViewerEffects> Viewer<E> {
             if m.i.connection.as_ref().map(|c| c.id.as_str()) != Some(connection_id) || !matches!(m.i.state, TransportState::Promoting | TransportState::Webrtc) {
                 return Ok(());
             }
-            // A message that does not parse, or is a screen source's, ends the connection (the
-            // text is not kept: it may carry a password).
-            let (epoch, seq, geometry_generation, sent_at, control) = match ChannelMessage::parse(text) {
-                Ok(ChannelMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
-                Ok(ChannelMessage::Stats(stats)) => {
-                    m.e.receiver_stats(&stats);
-                    return Ok(());
+            // A message that does not parse, or is the other kind of source's, ends the connection
+            // (the text is not kept: it may carry a password).
+            let (epoch, seq, geometry_generation, sent_at, control) = if matches!(m.source, Source::Screen { .. }) {
+                match ScreenMessage::parse(text) {
+                    Ok(ScreenMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
+                    Ok(ScreenMessage::Stats(stats)) => {
+                        m.e.receiver_stats(&stats);
+                        return Ok(());
+                    }
+                    // A screen's receipt evidence, helper grant and install or enroll request: not input, so
+                    // not gated by the input epoch and never acked.
+                    Ok(ScreenMessage::FrameSeen { epoch }) => {
+                        m.e.frame_seen(epoch);
+                        return Ok(());
+                    }
+                    Ok(ScreenMessage::HelperGrant { epoch, challenge, signature }) => {
+                        m.e.helper_grant(epoch, challenge, signature);
+                        return Ok(());
+                    }
+                    // The phone's Windows password: no UAC prompt on the PC.
+                    Ok(ScreenMessage::HelperInstall { public_key, credential } | ScreenMessage::HelperEnroll { public_key, credential }) => {
+                        match credential {
+                            Some(credential) => m.e.helper_credential(public_key, credential),
+                            None => m.e.helper_install(public_key),
+                        }
+                        return Ok(());
+                    }
+                    Err(_) => return m.fail(CloseReason::ProtocolError),
                 }
-                Ok(ChannelMessage::Screen) | Err(_) => return m.fail(CloseReason::ProtocolError),
+            } else {
+                match ChannelMessage::parse(text) {
+                    Ok(ChannelMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
+                    Ok(ChannelMessage::Stats(stats)) => {
+                        m.e.receiver_stats(&stats);
+                        return Ok(());
+                    }
+                    Ok(ChannelMessage::Screen) | Err(_) => return m.fail(CloseReason::ProtocolError),
+                }
             };
             let entry = Held { epoch, seq, geometry_generation, sent_at, control, received_at };
             if epoch != m.i.epoch {
@@ -671,7 +717,7 @@ impl<E: ViewerEffects> Viewer<E> {
                 return;
             }
             let geometry = m.e.page().geometry;
-            let coordinate = matches!(entry.control["type"].as_str(), Some("pointer" | "wheel"));
+            let coordinate = matches!(entry.control["type"].as_str(), Some("pointer" | "wheel" | "screen-pointer" | "screen-wheel"));
             if coordinate && !geometry.is_some_and(|g| entry.geometry_generation == g.generation && m.i.acked_geometry == g.generation) {
                 m.ack(&entry, false, 0.0, 0.0);
                 return;
