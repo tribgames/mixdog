@@ -11,6 +11,7 @@
 mod cleanup;
 pub mod identity;
 mod oneshot;
+mod route;
 mod scripts;
 mod session;
 
@@ -61,8 +62,13 @@ pub struct OfficeComConfig {
     pub tokens: LaneTokens,
     /// The wait for a host that was asked to end ([`DRAIN_GRACE`]).
     pub drain_grace: Duration,
+    /// The program the formats on the Rust host list are started on (as `<program> office-com-host`): the service
+    /// binary. The composer sets it, since the process composing the transport is not always that binary.
+    pub rust_host_program: PathBuf,
     #[cfg(any(test, feature = "test-support"))]
     host_command: Option<HostCommand>,
+    #[cfg(any(test, feature = "test-support"))]
+    rust_host_formats: Option<Vec<String>>,
 }
 
 impl OfficeComConfig {
@@ -71,8 +77,11 @@ impl OfficeComConfig {
             data_dir,
             tokens,
             drain_grace: DRAIN_GRACE,
+            rust_host_program: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mixdogd")),
             #[cfg(any(test, feature = "test-support"))]
             host_command: None,
+            #[cfg(any(test, feature = "test-support"))]
+            rust_host_formats: None,
         }
     }
 
@@ -82,6 +91,14 @@ impl OfficeComConfig {
     #[must_use]
     pub fn with_host_command(mut self, program: PathBuf, args: Vec<OsString>) -> Self {
         self.host_command = Some((program, args));
+        self
+    }
+
+    /// The formats served by the Rust host, in place of the compiled list.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn with_rust_host_formats(mut self, formats: &[&str]) -> Self {
+        self.rust_host_formats = Some(formats.iter().map(|format| (*format).to_owned()).collect());
         self
     }
 }
@@ -218,7 +235,7 @@ impl OfficeCom {
         if !sessions.reserve(&session_id) {
             return json!({"ok": false, "error": format!("Microsoft Office session already exists: {session_id}")});
         }
-        let running = match self.inner.start(scripts::SESSION_HOST_SCRIPT).await {
+        let running = match self.inner.start(true, payload.get("format").and_then(Value::as_str)).await {
             Ok(running) => running,
             Err(error) => {
                 sessions.release(&session_id);
@@ -327,8 +344,17 @@ impl Inner {
         cfg!(windows)
     }
 
-    /// The program and leading arguments a host is started with; the script path follows.
-    fn command(&self) -> HostCommand {
+    /// Whether the Rust host serves `format`.
+    fn rust_serves(&self, format: Option<&str>) -> bool {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(formats) = &self.config.rust_host_formats {
+            return route::serves(formats.iter().map(String::as_str), format);
+        }
+        route::serves(route::RUST_HOST_FORMATS.iter().copied(), format)
+    }
+
+    /// The program and leading arguments a PowerShell host is started with; the script path follows.
+    fn powershell_command(&self) -> HostCommand {
         #[cfg(any(test, feature = "test-support"))]
         if let Some(command) = &self.config.host_command {
             return command.clone();
@@ -341,20 +367,27 @@ impl Inner {
         (program, args.iter().map(OsString::from).collect())
     }
 
-    /// Writes the scripts (verifying the bytes that are already there) and starts a host on `script`.
-    async fn start(&self, script: &'static str) -> Result<Running, String> {
+    /// Starts a host for a call or a session on `format`: the Rust host when it serves the format, otherwise
+    /// PowerShell on the embedded script (written first, the bytes already there verified).
+    async fn start(&self, session: bool, format: Option<&str>) -> Result<Running, String> {
         let rt = Handle::current();
-        let data_dir = self.config.data_dir.clone();
         let tokens = self.config.tokens;
-        let dir = tokens
-            .maintenance_io
-            .submit(&CancellationToken::new(), move |lane| scripts::ensure(lane, &data_dir))
-            .map_err(|full| full.to_string())?
-            .await
-            .map_err(|dropped| dropped.to_string())?
-            .map_err(|error| format!("Microsoft Office host scripts could not be written: {error}"))?;
-        let (program, mut args) = self.command();
-        args.push(dir.join(script).into_os_string());
+        let (program, args) = if self.rust_serves(format) {
+            (self.config.rust_host_program.clone(), route::rust_host_args(session))
+        } else {
+            let script = if session { scripts::SESSION_HOST_SCRIPT } else { scripts::HOST_SCRIPT };
+            let data_dir = self.config.data_dir.clone();
+            let dir = tokens
+                .maintenance_io
+                .submit(&CancellationToken::new(), move |lane| scripts::ensure(lane, &data_dir))
+                .map_err(|full| full.to_string())?
+                .await
+                .map_err(|dropped| dropped.to_string())?
+                .map_err(|error| format!("Microsoft Office host scripts could not be written: {error}"))?;
+            let (program, mut args) = self.powershell_command();
+            args.push(dir.join(script).into_os_string());
+            (program, args)
+        };
         tokens
             .spawn_io
             .submit(&CancellationToken::new(), move |_lane| session::spawn_host(&program, &args, &rt))
@@ -365,7 +398,7 @@ impl Inner {
     }
 
     async fn call_once(&self, payload: &Value, options: &CallOptions) -> OfficeReply {
-        match self.start(scripts::HOST_SCRIPT).await {
+        match self.start(false, payload.get("format").and_then(Value::as_str)).await {
             Ok(running) => {
                 let client = oneshot::attach(running, self.config.drain_grace);
                 oneshot::call_once(client, payload, options.timeout, &options.cancel).await
