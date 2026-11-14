@@ -20,6 +20,8 @@ use mixdog_app_server::Inbound;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server::ServerConfig;
 use mixdog_app_server::VersionOrder;
+use mixdog_core_api::call::WindowRole;
+use mixdog_core_api::call::WindowScope;
 use mixdog_app_server::is_control;
 use mixdog_app_server_client::api::Connector;
 use mixdog_app_server_client::inprocess::FromClient;
@@ -65,6 +67,10 @@ impl Running {
             Arc::new(move |id| origins.origin_of(id)),
             ServerConfig { native_push: core.native_push_offered(), ..server_config(limits, core.defaults_separation()) },
         )?;
+        let windows = hub.clone();
+        server
+            .set_window_of(Arc::new(move |id| windows.connection_origin(id).as_ref().and_then(window_scope_of)))
+            .unwrap_or_else(|_| unreachable!("a server built a line above has no window source yet"));
         Ok(Self { server, hub, outgoing })
     }
 
@@ -76,6 +82,23 @@ impl Running {
             spawn_drive(self.server.clone(), accepted);
         }
     }
+}
+
+/// The window a connection's origin names, in the shape the core's calls carry.
+fn window_scope_of(origin: &ConnectionOrigin) -> Option<WindowScope> {
+    let id = origin.window_id()?;
+    let role = match origin.window_role()? {
+        mixdog_app_server_transport::WindowRole::Main => WindowRole::Main,
+        mixdog_app_server_transport::WindowRole::Server { connection_id } => WindowRole::Server { connection_id: connection_id.clone() },
+    };
+    Some(WindowScope { id: Arc::from(id), role })
+}
+
+/// Installs the expander of `{"$blobRef"}` params for the process, over the blob store `blob/put` publishes to: the composition calls it
+/// where it builds `BlobService`, before the server accepts a connection. One core serves a process; a second composition in the same
+/// process (a test) keeps the first one's expander, as `param_refs::install` refuses a second.
+pub(crate) fn install_param_refs(store: mixdog_store::blobs::BlobStore, tokens: &mixdog_rt::LaneTokens, limits: &Limits) {
+    let _ = mixdog_app_server::param_refs::install(mixdog_core_domains::domains::blob::BlobParamRefs::new(store, tokens, limits));
 }
 
 pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation) -> ServerConfig {
@@ -97,6 +120,8 @@ pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_prot
             voice: CapabilityState::Available,
             // Each `initialize` answers it again with the relay's native push offer of that moment (`ServerConfig::native_push`).
             remote: mixdog_app_protocol::remote_flags::remote_capabilities(false),
+            // The server holds a window-scoped connection to the window method table and echoes its id (`connection.window`).
+            window_scope: 1,
         },
         native_push: Arc::new(|| false),
         limits,

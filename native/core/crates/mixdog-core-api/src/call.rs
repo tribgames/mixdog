@@ -28,6 +28,22 @@ pub enum Caller {
     Internal(&'static str),
 }
 
+/// What a desktop window's socket is for (the transport's `Mixdog-Window-Role`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowRole {
+    /// The window's own main connection.
+    Main,
+    /// A socket the window keeps for the server connection `connection_id`.
+    Server { connection_id: String },
+}
+
+/// The desktop window a connection belongs to: set by the server from the transport's record of the connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowScope {
+    pub id: Arc<str>,
+    pub role: WindowRole,
+}
+
 /// Per-request context.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -47,6 +63,10 @@ pub struct CallContext {
     /// (mixdog-app-protocol `free_text`). A service refuses such text where Node refuses a lone code unit,
     /// or matches nothing with it where Node matched nothing. Empty for an internal producer.
     pub lone_surrogates: Vec<mixdog_js::LoneAt>,
+    /// The window the calling connection is the socket of; `None` for any other connection and for an internal producer.
+    pub window: Option<WindowScope>,
+    /// Whether the calling connection is the current host claimant (`host/claim`), read by the server from its claim table.
+    pub host_claimant: bool,
 }
 
 /// Guards a service hands the server to keep until the request's answer has been handed to the connection's outgoing queue (written,
@@ -91,7 +111,16 @@ impl CallContext {
             cancel,
             after_answer: AfterAnswer::default(),
             lone_surrogates: Vec::new(),
+            window: None,
+            host_claimant: false,
         }
+    }
+
+    /// The same context for a connection that is a window's socket.
+    #[must_use]
+    pub fn with_window(mut self, window: Option<WindowScope>) -> Self {
+        self.window = window;
+        self
     }
 
     /// An in-process producer. It runs on this machine, so it has the `Local` origin, which
@@ -103,6 +132,8 @@ impl CallContext {
             cancel: CancellationToken::new(),
             after_answer: AfterAnswer::default(),
             lone_surrogates: Vec::new(),
+            window: None,
+            host_claimant: false,
         }
     }
 }
