@@ -111,7 +111,7 @@ export async function openComputerCore(): Promise<ComputerCore> {
   const runtimeRoot = process.env[COMPUTER_CORE_RUNTIME_ROOT];
   if (!runtimeRoot) throw new Error(`${COMPUTER_CORE_RUNTIME_ROOT} names the runtime root of the isolated core.`);
   const { dirname } = await import('node:path');
-  const { app, BrowserWindow } = await import('electron');
+  const { app, BrowserWindow, powerMonitor, screen } = await import('electron');
   const { HOST_CAPABILITIES } = await import('../../host/connection');
   const { createDesktopHost } = await import('../../host');
   const { createComputerPillSource } = await import('../../host/computer-pill');
@@ -185,21 +185,21 @@ export async function openComputerCore(): Promise<ComputerCore> {
       onBrowserViewFailed: () => {},
       resolveProxy: async () => 'DIRECT',
       // The screen reads and the whole-command relay belong to the desktop's own host, which the harness does not run: the core's
-      // helper reads the screen itself.
-      computer: () => null,
-      computerAppInput: {
-        showCursor: (sessionId, x, y, action) =>
-          mirror.pointerProgress(sessionId, { x, y, held: false, mode: 'background', phase: action === 'click' ? 'release' : action }),
+      // helper reads the screen itself. The presence mirror draws the app input's arrow.
+      computer: {
+        mirror,
+        permissions: {
+          read: () => ({
+            screen_capture: 'not_required_on_windows',
+            accessibility: 'not_required_on_windows',
+            input: 'target_integrity_dependent',
+          }),
+          request: () => undefined,
+        },
+        environment: { ready: app.whenReady(), sources: () => ({ power: powerMonitor, screen }) },
+        desktopHostScreen: () => null,
+        desktopHostCommand: () => null,
       },
-      computerPermissions: {
-        read: () => ({
-          screen_capture: 'not_required_on_windows',
-          accessibility: 'not_required_on_windows',
-          input: 'target_integrity_dependent',
-        }),
-        request: () => undefined,
-      },
-      computerCommand: () => null,
       notifications: {
         createNotification: () => {
           throw new Error('The computer harness shows no notifications.');

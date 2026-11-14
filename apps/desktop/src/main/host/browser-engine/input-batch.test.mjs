@@ -173,6 +173,17 @@ test('down, move and up carry the held button, and a malformed step is -32602', 
   await assert.rejects(h.call({ steps: [{ op: 'swipe' }] }), (e) => e.code === -32602);
 });
 
+test('a swipe step is the touch drag: a contact moved to its destination and lifted, counted as pointer events', async () => {
+  const h = harness();
+  const result = await h.call({ steps: [{ op: 'pointer', kind: 'swipe', x: 1, y: 2, toX: 30, toY: 40 }] });
+  assert.ok(h.sent.length > 0);
+  assert.ok(h.sent.every((event) => event.method === 'Input.dispatchTouchEvent'));
+  assert.equal(h.sent[0].type, 'touchStart');
+  assert.equal(h.sent.at(-1).type, 'touchEnd');
+  assert.equal(result.timing.mouseEvents, h.sent.length);
+  await assert.rejects(h.call({ steps: [{ op: 'pointer', kind: 'swipe', x: 1, y: 1 }] }), (e) => e.code === -32602);
+});
+
 test('press with modifiers and repeat sends the chord repeat times', async () => {
   const h = harness();
   const result = await h.call({ steps: [{ op: 'press', key: 'a', modifiers: ['Control'], repeat: 2 }] });

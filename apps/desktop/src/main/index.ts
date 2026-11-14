@@ -73,7 +73,7 @@ import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './qui
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
-import type { WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
+import type { InitializeResponse, WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
 import { isSessionOnScreen, screenSessionIds } from './screen-sessions';
 import { setForegroundLeaseLibrary } from './computer/backend/foreground-lock-host';
 import { micaLibraryPath } from './window-mica';
@@ -118,6 +118,7 @@ import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
+import type { WsEndpoint } from './protocol/ws-connector';
 import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, resolveLocalCore } from './protocol/local-core';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
@@ -144,6 +145,7 @@ import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { windowIdFor } from './core-port/window-ids';
+import { CorePortRelay, type CoreEndpoint } from './core-port/relay';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import { createTerminalBridgeBackend } from './terminal/bridge-backend';
@@ -526,6 +528,11 @@ async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Pr
   const host = (await loadSshHostStore(desktopUserData)).list().find((entry) => entry.id === hostId);
   return runWithSshContext(host?.settings ? { settings: host.settings } : {}, run);
 }
+/** Where each connection's core listens (the same resolver its own link dials with), by connection id: a window's
+ *  direct port to its core (core-port/relay.ts) opens with it. */
+const coreEndpoints = new Map<string, () => Promise<WsEndpoint>>();
+/** The last initialize reply each connection's core gave main (window scope, limits). */
+const coreInitialized = new Map<string, InitializeResponse>();
 const connectionDependencies: DesktopConnectionDependencies = {
   // This PC's core reads the discovery file; a server's core is reached through its SSH tunnel. Both use the
   // header token and re-resolve on every dial.
@@ -543,17 +550,21 @@ const connectionDependencies: DesktopConnectionDependencies = {
             },
           })
         : null;
-    return resolve
-      ? createProtocolConnection({
-          open: openCore({
-            resolve,
-            version: app.getVersion(),
-            capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
-            // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
-            ...(connection.kind === 'local' && !connector ? { onInitialized: (reply) => reportDefaultsSeparation(reply, bootTimeline.defaultsSeparationFailed) } : {}),
-          }),
-        })
-      : null;
+    if (!resolve) return null;
+    coreEndpoints.set(connection.id, resolve);
+    // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
+    const reportsDefaults = connection.kind === 'local' && !connector;
+    return createProtocolConnection({
+      open: openCore({
+        resolve,
+        version: app.getVersion(),
+        capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
+        onInitialized: (reply) => {
+          coreInitialized.set(connection.id, reply);
+          if (reportsDefaults) reportDefaultsSeparation(reply, bootTimeline.defaultsSeparationFailed);
+        },
+      }),
+    });
   },
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
@@ -632,6 +643,28 @@ const windowRoutes = new WindowRouteRegistry();
 const ipcRouter = createConnectionIpcRouter({
   ipcMain,
   resolveSender: (sender) => resolveWindowConnection(windowRoutes, connectionPool, sender.id),
+});
+// Every window's renderer talks to its core directly: main opens the socket (headers, no Origin) and hands the window a
+// MessagePort over it. A server window gets its server's core (`primary`) and this PC's (`pc`), both under its role.
+const corePortRelay = new CorePortRelay({
+  endpointFor: async (webContentsId) => {
+    const connection = resolveWindowConnection(windowRoutes, connectionPool, webContentsId);
+    const local = connection.kind === 'local';
+    const role: CoreEndpoint['role'] = local ? 'main' : `server:${connection.id}`;
+    const endpoint = async (slot: CoreEndpoint['slot'], connectionId: string, target: CoreEndpoint['target']) => {
+      const resolve = coreEndpoints.get(connectionId);
+      if (!resolve) throw new Error(`The connection "${connectionId}" has no core link.`);
+      const { url, token } = await resolve();
+      return { slot, url, token, target, role } satisfies CoreEndpoint;
+    };
+    return local
+      ? [await endpoint('primary', connection.id, 'local')]
+      : [await endpoint('primary', connection.id, 'server'), await endpoint('pc', LOCAL_CONNECTION_ID, 'local')];
+  },
+  coreWindowScope: async () => {
+    const scope = coreInitialized.get(LOCAL_CONNECTION_ID)?.capabilities?.windowScope;
+    return typeof scope === 'number' && scope > 0 ? scope : null;
+  },
 });
 const localConnection = createDesktopConnection(
   { id: LOCAL_CONNECTION_ID, kind: 'local', name: hostname() },
@@ -1186,6 +1219,8 @@ const hostRole = createLocalHostRole({
   // execution (computer/userControl takeover) while the core drives the computer, bound once the app is ready.
   computer: {
     permissions: { read: readComputerPermissions, request: requestComputerPermissions },
+    // Upload chunks follow this PC's core limit (its initialize answer); the default chunk before the first answer.
+    pixels: { blobChunkBytes: () => coreInitialized.get(LOCAL_CONNECTION_ID)?.limits?.maxBlobPutChunkBytes },
     environment: {
       ready: app.whenReady(),
       sources: () => ({ power: powerMonitor, screen }),
@@ -1307,11 +1342,15 @@ localProtocol.onEvent((event) => {
       })
     );
 });
-// The core's open requests (browser surface, terminal run, visualize open) reach the window as Node's own flows did.
-const sendToMainWindow = (channel: string, request: unknown): void => {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
-  mainWindow.webContents.send(channel, request);
-};
+// A deleted session lets go of its in-app browser pages. The window deletes over its own core link now, so main learns of
+// it from the core's `thread/deleted` (what the old deleteSession IPC handler did after the delete).
+localProtocol.onEvent((event) => {
+  if (event.type !== 'notification') return;
+  const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+  if (method !== 'thread/deleted') return;
+  const threadId = (params as { threadId?: unknown } | undefined)?.threadId;
+  if (typeof threadId === 'string' && threadId) browserHost?.releaseSession(threadId);
+});
 // The core owns a takeover card as a server request: it starts the takeover here, and its resolution - an answer, or the
 // card's own 15-minute expiry - ends it and the page it handed over.
 localProtocol.onEvent(createTakeoverFeed((update) => onTakeoverState(update)));
@@ -1320,7 +1359,9 @@ localProtocol.onEvent(
     // Not delivered here: this process's browser host handed the request to its window directly before it reported it
     // (`host/browser/surface`); the core's `ui/openRequested` is for the other attached clients, paired phones.
     browser: () => {},
-    terminal: (request) => sendToMainWindow(DESKTOP_IPC.terminalRunRequested, request),
+    // The window's own core link receives `ui/openRequested{kind: terminal}` itself (renderer core-direct/api-terminal.ts);
+    // main's own terminal bridge reveals still go to it as DESKTOP_IPC.terminalRunRequested (requestTerminalRun above).
+    terminal: () => {},
     visualize: (event) => visualize.openRequested(event),
     watchNewTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
     notify: (method, params) => localProtocol.notify(method, params),
@@ -1664,6 +1705,7 @@ function disposeDesktopResources(): Promise<void> {
       // Quit detaches from every server: the tunnels close, the servers'
       // daemons keep running.
       sshConnections.closeAll(),
+      Promise.resolve(corePortRelay.dispose()),
       localConnection.dispose(),
       windowStateFlush,
       ...[...windowStates.values()].map((state) => state.flush()),
@@ -2708,6 +2750,7 @@ function installWindowIpc(
     serviceUserDataPath: () => connection.serviceUserDataPath(),
     protocol: connection.protocol,
     pcCore: localProtocol,
+    corePort: corePortRelay,
     // The updater and the notification sound are this PC's: a server window
     // gets neither (its channels are refused by the feature gates).
     ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
@@ -2894,6 +2937,9 @@ function watchPowerAndNetwork(): void {
     // redial the relay leg instead of waiting for the ping cycle.
     awakeService.reevaluate();
     hostRole.host.reports.power('resume');
+    // A window's core socket may have died silently across sleep: each window's port closes and the window reopens it,
+    // reading its state afresh (what the old state bridge's resume resend did).
+    corePortRelay.closeAll('system resume');
     // Server links probe before touching their tunnel: a live one stays.
     for (const connection of connectionPool.list()) void connection.link?.resume();
   });

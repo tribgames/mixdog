@@ -270,5 +270,6 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
     invokePcQuotaCapability: (request: DesktopCapabilityRequest) => invokeIpc(DESKTOP_IPC.pcQuotaInvoke, request),
     readPcQuotaCapabilities: (requests: DesktopCapabilityReadRequest[]) =>
       invokeIpc(DESKTOP_IPC.pcQuotaRead, requests),
+    onHostTerminalRunRequested: (listener) => subscribeIpc(DESKTOP_IPC.terminalRunRequested, listener),
   };
 }

@@ -5044,7 +5044,15 @@
     "notification host/browser/page/facts /facts/pendingDialog/defaultPrompt",
     "notification host/browser/page/facts /facts/pendingDialog/message",
     "notification host/browser/page/facts /facts/title",
-    "request test/browserEngine/run /args/**"
+    "request test/browserEngine/run /args/**",
+    "answer host/browser/ref/mint /facts/dismissedDialog/message",
+    "answer host/browser/ref/mint /facts/fault",
+    "answer host/browser/ref/mint /facts/pendingDialog/defaultPrompt",
+    "answer host/browser/ref/mint /facts/pendingDialog/message",
+    "answer host/browser/ref/mint /facts/title",
+    "answer host/browser/ref/mint /matches/*/role",
+    "answer host/browser/ref/mint /matches/*/name",
+    "answer host/browser/ref/mint /invalid"
    ]
   },
   {
@@ -5243,7 +5251,17 @@
     "notification host/browser/page/facts /facts/pendingFileChooser/receiverKey",
     "notification host/browser/page/facts /pageId",
     "notification host/browser/userInput /pageId",
-    "request test/browserEngine/run /threadId"
+    "request test/browserEngine/run /threadId",
+    "answer host/browser/ref/mint /facts/childSessions/*/frameId",
+    "answer host/browser/ref/mint /facts/childSessions/*/sessionId",
+    "answer host/browser/ref/mint /facts/documentId",
+    "answer host/browser/ref/mint /facts/loadId",
+    "answer host/browser/ref/mint /facts/openedPopups/*",
+    "answer host/browser/ref/mint /facts/pageId",
+    "answer host/browser/ref/mint /facts/pendingDialog/sessionId",
+    "answer host/browser/ref/mint /facts/pendingFileChooser/receiverKey",
+    "answer host/browser/ref/mint /matches/*/ref",
+    "answer host/browser/snapshot /observation"
    ]
   },
   {
@@ -5319,7 +5337,10 @@
     "answer host/browser/upload /facts/url",
     "notification host/browser/page/facts /facts/childSessions/*/url",
     "notification host/browser/page/facts /facts/refusedRequests/*/url",
-    "notification host/browser/page/facts /facts/url"
+    "notification host/browser/page/facts /facts/url",
+    "answer host/browser/ref/mint /facts/childSessions/*/url",
+    "answer host/browser/ref/mint /facts/refusedRequests/*/url",
+    "answer host/browser/ref/mint /facts/url"
    ]
   },
   {
@@ -5475,7 +5496,13 @@
     "notification host/browser/page/facts /facts/refusedRequests/*/reason",
     "notification host/browser/userInput /reason",
     "request initialize /capabilities/host/browserEngine/features/*",
-    "request test/browserEngine/run /tool"
+    "request test/browserEngine/run /tool",
+    "answer host/browser/ref/mint /facts/actor",
+    "answer host/browser/ref/mint /facts/dismissedDialog/type",
+    "answer host/browser/ref/mint /facts/dismissedDialog/reason",
+    "answer host/browser/ref/mint /facts/pendingDialog/type",
+    "answer host/browser/ref/mint /facts/pendingFileChooser/mode",
+    "answer host/browser/ref/mint /facts/refusedRequests/*/reason"
    ]
   },
   {

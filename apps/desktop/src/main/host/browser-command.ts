@@ -75,10 +75,20 @@ const REMOTE_ACTIONS: Record<string, (session: unknown, fields: Record<string, u
 /** The action a phone's gesture arrives as: not a tool action, so it never meets the tool validator. */
 export const BROWSER_INPUT_ACTION = 'input';
 
+/** What a tool action gets once the core drives the browser through the engine methods (`host/browser/*`). */
+export const BROWSER_ENGINE_COMMAND_REFUSED =
+  'This desktop serves the browser through the host/browser engine methods; host/browser/command takes no tool action while the core uses them.';
+
+/**
+ * `engineMode`: the core drives the browser through the engine lane (it has called an engine method on this
+ * connection). The core then never sends a tool action here, so one is refused with a clear error; the
+ * non-tool actions (a phone's input, history, tabs, credentials, import) are served in both.
+ */
 export function createBrowserCommandHost(
   connection: HostConnection,
   runner: BrowserCommandRunner,
-  input: BrowserInputControl
+  input: BrowserInputControl,
+  engineMode: () => boolean = () => false
 ) {
   const running = new Set<AbortController>();
 
@@ -119,6 +129,7 @@ export function createBrowserCommandHost(
         throw new HostRpcError(HOST_COMMAND_FAILED, redactBrowserText((error as Error)?.message || String(error)));
       }
     }
+    if (engineMode()) throw new HostRpcError(HOST_COMMAND_FAILED, BROWSER_ENGINE_COMMAND_REFUSED);
     if (running.size >= MAX_CONCURRENT_BROWSER_COMMANDS) {
       throw new HostRpcError(HOST_COMMAND_FAILED, 'too many concurrent browser commands');
     }

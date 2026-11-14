@@ -790,6 +790,10 @@ pub struct HostBrowserPageEvalParams {
     pub timeout_ms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Precondition>,
+    /// The caller holds refs it would keep if the script left the page alone: the host reads the page's observation revision (after a render checkpoint)
+    /// before and after the script and answers `unchanged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_unchanged: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -801,6 +805,10 @@ pub struct HostBrowserPageEvalResult {
     pub value: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exception: Option<BrowserExceptionDetails>,
+    /// With `checkUnchanged`: the script left the document, URL, DOM, scroll and input as they were, opened no popup and raised no dialog. Absent when it
+    /// was not asked, or the page could not be read before or after (a frame that never confirmed its render checkpoint is unknown, not unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
     pub facts: PageFacts,
 }
 
@@ -826,6 +834,9 @@ pub struct BrowserPageReadOptions {
     pub selector: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_hidden: Option<bool>,
+    /// Where a text read starts, in UTF-16 units: a text longer than one read returns is read in parts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
 }
 
 /// `host/browser/page/read`.
@@ -968,6 +979,10 @@ pub struct HostBrowserSnapshotResult {
     pub snapshot_id: String,
     pub document_id: String,
     pub revision: u32,
+    /// The whole observation revision of the page (every frame's document, viewport, scroll position, DOM-change counter and scroller counters,
+    /// `|`-separated); the core judges "no observable change" by it. Absent from an older host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<String>,
     pub payload: BrowserSnapshotPayload,
     pub warnings: Vec<String>,
     pub facts: PageFacts,
@@ -1004,7 +1019,65 @@ pub struct HostBrowserRefCallResult {
     pub value: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exception: Option<BrowserExceptionDetails>,
+    /// Where the cross-origin frame the ref lives in sits in the top viewport (absent in the top document, whose points need no offset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_offset: Option<BrowserFrameOffset>,
     pub facts: PageFacts,
+}
+
+/// The offset of a cross-origin frame in the top viewport.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserFrameOffset {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// `host/browser/ref/mint` (core to host): the refs of the top-document nodes a CSS selector names, on a page whose refs come from the accessibility
+/// tree. A node the snapshot lists keeps its ref; any other gets one minted in the host's ref table, bound like a listed one, so `ref/call` and the
+/// pointer resolve it the same way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserRefMintParams {
+    pub page_id: String,
+    pub snapshot_id: String,
+    pub selector: String,
+    /// More matches than this answer only their count.
+    pub limit: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Precondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserRefMintResult {
+    /// How many nodes the selector matched.
+    pub count: u32,
+    /// In document order; empty past the limit.
+    #[serde(default)]
+    pub matches: Vec<BrowserMintedRef>,
+    /// The page's own message when the selector is not valid CSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<String>,
+    pub facts: PageFacts,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserMintedRef {
+    #[serde(rename = "ref")]
+    #[cfg_attr(feature = "codegen", ts(rename = "ref"))]
+    pub ref_id: String,
+    pub role: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1031,6 +1104,8 @@ pub enum BrowserPointerKind {
     Wheel,
     Tap,
     DragTo,
+    /// A touch drag: a contact at (x, y) moved to (toX, toY) and lifted (`swipeAt` of the touch input driver). Takes `toX` and `toY` like `dragTo`.
+    Swipe,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

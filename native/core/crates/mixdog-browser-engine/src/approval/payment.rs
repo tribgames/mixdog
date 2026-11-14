@@ -47,6 +47,7 @@ pub async fn page_has_payment_evidence(host: &dyn BrowserHost, page_id: &str, ca
         world: None,
         timeout_ms: EVIDENCE_TIMEOUT_MS,
         expect: None,
+        check_unchanged: None,
     };
     match host.page_eval(params, cancel).await {
         Ok(result) => result.exception.is_some() || result.value != Some(serde_json::Value::Bool(false)),

@@ -9,10 +9,14 @@ import { join } from 'node:path';
 import { app, type BrowserWindow, sharedTexture, webContents } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
+import type { EngineContext } from '../host/browser-engine/context';
+import type { Leases } from '../host/browser-engine/lease';
+import { createInterceptTable } from '../host/browser-engine/session';
 import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
 import { requestBrowserApproval } from './approval-dialog';
 import { createBrowserSessionStore, watchBrowserSessionCookies } from './browser-session-store';
 import { createBrowserGuestCdp } from './cdp';
+import type { EngineEventSink } from './cdp-event-router';
 import { ACTION_SETTLE_DOM_TIMEOUT_MS, ACTION_SETTLE_LOAD_TIMEOUT_MS, ACTION_SETTLE_QUIET_MS } from './command';
 import { createBrowserCookieJar } from './cookie-jar';
 import { createBrowserDisplayTextures } from './display-textures';
@@ -27,6 +31,7 @@ import { createBrowserLinkedSignIns } from './linked-sign-in';
 import { LinkedSignInStore } from './linked-sign-in-store';
 import { createBrowserPartition } from './partition';
 import type { BrowserPermissionPolicyStore } from './permissions';
+import type { FillEngine } from './credential-autofill';
 import { CredentialVault } from './credential-vault';
 import { BrowserProfileImportService, defaultNativeBrowserImporterPath } from './profile-import';
 import { redactBrowserText } from './redaction';
@@ -174,18 +179,90 @@ function createBrowserHostStorage(
   };
 }
 
+/** What one protocol connection's engine lane hands the browser while the connection is up
+ *  (host/browser-engine/index.ts installBrowserEngine). */
+export interface EngineLaneBinding {
+  ctx: EngineContext;
+  leases: Leases;
+  /** Where the CDP event router sends a page's events. */
+  sink: EngineEventSink;
+  /** A page appeared: its facts are followed from now on. */
+  guestAppeared(guest: WebContents): void;
+  /** The page was shown, hidden or moved: its facts are re-read. */
+  visibilityChanged(guest: WebContents): void;
+}
+
+/**
+ * The browser's side of the engine lane. The browser is built before the protocol connection and the lane
+ * belongs to a connection, so everything the browser reads from the lane goes through here: bound while the
+ * connection is claimed, and a plain "no lane" (nothing routed, no engine mode) otherwise.
+ */
+export function createEngineLane() {
+  let bound: EngineLaneBinding | null = null;
+  const current = (): EngineLaneBinding => {
+    if (!bound) throw new Error('The browser engine lane is not connected.');
+    return bound;
+  };
+  /** The router's sink: events go to the connection's lane, and nowhere without one. */
+  const sink: EngineEventSink = {
+    active: () => bound?.sink.active() ?? false,
+    carries: (method) => bound?.sink.carries(method) ?? false,
+    forward: (guest, method, params, sessionId) => bound?.sink.forward(guest, method, params, sessionId),
+  };
+  /** What a secret or saved-login fill holds its call to the core's page state by. */
+  const fill: FillEngine = {
+    isEngineMode: () => bound?.ctx.isEngineMode() ?? false,
+    page: (pageId) => bound?.ctx.page(pageId),
+    facts: (pageId) => current().ctx.events.facts(pageId),
+  };
+  /** What the person's input on the pane is served by while the core drives the browser. The lease store is
+   *  read at each input: a new connection makes a new one. */
+  const localPage = {
+    isEngineMode: (): boolean => bound?.ctx.isEngineMode() ?? false,
+    get leases(): Leases {
+      return current().leases;
+    },
+  };
+  return {
+    sink,
+    fill,
+    localPage,
+    /** Binds the connection's lane; the returned function unbinds it (only while it is still the bound one). */
+    bind(binding: EngineLaneBinding): () => void {
+      bound = binding;
+      return () => {
+        if (bound === binding) bound = null;
+      };
+    },
+    guestAppeared: (guest: WebContents): void => bound?.guestAppeared(guest),
+    visibilityChanged: (guest: WebContents): void => bound?.visibilityChanged(guest),
+  };
+}
+
+export type EngineLane = ReturnType<typeof createEngineLane>;
+
 /** CDP over the guest state, with the document readers and settle built on it. */
 function createBrowserHostDevtools(
   state: BrowserGuestStateStore,
   urlPolicy: BrowserUrlPolicy,
   permissionRefused: (origin: string, name: string) => boolean
 ) {
+  // The `intercept` command of the host's own path and the engine's `intercept` method each edit a table, and
+  // the CDP fetch router reads both, so a rule from either takes effect.
   const intercept = createBrowserIntercept();
+  const engineIntercept = createInterceptTable();
+  const engineLane = createEngineLane();
   const cdp = createBrowserGuestCdp({
     state,
     permissionRefused,
-    interceptFetchPatterns: intercept.interceptFetchPatterns,
-    matchInterceptRule: intercept.matchInterceptRule,
+    engine: engineLane.sink,
+    interceptFetchPatterns: (guest) => [
+      ...engineIntercept.interceptFetchPatterns(guest),
+      ...intercept.interceptFetchPatterns(guest),
+    ],
+    matchInterceptRule: (guest, url, resourceType) =>
+      engineIntercept.matchInterceptRule(guest, url, resourceType) ??
+      intercept.matchInterceptRule(guest, url, resourceType),
     pageGuardScripts: () => browserPageGuardScripts(urlPolicy),
   });
   const documents = createBrowserDocuments({
@@ -201,7 +278,7 @@ function createBrowserHostDevtools(
     domTimeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
     loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
   });
-  return { intercept, cdp, documents, settle };
+  return { intercept, engineIntercept, engineLane, cdp, documents, settle };
 }
 
 function createBrowserHostTextures(window: BrowserWindow, state: BrowserGuestStateStore) {
@@ -281,7 +358,19 @@ export function createBrowserHostFoundation(
   );
   const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);
-  const display = createBrowserDisplayTracking(sessions);
+  const trackedDisplay = createBrowserDisplayTracking(sessions);
+  // A page shown or hidden changes its facts (`visible`): the engine lane re-reads them.
+  const display: typeof trackedDisplay = {
+    ...trackedDisplay,
+    setPanelActive(guest, active) {
+      trackedDisplay.setPanelActive(guest, active);
+      devtools.engineLane.visibilityChanged(guest);
+    },
+    setNativeShown(sessionId, guest) {
+      trackedDisplay.setNativeShown(sessionId, guest);
+      for (const page of sessions.visibleGuests(sessionId)) devtools.engineLane.visibilityChanged(page);
+    },
+  };
   const pageIdentity = createBrowserHostPageIdentity({
     partitionSession: storage.partition.session,
     directory: join(app.getPath('userData'), 'browser-state'),

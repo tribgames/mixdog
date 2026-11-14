@@ -16,7 +16,8 @@
  * SAME partition (named through `tab` for parallel pages), so the agent can
  * work invisibly while staying logged in.
  */
-import type { BrowserWindow, WebContents } from 'electron';
+import { join } from 'node:path';
+import { app, type BrowserWindow, type WebContents } from 'electron';
 
 import type {
   DesktopBrowserImportProgress,
@@ -49,6 +50,7 @@ import {
 import { type BrowserRemoteMethod, runBrowserRemoteRequest } from '../remote-browser-methods';
 import { createRemoteWebrtcHost, type RemoteWebrtcHost } from '../remote-webrtc/host';
 import { createRemoteWebrtcSenderWindow, type RemoteWebrtcSenderPage } from '../remote-webrtc/sender-window';
+import type { BrowserEnginePorts } from '../host/browser-engine';
 import type { BrowserLiveControl } from '../host/browser-live-control';
 import type { StreamedPage } from '../host/browser-page-report';
 import type { BrowserSurfaceSource } from '../host/browser-surface-report';
@@ -60,6 +62,7 @@ import type { BrowserCredentialFillResult } from './credential-autofill';
 import { createBrowserHostAgent } from './host-agent';
 import type { SavedLoginWorkerPort } from './saved-login-host';
 import { createBrowserHostFoundation } from './host-foundation';
+import { createBrowserEmulationOwner } from './host-policy';
 import type { BrowserPermissionPolicyStore } from './permissions';
 import {
   createBrowserHostDisplayMethods,
@@ -132,6 +135,8 @@ export interface BrowserHost {
     liveControl: BrowserLiveControl;
     /** A session's surface revealed or hidden (`host/browser/surface`). */
     surfaces: BrowserSurfaceSource;
+    /** What the engine lane (`host/browser/*` engine methods, host/browser-engine/index.ts) is built from. */
+    engine: BrowserEnginePorts;
   };
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
   /** Takeover `id` starts: the page it hands over (`tab` of the request, else
@@ -288,6 +293,7 @@ export function createBrowserHost(
     onGuest: (guest) => {
       options.onGuest?.(guest);
       shown.remoteTabs.observe(guest);
+      base.engineLane.guestAppeared(guest);
     },
     interruptForLocal: (command) => agent.interruptForLocal(command),
   });
@@ -304,7 +310,11 @@ export function createBrowserHost(
     beginViewportChange: (guest) => shown.pageSurface.beginViewportChange(guest),
   });
   const newTabs = createNewTabWaiters();
+  const emulationOwner = createBrowserEmulationOwner({
+    configure: (guest, command, signal) => tools.emulation.configureEmulation(guest, command, signal),
+  });
   const shown = createBrowserHostPresentation({
+    emulationOwner,
     onTabCreated: newTabs.created,
     window,
     base,
@@ -333,6 +343,7 @@ export function createBrowserHost(
     onDiagnostic: options.onDiagnostic,
     autoSignInEnabled: options.autoSignIn,
     savedLoginWorker: options.savedLoginWorker,
+    engine: base.engineLane.fill,
   });
 
   // Pages nobody displays or drives for long are unloaded (URLs kept) and
@@ -398,6 +409,7 @@ export function createBrowserHost(
       },
       control: shown.pageSurface.control,
       bounded: cdp.bounded,
+      engine: base.engineLane.localPage,
     }),
     releaseSession: createBrowserSessionRelease({
       display,
@@ -472,6 +484,21 @@ export function createBrowserHost(
       remote: (method, args) => runBrowserRemoteRequest(browserHost, method, args),
       liveControl: { resize: shown.remote.resize, widenVideo: shown.remote.widenVideo },
       surfaces: { onSurfaceChanged: (listener) => lifecycle.onSurfaceChanged(listener) },
+      engine: {
+        base,
+        tools,
+        lifecycle,
+        tabs: shown.tabs,
+        taskLifecycle,
+        emulation: emulationOwner,
+        traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
+        processMemoryMb: (guest) => {
+          if (guest.isDestroyed()) return undefined;
+          const pid = guest.getOSProcessId();
+          const workingSetKb = app.getAppMetrics().find((entry) => entry.pid === pid)?.memory?.workingSetSize;
+          return Number.isFinite(Number(workingSetKb)) ? Number(workingSetKb) / 1024 : undefined;
+        },
+      },
     }),
     ...createBrowserHostLifecycleMethods({
       bridge: agent.bridge,

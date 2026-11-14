@@ -1,0 +1,146 @@
+# s3-screen-source core wire fragment (for CORE-WIRE-G7)
+
+`native/core/crates/mixdog-tools/src/desktop/computer_screen_source.rs` is the phone's whole-PC screen sources of the core
+(Node `createRemoteScreenSources`): access book, display set, one session per display over `computer_screen::session` and
+`computer_screen::video`, close within the quit budget. It reaches the session, the lease and the timers, which are private to
+`computer_screen`, so it is declared INSIDE `computer_screen` (a `#[path]` module), not in `desktop/mod.rs`. Windows only.
+
+## 1. computer_screen.rs (declaration and export)
+
+In `native/core/crates/mixdog-tools/src/desktop/computer_screen.rs`, after the line `#[cfg(windows)] mod service;`, add:
+
+    #[cfg(windows)]
+    #[path = "computer_screen_source.rs"]
+    mod source;
+
+(the path is relative to the folder of computer_screen.rs, that is `desktop/`), and after the `pub mod pc_access_helper { .. }`
+block add the public surface:
+
+    /// The phone's whole-PC screen sources, with the ports they are composed over.
+    #[cfg(windows)]
+    pub mod screen_source {
+        pub use super::source::DisplayPixels;
+        pub use super::source::HelperPictureFrame;
+        pub use super::source::IndicatorState;
+        pub use super::source::InputDesktop;
+        pub use super::source::PcAccessAnswer;
+        pub use super::source::PixelArea;
+        pub use super::source::QUIT_BUDGET_MS;
+        pub use super::source::ScreenAccessEnd;
+        pub use super::source::ScreenFrame;
+        pub use super::source::ScreenIndicatorPort;
+        pub use super::source::ScreenInputHost;
+        pub use super::source::ScreenPcAccessPort;
+        pub use super::source::ScreenSink;
+        pub use super::source::ScreenSources;
+        pub use super::source::ScreenSourcesDeps;
+        pub use super::source::ScreenViewer;
+        pub use super::source::VideoArea;
+    }
+
+In `desktop/mod.rs`, next to `pub use computer_screen::pc_access_helper;`, add `#[cfg(windows)] pub use computer_screen::screen_source;`.
+No `mod computer_screen_source;` line in desktop/mod.rs (the file is that `#[path]` module; declaring it twice would compile it twice).
+
+## 2. installer_port.rs: the screen control installs through PC access's one installer
+
+`ScreenSourcesDeps.installer` is the `Arc<PcAccessHelper>` PC access uses, so one admin action runs at a time across the
+phone's install request and PC access (the "same production_installer instance for the lease's InstallPort" of
+deferred-g2). `PcAccessHelper` must be an `InstallPort`: in `computer_screen/installer_port.rs` add, after `impl PcAccessHelper`:
+
+    impl super::lease::InstallPort for PcAccessHelper {
+        fn state(&self, controller_key: Option<String>) -> BoxFuture<InstallState> {
+            super::lease::InstallPort::state(&self.installer, controller_key)
+        }
+        fn request(&self, controller_key: String) -> BoxFuture<InstallResult> {
+            super::lease::InstallPort::request(&self.installer, controller_key)
+        }
+        fn ensure_running(&self) -> BoxFuture<HelperStatus> {
+            super::lease::InstallPort::ensure_running(&self.installer)
+        }
+    }
+
+with the imports it needs (`BoxFuture` from `super::router`, `InstallResult` and `HelperStatus` from `super::installer`).
+
+## 3. pc_access_installer.rs: hand out the shared helper
+
+`mixdog-core-domains/src/domains/pc_access_installer.rs`, Windows `production_installer`: `BridgeInstaller.helper` becomes
+`Arc<PcAccessHelper>`, and a second function returns it beside the installer, so the composition can give the same instance to
+`ScreenSourcesDeps.installer`:
+
+    #[cfg(windows)]
+    pub fn production_installer_with_helper(exe: PathBuf) -> (Arc<dyn PcAccessInstaller>, Arc<mixdog_tools::desktop::pc_access_helper::PcAccessHelper>)
+
+`production_installer(exe)` stays as `production_installer_with_helper(exe).0`. compose_flip.rs (the `PcAccessService::new(..)` call,
+`production_installer(secure_desktop_exe)`) takes both and keeps the helper for step 4.
+
+## 4. The compose hookup (compose_flip.rs, after PC access and the live view are built)
+
+Windows only; elsewhere the phone's screen control reports once, at error level, that it is Windows-only and is off.
+
+    let screen_sources = Arc::new(mixdog_tools::desktop::screen_source::ScreenSources::new(ScreenSourcesDeps {
+        backend,        // the default (session "") backend of the computer pool: ComputerSessions::backend("")
+        installer,      // the Arc<PcAccessHelper> of step 3
+        input_host,     // s3-screen-input: Arc<dyn Fn() -> Arc<dyn ScreenInputHost>>, see below
+        indicator,      // Arc<dyn Fn() -> Arc<dyn ScreenIndicatorPort>>: a fresh port per session onto the desktop's pill
+        pc_access,      // Some(Arc<dyn ScreenPcAccessPort>) over PcAccessService, see below
+        pixels,         // Some(Arc<dyn DisplayPixels>) over computer_pixels (`host/computer/pixels` of the display)
+        sink,           // Arc<dyn ScreenSink> over the live view's host (geometry, capture renewal, channel, drawn track, frame)
+        log,            // Arc<dyn Fn(Value)>: tracing at debug, a `start-failed` at warn
+    }));
+
+- ScreenPcAccessPort over `PcAccessService` (deferred-g2.md, "s3-screen-source (G7)"): `account_is_admin` -> the PC account's
+  administrator check of Node `secure-desktop/account-admin.ts` (`createAccountAdminCheck`: `whoami /groups` lists the
+  Administrators group, the answer cached, a failed read answers None and is read again next time). NO core code has that check
+  today (PcAccessService has none): it must be ported for this port (owner: the compose hookup, CORE-WIRE-G7); answering a
+  constant None would drop the `accountIsAdmin` helper fact the phone is told today. `approve_with_credential(client_id, public_key, credential, cancelled)` ->
+  `PcAccessService::approve_with_credential(CredentialRequest { client_id, public_key, credential: PcCredential { user, password },
+  cancelled })`, mapped `Ok(answer)` -> `PcAccessAnswer { outcome: match answer.outcome { CredentialOutcome::Busy => "busy",
+  CredentialOutcome::Ran(k) => k.name() }.to_string(), state: <HelperState as mixdog-tools InstallState>, detail: answer.detail }`
+  (`cancelled` = the session's abort, `busy` for Busy, outcome by `KeyOutcome::name()`).
+- ScreenInputHost: s3-screen-input's `ScreenInput{apply, cursor, release_all, desktop_watch}` behind the trait of this file
+  (`start`, `input` -> the `ok` fields, `cursor` -> `[x, y]` as decimal strings, `desktop` as `InputDesktop`, `session`,
+  `on_desktop`, `on_exit`, `stop` = release then end, `kill`). The geometry the input is mapped through is the session's own
+  (`ScreenSession` keeps the pointer mapping and the geometry generation and refuses stale-generation input), so there is no
+  `ScreenGeometry` impl to write: a `ScreenGeometry` trait in computer_screen_input.rs has nothing to be implemented by.
+  CONFLICT for the lead: s3-screen-input.wire says the opposite (this source implements its `ScreenGeometry` and the live view
+  calls `ScreenInput::apply_remote`). Only one of the two mappings may stay: the session's (already ported, with its tests) is
+  the one this file uses; `apply_remote` / `screen_input_ops` / `ScreenGeometry` of computer_screen_input.rs would then have no
+  caller. Its `InputDesktop` and this file's `InputDesktop` are the same three facts: one of them should be used by both.
+- Display changes: `screen_sources.displays_changed()` must be called when a display is added, removed or rescaled (Node:
+  Electron `screen` `display-added` / `display-removed` / `display-metrics-changed`, which renew every session's geometry).
+  Nothing in the core reports that today: the hookup needs a source for it (a desktop -> core notification or a Windows
+  display-change watch).
+- Displays: `Screen::displays` (computer_screen.rs, not this task's) reports one display `0`, the virtual screen at scale 100.
+  Node lists every monitor with its own id, OS label, primary flag and DPI scale; per-monitor enumeration has to be added there
+  for the phone's display picker to keep choosing a monitor.
+- ScreenIndicatorPort: the Electron pill stays in the desktop (screen-indicator*.ts); the port needs a core -> desktop host
+  notification `host/screen/indicator` {state: show|update|hide, clientLabel, screenId, controlling} and a desktop -> core call
+  for the pill's Stop button (`screenIndicatorStop`). Neither protocol row exists yet (x-screen-source-desktop owns the
+  desktop side; PROTO-WIRE for the rows).
+- The live view (`live_view.rs`):
+  - `RelayDeps::screen_displays` answers `screen_sources.displays()` (an array of the picker's summaries) instead of
+    `host_request("host/screen/displays")`; `host/screen/displays` is then no longer asked of the desktop.
+  - A paired phone's connection becomes screen access where the connection is established/authorized
+    (`PairedScreenAccess::allowed` is true): `screen_sources.grant(client, connection_id, label)` before the screen `ready`
+    is forwarded; when the connection leaves the relay registry `screen_sources.withdraw(client, ViewerLeft)`, on an unpair
+    `withdraw(client, Revoked)` (the publisher's `removed` and `revokeCredential`).
+  - `HostEnv::source(&Source::Screen { screen_id }, client, signal)` -> `screen_sources.resolve(screen_id, client,
+    signal == "ready")`, adapted to `VideoSource` (`start`, `stop`, `page`, `dispatch` = `ScreenViewer::dispatch`); the viewer's
+    channel messages `screen-frame-seen` / `screen-helper-grant` / `screen-helper-install` reach `ScreenViewer::frame_seen`,
+    `helper_grant`, `helper_install`, `helper_credential`; `channel_state()` is what a promoted channel is sent; `delivered(run)`
+    after a helper frame drew into the track; `release()` when the channel is gone.
+    `LiveHost::signal` today answers `SOURCE_NOT_STREAMED` for anything but `Source::Browser` (host.rs): the screen branch is the hookup's.
+  - The sender's capture track for a screen source is `screen_sources.capture(screen_id)` (a `MediaFrameSource`: in-process
+    capture, else the desktop's pixels).
+- Close: the daemon's shutdown calls `screen_sources.stop_for_quit()` (5 s budget, shares one completion with `dispose()`).
+- `ScreenSink::frame` carries the helper's BGRX picture (`mime_type` `image/x-bgrx`) located on the locked geometry; the sender
+  crops and scales it (no pixel is touched here).
+
+## SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)
+
+This task registers no protocol method; nothing is to be removed from SERVICE_PENDING for it.
+
+## Cargo
+
+No new dependency edge: the file uses mixdog-core-api, serde_json, futures, async-trait, tokio, mixdog-rt, mixdog-secure-desktop
+(through computer_screen), all already dependencies of mixdog-tools.

@@ -364,7 +364,11 @@ pub async fn print_pdf(page: &PageCall<'_>, ports: &ShotPorts<'_>) -> Result<Too
         return Err(ActionError::failed("the page could not be printed to PDF"));
     }
     let length = printed.len();
-    let path = ports.files.write_frame(ports.frame_dir, printed).await;
+    let path = ports
+        .files
+        .write_frame(ports.frame_dir, printed, "application/pdf")
+        .await
+        .map_err(|_| ActionError::failed("the printed PDF could not be written beside the run"))?;
     Ok(ToolReply::text(format!("Printed {} to {} ({length} bytes).", redact_url(&answer.facts.url), path.display())))
 }
 
@@ -427,6 +431,7 @@ pub async fn locate(input: LocateInput<'_>) -> Result<ToolReply, ActionError> {
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: page.expect.cloned(),
+        check_unchanged: None,
     };
     let answered = page.host.page_eval(params, page.cancel.token()).await?;
     if let Some(exception) = answered.exception {
@@ -556,7 +561,7 @@ pub async fn read(page: &PageCall<'_>, command: &Value, redact: &(dyn Fn(&str) -
     let params = HostBrowserPageReadParams {
         page_id: page.page_id.to_owned(),
         kind: BrowserPageReadKind::Text,
-        options: Some(BrowserPageReadOptions { max_chars: Some(READ_WIRE_CHARS), frame: None, selector: None, include_hidden: None }),
+        options: Some(BrowserPageReadOptions { max_chars: Some(READ_WIRE_CHARS), frame: None, selector: None, include_hidden: None, offset: None }),
     };
     let read = page.host.page_read(params, page.cancel.token()).await?;
     let payload = &read.payload;
@@ -633,7 +638,7 @@ pub async fn extract(page: &PageCall<'_>, command: &Value) -> Result<ToolReply, 
     let params = HostBrowserPageReadParams {
         page_id: page.page_id.to_owned(),
         kind: BrowserPageReadKind::Text,
-        options: Some(BrowserPageReadOptions { max_chars: None, frame: None, selector: Some(selector.clone()), include_hidden: None }),
+        options: Some(BrowserPageReadOptions { max_chars: None, frame: None, selector: Some(selector.clone()), include_hidden: None, offset: None }),
     };
     let read = page.host.page_read(params, page.cancel.token()).await?;
     let payload: ExtractPayload = serde_json::from_value(read.payload).unwrap_or_default();
@@ -697,9 +702,9 @@ mod tests {
             FileFacts::default()
         }
 
-        async fn write_frame(&self, run_dir: &Path, bytes: Bytes) -> PathBuf {
+        async fn write_frame(&self, run_dir: &Path, bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
             self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(bytes.len());
-            run_dir.join("frame.bin")
+            Ok(run_dir.join("frame.bin"))
         }
     }
 
