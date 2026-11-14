@@ -135,3 +135,20 @@ Rules learned in G3:
 - An untyped param with fixed fields (e.g. `desktopPet/state/write /prefs`) is enumerated in `payloads` by its `fields`, not
   classed whole as `open`.
 - A method row added to `client_request_definitions!` moves the pinned count of `mixdog-app-server` `tests/call_lanes.rs`.
+
+PROTO-WIRE-G7 applied g55-fu-engine, s3-bridge-core and x-residual-moves-b:
+
+| method | row | why |
+|---|---|---|
+| `computer/bridge/run`, `computer/bridge/abort` | deny | the desktop main process (host claimant) drives the loopback bridge; no renderer key |
+| `desktop/launchVersion/record`, `desktop/modelBootstrap/read`, `desktop/nativeToolCache/gc` | deny | main's own startup work; no renderer lane reaches them |
+| `desktop/localLink/open`, `desktop/attachment/thumbnail`, `desktop/attachment/write`, `desktop/userFile/write`, `desktop/launchVersion/acknowledge`, `desktop/computer/inputAccess/request` | not written (allow) | the fragment listed them for the table, but the renderer reaches them through main today (`openLocalFileLink`, `readAttachmentThumbnail`, the source-control attachment lane, `saveFileAs` / pane layout, `acknowledgeWhatsNew`, `requestLinuxInputAccess`); pinned in `every_direct_key_allowed` |
+| `host/browser/upload/receiver` | none | a server request (host lane), not gated by the table |
+
+Rules learned in G7:
+
+- A row whose service registers in a later wiring step goes into `SERVICE_PENDING` at once (the eleven G7 client methods
+  wait for CORE-WIRE-G7's s3-bridge-core.wire and x-residual-moves-b.wire registrations).
+- `node scripts/collect-client-inputs.mjs --check` re-derives the clients' senders: a desktop change merged in the wave can
+  make it fail with no protocol edit; `--write` regenerates the fixture.
+- A struct with `ts(optional_fields)` needs no field-level `ts(optional)` for a new `Option` field.

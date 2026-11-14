@@ -45,6 +45,19 @@ const SERVICE_PENDING: &[&str] = &[
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
+    // s3-bridge-core / CORE-WIRE-G7 (pending-wire/s3-bridge-core.wire): mixdog-tools ComputerBridgeRun.
+    "computer/bridge/run",
+    "computer/bridge/abort",
+    // x-residual-moves-b / CORE-WIRE-G7 (pending-wire/x-residual-moves-b.wire): DesktopResidualBService.
+    "desktop/localLink/open",
+    "desktop/attachment/write",
+    "desktop/attachment/thumbnail",
+    "desktop/launchVersion/record",
+    "desktop/launchVersion/acknowledge",
+    "desktop/modelBootstrap/read",
+    "desktop/nativeToolCache/gc",
+    "desktop/userFile/write",
+    "desktop/computer/inputAccess/request",
 ];
 
 /// Namespaces whose every method the connections service (s2b-service, wave 9) answers.
