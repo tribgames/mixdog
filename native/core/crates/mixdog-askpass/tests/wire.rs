@@ -162,7 +162,9 @@ fn closes_on_eof() {
 
 #[test]
 fn request_stays_within_64_kib() {
-    let long = "p".repeat(100_000);
+    // Windows caps a whole command line at 32,767 UTF-16 units (CreateProcess), so the prompt there is as long as a spawn
+    // allows; the 64 KiB bound is reached through the prompt only on unix.
+    let long = "p".repeat(if cfg!(windows) { 32_000 } else { 100_000 });
     let run = run(&[long.as_str()], Some("{\"ok\":true,\"secret\":\"s\"}\n"));
     assert!(run.request.len() <= 64 * 1024 && run.request.ends_with("\"}\n"));
     assert_eq!(run.output.status.code(), Some(0));
