@@ -1,0 +1,26 @@
+# s2b-server-logins core wiring
+
+## 1. Modules
+mixdog-connections/src/lib.rs already lists `pub mod server_logins;`; the tests are `server_logins_tests.rs`, declared inside server_logins.rs. Nothing to add.
+
+## 2. Cargo
+No new dependency edge: server_logins.rs uses mixdog-ssh (callback_forward, command, context, diagnostics), mixdog-app-protocol, mixdog-app-server-client,
+mixdog-rt, tokio (rt, sync, macros, time), url, serde_json and async-trait, all already in mixdog-connections/Cargo.toml.
+
+## 3. SERVICE_PENDING
+server_logins.rs registers no protocol method itself; the service (s2b-service) dispatches to it. It removes from SERVICE_PENDING:
+connections/ssh/serverLogins, serverLoginBegin, serverLoginStatus, serverLoginComplete, serverLoginCancel, serverLoginSaveKey, serverLoginLogout,
+serverLoginRemoveCustom (and the notification connections/ssh/serverLoginUpdated is sent from `ServerLogins::updates()`).
+
+## 4. For the daemon wiring (s2b-service, CORE-WIRE-G9)
+- `ServerLogins::new(pool: LinkPool, ServerLoginStores { hosts: Arc<SshHostStore> }, env: SshEnv)` (one per daemon; the pool is the same one the connect service uses).
+- Method mapping (ids and params are `connections/ssh/*` params of v2/connections.rs):
+  - serverLogins{id} -> `list(&id)` -> SshServerLogins.
+  - serverLoginBegin{id, provider} -> `begin` -> SshServerLoginFlow whose `open_url` the renderer opens with openExternal (nothing is opened by the core).
+  - serverLoginStatus{id, flowId} -> `status`; serverLoginComplete{id, flowId, redirectUrl} -> `complete`; serverLoginCancel{id, flowId} -> `cancel` (result `{}`).
+  - serverLoginSaveKey / serverLoginLogout / serverLoginRemoveCustom -> `save_key` / `logout` / `remove_custom`, then answer `list(&id)` (those three results are SshServerLogins).
+  - `LoginError(String)` is the message to put in the JSON-RPC error; it never carries a key.
+- `connections/ssh/serverLoginUpdated{id, flow}`: one task forwards `updates()` (a login that ended on this PC's side: its link went or its model login changed).
+- `forget_host(&id)` when a saved server is forgotten; `dispose()` at quit (closes every callback forward, cancels the pending logins on the server).
+- Not wired here: the server's pushed `login:<flowId>` feed. This PC's client folds a scoped feed into its thread store only and never surfaces `login/updated`,
+  so a login's progress is read by `status` (the dialog's own events), never on a timer.
