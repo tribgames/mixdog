@@ -29,7 +29,6 @@
     "test:electron": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs --lane electron",
     "test:live": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs --lane live",
     "test:all": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs --lane all",
-    "test:ssh:e2e": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs --lane live ssh-remote-docker.e2e",
     "verify:packaging-artifact": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs --lane live packaging-artifact",
     "test:browser-host:integration": "node scripts/run-browser-host-integration.mjs",
     "test:browser-login-persistence:integration": "node scripts/run-browser-login-persistence-integration.mjs",

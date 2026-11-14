@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
 import { isFileFsyncUnsupported } from '../../../../src/runtime/shared/atomic-file.mjs';
-import { comparablePath } from './opened-file-authorization';
+import { comparablePath } from './project-entry-path';
 import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withFileIdentities, withProjectMutationPaths } from './project-mutation-queue';
 import {

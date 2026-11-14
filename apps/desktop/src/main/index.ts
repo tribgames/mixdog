@@ -35,7 +35,6 @@ import { createTakeoverFeed } from './takeover-feed';
 import { observeCoreForMain } from './core-observers';
 import { createTakeoverStateHandler } from './takeover-state';
 import { secretInputs } from './secret-input';
-import { remoteSessionConfigFromEnv } from './ssh/remote-session';
 import {
   ConnectionPool,
   LOCAL_CONNECTION_ID,
@@ -134,7 +133,6 @@ import { TerminalBridgeServer } from './terminal/bridge-server';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
-import { windowIdFor } from './core-port/window-ids';
 import { CorePortRelay } from './core-port/relay';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
@@ -556,7 +554,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
       : join(import.meta.dirname, '../renderer'),
   }),
   appVersion: app.getVersion(),
-  remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',
   operationHost: () => ({
     pcNotificationsSupported: () => Promise.resolve(Notification.isSupported()),
     readDisplayPreferences: () => readHostWindowDisplayPreferences(mainWindow, app.getLocale()),
@@ -634,7 +631,7 @@ setCoreLocalPages(
 );
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
-const envSshConfig = remoteSessionConfigFromEnv(process.env);
+const envSshTarget = process.env.MIXDOG_SSH_TARGET?.trim() ? process.env.MIXDOG_SSH_TARGET : null;
 const connectionWindows = new Map<string, BrowserWindow>();
 // The daemon handshake starts before app.whenReady, when the diagnostics sink
 // does not exist yet; the first start is stamped here and written as soon as
@@ -1074,11 +1071,6 @@ const hostRole = createLocalHostRole({
     }),
   files: () => ({
     captureFileSnapshot: (root, rel, grant) => fileSnapshots.capture(root, rel, grant),
-    // The daemon already confined the path; the core page server leases it to the window so it dies with it.
-    localPageUrl: (root, rel) => {
-      const owner = mainWindow?.webContents;
-      return coreLocalPages().url(root, rel, owner ? { owner, ownerId: windowIdFor(owner) } : {});
-    },
     trashItem: (path) => shell.trashItem(path),
   }),
   resolveProxy: (url) => session.defaultSession.resolveProxy(url),
@@ -1392,12 +1384,6 @@ async function remoteAccessInfo(options?: { activate?: boolean }): Promise<Deskt
   return remoteAccessInfoFromDescriptor(descriptor);
 }
 
-async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await localService.invokeDesktopOperation('remoteAccessRotate', []);
-  const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
-  return remoteAccessInfoFromDescriptor(descriptor);
-}
-
 /** The one secure-desktop installer (its single in-flight latch covers the
  *  phone's requests and PC access alike). */
 let sharedSecureDesktopInstaller: SecureDesktopInstaller | null = null;
@@ -1432,12 +1418,6 @@ function windowsPcAccess(): PcAccess | null {
     },
   });
   return pcAccess;
-}
-
-async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await localService.invokeDesktopOperation('remoteAccessRevokeClient', [clientId]);
-  const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
-  return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 // Hosts saved for "Connect to another PC" live for the whole app, not one
@@ -2416,7 +2396,7 @@ const showConnectionWindow = createConnectionWindowOpener<DesktopConnection, Bro
 const serverHostSettings = createServerHostSettings(localProtocol);
 const serverConnections = createServerConnections<DesktopConnection>({
   pool: connectionPool,
-  create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name, throughPcCore: true }, connectionDependencies),
+  create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name }, connectionDependencies),
 });
 const serverWindows = createServerWindows({
   core: localProtocol,
@@ -2616,7 +2596,6 @@ function installWindowIpc(
         return allowed === null || allowed.includes(provider);
       },
     },
-    serviceUserDataPath: () => connection.serviceUserDataPath(),
     protocol: connection.protocol,
     pcCore: localProtocol,
     corePort: corePortRelay,
@@ -2628,20 +2607,15 @@ function installWindowIpc(
     // in this PC's window; a server window refuses them (feature gates).
     ...(windowBrowserHost
       ? {
-          onDesktopSettingsChanged: applyDesktopSettings,
           browserHost: windowBrowserHost,
           browserLogin,
           computer: {
             readPermissions: readComputerPermissions,
             requestPermissions: requestComputerPermissions,
           },
-          remoteAccessInfo,
-          rotateRemoteAccess,
-          revokeRemoteAccessClient,
           visualize,
         }
       : {}),
-    terminals: connection.terminals,
     remoteHosts: remoteHostsHandle(),
     paneLayoutFile: connectionPaneLayoutFile(connection),
   });
@@ -2916,9 +2890,9 @@ if (!app.requestSingleInstanceLock()) {
       await showConnectionWindow(localConnection);
       // The core reopens the windows it remembers once the host has claimed (host/window/open).
       // MIXDOG_SSH_TARGET: the core connects the target and asks this desktop for its window, beside this PC's.
-      if (envSshConfig) {
+      if (envSshTarget) {
         void hostRole.firstClaim
-          .then(() => openEnvSshTarget(localProtocol, envSshConfig.target))
+          .then(() => openEnvSshTarget(localProtocol, envSshTarget))
           .catch((error: unknown) => {
             diagnostics?.write('ssh-target-window-failed', {
               errorName: error instanceof Error ? error.name : typeof error,

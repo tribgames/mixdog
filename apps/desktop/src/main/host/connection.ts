@@ -63,7 +63,7 @@ export const HOST_INVALID_PARAMS = -32602;
 export const HOST_CAPABILITIES = {
   browser: true,
   // `host/visualize/command` (visualize.ts), `host/capture/fileSnapshot` and
-  // `host/localPage/url` (files.ts), `host/update/command` (lifecycle.ts).
+  // `host/files/trashItem` (files.ts), `host/update/command` (lifecycle.ts).
   visualize: true,
   notifications: true,
   systemProxy: true,
