@@ -25,6 +25,7 @@ pub mod compose_core;
 #[cfg(all(test, windows))]
 mod lead_request_tests;
 pub mod compose_mcp;
+pub mod computer_control;
 pub mod connection_close;
 pub mod effort_judge_host;
 pub mod fencing_ownership;

@@ -1475,11 +1475,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 let redacted = Arc::new(mixdog_core_session::session::secret_input::RedactingComputerBackend::new(inner, mixdog_core_api::ids::ThreadId::from(session), fill.clone()));
                 Arc::new(mixdog_core_session::session::secret_input::GatedComputerBackend::new(redacted, human_only.clone())) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
             }
-        }), pre.state.publisher.clone(), {
-            // `isObserveOnly()`: the desktop's "Observation only" setting as the config holds it now.
-            let config = config.clone();
-            Arc::new(move || config.desktop_settings().computer_observe_only)
-        })
+        }), pre.state.publisher.clone(), mixdog_core::run_host::native_tools::ComputerSettings::from_config(b.data_dir.clone(), config.clone()))
         .await;
     if let Some(pool) = &computer_pool {
         // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
@@ -3467,6 +3463,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
     let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
+    // computer/userControl: the Computer Use pill's Resume and Stop.
+    builder.register(Arc::new(crate::computer_control::ComputerUserControlService::new(computer_pool.as_ref().map(|pool| pool.user_control()))))?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
