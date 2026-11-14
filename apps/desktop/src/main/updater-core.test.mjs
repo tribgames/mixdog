@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
-import { CoreControlError, createCoreControl, createCoreUpdateGate } from './updater-core.ts';
+import { CoreControlError, createCoreControl, createCoreUpdateGate, parseDaemonDiscovery } from './updater-core.ts';
 
 /** A control listener stand-in: records requests, answers from a mutable state. */
 async function fakeCore(initial = {}) {
@@ -132,4 +132,54 @@ test('stop with no core running does nothing; release cancels a drain that has n
   await gate.release();
   assert.equal(core.state.state, 'serving');
   assert.equal(core.state.hold, false);
+});
+
+const discoveryJson = (overrides = {}) =>
+  JSON.stringify({
+    pid: 4242,
+    endpoints: { session: { port: 41002, token: 'session-secret-1' } },
+    core: {
+      version: '1.4.6',
+      build: 'b',
+      instanceId: 'i-1',
+      processStartTime: 't',
+      state: 'serving',
+      rpc: { port: 41001 },
+      control: { port: 41002 },
+      ...overrides,
+    },
+  });
+
+test('the discovery file reads the control port, the serving RPC port, token and identity', () => {
+  const expected = {
+    rpcPort: 41001,
+    controlPort: 41002,
+    token: 'session-secret-1',
+    pid: 4242,
+    instanceId: 'i-1',
+    processStartTime: 't',
+    state: 'serving',
+    version: '1.4.6',
+    build: 'b',
+  };
+  assert.deepEqual(parseDaemonDiscovery(discoveryJson()), expected);
+  assert.deepEqual(parseDaemonDiscovery(JSON.parse(discoveryJson())), expected);
+  // A draining core keeps its control listener and has no RPC listener.
+  const draining = parseDaemonDiscovery(discoveryJson({ state: 'draining', rpc: undefined }));
+  assert.equal(draining.rpcPort, null);
+  assert.equal(draining.controlPort, 41002);
+});
+
+test('the discovery file is rejected when incomplete or malformed', () => {
+  assert.equal(parseDaemonDiscovery('not json'), null);
+  assert.equal(parseDaemonDiscovery(null), null);
+  assert.equal(parseDaemonDiscovery(JSON.stringify({ ...JSON.parse(discoveryJson()), pid: 0 })), null);
+  assert.equal(parseDaemonDiscovery(JSON.stringify({ ...JSON.parse(discoveryJson()), core: undefined })), null);
+  assert.equal(parseDaemonDiscovery(discoveryJson({ control: { port: 70000 } })), null);
+  assert.equal(
+    parseDaemonDiscovery(JSON.stringify({ ...JSON.parse(discoveryJson()), endpoints: { session: { port: 1 } } })),
+    null
+  );
+  // A 1.4.5 daemon's file has no core block: it is not a 1.4.6 discovery document.
+  assert.equal(parseDaemonDiscovery(JSON.stringify({ pid: 9, endpoints: { session: { port: 4100, token: 't' } } })), null);
 });

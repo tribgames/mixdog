@@ -4,7 +4,7 @@ import test from 'node:test';
 import { isOfferedRequest } from '../../../../../packages/protocol-client/src/method-table.ts';
 import { createCapabilityLane } from './capability-route.ts';
 import { createProtocolConnection, MAX_FOLLOWED_LOGINS } from './connection.ts';
-import { parseDiscovery, resolveTunnelEndpoint } from './discovery.ts';
+import { parseDiscovery } from './discovery.ts';
 import { createHostConnection } from './host-connection.ts';
 
 /** A fold store like the client library's: sections by name and key, listeners per change. */
@@ -647,25 +647,6 @@ test('discovery names the rpc endpoint only while the core serves', () => {
     /not serving/
   );
 });
-
-test('a server core is reached through its SSH tunnel: the live attachment as is, else a fresh connect', async () => {
-  let discovery = { port: 41000, token: 'tok', pid: 7 };
-  let connects = 0;
-  const connector = {
-    currentDiscovery: () => discovery,
-    connect: async () => {
-      connects += 1;
-      discovery = { port: 41001, token: 'next', pid: 7 };
-      return { discovery };
-    },
-  };
-  assert.deepEqual(await resolveTunnelEndpoint(connector), { url: 'ws://127.0.0.1:41000/rpc', token: 'tok' });
-  assert.equal(connects, 0);
-  discovery = null;
-  assert.deepEqual(await resolveTunnelEndpoint(connector), { url: 'ws://127.0.0.1:41001/rpc', token: 'next' });
-  assert.equal(connects, 1);
-});
-
 
 // An approval card belongs to the core connection that asked it. The connection drops its client before closing it, so the lane
 // is never told the link went down: it must read the live client's pending set, not keep its own, or the card of a replaced

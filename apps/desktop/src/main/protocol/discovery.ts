@@ -2,7 +2,6 @@
 // while the core is `serving`, `endpoints.session.token` authenticates the upgrade.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { RemoteDaemonConnector } from '../ssh/remote-session';
 import type { WsEndpoint } from './ws-connector';
 
 export function parseDiscovery(text: string): WsEndpoint {
@@ -16,16 +15,6 @@ export function parseDiscovery(text: string): WsEndpoint {
     throw new Error(`The core is not serving (state ${String(record.core?.state ?? 'unknown')}).`);
   }
   return { url: `ws://127.0.0.1:${port}/rpc`, token };
-}
-
-/** A server's core as the SSH tunnel exposes it. The live attachment's discovery is used as is; without one
- *  (first dial, or after an invalidate) the connector bootstraps and brings the tunnel up again. */
-export async function resolveTunnelEndpoint(
-  connector: Pick<RemoteDaemonConnector, 'connect' | 'currentDiscovery'>,
-  log: (line: string) => void = () => {}
-): Promise<WsEndpoint> {
-  const discovery = connector.currentDiscovery() ?? (await connector.connect(log)).discovery;
-  return { url: `ws://127.0.0.1:${discovery.port}/rpc`, token: discovery.token };
 }
 
 export async function readLocalDiscovery(runtimeRoot: string): Promise<WsEndpoint> {
