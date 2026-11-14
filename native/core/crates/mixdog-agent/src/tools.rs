@@ -1135,6 +1135,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             pdf_native_document: env.native_pdf,
             pdf_page_images: env.sees_images,
             pdf_page_ocr: !env.sees_images,
+            called_as: (target.name != spec.name).then(|| target.name.clone()),
         },
         review: env.tool_env.review.clone(),
     };

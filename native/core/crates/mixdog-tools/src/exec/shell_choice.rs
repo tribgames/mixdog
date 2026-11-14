@@ -44,6 +44,91 @@ pub(crate) async fn default_program(
     Ok(program)
 }
 
+/// How long a Git Bash lookup that found nothing is kept (`SHELL_RESOLUTION_MISS_TTL_MS`): a later install is found again.
+const BASH_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The last Git Bash lookup: whether it found one, and when it was made.
+static GIT_BASH: std::sync::Mutex<Option<(bool, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
+/// (`requestedShellType` over `resolveShellFor('bash')`). Off Windows a bash, or `/bin/sh` as the last resort, is always
+/// there. On Windows it is Git Bash, and without one the request is no request: the default shell's syntax applies. A
+/// found Git Bash is kept for the process, a miss for 30 s.
+pub(crate) fn bash_request_is_posix(windows: bool) -> bool {
+    if !windows {
+        return true;
+    }
+    let mut slot = GIT_BASH.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((found, at)) = *slot
+        && (found || at.elapsed() < BASH_MISS_TTL)
+    {
+        return found;
+    }
+    let entries = path_entries(std::env::current_dir().ok(), &std::env::var("PATH").unwrap_or_default());
+    let found = git_bash(&entries, &known_git_roots(&|name: &str| std::env::var(name).ok())).is_some();
+    *slot = Some((found, std::time::Instant::now()));
+    found
+}
+
+/// The folders a command name is looked up in (`allExistingPathsFromPath`): the working directory, then every `PATH` entry,
+/// trimmed and unquoted.
+fn path_entries(cwd: Option<std::path::PathBuf>, path: &str) -> Vec<std::path::PathBuf> {
+    let listed = std::env::split_paths(path).map(|entry| std::path::PathBuf::from(entry.to_string_lossy().trim().trim_matches('"')));
+    cwd.into_iter().chain(listed).filter(|entry| !entry.as_os_str().is_empty()).collect()
+}
+
+/// Every existing `name` in `entries`, once per path (case-insensitively).
+fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path::PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    entries
+        .iter()
+        .map(|entry| entry.join(name))
+        .filter(|candidate| seen.insert(candidate.to_string_lossy().to_lowercase()) && candidate.exists())
+        .collect()
+}
+
+/// The Git-for-Windows launcher under an install root: `bin\bash.exe`, then `usr\bin\bash.exe`.
+fn bash_under(root: &std::path::Path) -> Option<std::path::PathBuf> {
+    let launcher = |dirs: &[&str]| dirs.iter().fold(root.to_path_buf(), |path, part| path.join(part)).join("bash.exe");
+    [launcher(&["bin"]), launcher(&["usr", "bin"])].into_iter().find(|candidate| candidate.exists())
+}
+
+/// `resolveWindowsGitBash`: the launcher beside a `git.exe` on the path (up to three folders up from it, so `cmd`, `bin` and
+/// `mingw64\bin` all lead to the install root), else a `bash.exe` on the path that is not the System32 launcher of WSL, else
+/// the well-known install `roots` ([`known_git_roots`]).
+fn git_bash(entries: &[std::path::PathBuf], roots: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    for git in existing_on_path(entries, "git.exe") {
+        let mut dir = git.parent();
+        for _ in 0..3 {
+            let Some(current) = dir else { break };
+            if let Some(bash) = bash_under(current) {
+                return Some(bash);
+            }
+            dir = current.parent();
+        }
+    }
+    let wsl = |path: &std::path::Path| path.to_string_lossy().to_lowercase().replace('/', "\\").contains(r"\system32\");
+    if let Some(bash) = existing_on_path(entries, "bash.exe").into_iter().find(|candidate| !wsl(candidate)) {
+        return Some(bash);
+    }
+    roots.iter().find_map(|root| bash_under(root))
+}
+
+/// `gitBashFromKnownWindowsRoots`: the Git-for-Windows install roots of the machine and of the user, then the fixed ones.
+fn known_git_roots(env: &dyn Fn(&str) -> Option<String>) -> Vec<std::path::PathBuf> {
+    let mut roots: Vec<std::path::PathBuf> = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(|name| env(name).filter(|base| !base.is_empty()))
+        .map(|base| std::path::Path::new(&base).join("Git"))
+        .collect();
+    if let Some(local) = env("LOCALAPPDATA").filter(|base| !base.is_empty()) {
+        roots.push(std::path::Path::new(&local).join("Programs").join("Git"));
+    }
+    roots.push(r"C:\Program Files\Git".into());
+    roots.push(r"C:\Program Files (x86)\Git".into());
+    roots
+}
+
 /// `basename(program)`: the file name of a program path, either separator, trailing ones ignored.
 fn program_name(program: &str) -> &str {
     let trimmed = program.trim_end_matches(['\\', '/']);
@@ -151,6 +236,47 @@ mod tests {
         assert_eq!(spawn_program(&source).await, "probe-2");
         assert_eq!(spawn_program(&source).await, "probe-2");
         assert_eq!(setting.probes.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// `resolveWindowsGitBash`: a `git.exe` leads to the install root's launcher from `cmd`, `bin` or `mingw64\bin`; the WSL
+    /// launcher under System32 is never taken; a known install root is the last resort.
+    #[test]
+    fn git_bash_is_found_beside_git_and_never_as_the_wsl_launcher() {
+        let make = |root: &std::path::Path, files: &[&str]| {
+            for file in files {
+                let path = root.join(file);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, b"").unwrap();
+            }
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let git = dir.path().join("Git");
+        make(&git, &["cmd/git.exe", "usr/bin/bash.exe"]);
+        assert_eq!(git_bash(&[git.join("cmd")], &[]), Some(git.join("usr").join("bin").join("bash.exe")));
+        let deep = dir.path().join("Deep");
+        make(&deep, &["mingw64/bin/git.exe", "bin/bash.exe"]);
+        assert_eq!(git_bash(&[deep.join("mingw64").join("bin")], &[]), Some(deep.join("bin").join("bash.exe")));
+        let wsl = dir.path().join("Windows").join("System32");
+        make(&wsl, &["bash.exe"]);
+        assert_eq!(git_bash(&[wsl.clone()], &[]), None);
+        let other = dir.path().join("Tools");
+        make(&other, &["bash.exe"]);
+        assert_eq!(git_bash(&[wsl, other.clone()], &[]), Some(other.join("bash.exe")));
+        let installed = dir.path().join("PF");
+        make(&installed.join("Git"), &["bin/bash.exe"]);
+        let base = installed.to_string_lossy().into_owned();
+        let roots = known_git_roots(&move |name: &str| (name == "ProgramFiles").then(|| base.clone()));
+        assert_eq!(roots.first(), Some(&installed.join("Git")));
+        assert_eq!(roots.len(), 3, "the machine's root, then the two fixed ones");
+        assert_eq!(git_bash(&[], &roots), Some(installed.join("Git").join("bin").join("bash.exe")));
+    }
+
+    #[test]
+    fn the_lookup_folders_are_the_working_directory_then_the_path_unquoted() {
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        let entries = path_entries(Some("work".into()), &format!("\"a b\"{separator}{separator}c"));
+        assert_eq!(entries.iter().map(|e| e.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["work", "a b", "c"]);
+        assert!(bash_request_is_posix(false));
     }
 
     #[test]

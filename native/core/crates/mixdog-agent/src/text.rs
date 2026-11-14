@@ -12,38 +12,6 @@ const TYPO_ALIASES: [(&str, &str); 7] = [
     ("golb", "glob"),
 ];
 
-/// Tools of other agent CLIs that have no builtin: the redirect names the
-/// right one. Keys are lowercase.
-const REDIRECTS: [(&str, &str); 27] = [
-    ("write", "use `apply_patch` with an `*** Add File:` V4A section to create a file"),
-    ("edit", "use `apply_patch` with a `*** Update File:` V4A section"),
-    ("multiedit", "use a single `apply_patch` call with multiple `*** Update File:` sections"),
-    ("strreplace", "use `apply_patch` with a `*** Update File:` V4A section"),
-    ("str_replace", "use `apply_patch` with a `*** Update File:` V4A section"),
-    ("str_replace_editor", "use `apply_patch` with a `*** Update File:` V4A section"),
-    ("search_replace", "use `apply_patch` with a `*** Update File:` V4A section"),
-    ("applypatch", "call the `apply_patch` tool (snake_case) with a V4A patch"),
-    ("createfile", "use `apply_patch` with an `*** Add File:` V4A section"),
-    ("create_file", "use `apply_patch` with an `*** Add File:` V4A section"),
-    ("deletefile", "use `apply_patch` with a `*** Delete File:` V4A section"),
-    ("delete_file", "use `apply_patch` with a `*** Delete File:` V4A section"),
-    ("bash", "use the `shell` tool"),
-    ("run", "use the `shell` tool"),
-    ("runcommand", "use the `shell` tool"),
-    ("terminal", "use the `shell` tool"),
-    ("view", "use the `read` tool"),
-    ("cat", "use the `read` tool"),
-    ("read_file", "use the `read` tool"),
-    ("ls", "use the `list` tool"),
-    ("list_dir", "use the `list` tool"),
-    ("searchfiles", "use the `grep` tool"),
-    ("file_search", "use the `find` or `glob` tool"),
-    ("grep_search", "use the `grep` tool"),
-    ("codebase_search", "use the `grep` or `code_graph` tool"),
-    ("semanticsearch", "use the `grep` or `code_graph` tool"),
-    ("semantic_search", "use the `grep` or `code_graph` tool"),
-];
-
 /// The canonical name a typo alias or a case variant stands for, among the
 /// surface's `names`; `None` when the name is not one of those.
 pub fn canonical_name<'a>(name: &str, names: impl Iterator<Item = &'a str> + Clone) -> Option<&'a str> {
@@ -92,8 +60,7 @@ fn suggestion<'a>(name: &str, names: &[&'a str]) -> Option<&'a str> {
 /// `Error: unknown tool "<name>"` with a concrete redirect for a well-known
 /// foreign tool name, else a did-you-mean among the surface's tools.
 pub fn unknown_tool_message(name: &str, surface_names: &[&str]) -> String {
-    let lower = name.to_lowercase();
-    if let Some((_, redirect)) = REDIRECTS.iter().find(|(k, _)| *k == lower) {
+    if let Some(redirect) = mixdog_tools::foreign::redirect(name) {
         return format!("Error: unknown tool \"{name}\" — {redirect}.");
     }
     match suggestion(name, surface_names) {

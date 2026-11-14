@@ -579,6 +579,17 @@ impl JobState {
             output_capped: false,
         }
     }
+
+    /// One chunk of the process's output: kept, and `true` once, when the two logs together pass `cap` and the process
+    /// is to be killed for it (`SHELL_OUTPUT_DISK_CAP`).
+    fn take_output(&mut self, index: usize, bytes: &[u8], now_ms: u64, cap: u64) -> bool {
+        let target = if index == 1 { &mut self.stderr } else { &mut self.stdout };
+        target.push(bytes);
+        self.last_output_ms = Some(now_ms);
+        let over = !self.output_capped && self.stdout.end() + self.stderr.end() > cap;
+        self.output_capped |= over;
+        over
+    }
 }
 
 pub struct Job {
@@ -1887,15 +1898,8 @@ async fn collect(
         match event {
             ProcessEvent::Output { stream, bytes, .. } => {
                 let index = usize::from(stream == OutputStream::Stderr);
-                {
-                    let mut state = job.state();
-                    let target = if index == 1 { &mut state.stderr } else { &mut state.stdout };
-                    target.push(&bytes);
-                    state.last_output_ms = Some(runtime.now_ms());
-                    if !state.output_capped && state.stdout.end() + state.stderr.end() > OUTPUT_DISK_CAP {
-                        state.output_capped = true;
-                        let _ = processes.kill(&job.handle);
-                    }
+                if job.state().take_output(index, &bytes, runtime.now_ms(), OUTPUT_DISK_CAP) {
+                    let _ = processes.kill(&job.handle);
                 }
                 logs.push(index, bytes).await;
             }
@@ -1974,6 +1978,18 @@ mod tests {
         f.mark_output_capped();
         assert_eq!(f.status, JobStatus::Failed);
         assert_eq!(f.error.as_deref(), Some("output exceeded 104857600 byte cap"));
+    }
+
+    /// The kill itself: the chunk that takes the two logs past the cap asks for it, once, and the later chunks are kept without asking again.
+    #[test]
+    fn the_chunk_that_passes_the_output_cap_asks_for_the_kill_once() {
+        let mut state = JobState::new(None);
+        assert!(!state.take_output(0, &[b'a'; 6], 1, 10));
+        assert!(!state.take_output(1, &[b'b'; 4], 2, 10), "exactly the cap is not past it");
+        assert!(state.take_output(0, b"c", 3, 10));
+        assert!(state.output_capped);
+        assert!(!state.take_output(1, b"d", 4, 10));
+        assert_eq!(state.last_output_ms, Some(4));
     }
 
     #[test]

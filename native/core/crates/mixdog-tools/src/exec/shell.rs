@@ -226,6 +226,13 @@ impl ForeignShellTool {
     }
 }
 
+impl ForeignShellTool {
+    /// The refusal of a call that is not a command: worded by the name the model called, as Node's fallback is.
+    fn refusal(&self, ctx: &ToolContext) -> String {
+        crate::foreign::refusal(ctx.options.called_as.as_deref().unwrap_or(&self.spec.name))
+    }
+}
+
 #[async_trait]
 impl Tool for ForeignShellTool {
     fn spec(&self) -> &ToolSpec {
@@ -236,16 +243,10 @@ impl Tool for ForeignShellTool {
     /// extras, a description or a timeout in its unit, are not the command's).
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let JsonValue::Object(given) = args else {
-            return Err(failed(
-                ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
-                format!("Error: unknown builtin tool \"{}\" — use the `shell` tool.", self.spec.name),
-            ));
+            return Err(failed(ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() }, self.refusal(ctx)));
         };
         if !given.get("command").and_then(JsonValue::as_str).is_some_and(|command| !command.is_empty()) {
-            return Err(failed(
-                ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
-                format!("Error: unknown builtin tool \"{}\" — use the `shell` tool.", self.spec.name),
-            ));
+            return Err(failed(ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() }, self.refusal(ctx)));
         }
         let kept: serde_json::Map<String, JsonValue> = given
             .into_iter()
@@ -743,7 +744,7 @@ impl Tool for ShellTool {
 }
 
 impl ShellTool {
-    /// The call, its misuse guards reading the command as POSIX syntax when `posix` (`requestedShellType`: a call a foreign
+    /// The call, its misuse guards reading the command as POSIX syntax when `posix` and a bash resolves (`requestedShellType`: a call a foreign
     /// CLI's `bash` name makes asks for the POSIX shell) and as the default shell's otherwise.
     async fn call_as(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
         // Whatever the outcome or classification, a finished command is a turn boundary for the
@@ -767,6 +768,8 @@ impl ShellTool {
             )
         })?;
         let runtime = &self.runtime;
+        // A call that asks for the bash shell is read as POSIX syntax where one resolves (`requestedShellType`).
+        let bash_requested = posix && super::shell_choice::bash_request_is_posix(runtime.config.windows);
         if args.command.is_empty() {
             return Err(failed(
                 ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
@@ -784,7 +787,7 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell && !posix).await {
+        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell && !bash_requested).await {
             Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
             Guarded::Run { command, cwd, notes } => (command, cwd, notes),
         };

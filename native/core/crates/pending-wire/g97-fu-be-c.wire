@@ -1,0 +1,42 @@
+# g97-fu-be-c wiring (core): `statusline/read`, and the cache warmer's record for the idle auto-clear.
+
+## 1. Protocol (see mixdog-app-protocol/pending-rows/g97-fu-be-c.rows)
+`statusline/read` {sessionId, clientHostPid?, activeContextTokens?, currentRoute?, providerOut?, usageSnapshot?} -> {status: object|null, limits: object|null}.
+Regenerate schema, method_table and packages/protocol (index.ts, method-table.ts, method-args.generated.*). SERVICE_PENDING: `statusline/read` is not
+listed; nothing to remove.
+
+## 2. mixdog-app-server-daemon/src/lib.rs
+Beside `pub mod takeover_port;` add:
+
+    pub mod statusline_port;
+
+## 3. mixdog-app-server-daemon/src/compose_flip.rs
+(a) Where TakeoverReadyService is registered (`builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone())...`), add the line after it:
+
+    builder.register(Arc::new(crate::statusline_port::StatuslineService::new(
+        b.data_dir.clone(),
+        crate::statusline_port::StatuslineService::claude_config_dir(&|name| (b.env)(name).map(std::ffi::OsString::from), std::env::home_dir()),
+        b.catalog.clone(),
+        gateway_usage.clone(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64),
+    )))?; // `statusline/read`: the footer's route status and limits (the one `GatewayUsage` the route spend is shared with)
+
+(`gateway_usage` is the one built where `GatewayUsage::new(&b.data_dir, ...)` is, and is only cloned until `Real { .., gateway_usage, .. }`.)
+
+(b) The idle auto-clear measures idleness from the last use of the prompt cache, warms included (`lastCacheWarmUseAt`). The warmer's touch store is moved
+into the registry at `warm_touches,` (the line before `warm_gaps,` in the call that takes `warm_ledger.clone()`): make that
+
+    warm_touches.clone(),
+
+and where `HostManualCompaction::new(mixdog_core::run_host::manual_compaction::ManualParts { ... })` is built (`let manual_compaction: Arc<dyn ... ManualCompaction> = Arc::new(`)
+add after its `new(...)` call, before the closing of `Arc::new(`:
+
+    .with_warm_uses(warm_touches.clone())
+
+(Without it `cache_warm_use_at` answers 0 and a thread kept warm is measured idle from its last turn alone: an idle auto-clear would then come earlier than Node's.)
+
+## 4. What the actor now does (no wiring)
+mixdog-core-session actor `start_run_with` asks `idle_gate` before a user's turn or a completion wake starts: auto-clear on (the route's `autoClear`), idle
+for its window, and a context of some size (the meter through `ContextGauge`) make it compact the thread first (`compact_start` with
+`requireReduction`, trigger `auto_clear`), the turn waiting at most a minute (`AUTO_CLEAR_COMPACT_TIMEOUT_MS`); a skipped clear shows `auto-clear skipped: <why>`.
+It is the setting the desktop's `/autoclear` already edits.

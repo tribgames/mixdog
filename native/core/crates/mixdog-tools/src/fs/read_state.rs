@@ -909,6 +909,10 @@ fn files_from_json(text: &str) -> Vec<(String, Snapshot)> {
     let Ok(JsonValue::Object(obj)) = serde_json::from_str::<JsonValue>(text) else { return Vec::new() };
     let mut out = Vec::new();
     for (path, entry) in obj {
+        // `loadScopeFromDisk`: a row with no path is dropped.
+        if path.is_empty() {
+            continue;
+        }
         let JsonValue::Object(mut o) = entry else { continue };
         if !persisted_entry_is_valid(&o) {
             continue;
@@ -1303,6 +1307,13 @@ mod tests {
         for entry in &dropped {
             assert!(files_from_json(&text(&[entry])).is_empty(), "{entry}");
         }
+    }
+
+    /// `loadScopeFromDisk`: a row whose path key is empty is dropped, the others stay.
+    #[test]
+    fn a_persisted_row_with_an_empty_path_is_dropped() {
+        let files = files_from_json(r#"{"":{"mtimeMs":1,"size":2},"/a":{"mtimeMs":1,"size":2}}"#);
+        assert_eq!(files.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(), ["/a"]);
     }
 
     /// Node: deleting the known keys one by one from `{mtimeMs, x, y, size}` leaves `x` before `y`.

@@ -1,6 +1,7 @@
 pub mod code_graph;
 pub mod desktop;
 pub mod exec;
+pub mod foreign;
 pub mod fs;
 pub mod git;
 pub mod github;
