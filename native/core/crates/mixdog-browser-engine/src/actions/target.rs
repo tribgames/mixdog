@@ -140,6 +140,9 @@ pub trait ActionPage: Send + Sync {
     /// The ref set of the snapshot a target resolution just took (`resolve_targets` observes through the host, so only the runner,
     /// which sees every snapshot result of the page, can name it), stored as the page's latest; `None` when it is not known.
     fn adopt_snapshot(&self, snapshot_id: &str) -> Option<RefSet>;
+    /// The selector matches a resolution minted refs for (`ResolvedTarget.minted`) join the ref set of their snapshot, so a stale-ref
+    /// recovery and the change reports know them as any listed ref.
+    fn join_minted(&self, resolved: &[ResolvedTarget]);
     /// A gesture is about to change the page: what the last observation said about it is no longer current (`invalidateInteraction`).
     fn invalidate_interaction(&self);
     /// A scroll the agent asked for happened (`documents.recordScroll`): the change judgement counts it.
@@ -238,6 +241,7 @@ pub fn hit_guard(ref_id: &str) -> BrowserHitGuard {
 /// `adoptResolvedTargets`: resolution took a fresh observation, so recovery and the effect baseline move to it, and the reply says
 /// what each target resolved to.
 pub fn adopt_resolved_targets(cx: &mut ActionContext<'_>, resolved: &[ResolvedTarget]) {
+    cx.page.join_minted(resolved);
     let fresh = resolved.first().and_then(|first| cx.page.adopt_snapshot(&first.snapshot_id));
     cx.recovery.source.clone_from(&fresh);
     *cx.effect_baseline = fresh;
@@ -452,6 +456,8 @@ pub(crate) mod testing {
         fn restore_ref_set(&self, set: RefSet) {
             self.set(|state| state.ref_set = Some(set));
         }
+
+        fn join_minted(&self, _resolved: &[ResolvedTarget]) {}
 
         fn adopt_snapshot(&self, _snapshot_id: &str) -> Option<RefSet> {
             let mut state = self.state.lock().expect("state");

@@ -2083,6 +2083,10 @@ impl ActionPage for PageCtx {
         self.state_lock().refs = Some(set);
     }
 
+    fn join_minted(&self, resolved: &[ResolvedTarget]) {
+        self.register_minted(resolved);
+    }
+
     fn adopt_snapshot(&self, snapshot_id: &str) -> Option<RefSet> {
         let observation = self.inner.store.snapshot(&self.page_id, snapshot_id)?;
         let mut state = self.state_lock();

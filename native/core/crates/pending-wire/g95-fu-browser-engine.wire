@@ -41,11 +41,8 @@ attach fails with "downloads cannot attach a file: this core was not given a rea
   says "Attached download <id> as <name>."). This only makes visible what the old path's `result.file` carried.
 
 ## 3. Ref set of selector matches the snapshot did not list
-Handled in runner.rs for the two places the engine itself resolves targets (`PageCtx::resolve_targets` and the host's `ref/mint` answer). The pointer
-actions resolve through `actions/target.rs resolve_command_targets` (not an owner of this task): its `page-world selector` branch (the `table` report
-of `selector_candidates`) mints refs whose `ResolvedTarget.minted` is not yet registered. Fix there (owner of actions/target.rs): in
-`adopt_resolved_targets`, before `cx.page.adopt_snapshot(..)`, hand `resolved.iter().filter_map(|r| r.minted.as_ref())` to a new `ActionPage` method
-that calls `FactsStore::register_minted` (runner.rs already has it; `PageCtx::register_minted(&[ResolvedTarget])` takes the same list).
+Done inside the engine (nothing to wire): `PageCtx::resolve_targets`, the host's `ref/mint` answer and the pointer actions'
+`actions/target.rs adopt_resolved_targets` (through `ActionPage::join_minted`) all register `ResolvedTarget.minted` in the ref set.
 
 ## 4. Session release and the person's hold
 `BrowserEngine::forget_session` now ends the hold of every page of the session (`UserHold::release_page`), so nothing is needed in host_lane.rs for it.

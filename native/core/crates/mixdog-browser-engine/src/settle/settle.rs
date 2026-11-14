@@ -34,7 +34,6 @@ use crate::port::BrowserHost;
 use crate::queue::barrier::Either;
 use crate::queue::barrier::race;
 
-/// How long a cancelled command waits for the host to answer the stop of the page's load.
 /// How often the page's `loading` fact is read while a load is awaited.
 const LOAD_POLL: Duration = Duration::from_millis(25);
 /// How often the network observer reads the ledger.
