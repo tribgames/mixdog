@@ -2,10 +2,10 @@
 //! Where a gesture actually lands (`ref-points.ts`). A ref becomes a point only after the page confirms the element is on
 //! top of it, and refuses rather than guesses, because a wrong point clicks the wrong thing.
 //!
-//! The point is in the viewport of the realm the ref lives in: the page-world probe adds the offset of every same-origin
-//! frame itself. The offset of a cross-origin frame (`frameOffsetForSession` of `ref-points.ts`) is not added: no host
-//! method reports it yet, and `host/browser/input/batch` dispatches a pointer step at the top-viewport point it is given
-//! (its `BrowserHitGuard` only checks the hit). A point of a ref inside a cross-origin frame is therefore frame-local.
+//! The probe measures in the viewport of the realm the ref lives in and adds the offset of every same-origin frame itself. A ref
+//! inside a cross-origin frame lives in another process: the host answers the offset of that frame
+//! (`frameOffsetForSession` of `ref-points.ts`) with the call, and it is added here, so the point and the rectangle are always in
+//! the top viewport, where `host/browser/input/batch` dispatches a pointer step.
 //!
 //! Each call is one probe. The wait that repeats a probe while the element is covered, moving or hidden belongs to the settle
 //! module (`settle::actionability`) and hands its last refusal to [`with_covered_guidance`].
@@ -18,7 +18,7 @@ use mixdog_rt::CancellationToken;
 use super::access::ActionabilityReason;
 use super::access::RefError;
 use super::access::RefTarget;
-use super::access::call_ref;
+use super::access::call_ref_in_frame;
 use super::probes::Point;
 use super::probes::Rect;
 use super::probes::point_from_report;
@@ -31,15 +31,17 @@ use crate::port::BrowserHost;
 
 /// `resolveRefPoint` for one attempt: the hit-tested point of the ref, or the reason it has none.
 pub async fn ref_point(host: &dyn BrowserHost, target: &RefTarget<'_>, cancel: &CancellationToken) -> Result<Point, RefError> {
-    let report = call_ref(host, target, &ref_point_declaration(), Vec::new(), cancel).await?;
-    point_from_report(target.ref_id, report)
+    let (report, frame) = call_ref_in_frame(host, target, &ref_point_declaration(), Vec::new(), cancel).await?;
+    let local = point_from_report(target.ref_id, report)?;
+    Ok(Point { x: frame.x + local.x, y: frame.y + local.y })
 }
 
 /// `resolveRefRect` for one attempt: the box a ref occupies, for a screenshot crop rather than a gesture. A picture
 /// dispatches nothing, so no hit test guards it.
 pub async fn ref_rect(host: &dyn BrowserHost, target: &RefTarget<'_>, cancel: &CancellationToken) -> Result<Rect, RefError> {
-    let report = call_ref(host, target, &ref_rect_declaration(), Vec::new(), cancel).await?;
-    rect_from_report(target.ref_id, report)
+    let (report, frame) = call_ref_in_frame(host, target, &ref_rect_declaration(), Vec::new(), cancel).await?;
+    let local = rect_from_report(target.ref_id, report)?;
+    Ok(Rect { x: frame.x + local.x, y: frame.y + local.y, ..local })
 }
 
 /// What a covered ref's refusal says once the wait is over.
@@ -105,6 +107,16 @@ mod tests {
         let declaration = calls[0].params["functionDeclaration"].as_str().expect("a declaration");
         assert!(declaration.contains("elementFromPoint") && !declaration.contains("__MIXDOG_"));
         host.finish().expect("one call");
+    }
+
+    #[tokio::test]
+    async fn a_ref_inside_a_cross_origin_frame_is_placed_in_the_top_viewport() {
+        let framed = |value: Value| Expect::ok("host/browser/ref/call", json!({"value": value, "frameOffset": {"x": 300, "y": 200.5}, "facts": page_facts("p1", 4)}));
+        let host = FakeHost::scripted(vec![framed(json!({"x": 40, "y": 22.5, "via": "control"})), framed(json!({"x": 10, "y": 20, "width": 80, "height": 24}))]);
+        let cancel = CancellationToken::new();
+        assert_eq!(ref_point(&host, &target(), &cancel).await, Ok(Point { x: 340.0, y: 223.0 }));
+        assert_eq!(ref_rect(&host, &target(), &cancel).await, Ok(Rect { x: 310.0, y: 220.5, width: 80.0, height: 24.0 }));
+        host.finish().expect("one call each");
     }
 
     #[tokio::test]

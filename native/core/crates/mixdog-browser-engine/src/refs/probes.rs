@@ -197,6 +197,7 @@ mod tests {
         assert!(!rect.contains("__MIXDOG_"), "a placeholder is left");
         assert!(rect.starts_with("async function() { return (async function(target, frames = [])") && rect.ends_with(")(this); }"));
         assert!(rect.contains(STABLE_RECT) && !rect.contains("browserRefRectExpression") && !rect.contains("//@@"));
+        assert!(rect.contains("frames.unshift(frame)"), "the frames the target sits in are brought into view");
     }
 
     #[test]

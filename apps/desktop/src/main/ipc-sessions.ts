@@ -3,7 +3,8 @@
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
 import { readAttachmentThumbnail } from './attachment-thumbnail';
-import { attachmentViewName, readSessionAttachment } from './session-attachments';
+import { coreErrorForWindow } from './protocol/core-error';
+import type { ProtocolConnection } from './protocol/connection';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { isSessionMissingError } from './session-final-answer';
 import type { DesktopService } from './desktop-service-contract';
@@ -40,6 +41,8 @@ interface SessionIpcOptions {
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
   /** "Connect to another PC": saved hosts and their windows. */
   remoteHosts?: RemoteHostWindows;
+  /** The window's core connection: the attachment store and the conversation's links are the core's; without one that read fails. */
+  core?: Pick<ProtocolConnection, 'call'> | null;
 }
 
 export function registerSessionIpc({
@@ -51,16 +54,25 @@ export function registerSessionIpc({
   rotateRemoteAccess,
   revokeRemoteAccessClient,
   remoteHosts,
+  core,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.readSessionAttachment, async (_event, sessionId, attachmentId) => {
-    const { meta, bytes } = await readSessionAttachment(host, requiredSessionId(sessionId), attachmentId);
-    return {
-      name: attachmentViewName(meta),
-      mimeType: meta.mimeType,
-      size: bytes.length,
-      dataUrl: `data:${meta.mimeType};base64,${bytes.toString('base64')}`,
-    };
+    if (!core) throw new Error('The core connection is not available.');
+    const request = { sessionId: requiredSessionId(sessionId), attachmentId };
+    try {
+      // `desktop/attachment/resolve`: the core checks the conversation names the attachment, reads the stored bytes and verifies
+      // their hash; a refusal arrives as `file-download:not-linked|not-found|changed`.
+      const read = (await core.call('desktop/attachment/resolve', request)) as {
+        viewName: string;
+        attachment: { mimeType: string };
+        bytes: number;
+        dataUrl: string;
+      };
+      return { name: read.viewName, mimeType: read.attachment.mimeType, size: read.bytes, dataUrl: read.dataUrl };
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
   });
   handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
     readAttachmentThumbnail(

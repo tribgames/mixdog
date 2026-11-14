@@ -120,6 +120,8 @@ export function registerSnapshot(connection: HostConnection, ctx: EngineContext,
       snapshotId: payload.snapshotId,
       documentId: documentIdOf(page.state),
       revision: revisionNumber(page.state.refSet?.revision),
+      // The whole observation revision, for the core's "no observable change" judgement (documents.ts browserDocumentChanged).
+      ...(page.state.refSet?.revision ? { observation: page.state.refSet.revision } : {}),
       payload,
       warnings,
     };

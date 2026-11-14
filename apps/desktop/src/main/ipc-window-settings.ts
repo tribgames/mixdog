@@ -6,7 +6,8 @@ import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import { createSignInFocus } from './sign-in-focus';
-import { listSystemFonts } from './system-fonts';
+import { coreErrorForWindow } from './protocol/core-error';
+import type { ProtocolConnection } from './protocol/connection';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 import {
@@ -27,6 +28,9 @@ interface WindowSettingsIpcOptions {
   host: Pick<DesktopService, 'invokeCapability' | 'readCapabilities' | 'getSnapshot'>;
   handle: Handle;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
+  /** This PC's core connection (whichever PC the window shows): the installed font families are this computer's. Without one the
+   *  list fails. */
+  localCore?: Pick<ProtocolConnection, 'call'> | null;
   settingsStore?: Pick<
     DesktopSettingsStore,
     | 'read'
@@ -202,6 +206,7 @@ export function registerWindowSettingsIpc({
   host,
   handle,
   invokeDesktopOperation,
+  localCore,
   settingsStore,
   onDesktopSettingsChanged,
   previewNotificationSound,
@@ -318,7 +323,14 @@ export function registerWindowSettingsIpc({
     );
   });
   // Settings → Appearance: font families installed on this computer.
-  handle(DESKTOP_IPC.listSystemFonts, () => listSystemFonts());
+  handle(DESKTOP_IPC.listSystemFonts, async () => {
+    if (!localCore) throw new Error('The core connection is not available.');
+    try {
+      return ((await localCore.call('desktop/fonts/list', {})) as { families: string[] }).families;
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
+  });
   // A connector sign-in this window started on this PC's browser brings the
   // window back once the browser callback arrived (sign-in-focus.ts).
   const signInFocus = raiseOnSignIn ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null;
