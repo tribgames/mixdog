@@ -164,6 +164,7 @@ pub async fn compose_screen(inputs: ScreenInputs) -> Screens {
 }
 
 /// The live view's half: the sessions as the host streams them, and the sink they report to.
+#[cfg(windows)]
 #[path = "compose_screen_live.rs"]
 pub(crate) mod live;
 
