@@ -890,3 +890,14 @@ async fn nothing_is_told_once_the_host_is_closing() {
     input.row(row("a", "Task", true));
     settle().await;
 }
+
+/// PN `pendingInputKey`: a blocked goal's identity is its id, `blocked` and its blocker; any other goal waits for nothing.
+#[test]
+fn a_blocked_goal_is_identified_by_its_id_and_blocker() {
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "blocked", "blocker": "needs a key" }))).as_deref(), Some("g1:blocked:needs a key"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "status": "blocked" }))).as_deref(), Some("goal:blocked:"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": 7, "status": "blocked", "blocker": null }))).as_deref(), Some("7:blocked:"));
+    assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "active" }))), None);
+    assert_eq!(blocked_goal_key(Some(&Value::Null)), None);
+    assert_eq!(blocked_goal_key(None), None);
+}

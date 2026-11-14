@@ -12,5 +12,10 @@ The core decides and shows this PC's session notifications (host/notification/sh
 4. The host/notification/show handler already exists (notification-center.ts): the desktop's `isSessionOnScreen` / desktopPet check is answered by the host's
    foreground-thread report to the core (the audience's `host.foreground_thread`).
 
+## apps/desktop/scripts/i18n/core-native-keys.json
+5. Add "Waiting for your answer." and "Waiting for your approval." (sorted among the others): the core now translates the wait toast's
+   words itself, and once index.ts no longer passes them to nativeT the catalog sync would otherwise drop them from
+   native-ui-catalogs.json (the wait toast would fall back to English).
+
 ## Files deleted afterwards by the deletion task (not by this one)
 desktop-turn-notifier.ts(+test), final-answer-watcher.ts(+test), push-turn-events.ts(+test), session-final-answer.ts(+test) once nothing imports them.
