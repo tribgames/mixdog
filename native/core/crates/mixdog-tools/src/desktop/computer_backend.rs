@@ -232,6 +232,8 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 struct Host {
     handle: ProcessHandle,
+    /// The helper's operating-system process id (what the spawn answered).
+    pid: u32,
     pending: Pending,
     alive: Arc<AtomicBool>,
     /// Turns true once the process has exited and `pump` has failed its waiters.
@@ -574,6 +576,26 @@ impl ProcessComputerBackend {
         locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst))
     }
 
+    /// `listAuthorizationWindows`: every window of the desktop with the process that owns it, read by the host for the authorization a
+    /// harness or an embedding host sets (it names a window by this id and process). It is the host's read, not a session's: neither
+    /// the launch policy nor the narrowing in force admits or filters it.
+    pub async fn authorization_windows(&self) -> Result<Vec<Value>, ComputerError> {
+        let mut command = Map::new();
+        command.insert("action".into(), json!("list_windows"));
+        let result = self.exchange_as(command, COMMAND_TIMEOUT, false, &CancellationToken::new()).await?.map_err(HelperFailure::into_error)?;
+        let rows = result.get("windows").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        Ok(rows
+            .iter()
+            .filter(|row| row.get("id").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) && row.get("pid").is_some_and(Value::is_u64))
+            .map(|row| json!({ "id": row["id"], "pid": row["pid"], "title": row.get("title").cloned().unwrap_or(Value::Null) }))
+            .collect())
+    }
+
+    /// The resident helper's process id, while it is running: what the live harness checks the helper's own process by.
+    pub fn helper_pid(&self) -> Option<u32> {
+        locked(&self.host).as_ref().filter(|host| host.alive.load(Ordering::SeqCst)).map(|host| host.pid)
+    }
+
     /// `session_abort` (`abortComputerSession`, `client.mjs:490-499`; the host side
     /// `lifecycle-abort.ts:runAbortCleanup`): the helper is stopped and a fresh `--abort-cleanup`
     /// process releases the input it held. True once the cleanup confirmed (exit 0); then the
@@ -718,7 +740,7 @@ impl ProcessComputerBackend {
         let request = self.resident()?;
         let handle = request.handle.clone();
         let live = self.shared.live.hold();
-        self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
+        let spawned = self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
             Some(text) => ComputerError::Unavailable { reason: text },
             None => unavailable(format!("{error:?}")),
         })?;
@@ -740,7 +762,7 @@ impl ProcessComputerBackend {
             live: Some(live),
         };
         tokio::spawn(pump(events, readers, alive.clone(), done));
-        Ok(Host { handle, pending, alive, exited })
+        Ok(Host { handle, pid: spawned.pid, pending, alive, exited })
     }
 
     /// Writes one request and returns the channel its reply arrives on.
@@ -918,6 +940,12 @@ impl ProcessComputerBackend {
     /// One helper round trip within `timeout`: its result, or its failure with the result it carried. Every reply passes the
     /// restore points, and a window list comes back without Mixdog's own windows.
     pub(super) async fn exchange(&self, command: Map<String, Value>, timeout: Duration, cancel: &CancellationToken) -> Result<Reply, ComputerError> {
+        self.exchange_as(command, timeout, true, cancel).await
+    }
+
+    /// `exchange`; `narrowed` says whether a window list comes back as only the windows a restricted session may see (the host's own
+    /// read of the windows, for the authorization, is not a session's).
+    async fn exchange_as(&self, command: Map<String, Value>, timeout: Duration, narrowed: bool, cancel: &CancellationToken) -> Result<Reply, ComputerError> {
         if cancel.is_cancelled() {
             return Err(ComputerError::Cancelled);
         }
@@ -938,6 +966,9 @@ impl ProcessComputerBackend {
         }
         if lists_windows && let Ok(result) = &mut reply {
             computer_internal_windows::filter(self, result, cancel).await;
+            if narrowed {
+                computer_policy::narrow_window_list(&self.config.session_id, result);
+            }
         }
         Ok(reply)
     }
@@ -1126,7 +1157,7 @@ pub(super) fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, Com
 impl ComputerSecretHost for ProcessComputerBackend {
     async fn execute(&self, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
         // A handoff secret is typed through the host's router, which refuses input while "Observation only" is on (`find` is a read).
-        if let Err(ComputerError::Failed { message, .. }) = computer_policy::admit(&command, self.observe_only()) {
+        if let Err(ComputerError::Failed { message, .. }) = computer_policy::admit(&command, self.observe_only(), &self.frames) {
             return Err(message);
         }
         self.call(command, &CancellationToken::new()).await.map_err(|error| match error {
@@ -1192,7 +1223,7 @@ impl ComputerBackend for ProcessComputerBackend {
             }
         }
         // The host's admission (`command-admission.ts` `assertCommandPreconditions`) checks the live setting first.
-        computer_policy::admit(&command, observe_only)?;
+        computer_policy::admit(&command, observe_only, &self.frames)?;
         let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
         // refused, and the next action (which moves on) lifts the hold.

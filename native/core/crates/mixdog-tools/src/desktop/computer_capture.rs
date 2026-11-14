@@ -39,9 +39,9 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_millis(4_500);
 /// (`OCR_WORK_MS`, platform/windows/shell.rs), so the round trip waits for that beside the capture's own.
 const OCR_CAPTURE_TIMEOUT: Duration = Duration::from_millis(4_500 + 20_000 + 500);
 /// `captureElementBudget`: a state capture's default (`DEFAULT_CAPTURE_MAX_ELEMENTS`), every other mode's, and the most.
-const STATE_MAX_ELEMENTS: i64 = 80;
-const OTHER_MAX_ELEMENTS: i64 = 200;
-const MAX_ELEMENTS: i64 = 1_000;
+pub(super) const STATE_MAX_ELEMENTS: i64 = 80;
+pub(super) const OTHER_MAX_ELEMENTS: i64 = 200;
+pub(super) const MAX_ELEMENTS: i64 = 1_000;
 /// `DEFAULT_SCREENSHOT_MAX_WIDTH` with its bounds, and `DEFAULT_SCREENSHOT_QUALITY` (`shared/common.ts`).
 pub(super) const DEFAULT_MAX_WIDTH: i64 = 1_280;
 pub(super) const MIN_MAX_WIDTH: i64 = 256;
