@@ -6,7 +6,7 @@
 //! - The first read of a data dir without that file copies the Electron profile's `desktop-pet.json` into it, once: one
 //!   way, the old file kept, nothing overwritten (the file the profile move of generation 2 deliberately never opens).
 //! - The placement rules (pinned above the message box, free, saved per display, clamped to a work area) are plain
-//!   functions of rectangles, for the window controller that places the pet.
+//!   functions of rectangles; `desktopPet/placement/resolve` answers them for the window controller that places the pet.
 
 #![allow(clippy::disallowed_methods, reason = "every file read here is the body of a job of a durability-io lane")]
 
@@ -18,11 +18,17 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::desktop_pet::DesktopPetPlacementResolveParams;
 use mixdog_app_protocol::v2::desktop_pet::DesktopPetPrefs;
 use mixdog_app_protocol::v2::desktop_pet::DesktopPetStateReadParams;
 use mixdog_app_protocol::v2::desktop_pet::DesktopPetStateWriteParams;
 use mixdog_app_protocol::v2::desktop_pet::PetHereAnchor;
 use mixdog_app_protocol::v2::desktop_pet::PetPoint;
+use mixdog_app_protocol::v2::desktop_pet::PlacementComposer;
+use mixdog_app_protocol::v2::desktop_pet::PlacementDisplay;
+use mixdog_app_protocol::v2::desktop_pet::PlacementPoint;
+use mixdog_app_protocol::v2::desktop_pet::PlacementRect;
+use mixdog_app_protocol::v2::desktop_pet::PlacementSize;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
@@ -40,6 +46,7 @@ use mixdog_rt::LaneTokens;
 use mixdog_statefile::Opts;
 use mixdog_statefile::Published;
 use serde_json::Value;
+use serde_json::json;
 
 const DOMAIN: &str = "desktopPet";
 
@@ -365,6 +372,61 @@ pub fn pet_position_on(display: &PetDisplay, prefs: &DesktopPetPrefs, geometry: 
     clamp_free_pet_position(saved.unwrap_or_else(|| default_pet_position(display.work_area, geometry.window)), geometry, display.work_area)
 }
 
+// ---- The placement method ----------------------------------------------------------------------
+
+fn rect_of(rect: PlacementRect) -> PetRect {
+    PetRect { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+}
+
+fn pos_of(point: PlacementPoint) -> PetPos {
+    PetPos { x: point.x, y: point.y }
+}
+
+fn size_of(size: PlacementSize) -> PetSize {
+    PetSize { width: size.width, height: size.height }
+}
+
+fn display_of(display: PlacementDisplay) -> PetDisplay {
+    PetDisplay { id: display.id, work_area: rect_of(display.work_area) }
+}
+
+fn composer_of(composer: PlacementComposer) -> PetComposer {
+    PetComposer {
+        rect: rect_of(composer.rect),
+        island: composer.island,
+        island_span: composer.island_span.map(|span| IslandSpan { left: span.left, right: span.right, top: span.top }),
+    }
+}
+
+fn point_json(point: PetPos) -> Value {
+    json!({ "x": point.x, "y": point.y })
+}
+
+/// `desktopPet/placement/resolve`: the rule `op` names, over the rectangles the window controller read from Electron.
+pub fn resolve_placement(params: DesktopPetPlacementResolveParams) -> Value {
+    use DesktopPetPlacementResolveParams as Op;
+    match params {
+        Op::Geometry(p) => {
+            let g = pet_geometry(p.scale);
+            json!({
+                "window": { "width": g.window.width, "height": g.window.height },
+                "sprite": { "left": g.sprite.left, "bottom": g.sprite.bottom, "size": g.sprite.size },
+                "coreWidth": g.core_width,
+            })
+        }
+        Op::Pinned(p) => point_json(pinned_pet_position(rect_of(p.content), &composer_of(p.composer), p.zoom, &pet_geometry(p.scale))),
+        Op::Clamp(p) => point_json(clamp_pet_position(pos_of(p.point), size_of(p.size), rect_of(p.work_area))),
+        Op::ClampFree(p) => point_json(clamp_free_pet_position(pos_of(p.point), &pet_geometry(p.scale), rect_of(p.work_area))),
+        Op::HereAnchor(p) => serde_json::to_value(pet_here_anchor(pos_of(p.point), rect_of(p.sprite), rect_of(p.content))).unwrap_or(Value::Null),
+        Op::HerePosition(p) => point_json(pet_here_position(&p.anchor, rect_of(p.content))),
+        Op::DisplayFor(p) => {
+            let displays: Vec<PetDisplay> = p.displays.into_iter().map(display_of).collect();
+            display_for_pet_position(pos_of(p.point), size_of(p.size), &displays).map_or(Value::Null, |display| json!(display.id))
+        }
+        Op::PositionOn(p) => point_json(pet_position_on(&display_of(p.display), &p.prefs, &pet_geometry(p.scale))),
+    }
+}
+
 // ---- The service -------------------------------------------------------------------------------
 
 pub struct DesktopPetService {
@@ -429,12 +491,16 @@ impl DomainService for DesktopPetService {
                 (self.changed)(&prefs);
                 reply(&prefs)
             }
+            "desktopPet/placement/resolve" => {
+                let params: DesktopPetPlacementResolveParams = decode(&req)?;
+                Ok(Reply::Value(resolve_placement(params)))
+            }
             other => Err(wrong_method(DOMAIN, other)),
         }
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &["desktopPet/state/read", "desktopPet/state/write"]
+        &["desktopPet/state/read", "desktopPet/state/write", "desktopPet/placement/resolve"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

@@ -81,6 +81,50 @@ impl SessionAttachments for SessionAttachmentLinks {
     }
 }
 
+/// The desktop residual service's view of a session's conversation and the attachment store (`session-attachments.ts`'s
+/// `AttachmentHost`). The loaded thread's acked view is read first as the transcript window; the whole stored history next.
+pub struct DesktopAttachmentHost {
+    directory: Arc<SessionDirectory>,
+    store: mixdog_store::blobs::BlobStore,
+    interactive: mixdog_rt::InteractiveIo,
+}
+
+impl DesktopAttachmentHost {
+    pub fn new(directory: Arc<SessionDirectory>, store: mixdog_store::blobs::BlobStore, tokens: &mixdog_rt::LaneTokens) -> Self {
+        Self { directory, store, interactive: tokens.interactive_io }
+    }
+}
+
+#[async_trait]
+impl mixdog_core_domains::domains::desktop_residual::AttachmentHost for DesktopAttachmentHost {
+    async fn session_transcript(&self, session_id: &str) -> Option<serde_json::Value> {
+        let handle = self.directory.handle(&ThreadId::from(session_id))?;
+        let view = handle.cell.view.load_full();
+        let rows: Vec<serde_json::Value> = view.items.iter().map(|item| super::reads::display_row(item)).collect();
+        Some(serde_json::json!({ "items": rows }))
+    }
+
+    async fn session_history(&self, session_id: &str) -> Option<serde_json::Value> {
+        let items = self.directory.history_items(&ThreadId::from(session_id)).await.ok()?;
+        let rows: Vec<serde_json::Value> = items.iter().map(super::reads::display_row).collect();
+        Some(serde_json::json!({ "items": rows }))
+    }
+
+    async fn attachment_bytes(&self, id: &str) -> Option<Vec<u8>> {
+        use mixdog_store::blobs::BlobError;
+        let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?;
+        let store = self.store.clone();
+        let read = mixdog_core_base::support::on_lane(self.interactive, &tokio_util::sync::CancellationToken::new(), move |lane| match store.read(lane, &digest) {
+            Ok(bytes) => Some(bytes),
+            // A stored file that fails its hash is still handed over as stored: the caller's own integrity check names it `changed`.
+            Err(BlobError::Corrupt { .. }) => std::fs::read(store.path(&digest)).ok(),
+            Err(_) => None,
+        })
+        .await;
+        read.ok().flatten()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
