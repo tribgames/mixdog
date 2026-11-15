@@ -1,7 +1,6 @@
 # nr-tui-switch: the `mixdog` binary runs the terminal interface and the --plain REPL.
 # Files: crates/mixdog-entry/{Cargo.toml, src/interactive.rs, tests/node_free.rs, tests/pty_twin.rs, tests/support/*}.
-# Nothing here was compiled (no cargo in this task). The crate is not a workspace member until nr-tui-entry-argv.wire section 1 is applied;
-# mixdog-tui and mixdog-repl are (their own wires: nr-tui-app-run, nr-tui-repl).
+# Nothing here was compiled (no cargo in this task). mixdog-entry, mixdog-tui and mixdog-repl are workspace members already.
 
 ## 1. native/core/Cargo.lock
 Package `mixdog-entry`: `dependencies` gain (alphabetical, merged into the list nr-tui-entry-argv.wire section 3 describes):
@@ -52,3 +51,13 @@ dependencies only that code used (ink, react (root), marked, cli-highlight, stri
 The statusline of `--plain` is built from a StatusHost that has no model catalog, plan-usage cache or session runtimes (they are the core's,
 not this process's): the model-window, quota and sub-agent segments are what the files of the data folder give, no more. The footer of the
 terminal interface itself is not painted by mixdog-tui's run loop yet (render.rs passes footer ""), which is nr-tui-app-run's.
+
+## 8. For the owner of mixdog-entry/src/main.rs and dispatch.rs (nr-tui-entry-argv; found in review, not this task's files)
+- nr-tui-launch-update.wire section 3 is not applied: main.rs must, first of all, when argv[1] == mixdog_launch::staged_update::STAGED_INSTALL_ARG
+  ("--staged-install-worker"), `std::process::exit(mixdog_launch::staged_update::run_staged_install_worker(&argv[2]))`. Today the worker that
+  `spawn_staged_install` starts (this same executable with that argument) is refused by the argv classifier as `unknown option`, so no update
+  would ever be staged once the update check calls `spawn_staged_install` (no caller yet).
+- dispatch.rs `rerun`/`child_exit` repeat mixdog_launch::staged_update::reexec_swapped (and its exit_code_of); call reexec_swapped with the
+  `exe` of `SwapOutcome::Swapped(exe)` instead and delete the copy (keep the "forced-cleanup" reason for a signal-ended child).
+- argv.rs: the two `#[allow(dead_code, reason = "... until then only the tests do")]` on `Worktree` and `Options` are stale now that
+  interactive.rs reads them; remove them.
