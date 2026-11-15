@@ -11,7 +11,7 @@ use super::{Props, num};
 use crate::discipline::STATE_ROLES;
 use crate::table_input::compose_table_rows;
 use crate::tokens::strings;
-use crate::{array_of, first_text, first_truthy, prop, text};
+use crate::{array_of, first_text, prop, text};
 
 /// What a section can carry. A field outside this list would vanish: a plan written as `roadmap:[…]` would reach the
 /// page as a heading with nothing under it, and the composer would report success.
@@ -44,6 +44,12 @@ fn own_keys(section: &Value) -> Vec<String> {
         Value::String(written) => (0..utf16_len(written)).map(|index| index.to_string()).collect(),
         _ => Vec::new(),
     }
+}
+
+/// `section[first] || section[second]`: the first when it is truthy, else the second as it is written (a falsy `0` or
+/// `false` there is still a value: `String(0)` is a paragraph).
+fn either<'a>(section: &'a Value, first: &str, second: &str) -> Option<&'a Value> {
+    prop(section, first).filter(|value| truthy(value)).or_else(|| prop(section, second))
 }
 
 fn write_section_heading(w: &mut DocxWriter, section: &Value) {
@@ -79,8 +85,7 @@ fn write_section_heading(w: &mut DocxWriter, section: &Value) {
         .num("spacingAfter", if w.editorial_report { 7.0 } else { 5.0 })
         .set("keepWithNext", true)
         .set("pageBreakBefore", spread_break && eyebrow.is_none());
-    let heading = first_truthy(&[prop(section, "heading"), prop(section, "title")]);
-    w.append(paragraph_text(heading), if sub_level { "Heading 2" } else { "Heading 1" }, properties);
+    w.append(paragraph_text(either(section, "heading", "title")), if sub_level { "Heading 2" } else { "Heading 1" }, properties);
 }
 
 fn write_section_list(w: &mut DocxWriter, section: &Value, kind: &str, block_follows: bool) -> Result<(), String> {
@@ -159,10 +164,10 @@ pub fn write_docx_section(w: &mut DocxWriter, section: &Value, section_index: us
     if section.is_null() {
         return Err("Cannot read properties of null (reading 'kind')".into());
     }
-    let kind = js_to_lowercase(js_trim(&text(prop(section, "kind")))).to_owned();
+    let kind = js_to_lowercase(js_trim(&text(prop(section, "kind"))));
     write_section_heading(w, section);
     let body = w.body_size;
-    for paragraph in strings(first_truthy(&[prop(section, "paragraphs"), prop(section, "body")])) {
+    for paragraph in strings(either(section, "paragraphs", "body")) {
         let properties = Props::new()
             .opt("name", w.ty.face("body").cloned())
             .num("size", body)
@@ -243,4 +248,19 @@ pub fn write_docx_section(w: &mut DocxWriter, section: &Value, section_index: us
         write_section_source(w, section);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_falsy_first_field_gives_way_to_the_second_as_written() {
+        let section = json!({ "heading": "", "title": 0, "paragraphs": false, "body": false });
+        assert_eq!(either(&section, "heading", "title"), Some(&json!(0)));
+        assert_eq!(strings(either(&section, "paragraphs", "body")), vec!["false".to_owned()]);
+        assert_eq!(either(&json!({ "heading": "H", "title": "T" }), "heading", "title"), Some(&json!("H")));
+        assert_eq!(either(&json!({}), "heading", "title"), None);
+    }
 }
