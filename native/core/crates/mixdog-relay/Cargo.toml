@@ -1,0 +1,72 @@
+[package]
+name = "mixdog-relay"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "mixdog_relay"
+path = "src/lib.rs"
+
+# The relay server: deployed alone on the relay host (it replaces `node server.mjs` in /opt/mixdog-relay), so it is its
+# own program and not a mixdogd subcommand. Precedent: mixdog-askpass is a second production binary of the workspace.
+[[bin]]
+name = "mixdog-relay"
+path = "src/main.rs"
+
+[features]
+# The scripted host the twin tests drive (`relay_twin_host`) and the helpers a replay package needs.
+test-support = []
+
+[[bin]]
+name = "relay_twin_host"
+path = "src/bin/relay_twin_host.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "twin"
+path = "tests/twin/main.rs"
+required-features = ["test-support"]
+
+[dependencies]
+base64 = { workspace = true }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+hmac = { workspace = true }
+httparse = { workspace = true }
+mixdog-fsio = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-rt = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa", "pkcs8", "pem"] }
+pem = "3.0.6"
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+ring = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "io-util", "sync", "macros"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+# `verify-release` dials the relay over wss with the system roots.
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+webpki-roots = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-testkit = { workspace = true }
+rcgen = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util"] }
