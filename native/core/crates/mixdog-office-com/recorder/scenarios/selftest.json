@@ -1,0 +1,97 @@
+{
+  "area": "selftest",
+  "description": "The recorder proving itself on the migration PC: one detect, one docx background snapshot, one xlsx batch, one two-chart pptx batch (one registry entry per Excel identity), and the import_slides refusal of a source deck open in the same PowerPoint. record-office-com.mjs requires the hooked answers to equal the unhooked ones (a difference stops the run); the logs are then replayed through the fake backend (com/fake.rs) by the host-runtime task's harness.",
+  "scenarios": [
+    {
+      "id": "detect",
+      "description": "The one-shot detect action: the registry and the running-object table only.",
+      "steps": [
+        { "oneShot": { "action": "detect" }, "label": "detect", "expect": { "contains": "\"applications\"" } }
+      ]
+    },
+    {
+      "id": "docx-background-snapshot",
+      "description": "A new Word document (made unhooked by a session host), then its background snapshot through the one-shot host.",
+      "steps": [
+        { "prepare": true, "session": "make", "start": true },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "open_session", "session": "selftest-docx", "format": "docx", "path": "${work}\\selftest.docx", "mode": "background", "create": true } } },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "close_session", "session": "selftest-docx", "save": true } } },
+        { "prepare": true, "eof": "make" },
+        { "oneShot": { "action": "snapshot", "format": "docx", "path": "${work}\\selftest.docx" }, "label": "snapshot", "expect": { "contains": "\"ok\":true" } }
+      ],
+      "collect": ["selftest.docx"]
+    },
+    {
+      "id": "xlsx-batch",
+      "description": "A new workbook (made unhooked by a session host), then one batch through the one-shot host: a cell, a range written as one object[,] block (New-Object of a .NET array inside the hooked host) and a formula.",
+      "steps": [
+        { "prepare": true, "session": "make", "start": true },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "open_session", "session": "selftest-xlsx", "format": "xlsx", "path": "${work}\\selftest.xlsx", "mode": "background", "create": true } } },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "close_session", "session": "selftest-xlsx", "save": true } } },
+        { "prepare": true, "eof": "make" },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "xlsx",
+            "path": "${work}\\selftest.xlsx",
+            "requireChanges": true,
+            "operations": [
+              { "op": "set_cell", "cell": "A1", "value": "Total" },
+              { "op": "set_range", "range": "A2:B3", "values": [[1, 2], [3, 4]] },
+              { "op": "set_formula", "cell": "B1", "formula": "SUM(A2:B3)" }
+            ]
+          },
+          "label": "batch",
+          "expect": { "contains": "\"ok\":true" }
+        }
+      ],
+      "collect": ["selftest.xlsx"]
+    },
+    {
+      "id": "pptx-two-chart-batch",
+      "description": "A new deck, then one batch that adds a slide and two charts: both chart workbooks belong to one Excel application, so the host registers one Excel identity.",
+      "steps": [
+        { "prepare": true, "session": "make", "start": true },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "open_session", "session": "selftest-pptx", "format": "pptx", "path": "${work}\\selftest.pptx", "mode": "background", "create": true } } },
+        { "prepare": true, "send": { "session": "make", "request": { "action": "close_session", "session": "selftest-pptx", "save": true } } },
+        { "prepare": true, "eof": "make" },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "pptx",
+            "path": "${work}\\selftest.pptx",
+            "requireChanges": true,
+            "operations": [
+              { "op": "add_slide" },
+              { "op": "add_chart", "slide": 1, "chartType": "column", "title": "First", "categories": ["A", "B"], "series": [{ "name": "Actual", "values": [1, 2] }] },
+              { "op": "add_chart", "slide": 1, "chartType": "line", "title": "Second", "categories": ["A", "B"], "series": [{ "name": "Plan", "values": [2, 3] }], "left": 72, "top": 360 }
+            ]
+          },
+          "label": "two charts",
+          "timeoutMs": 240000,
+          "expect": { "contains": "\"ok\":true" }
+        }
+      ],
+      "collect": ["selftest.pptx"]
+    },
+    {
+      "id": "pptx-import-slides-refusal",
+      "description": "import_slides of a source deck that is open in the same PowerPoint: the host refuses, hooked and unhooked (the open-source check compares two objects of one identity with ReferenceEquals).",
+      "steps": [
+        { "prepare": true, "hostApp": "powerpoint", "format": "pptx", "files": ["target.pptx", "source.pptx"] },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "pptx",
+            "mode": "live",
+            "path": "${work}\\target.pptx",
+            "requireChanges": true,
+            "operations": [{ "op": "import_slides", "path": "${work}\\source.pptx" }]
+          },
+          "label": "import open source",
+          "expect": { "contains": "import_slides requires the saved source deck to be closed before import" }
+        }
+      ]
+    }
+  ]
+}

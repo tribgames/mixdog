@@ -1,0 +1,16 @@
+{
+  "area": "registry",
+  "kind": "source",
+  "description": "The operation names the COM host implements, read from its source text with the regex office-runtime-com.test.mjs uses between the same markers. record-office-com.mjs --area registry writes them to tests/fixtures/registry/operations.json; tests/registry_source.rs re-extracts them from the PowerShell source and compares; the Rust registry is later compared against the same file.",
+  "source": "office-com-host.ps1",
+  "sourcePath": "src/runtime/office/com/office-com-host.ps1",
+  "regex": "^\\s{4,8}'([a-z][a-z0-9_]*)'\\s*\\{",
+  "flags": "gm",
+  "sections": [
+    { "format": "docx", "start": "function Apply-WordOperation", "end": "function Excel-Sheet" },
+    { "format": "xlsx", "start": "function Apply-ExcelOperation", "end": "function Ppt-Slide" },
+    { "format": "pptx", "start": "function Apply-PowerPointOperation", "end": "function Apply-Operations" }
+  ],
+  "expectedCounts": { "docx": 41, "xlsx": 46, "pptx": 46 },
+  "output": "registry/operations.json"
+}
