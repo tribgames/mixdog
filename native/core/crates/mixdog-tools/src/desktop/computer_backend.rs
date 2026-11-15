@@ -1434,7 +1434,7 @@ impl ComputerBackend for ProcessComputerBackend {
         let Some(window) = computer_recovery::recapture_window(request.action.wire_name(), &request.input, message) else { return outcome };
         let capture = ComputerRequest { action: ComputerAction::Capture, input: json!({ "window_id": window }) };
         match self.run_admitted(capture, cancel).await {
-            Ok(parts) => Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: computer_recovery::refusal_with_capture(message, &window, &parts) }),
+            Ok(parts) => Ok(computer_recovery::refusal_with_capture(message, &window, parts)),
             Err(_) => outcome,
         }
     }
@@ -1747,8 +1747,12 @@ mod tests {
 
         let manager = Arc::new(Answering::default());
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap_err();
-        assert!(matches!(&refused, ComputerError::Failed { message, .. } if message.contains("stale_target")), "{refused:?}");
+        let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap();
+        assert!(matches!(&refused[0], ToolPart::Text(text) if text.starts_with("Error: stale_target: window w1 is gone") && text.contains("window w1 was captured again below")), "{refused:?}");
+        // The capture's own parts follow the refusal: the pixels' text, then their image.
+        let fresh = refused.iter().position(|part| *part == ToolPart::Text("fresh".into())).unwrap_or_else(|| panic!("{refused:?}"));
+        let image = ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None };
+        assert!(fresh > 0 && refused[fresh + 1..].contains(&image), "{refused:?}");
         assert!(captures(&manager) > 0, "{:?}", locked(&manager.lines));
 
         let manager = Arc::new(Answering::default());
@@ -1757,6 +1761,23 @@ mod tests {
         backend.run(moved, CancellationToken::new()).await.unwrap_err();
         assert!(locked(&manager.lines).iter().any(|line| line["action"] == "move_window"), "{:?}", locked(&manager.lines));
         assert_eq!(captures(&manager), 0, "{:?}", locked(&manager.lines));
+    }
+
+    /// A recapture that fails leaves the original refusal as the call's error, and the model reads it with its recovery.
+    #[tokio::test]
+    async fn a_failed_recapture_keeps_the_original_refusal_and_its_recovery() {
+        let manager = Arc::new(Answering::default());
+        manager.capture_refused.store(true, Ordering::SeqCst);
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let focus = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "focus", "window_id": "w1"}) };
+        let error = backend.run(focus, CancellationToken::new()).await.unwrap_err();
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "window_capture" && line["window_id"] == "w1"), "{:?}", locked(&manager.lines));
+        let ComputerError::Failed { code, message } = &error else { panic!("{error:?}") };
+        let args = json!({"action": "window", "input": {"window_id": "w1"}});
+        let text = super::super::computer::failure_text(code, message, &args);
+        assert!(text.starts_with("Error: stale_target: window w1 is gone"), "{text}");
+        assert!(text.contains("Recovery: Capture window w1 again"), "{text}");
+        assert!(!text.contains("captured again below"), "{text}");
     }
 
     #[test]
@@ -1892,6 +1913,8 @@ mod tests {
         failing_cleanup: AtomicBool,
         /// The helper takes every request and answers none of them.
         silent: AtomicBool,
+        /// The pixels of window `w1` are answered with an error instead of a frame.
+        capture_refused: AtomicBool,
     }
 
     struct Feed(tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>);
@@ -1952,6 +1975,13 @@ mod tests {
             match request["action"].as_str() {
                 _ if self.silent.load(Ordering::SeqCst) => {}
                 Some("hang") => {}
+                Some("window_capture") if request["window_id"] == "w1" && self.capture_refused.load(Ordering::SeqCst) => {
+                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_target_not_found: w1 is closed"})))
+                }
+                Some("window_capture") if request["window_id"] == "w1" => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "fresh", "image_base64": "aGk="}})),
+                ),
                 Some("focus_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "stale_target: window w1 is gone"}))),
                 Some("move_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_not_movable: w1"}))),
                 Some("die") => self.emit(handle, |seq| Self::exit(seq, None)),
