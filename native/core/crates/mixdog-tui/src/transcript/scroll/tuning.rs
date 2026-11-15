@@ -60,37 +60,8 @@ fn flag(raw: &str) -> Option<bool> {
 
 /// `positiveInt`: the floor of `Number(raw)` when it is finite and at least one.
 fn positive_int(raw: &str) -> Option<u64> {
-    let parsed = js_number(raw)?.floor();
+    let parsed = mixdog_js::string_to_number(raw).floor();
     (parsed.is_finite() && parsed >= 1.0).then(|| if parsed >= u64::MAX as f64 { u64::MAX } else { parsed as u64 })
-}
-
-/// JavaScript's `Number(string)` for the spellings an environment variable can hold: decimal and exponent forms and the
-/// `0x`, `0o` and `0b` integer prefixes; `None` where it is `NaN`.
-fn js_number(raw: &str) -> Option<f64> {
-    let text = raw.trim();
-    if text.is_empty() {
-        return Some(0.0);
-    }
-    let radix = |digits: &str, base: u32| u64::from_str_radix(digits, base).ok().map(|value| value as f64);
-    let lower = text.to_ascii_lowercase();
-    if let Some(digits) = lower.strip_prefix("0x") {
-        return radix(digits, 16);
-    }
-    if let Some(digits) = lower.strip_prefix("0o") {
-        return radix(digits, 8);
-    }
-    if let Some(digits) = lower.strip_prefix("0b") {
-        return radix(digits, 2);
-    }
-    // Rust also accepts `inf`, `infinity` and `nan` words JavaScript reads differently or as NaN: only the numeric forms pass.
-    let numeric = text.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'e' | b'E'));
-    if numeric {
-        text.parse::<f64>().ok()
-    } else if matches!(text, "Infinity" | "+Infinity") {
-        Some(f64::INFINITY)
-    } else {
-        None
-    }
 }
 
 /// The acceleration state of the wheel: consecutive notches in one direction within the idle gap grow the step by the base

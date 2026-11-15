@@ -42,21 +42,9 @@ pub struct ActiveTools {
     pub agent: Option<ActiveTool>,
 }
 
-/// JavaScript's `Number(value)`; `NaN` for what is not a number.
-fn js_number(value: Option<&Value>) -> f64 {
-    match value {
-        None => f64::NAN,
-        Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
-        Some(Value::Null) => 0.0,
-        Some(Value::Bool(flag)) => f64::from(u8::from(*flag)),
-        Some(Value::String(text)) => text.trim().parse::<f64>().unwrap_or(if text.trim().is_empty() { 0.0 } else { f64::NAN }),
-        Some(_) => f64::NAN,
-    }
-}
-
 /// `Number(value) || fallback`: a zero or `NaN` reads as the fallback.
 fn number_or(value: Option<&Value>, fallback: f64) -> f64 {
-    let number = js_number(value);
+    let number = mixdog_js::to_number_of(value);
     if number == 0.0 || number.is_nan() { fallback } else { number }
 }
 
@@ -68,11 +56,6 @@ fn truthy(value: Option<&Value>) -> bool {
         Some(Value::String(text)) => !text.is_empty(),
         Some(_) => true,
     }
-}
-
-/// A number as JavaScript prints it inside a template string.
-fn print_number(value: f64) -> String {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 { format!("{}", value as i64) } else { format!("{value}") }
 }
 
 fn slice_of<'a>(state: &'a Value, key: &str) -> &'a [Value] {
@@ -164,7 +147,7 @@ pub fn active_tools_signature(state: &Value) -> String {
     if counts.iter().all(|total| *total == 0.0) {
         return String::new();
     }
-    counts.iter().zip(starts).map(|(total, start)| format!("{}:{}", print_number(*total), print_number(start))).collect::<Vec<_>>().join(":")
+    counts.iter().zip(starts).map(|(total, start)| format!("{}:{}", mixdog_js::number_to_string(*total), mixdog_js::number_to_string(start))).collect::<Vec<_>>().join(":")
 }
 
 /// `activeTools`: the segments of a signature; `None` for an empty one.
@@ -176,7 +159,7 @@ pub fn active_tools(signature: &str) -> Option<ActiveTools> {
         .split(':')
         .take(6)
         .map(|part| {
-            let number = js_number(Some(&Value::String(part.to_owned())));
+            let number = mixdog_js::string_to_number(part);
             if number.is_nan() { 0.0 } else { number }
         })
         .collect();
