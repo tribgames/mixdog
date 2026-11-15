@@ -79,14 +79,15 @@ pub struct Verified {
 }
 
 impl Verified {
-    /// The one stdout line, keys in the order the deploy script reads them.
+    /// The one stdout line: `JSON.stringify` of the result object, keys in the script's order.
     pub fn to_line(&self) -> String {
-        format!(
-            "{{\"status\":\"verified\",\"indexSha256\":{},\"assets\":{},\"releases\":{},\"websocket\":\"gated\"}}",
-            Value::String(self.index_sha256.clone()),
-            self.assets,
-            self.releases
-        )
+        let mut line = serde_json::Map::new();
+        line.insert("status".to_owned(), Value::from("verified"));
+        line.insert("indexSha256".to_owned(), Value::from(self.index_sha256.as_str()));
+        line.insert("assets".to_owned(), self.assets.clone());
+        line.insert("releases".to_owned(), Value::from(self.releases));
+        line.insert("websocket".to_owned(), Value::from("gated"));
+        crate::js::wire(&Value::Object(line))
     }
 }
 
@@ -189,9 +190,7 @@ async fn read_json(base: &Url, path: &str, options: &Options, address: Option<Ip
             .send()
             .await
             .map_err(|error| transport_error(&error))?;
-        if response.status().as_u16() != 200 {
-            return Err(ProbeError::new(format!("{} returned HTTP {}.", url.path(), response.status().as_u16())));
-        }
+        // The whole body is read (and capped) before the status is judged, as the script did.
         let mut body = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|error| transport_error(&error))? {
             if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
@@ -199,8 +198,10 @@ async fn read_json(base: &Url, path: &str, options: &Options, address: Option<Ip
             }
             body.extend_from_slice(&chunk);
         }
-        serde_json::from_str::<Value>(&String::from_utf8_lossy(&body))
-            .map_err(|_| ProbeError::new(format!("{} returned invalid JSON.", url.path())))
+        if response.status().as_u16() != 200 {
+            return Err(ProbeError::new(format!("{} returned HTTP {}.", url.path(), response.status().as_u16())));
+        }
+        crate::js::parse_bytes(&body).map_err(|_| ProbeError::new(format!("{} returned invalid JSON.", url.path())))
     };
     match mixdog_rt::time::timeout(options.timeout, exchange).await {
         Ok(result) => result,
@@ -291,13 +292,25 @@ async fn check_websocket(
     }
 }
 
-/// `value > 0` as JavaScript evaluates it for the number or numeric string `/readyz` reports.
-fn positive(value: Option<&Value>) -> bool {
+/// `Number(value)` as JavaScript converts a parsed JSON value (an array through its `join(',')` string).
+fn to_number(value: &Value) -> f64 {
     match value {
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n > 0.0),
-        Some(Value::String(text)) => text.trim().parse::<f64>().is_ok_and(|n| n > 0.0),
-        _ => false,
+        Value::Null => 0.0,
+        Value::Bool(flag) => f64::from(u8::from(*flag)),
+        Value::Number(number) => number.as_f64().unwrap_or(f64::NAN),
+        Value::String(text) => mixdog_js::string_to_number(text),
+        Value::Array(items) => match items.as_slice() {
+            [] | [Value::Null] => 0.0,
+            [Value::String(_) | Value::Number(_) | Value::Array(_)] => to_number(&items[0]),
+            _ => f64::NAN,
+        },
+        Value::Object(_) => f64::NAN,
     }
+}
+
+/// `value > 0` as JavaScript evaluates it for what `/readyz` reports; an absent value is `undefined`, which is not.
+fn positive(value: Option<&Value>) -> bool {
+    value.is_some_and(|value| to_number(value) > 0.0)
 }
 
 /// Runs every check of a deployment: liveness (waiting out a refused connection for the startup window), readiness and
@@ -409,6 +422,8 @@ pub fn main(args: &[String]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn args(list: &[&str]) -> Vec<String> {
@@ -438,5 +453,23 @@ mod tests {
         assert!(!is_hex64(&"0F".repeat(32)));
         assert!(!is_hex64(&"0f".repeat(31)));
         assert!(!is_hex64(&"0g".repeat(32)));
+    }
+
+    #[test]
+    fn assets_are_positive_as_javascript_compares_them_with_zero() {
+        for value in [json!(8), json!(0.5), json!("3"), json!(" 0x10 "), json!("Infinity"), json!(true), json!([2]), json!(["4"])] {
+            assert!(positive(Some(&value)), "{value}");
+        }
+        for value in [json!(0), json!(-1), json!(""), json!("3a"), json!(null), json!(false), json!([]), json!([1, 2]), json!([true]), json!({})] {
+            assert!(!positive(Some(&value)), "{value}");
+        }
+        assert!(!positive(None));
+    }
+
+    #[test]
+    fn the_result_line_is_the_json_of_the_result_object() {
+        let verified = Verified { index_sha256: "a".repeat(64), assets: json!("3"), releases: 0 };
+        let expected = format!(r#"{{"status":"verified","indexSha256":"{}","assets":"3","releases":0,"websocket":"gated"}}"#, "a".repeat(64));
+        assert_eq!(verified.to_line(), expected);
     }
 }
