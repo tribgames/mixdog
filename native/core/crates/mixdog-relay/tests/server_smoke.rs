@@ -171,7 +171,7 @@ async fn the_router_answers_in_nodes_order_on_the_raw_target() {
     // With no renderer directory the probe says the relay is not ready, and says nothing about why.
     let probe = exchange(port, &get("/readyz?probe=1")).await;
     assert_eq!(status_of(&probe), "HTTP/1.1 503 Service Unavailable");
-    assert!(probe.contains("Cache-Control: no-store") && probe.ends_with("{\"status\":\"not-ready\"}"), "{probe}");
+    assert!(probe.contains("Cache-Control: no-store") && probe.ends_with("16\r\n{\"status\":\"not-ready\"}\r\n0\r\n\r\n"), "{probe}");
     // The pages.
     let app = exchange(port, &get("/app")).await;
     assert!(status_of(&app) == "HTTP/1.1 200 OK" && app.contains("Content-Type: text/html; charset=utf-8"), "{app}");
