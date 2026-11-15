@@ -5,6 +5,7 @@
 //! `setOutputStyle`, `setToolMode`, and the reads `listPresets`, `getCompactionSettings`, `getOutputStyle`,
 //! `listOutputStyles`). An error an action raises is the command's error, as the rejection of the Node handler was.
 
+use mixdog_js::is_js_space;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
@@ -221,7 +222,7 @@ fn split_words(text: &str) -> Vec<&str> {
     let mut in_run = false;
     let mut run_start = 0;
     for (at, c) in text.char_indices() {
-        let space = c.is_whitespace() || c == '\u{feff}';
+        let space = is_js_space(c);
         if space && !in_run {
             in_run = true;
             run_start = at;
