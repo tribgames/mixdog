@@ -1,10 +1,6 @@
 //! The interactive runs: the terminal interface (`runTui`) and the line-based REPL of `--plain` (`runRepl`). The ledger, the swap and
 //! the live-session mark that Node's `cli.mjs` did before them are `dispatch`'s; this file maps the classified options onto the two
 //! runs and builds what the REPL's statusline needs of the process.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the footer's refresh jobs run on a thread of their own (Node's setImmediate): the entry has no lane to submit them to"
-)]
 
 use std::ffi::OsString;
 use std::path::PathBuf;
