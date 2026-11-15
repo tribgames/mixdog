@@ -14,8 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::time::date_parse;
 use mixdog_js::{json_parse, locale_compare, value_to_string};
-use mixdog_rt::InLane;
-use mixdog_statefile::{Opts, StateError, WriteLane, parse_json_text};
+use mixdog_statefile::{Opts, StateError, parse_json_text};
 use serde_json::Value;
 
 use crate::data_dir::{JOURNAL_FOLDER, default_office_data_dir, resolve_from_process_cwd};
@@ -55,7 +54,7 @@ fn remove_forced<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
 
 /// `writeOfficeJournal`: the record as two-space JSON and a newline, published atomically (temp file and rename). The
 /// file is named for `record.id`; answers its path.
-pub fn write_office_journal<L: WriteLane>(lane: &InLane<L>, record: &Value, data_dir: &Path) -> io::Result<PathBuf> {
+pub fn write_office_journal<P: WriteProof>(lane: &P, record: &Value, data_dir: &Path) -> io::Result<PathBuf> {
     let id = record.get("id").map_or_else(|| "undefined".to_owned(), value_to_string);
     let target = journal_path(&id, data_dir)?;
     mixdog_statefile::write_json(lane, &target, record, &Opts::default()).map_err(state_error)?;
@@ -84,6 +83,12 @@ pub fn read_office_journal<P: ReadProof>(proof: &P, id: &str, data_dir: &Path) -
 /// and `baselinePdf` it names, and so is a file that does not parse and was last modified that long ago.
 pub fn list_office_journals<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool) -> io::Result<Vec<Value>> {
     list_at(proof, data_dir, cleanup, now_ms())
+}
+
+/// [`list_office_journals`] on the clock of the caller (`now` in milliseconds since the Unix epoch): a call that runs under an
+/// environment's clock (the Office engine's) ages the records by that clock, as `Date.now()` ages them in Node.
+pub fn list_office_journals_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -> io::Result<Vec<Value>> {
+    list_at(proof, data_dir, cleanup, now)
 }
 
 /// The text of `value || ''`, or `None` when it is falsy: a non-empty string, a number but zero, `true`, an array or an
@@ -134,11 +139,6 @@ fn examine<P: WriteProof>(proof: &P, path: &Path, cleanup: bool, now: f64) -> io
     Ok(Outcome::Kept(record))
 }
 
-/// `listOfficeJournals` with the caller's clock (`Date.now()` of a process whose clock is injected), in milliseconds.
-pub fn list_office_journals_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -> io::Result<Vec<Value>> {
-    list_at(proof, data_dir, cleanup, now)
-}
-
 fn list_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -> io::Result<Vec<Value>> {
     let directory = office_journal_directory(data_dir)?;
     mixdog_fsio::create_dir_all(proof, &directory)?;
@@ -175,7 +175,7 @@ fn list_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -
 #[cfg(test)]
 mod tests {
     use mixdog_fsio::Unlaned;
-    use mixdog_rt::{CancellationToken, DurabilityIo, LaneToken};
+    use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
     use serde_json::json;
 
     use super::*;

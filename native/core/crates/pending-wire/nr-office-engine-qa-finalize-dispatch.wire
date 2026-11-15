@@ -43,7 +43,7 @@ browser, no Office, no LibreOffice.)
 ## Interface the worker method and the skill scripts call (crate mixdog-office, `mixdog_office::engine`)
 - `Platform` (trait; `Send + Sync + 'static`) is what a process supplies: `lanes()`, `office() -> &OfficeCom`, `fonts() -> Arc<mixdog_fonts::registry::Registry>`,
   `font_env() -> &FontEnv`, `svg_fonts() -> &SvgFonts`, `endpoint() -> &dyn BrowserEndpoint`, `design_environment() -> &mixdog_office_design::library::Environment`,
-  `fetch() -> &dyn Fetch`, `indexer() -> &dyn TemplateIndexer<MaintenanceIo>`, `validator() -> &mixdog_ooxml::ooxml_validator::Environment`, and
+  `fetch() -> &dyn Fetch`, `indexer() -> &dyn TemplateIndexer<Unlaned>`, `validator() -> &mixdog_ooxml::ooxml_validator::Environment`, and
   `batch_host() -> &Self::Batch` (`type Batch: BatchHost + Send + Sync`, the PDF operation set, the Word chart as a picture and the brief readings).
   The real ones exist in the tree (`HttpsFetch`, `OfficeTemplateIndexer`, `Environment::process()`, `Environment::from_process()`); the process that owns the
   Office transport and the shared browser (the ext-host worker, nr-office-worker-office-run) builds the platform. No platform is composed here.
@@ -52,8 +52,9 @@ browser, no Office, no LibreOffice.)
   the workspace files the call's write routes changed (`CallLedger::changes`, for the turn review; pass `None` outside a session's turn). An empty `cwd` is the
   process's folder, no `data_dir` is the Office data folder. The approved-path check stays in the worker method, as in methods.mjs. A cancelled call answers
   `{ ok: false, code: 'cancelled' }`; an `OfficeConflictError` its details; any other failure `Error: <message>`. `MIXDOG_OFFICE_TRACE` writes one line per call.
-  The call runs as one job on the maintenance lane (the lane proof the document code needs exists only inside a job) and is driven there on a parker of its own;
-  call it from inside the tokio runtime that owns the Office transport.
+  The call runs on a thread of its own at normal priority (the engine's contexts are generic over the file-I/O proof, and the engine gives the call `Unlaned`, as the
+  worker's other document methods do) and is driven there on a parker of its own; the render and author steps that belong to a lane are lane jobs the call submits and
+  finishes one at a time, so no lane thread is held across another lane job. Call it from inside the tokio runtime that owns the Office transport.
 - `Engine::known_sessions()` before a call and `Engine::finish_call(thread, &known) -> bool` after it are the pin rule (the worker method reports pin while a
   thread owns a session); `Engine::is_pinned(thread)`; `Engine::shutdown()` drains every Microsoft Office session host (`closeOfficeSessions`).
 - `Engine::execute` keeps what a session was last sent of its render receipt across calls (`deliveries`) by moving it into the call and back; two calls that

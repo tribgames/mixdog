@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::JsRegex;
 use mixdog_office_base::formats::is_ooxml_format;
 use mixdog_office_base::values::truthy;
@@ -53,7 +53,7 @@ fn code_is(issue: &Value, code: &str) -> bool {
 /// What the format review owns (an orphan heading, a chart the page break cuts, a sheet with no reading order) is read from
 /// the document, not the package. A document the reader cannot open is already reported by the package checks; the review
 /// simply has nothing to add.
-async fn structure_issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, facts: &Facts, args: &Value) -> Vec<Value> {
+async fn structure_issues<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, facts: &Facts, args: &Value) -> Vec<Value> {
     if !is_ooxml_format(&facts.format) {
         return Vec::new();
     }
@@ -70,13 +70,13 @@ async fn structure_issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H
 }
 
 /// The findings of a package read in this process.
-fn portable_ooxml<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, path: &Path, format: &str, options: &Value) -> Result<Value, String> {
+fn portable_ooxml<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, path: &Path, format: &str, options: &Value) -> Result<Value, String> {
     // The deck's structure review, which lives above the package reader.
     let structure = |document: &Value| review_office_structure(Some("pptx"), document, "");
     issues_portable_ooxml(cx.lane(), cx.snapshot.measurer, &structure, path, format, options)
 }
 
-fn portable_issues<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
+fn portable_issues<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
     let path = Path::new(&facts.target);
     match facts.format.as_str() {
         "pdf" => issues_pdf(cx.lane(), path, &SnapshotOptions::from_json(args), cx.snapshot.forms).map_err(|error| error.message),
@@ -100,7 +100,7 @@ fn cell_column(issue: &Value) -> Option<String> {
 /// A saved copy's sheet audits for a workbook: Excel's host reads a sample of the cells it shows (### in the first 32) and
 /// nothing of a protected sheet's validated cells, so a cut label, a figure run into the label beside it, ink nobody can see,
 /// a number cut below the sample, and a form nobody can type into passed on Excel while the portable audit reported them.
-fn xlsx_sheet_audits<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, copy: &Path, args: &Value) -> Result<Value, String> {
+fn xlsx_sheet_audits<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, copy: &Path, args: &Value) -> Result<Value, String> {
     let zip = load_package(cx.lane(), copy)?;
     let wanted = args.get("sheet").filter(|sheet| truthy(sheet));
     let sheets: Vec<Sheet> = workbook_sheets(&zip).into_iter().filter(|sheet| wanted.is_none_or(|name| name.as_str() == Some(sheet.name.as_str()))).collect();
@@ -177,7 +177,7 @@ fn issues_request(facts: &Facts, args: &Value) -> Value {
     Value::Object(payload)
 }
 
-async fn microsoft_office_issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, facts: &Facts, args: &Value) -> Result<Value, String> {
+async fn microsoft_office_issues<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, facts: &Facts, args: &Value) -> Result<Value, String> {
     // A saved copy's portable audits start before the application's own issues pass. The host takes requests in order, so the
     // copy is written first and its audits run in this process while the application answers: a deck's measured read
     // (0.4-1 s) had followed PowerPoint's 1.7 s pass instead of overlapping it.
@@ -230,7 +230,7 @@ async fn microsoft_office_issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'
 /// already made at the same place is the same finding worded twice (the portable contrast measure, against the resolved
 /// surface, and the format review's, against the slide, both reported "Hard to read" once the portable snapshot carried text
 /// colours), and the package reader's, the more exact, stays.
-pub async fn issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
+pub async fn issues<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
     let facts = Facts::of(handle);
     let result = if facts.is_microsoft_office() { microsoft_office_issues(cx, handle, &facts, args).await? } else { portable_issues(cx, &facts, args)? };
     let found = known_findings(&result);

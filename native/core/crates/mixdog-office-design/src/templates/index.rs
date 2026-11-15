@@ -6,11 +6,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use mixdog_fsio::{ReadProof, WriteLane};
+use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::{js_to_lowercase, json_number, json_stringify, locale_compare, to_number_of, value_to_string};
 use mixdog_office_base::values::{sha256, truthy};
 use mixdog_ooxml::xml::{compiled, xml_decode};
-use mixdog_rt::InLane;
 use serde_json::{Map, Value, json};
 
 use super::induct::{induce_pptx_sample_roles, role_key};
@@ -388,7 +387,7 @@ fn path_type_error(value: Option<&Value>) -> String {
 
 /// `indexOfficeTemplates({ dataDir, config })`: walks the template directories of `config`, indexes what changed and
 /// writes `template-index.json`; answers the index (with `changed` and `count`).
-pub fn index_office_templates<L: WriteLane>(lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
+pub fn index_office_templates<P: WriteProof>(lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
     let paths = library_paths(env, data_dir);
     mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| fs_message(&error, "mkdir", &paths.templates))?;
     let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
@@ -446,8 +445,8 @@ pub fn index_office_templates<L: WriteLane>(lane: &InLane<L>, env: &Environment,
 /// The template indexer of the design library: `indexOfficeTemplates` on the lane the library call runs on.
 pub struct OfficeTemplateIndexer;
 
-impl<L: WriteLane> TemplateIndexer<L> for OfficeTemplateIndexer {
-    fn index(&self, lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
+impl<P: WriteProof> TemplateIndexer<P> for OfficeTemplateIndexer {
+    fn index(&self, lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
         index_office_templates(lane, env, data_dir, config)
     }
 }

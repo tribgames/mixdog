@@ -23,9 +23,8 @@ use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{JsRegex, js_trim, value_to_string};
-use mixdog_rt::InLane;
 use mixdog_statefile::LockOpts;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256, Sha384, Sha512};
@@ -584,7 +583,7 @@ fn cache_root(base: &Path, platform: &str) -> PathBuf {
     base.join("office").join("tools").join("ooxml-validator").join(VERSION).join(platform)
 }
 
-fn usable_binary<L: WriteLane>(lane: &InLane<L>, path: &Path) -> bool {
+fn usable_binary<P: WriteProof>(lane: &P, path: &Path) -> bool {
     mixdog_fsio::metadata(lane, path).is_ok_and(|details| details.is_file() && details.len() > MIN_BINARY_BYTES)
 }
 
@@ -600,8 +599,8 @@ fn io_error(error: io::Error) -> ValidatorError {
     ValidatorError(error.to_string())
 }
 
-fn install_validator<L: WriteLane>(
-    lane: &InLane<L>,
+fn install_validator<P: WriteProof>(
+    lane: &P,
     root: &Path,
     entry: &PlatformPackage,
     registry: &str,
@@ -633,13 +632,13 @@ fn install_validator<L: WriteLane>(
 }
 
 /// `ensureOoxmlValidator` against the process environment.
-pub fn ensure_ooxml_validator<L: WriteLane>(lane: &InLane<L>, request: &Request<'_>) -> Result<ValidatorRuntime> {
+pub fn ensure_ooxml_validator<P: WriteProof>(lane: &P, request: &Request<'_>) -> Result<ValidatorRuntime> {
     ensure_in(lane, &Environment::from_process(), request)
 }
 
 /// `ensureOoxmlValidator` against `env`: the explicit binary, the off switch, then the cache (installed from the registry
 /// when `request.download` allows and the cache has no usable binary; under a lock when the cache is the shared one).
-pub fn ensure_in<L: WriteLane>(lane: &InLane<L>, env: &Environment, request: &Request<'_>) -> Result<ValidatorRuntime> {
+pub fn ensure_in<P: WriteProof>(lane: &P, env: &Environment, request: &Request<'_>) -> Result<ValidatorRuntime> {
     if let Some(path) = &env.cli_override {
         mixdog_fsio::metadata(lane, path).map_err(|error| {
             ValidatorError(match error.kind() {
@@ -769,13 +768,13 @@ async fn run_validator(
 }
 
 /// `validateOoxmlSchema` against the process environment.
-pub fn validate_ooxml_schema<L: WriteLane>(lane: &InLane<L>, path: &Path, request: &Request<'_>) -> Result<ValidationResult> {
+pub fn validate_ooxml_schema<P: WriteProof>(lane: &P, path: &Path, request: &Request<'_>) -> Result<ValidationResult> {
     validate_in(lane, &Environment::from_process(), path, request)
 }
 
 /// `validateOoxmlSchema` against `env`: the validator found or installed, run on `path`, its output classified.
-pub fn validate_in<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn validate_in<P: WriteProof>(
+    lane: &P,
     env: &Environment,
     path: &Path,
     request: &Request<'_>,

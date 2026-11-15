@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use mixdog_fsio::{ReadProof, WriteLane};
+use mixdog_fsio::ReadProof;
 use mixdog_js::{json_parse, json_stringify};
 use mixdog_office::session::registry::lock;
 use mixdog_office::session::{
@@ -161,8 +161,8 @@ impl Fetch for NoNetwork {
 /// What `indexOfficeTemplates` writes when no template directory holds a template.
 struct EmptyIndexer;
 
-impl<L: WriteLane> TemplateIndexer<L> for EmptyIndexer {
-    fn index(&self, lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
+impl<P: mixdog_fsio::WriteProof> TemplateIndexer<P> for EmptyIndexer {
+    fn index(&self, lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
         let paths = library_paths(env, data_dir);
         mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| error.to_string())?;
         let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
@@ -264,7 +264,7 @@ fn flag(step: &Value, name: &str) -> bool {
     step.get(name) == Some(&Value::Bool(true))
 }
 
-fn replay_script<L: WriteLane>(lane: &InLane<L>, world: &World, script: &[Value]) {
+fn replay_script<P: mixdog_fsio::WriteProof>(lane: &P, world: &World, script: &[Value]) {
     let indexer = EmptyIndexer;
     let cx = Context { lane, env: &world.env, fetch: &NoNetwork, indexer: &indexer };
     let registry = Registry::new();

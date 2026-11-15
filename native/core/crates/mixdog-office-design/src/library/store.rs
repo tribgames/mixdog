@@ -15,8 +15,7 @@ use std::time::Duration;
 use mixdog_fsio::ReadProof;
 use mixdog_js::{json_number, json_parse, locale_compare, slice_utf16, to_number_of, v8_json_parse_error, value_to_string};
 use mixdog_office_base::values::{clone, plain_object, sha256, truthy};
-use mixdog_rt::InLane;
-use mixdog_statefile::WriteLane;
+use mixdog_fsio::WriteProof;
 use serde_json::{Map, Value, json};
 use url::Url;
 
@@ -31,17 +30,17 @@ use crate::{opt_prop, prop, text};
 
 /// `indexOfficeTemplates({ dataDir, config })`: walks the template directories of `config`, indexes what changed and
 /// writes `template-index.json`; answers the index (with `changed` and `count`).
-pub trait TemplateIndexer<L: WriteLane> {
-    fn index(&self, lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String>;
+pub trait TemplateIndexer<P: WriteProof> {
+    fn index(&self, lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String>;
 }
 
 /// What a library call runs with: the lane its file work happens on, the process environment, the network and the
 /// template indexer.
-pub struct Context<'a, L: WriteLane> {
-    pub lane: &'a InLane<L>,
+pub struct Context<'a, P: WriteProof> {
+    pub lane: &'a P,
     pub env: &'a Environment,
     pub fetch: &'a dyn Fetch,
-    pub indexer: &'a dyn TemplateIndexer<L>,
+    pub indexer: &'a dyn TemplateIndexer<P>,
 }
 
 fn io_message(error: std::io::Error) -> String {
@@ -76,7 +75,7 @@ pub fn read_template_index<P: ReadProof>(proof: &P, paths: &LibraryPaths) -> Val
 }
 
 /// `writeState(paths, state)`: `state.json` with `schemaVersion` first, then the state's own keys.
-pub fn write_state<L: WriteLane>(lane: &InLane<L>, paths: &LibraryPaths, state: &Map<String, Value>) -> Result<(), String> {
+pub fn write_state<P: WriteProof>(lane: &P, paths: &LibraryPaths, state: &Map<String, Value>) -> Result<(), String> {
     let mut record = Map::new();
     record.insert("schemaVersion".to_owned(), Value::from(SCHEMA_VERSION));
     for (key, value) in state {
@@ -149,13 +148,13 @@ fn parse_manifest(bytes: &[u8]) -> Result<Value, String> {
 /// `syncOfficeDesignLibrary`: refreshes the template index, loads the active cached pack and, when remote checks are
 /// allowed, a manifest URL is configured and the check is due (or forced), fetches, verifies and activates a newer
 /// pack. A failure of the check is not an error: it is the `warning` of a result with `ok` false.
-pub fn sync_office_design_library<L: WriteLane>(cx: &Context<'_, L>, options: &SyncOptions<'_>) -> Result<SyncResult, String> {
+pub fn sync_office_design_library<P: WriteProof>(cx: &Context<'_, P>, options: &SyncOptions<'_>) -> Result<SyncResult, String> {
     let config = load_config(cx.lane, cx.env, options.data_dir, options.config)?;
     sync_with_config(cx, options.data_dir, &config, options.force, options.allow_remote, options.index_templates)
 }
 
-fn sync_with_config<L: WriteLane>(
-    cx: &Context<'_, L>,
+fn sync_with_config<P: WriteProof>(
+    cx: &Context<'_, P>,
     data_dir: &Path,
     config: &LibraryConfig,
     force: bool,
@@ -205,8 +204,8 @@ fn sync_with_config<L: WriteLane>(
 }
 
 /// The manifest check of a sync: answers whether a newer pack was activated.
-fn check_remote<L: WriteLane>(
-    cx: &Context<'_, L>,
+fn check_remote<P: WriteProof>(
+    cx: &Context<'_, P>,
     paths: &LibraryPaths,
     config: &LibraryConfig,
     state: &mut Map<String, Value>,
@@ -296,8 +295,8 @@ fn read_office_design_binding<P: ReadProof>(proof: &P, env: &Environment, data_d
 
 /// `persistOfficeDesignBinding(dataDir, documentPath, binding)`: the binding pinned to the document, written to
 /// `bindings/<sha256 of the canonical path>.json`. Answers the record, or `None` for an empty binding.
-pub fn persist_office_design_binding<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn persist_office_design_binding<P: WriteProof>(
+    lane: &P,
     env: &Environment,
     data_dir: &Path,
     document_path: &str,
@@ -401,8 +400,8 @@ pub struct CompositionRecord<'a> {
 
 /// `recordOfficeCompositionHistory`: the document's record replaces its earlier one, the newest first, 48 kept.
 /// Answers the record.
-pub fn record_office_composition_history<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn record_office_composition_history<P: WriteProof>(
+    lane: &P,
     env: &Environment,
     data_dir: &Path,
     input: &CompositionRecord<'_>,
@@ -529,8 +528,8 @@ impl Resolution {
 
 /// A bound document keeps its exact pack and template version; when either is gone it falls back to the starter
 /// tokens with a warning.
-fn resolve_pinned_library<L: WriteLane>(
-    cx: &Context<'_, L>,
+fn resolve_pinned_library<P: WriteProof>(
+    cx: &Context<'_, P>,
     paths: &LibraryPaths,
     config: &LibraryConfig,
     binding: Value,
@@ -585,7 +584,7 @@ pub struct ResolveRequest<'a> {
 /// `resolveOfficeDesignLibrary`: what a design request is composed from. A document that has a binding (and no
 /// upgrade request) keeps the pack and template it was bound to; any other is synced, given the requested or default
 /// template, and answered with the binding to persist.
-pub fn resolve_office_design_library<L: WriteLane>(cx: &Context<'_, L>, input: &ResolveRequest<'_>) -> Result<Value, String> {
+pub fn resolve_office_design_library<P: WriteProof>(cx: &Context<'_, P>, input: &ResolveRequest<'_>) -> Result<Value, String> {
     let format = mixdog_js::js_to_lowercase(input.format);
     if !is_format(&format) {
         return Err(format!("Unsupported Office design library format: {}", input.format));
@@ -663,8 +662,8 @@ pub fn resolve_office_design_library<L: WriteLane>(cx: &Context<'_, L>, input: &
 
 /// `inspectOfficeDesignLibrary`: whether a pack server is configured, the active pack, the last check and the template
 /// index, with the last error (or the reason the active pack could not be loaded).
-pub fn inspect_office_design_library<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn inspect_office_design_library<P: WriteProof>(
+    lane: &P,
     env: &Environment,
     data_dir: &Path,
     config_override: Option<&Value>,

@@ -7,9 +7,16 @@
 //! worker), and [`Engine::shutdown`] drains every Microsoft Office session host when the process ends.
 //!
 //! What a process supplies (the lanes, the Office transport, the fonts, the shared browser, the design library's network and
-//! template index, the schema validator and the batch's machine) is a [`Platform`]. A call runs as one job on the maintenance lane:
-//! the lane proof the document code needs only exists inside a job, so the call's future is driven there, on a parker of its own
-//! (the Office transport and the lanes wake it), and no nested runtime is started on that thread.
+//! template index, the schema validator and the batch's machine) is a [`Platform`].
+//!
+//! A call runs on a thread of its own, at the process's normal priority, as a call of Node's extension-host worker ran in the
+//! worker's event loop: the thread drives the call's future on a parker (the Office transport and the lanes wake it), the document
+//! code's file work runs inline on it under no lane proof (as the worker's other document methods do), and only the steps that
+//! belong to a lane (the render engines, the font and file steps of the author) are lane jobs, each submitted by the call and
+//! finished before the call goes on. No lane thread is held while another job of a lane waits, so a full lane cannot starve a
+//! call. How many calls run at once is the caller's: the extension-host pool hands a worker one call at a time and starts as
+//! many workers as Node did (a quarter of the cores, 1 to 4), so the Office calls in flight are the same as Node's; a process
+//! that calls the engine directly (the skill scripts) runs as many as it calls, as `executeOfficeTool` did.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -23,7 +30,7 @@ use std::time::Instant;
 
 use mixdog_core_api::domain::ext::BrowserEndpoint;
 use mixdog_fonts::registry::Registry as FontRegistry;
-use mixdog_fsio::OpenOptions;
+use mixdog_fsio::{OpenOptions, Unlaned, WriteProof};
 use mixdog_js::value_to_string;
 use mixdog_office_author::brief::{is_showcase_brief, review_brief_promises, review_fact_coverage, review_source_grounding};
 use mixdog_office_author::receipt::{DeliveredReceipt, WIDE_CANVAS, slide_receipt};
@@ -41,7 +48,7 @@ use mixdog_ooxml::soffice::Soffice;
 use mixdog_ooxml::text_metrics::TextMeasurer;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
-use mixdog_rt::{CancellationToken, InLane, LaneToken, LaneTokens, MaintenanceIo};
+use mixdog_rt::{CancellationToken, LaneTokens};
 use serde_json::{Value, json};
 
 use crate::actions::{Host, Machine};
@@ -74,7 +81,7 @@ pub trait Platform: Send + Sync + 'static {
     /// The environment the design library reads (the folders, the clock).
     fn design_environment(&self) -> &DesignEnvironment;
     fn fetch(&self) -> &dyn Fetch;
-    fn indexer(&self) -> &dyn TemplateIndexer<MaintenanceIo>;
+    fn indexer(&self) -> &dyn TemplateIndexer<Unlaned>;
     /// The environment the OOXML schema validator is looked up in.
     fn validator(&self) -> &ValidatorEnvironment;
     fn batch_host(&self) -> &Self::Batch;
@@ -154,7 +161,7 @@ fn drive<F: Future>(future: F) -> F::Output {
 
 /// `MIXDOG_OFFICE_TRACE`: one line per call (`<action>\t<ms>\t<path or session>`) so a slow run maps itself. `1` writes to stderr, any
 /// other value names a file.
-fn trace(lane: &InLane<MaintenanceIo>, args: &Value, started: Instant) {
+fn trace(proof: &impl WriteProof, args: &Value, started: Instant) {
     let Ok(target) = std::env::var("MIXDOG_OFFICE_TRACE") else { return };
     if target.is_empty() {
         return;
@@ -165,9 +172,14 @@ fn trace(lane: &InLane<MaintenanceIo>, args: &Value, started: Instant) {
         eprint!("[office-trace] {line}");
         return;
     }
-    if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(lane, &target) {
+    if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(proof, &target) {
         let _ = file.write_all(line.as_bytes());
     }
+}
+
+/// What a call answers when its signal was aborted before it started.
+fn cancelled_result() -> Value {
+    tool_result(&json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }), true, &[])
 }
 
 /// The engine of a process.
@@ -211,6 +223,7 @@ impl<P: Platform> Engine<P> {
     /// changed. `ledger` is the call's write ledger when it belongs to a session's turn (its changes are returned for the turn
     /// review); without one nothing is recorded. An empty `cwd` is the process's folder, no `data_dir` the Office data folder.
     pub async fn execute(self: &Arc<Self>, args: Value, cwd: PathBuf, data_dir: Option<PathBuf>, ledger: Option<Arc<CallLedger>>, cancel: CancellationToken) -> (Value, Vec<FileChange>) {
+        let started = Instant::now();
         let failed = |message: String| (tool_result(&Value::String(format!("Error: {message}")), true, &[]), Vec::new());
         let cwd = if cwd.as_os_str().is_empty() {
             match std::env::current_dir() {
@@ -227,36 +240,37 @@ impl<P: Platform> Engine<P> {
                 Err(error) => return failed(error.to_string()),
             },
         };
+        if cancel.is_cancelled() {
+            trace(&Unlaned, &args, started);
+            return (cancelled_result(), Vec::new());
+        }
         let (engine, runtime) = (Arc::clone(self), tokio::runtime::Handle::current());
         let (call_cancel, call_ledger) = (cancel.clone(), ledger.clone());
-        let job = move |lane: &InLane<MaintenanceIo>| {
+        let (answer, done) = tokio::sync::oneshot::channel();
+        let call = move || {
             let _entered = runtime.enter();
             let note: Arc<dyn WriteNote> = match call_ledger.clone() {
                 Some(ledger) => ledger,
                 None => Arc::new(NoWriteNote),
             };
-            let result = engine.run_call(lane, &args, &cwd.to_string_lossy(), &data_dir, &note, &call_cancel, &runtime);
-            let changes = call_ledger.map(|ledger| ledger.changes(lane)).unwrap_or_default();
-            (result, changes)
+            let result = engine.run_call(&args, &cwd.to_string_lossy(), &data_dir, &note, &call_cancel, &runtime, started);
+            let changes = call_ledger.map(|ledger| ledger.changes(&Unlaned)).unwrap_or_default();
+            let _ = answer.send((result, changes));
         };
-        let submitted = self.platform.lanes().maintenance_io.submit_wait(&cancel, job).await;
-        match submitted {
-            Ok(handle) => match handle.await {
-                Ok(done) => done,
-                Err(error) => failed(error.to_string()),
-            },
-            Err(_) if cancel.is_cancelled() => (
-                tool_result(&json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }), true, &[]),
-                Vec::new(),
-            ),
-            Err(error) => failed(error.to_string()),
+        if let Err(error) = std::thread::Builder::new().name("office-call".to_owned()).spawn(call) {
+            return failed(format!("cannot start a thread: {error}"));
+        }
+        match done.await {
+            Ok(done) => done,
+            Err(_) => failed("the Office call ended without an answer".to_owned()),
         }
     }
 
-    /// One call, on the lane thread: the contexts of the call built from the platform and the engine's sessions, and the call run.
+    /// One call, on the call's own thread: the contexts of the call built from the platform and the engine's sessions, and the call
+    /// run. `started` is when the call reached the engine, so the traced time includes the wait for its thread.
     #[allow(clippy::too_many_arguments)]
-    fn run_call(&self, lane: &InLane<MaintenanceIo>, args: &Value, cwd: &str, data_dir: &Path, note: &Arc<dyn WriteNote>, cancel: &CancellationToken, runtime: &tokio::runtime::Handle) -> Value {
-        let started = Instant::now();
+    fn run_call(&self, args: &Value, cwd: &str, data_dir: &Path, note: &Arc<dyn WriteNote>, cancel: &CancellationToken, runtime: &tokio::runtime::Handle, started: Instant) -> Value {
+        let lane = &Unlaned;
         let platform = &self.platform;
         let lanes = platform.lanes();
         let office = platform.office();
@@ -300,7 +314,9 @@ impl<P: Platform> Engine<P> {
         let tools = CreateTools { closer: &closer, fonts: platform.font_env(), svg_fonts: platform.svg_fonts() };
         let machine = Machine { author: &author, batch: &batch, tools: &tools, reads: &AuthoringReads };
         let result = drive(machine.run_office_tool(args, Some(cancel)));
-        let remembered = std::mem::take(&mut *author.deliveries.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut remembered = std::mem::take(&mut *author.deliveries.lock().unwrap_or_else(PoisonError::into_inner));
+        // A session the call closed through the create and author paths leaves nothing behind, as `Machine::forget` leaves none.
+        remembered.retain(|id, _| self.registry.get(id).is_some());
         self.deliveries.lock().unwrap_or_else(PoisonError::into_inner).extend(remembered);
         watcher.abort();
         trace(lane, args, started);

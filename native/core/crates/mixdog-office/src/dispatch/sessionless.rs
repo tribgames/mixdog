@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::js_to_lowercase;
 use mixdog_office_base::formats::{FILE_KIND_TO_FORMAT, document_format, normalize_office_format};
 use mixdog_office_base::values::truthy;
@@ -42,7 +42,7 @@ fn detected_design_library(library: Value) -> Value {
     Value::Object(shown)
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `detectAction(args, cwd, dataDir)`.
     async fn detect_action(&self, args: &Value) -> Result<Value, TransactionError> {
         let cwd = self.author.env.cwd;

@@ -13,7 +13,7 @@ pub mod review_assembly;
 
 use std::path::Path;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::to_number_of;
 use mixdog_office_base::values::truthy;
 use mixdog_office_quality::forced_breaks::{BreakPreview, BreakSession, forced_break_pages};
@@ -32,7 +32,7 @@ use crate::session::registry::lock;
 use crate::session::{Backend, SessionHandle};
 use crate::transactions::{TransactionError, persist_office_transaction};
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `qa(session, args, cwd, { reuseRender })`.
     pub async fn qa(&self, handle: &SessionHandle, args: &Value, cwd: &str, reuse_render: bool) -> Result<Value, TransactionError> {
         // A portable workbook is calculated before it is read or drawn: the pixels then show the values the file holds, and

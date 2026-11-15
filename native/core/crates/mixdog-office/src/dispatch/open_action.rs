@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::to_number_of;
 use mixdog_office_base::values::truthy;
 use mixdog_rt::CancellationToken;
@@ -73,8 +73,8 @@ fn with_operations(args: &Value, operations: &[Value]) -> Value {
     rewritten
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
-    pub(crate) fn call_env<'e>(&'e self, signal: Option<&'e CancellationToken>) -> SessionEnv<'e, L, H> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
+    pub(crate) fn call_env<'e>(&'e self, signal: Option<&'e CancellationToken>) -> SessionEnv<'e, P, H> {
         let env = &self.author.env;
         SessionEnv { design: env.design, note: env.note, registry: env.registry, host: env.host, legacy: env.legacy, data_dir: env.data_dir, cwd: env.cwd, cancel: signal }
     }
