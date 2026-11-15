@@ -9,6 +9,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+use mixdog_js::math::{cos, sin, tan};
 use mixdog_js::{JsRegex, is_js_space, js_trim, utf16_len};
 use mixdog_pdf::embed::Font;
 use mixdog_pdf::write::store::ObjectStore;
@@ -86,7 +87,7 @@ fn translate(x: f64, y: f64) -> String {
 }
 
 fn rotate_radians(angle: f64) -> String {
-    cm(angle.cos(), angle.sin(), -angle.sin(), angle.cos(), 0.0, 0.0)
+    cm(cos(angle), sin(angle), -sin(angle), cos(angle), 0.0, 0.0)
 }
 
 fn degrees_to_radians(degrees: f64) -> f64 {
@@ -94,7 +95,7 @@ fn degrees_to_radians(degrees: f64) -> f64 {
 }
 
 fn skew_radians(x: f64, y: f64) -> String {
-    cm(1.0, x.tan(), y.tan(), 1.0, 0.0, 0.0)
+    cm(1.0, tan(x), tan(y), 1.0, 0.0, 0.0)
 }
 
 fn move_to(x: f64, y: f64) -> String {

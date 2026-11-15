@@ -228,6 +228,12 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
     mixdog_js::js_trim(&out).to_owned()
 }
 
+/// pdf-lib's `assertIsOneOf` refusal of a text value.
+fn not_one_of(name: &str, allowed: &[String], value: &str) -> FormError {
+    let allowed: Vec<String> = allowed.iter().map(|entry| format!("'{entry}'")).collect();
+    FormError::new(format!("`{name}` must be one of {}, but was actually '{value}'", allowed.join(" or ")))
+}
+
 fn mismatch(expected: &str, got: Option<&Obj>) -> FormError {
     let actual = match got {
         None => "undefined",
@@ -835,7 +841,7 @@ impl PdfForm {
         let font_name = groups.get(1).cloned().flatten().unwrap_or_default();
         let before = &da[..start];
         let after = da.get(start + length..).unwrap_or("");
-        let modified = format!("{before} /{font_name} {} Tf {after}", pdf_number(font_size));
+        let modified = format!("{before} /{font_name} {} Tf {after}", number_to_string(font_size));
         set_key(store, field.reference, "DA", latin1_object(&modified));
         self.mark_dirty(field.reference);
         Ok(())
@@ -854,8 +860,12 @@ impl PdfForm {
         set_button_state(doc.store_mut(), field.reference, "Off")
     }
 
-    /// `PDFRadioGroup.select`: the option's on value becomes the value; an option that matches nothing changes nothing.
+    /// `PDFRadioGroup.select`: an option the group does not have is refused; the option's on value becomes the value.
     pub fn select_radio(&mut self, doc: &mut PdfDocument, field: &Field, option: &str) -> FormResult<()> {
+        let valid = radio_options(doc.store(), field.reference)?;
+        if !valid.iter().any(|entry| entry == option) {
+            return Err(not_one_of("option", &valid, option));
+        }
         self.mark_dirty(field.reference);
         let store = doc.store_mut();
         let on_values = radio_on_values(store, field.reference)?;
@@ -897,15 +907,19 @@ impl PdfForm {
     }
 
     /// `PDFDropdown.select` / `PDFOptionList.select` (`merge` false): a dropdown given an option it does not list becomes
-    /// editable, several values make the field multiselect, and a non-editable dropdown refuses a value it does not list.
+    /// editable (unless the first such option is empty, which JavaScript reads as none), an option list refuses a value it
+    /// does not list, several values make the field multiselect, and a non-editable dropdown refuses a value it does not
+    /// list.
     pub fn select_choice(&mut self, doc: &mut PdfDocument, field: &Field, options: &[String]) -> FormResult<()> {
         let reference = field.reference;
         let store = doc.store_mut();
+        let valid: Vec<String> = choice_options(store, reference)?.into_iter().map(|(_, display)| display).collect();
         if field.kind == FieldKind::Dropdown {
-            let valid: Vec<String> = choice_options(store, reference)?.into_iter().map(|(_, display)| display).collect();
-            if options.iter().any(|option| !valid.contains(option)) {
+            if options.iter().find(|option| !valid.contains(option)).is_some_and(|custom| !custom.is_empty()) {
                 set_flag_to(store, reference, FLAG_EDIT, true);
             }
+        } else if let Some(unknown) = options.iter().find(|option| !valid.contains(option)) {
+            return Err(not_one_of("option", &valid, unknown));
         }
         self.mark_dirty(reference);
         if options.len() > 1 {
@@ -913,8 +927,7 @@ impl PdfForm {
         }
         let flags = field_flags(store, reference);
         if flags & FLAG_COMBO != 0 && flags & FLAG_EDIT == 0 {
-            let listed: Vec<String> = choice_options(store, reference)?.into_iter().map(|(_, display)| display).collect();
-            if options.iter().any(|option| !listed.contains(option)) {
+            if options.iter().any(|option| !valid.contains(option)) {
                 return Err(FormError::new("Attempted to set invalid field value"));
             }
         }
@@ -1108,6 +1121,12 @@ mod tests {
         assert_eq!(groups[1].as_deref(), Some("Helv"));
         assert_eq!(groups[2].as_deref(), Some("12"));
         assert!(find_last_match("0 g", &TF_OPERATOR, 2).is_none());
+    }
+
+    #[test]
+    fn a_value_outside_the_options_is_refused_in_pdf_lib_words() {
+        let error = not_one_of("option", &["A".to_owned(), "B".to_owned()], "Z");
+        assert_eq!(error.message(), "`option` must be one of 'A' or 'B', but was actually 'Z'");
     }
 
     #[test]

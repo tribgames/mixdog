@@ -54,5 +54,5 @@ Nothing: this task registers no protocol method.
 * The twin test compares the content of appearance streams token by token (numbers within 1e-9), not a rendered page; the
   recording uses Helvetica only (no embedded Unicode face, which needs a system font), so the embedded-face layout is covered by
   the embedder's own twin, not here.
-* Rotated widgets (`MK /R` 90/180/270) draw with the platform's sin/cos where V8 uses its own: the last digit of a rotation
-  matrix can differ.
+* Rotated widgets (`MK /R` 90/180/270) draw with `mixdog_js::math::{sin, cos, tan}` (V8's own), so a rotation matrix is
+  V8's to the last digit.
