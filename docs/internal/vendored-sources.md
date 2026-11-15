@@ -2,8 +2,9 @@
 
 What third-party source, data and licence text is in the tree (or was fetched for it), where it came from, and whether it
 came over the network on 2026-11-15 without the owner's approval. Facts are read from the tree, its provenance files, the
-Cargo registry cache timestamps and the audit of the Codex session (`D:/mixdog-build/mig/results/codex-audit/`). Nothing is
-removed by this document. Licence texts are in `LICENSES/` (new files marked below).
+Cargo registry cache timestamps and the audit of the Codex session (`D:/mixdog-build/mig/results/codex-audit/`). The owner
+decision of 2026-11-15 (downloaded sources approved only for the parts in use) was applied: see "Trim" below; the table
+keeps its original facts and each row says what became of it. Licence texts are in `LICENSES/` (new files marked below).
 
 Reading the "downloaded" column: **yes** = the origin URL or the cache timestamp shows a network fetch on 2026-11-15 and the only
 approval on record is the Codex lead's, not the owner's. **no** = taken from a local copy (the Cargo cache of 2026-11-06, an
@@ -13,13 +14,13 @@ installed Node package of the original) or authored here. **not shown** = the tr
 
 | Item | Origin | Exact version / commit | Licence (text in LICENSES/) | Where in the tree | Size | Downloaded 2026-11-15 without approval |
 |---|---|---|---|---|---|---|
-| V8 `ieee754.cc` (fdlibm port: Math trig, exp, log, pow, ...) | https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/base/ieee754.cc | nodejs/node tag v22.20.0 (V8 12.4.254.21-node.33), sha256 da01a549... | BSD-3-Clause (V8) + Sun fdlibm notice: `v8-BSD-3-Clause.txt` (new), `fdlibm-NOTICE.txt` (new) | `native/core/crates/mixdog-js/src/math/reference/ieee754.cc`; ported in `mixdog-js/src/math/` | 103,259 B | yes (commit f0df7c0df6, 07:24, wire `followup-js-math.wire` "unmodified downloaded source") |
-| V8 `math-random.cc`, `random-number-generator.h` | same official tag (exact paths not recorded in the tree; the wire says only "official nodejs/node tag v22.20.0") | v22.20.0, sha256 2c0f20ae..., 62c0c3c6... | BSD-3-Clause: `v8-BSD-3-Clause.txt` | `mixdog-js/src/math/reference/` | 2,763 B + 6,278 B | yes (same commit) |
+| V8 `ieee754.cc` (fdlibm port: Math trig, exp, log, pow, ...) | https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/base/ieee754.cc | nodejs/node tag v22.20.0 (V8 12.4.254.21-node.33), sha256 da01a549... | BSD-3-Clause (V8) + Sun fdlibm notice: `v8-BSD-3-Clause.txt` (new), `fdlibm-NOTICE.txt` (new) | `mixdog-js/src/math/reference/ieee754.cc` (REMOVED, see Trim); ported in `mixdog-js/src/math/` | 103,259 B | yes (commit f0df7c0df6, 07:24, wire `followup-js-math.wire` "unmodified downloaded source") |
+| V8 `math-random.cc`, `random-number-generator.h` | same official tag (exact paths not recorded in the tree; the wire says only "official nodejs/node tag v22.20.0") | v22.20.0, sha256 2c0f20ae..., 62c0c3c6... | BSD-3-Clause: `v8-BSD-3-Clause.txt` | `mixdog-js/src/math/reference/` (REMOVED, see Trim) | 2,763 B + 6,278 B | yes (same commit) |
 | V8 `LICENSE.v8` | V8 LICENSE of the same tag (path in the tag: `deps/v8/LICENSE` per `number/reference/PROVENANCE.md`) | v22.20.0, sha256 81680185... | as above | `mixdog-js/src/math/reference/`, `mixdog-js/src/number/reference/`, `fixtures/js-date-string/reference/` (three identical copies) | 3,098 B each | yes (the math copy); the other two are copies of it |
-| V8 `conversions.cc`, `double.h`, `builtins-number.cc` (radix conversion, parseInt) | https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/... (`numbers/conversions.cc`, `base/numbers/double.h`, `builtins/builtins-number.cc`) | v22.20.0, sha256 4367bb3a..., 0a45d39d..., 6fded278... | BSD-3-Clause | `mixdog-js/src/number/reference/v8-*.cc|h`; ported in `mixdog-js/src/number/radix.rs` | 52,738 B, 6,935 B, 7,627 B | not shown: `PROVENANCE.md` says "the lead supplied" them before the task; commit 882fda75f2 (07:24) added them |
-| V8 `number.tq` | `deps/v8/src/builtins/number.tq` of the same tag | v22.20.0, sha256 47ff1cb1... | BSD-3-Clause | `mixdog-js/src/number/reference/v8-number.tq` | 27,725 B | yes (`PROVENANCE.md`: "additionally fetched ... from the same official tag") |
-| ICU 77.1 C++ sources (10 files): `numsys.cpp olsontz.cpp putil.cpp simpletz.cpp timezone.cpp tzfmt.cpp tznames_impl.cpp uloc.cpp uloc_tag.cpp zonemeta.cpp` | `https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/{i18n,common}/<file>` (list and sha256 in `date_string/data/PROVENANCE.json`) | ICU 77.1 / CLDR 47.0 / tz 2025b as bundled by Node v22.20.0 | ICU licence (Unicode-3.0 plus third-party notices): `icu-ICU.txt` (new) | `native/core/fixtures/js-date-string/reference/*.cpp` (reference for the Rust port, not compiled) | 11,412 to 98,470 B each, 631,659 B together | yes (commit 46106aea40, 09:17) |
-| ICU data archive `icudt77l.dat.bz2` | `https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2` | ICU 77.1, sha256 488a0a66...; only read by the offline extractor `benchmarks/rust-core/recorders/extract-js-date-display.py` | ICU licence: `icu-ICU.txt` | `native/core/fixtures/js-date-string/reference/icudt77l.dat.bz2` | 11,111,695 B | yes (commit 46106aea40) |
+| V8 `conversions.cc`, `double.h`, `builtins-number.cc` (radix conversion, parseInt) | https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/... (`numbers/conversions.cc`, `base/numbers/double.h`, `builtins/builtins-number.cc`) | v22.20.0, sha256 4367bb3a..., 0a45d39d..., 6fded278... | BSD-3-Clause | `mixdog-js/src/number/reference/v8-*.cc|h` (REMOVED, see Trim); ported in `mixdog-js/src/number/radix.rs` | 52,738 B, 6,935 B, 7,627 B | not shown: `PROVENANCE.md` says "the lead supplied" them before the task; commit 882fda75f2 (07:24) added them |
+| V8 `number.tq` | `deps/v8/src/builtins/number.tq` of the same tag | v22.20.0, sha256 47ff1cb1... | BSD-3-Clause | `mixdog-js/src/number/reference/v8-number.tq` (REMOVED, see Trim) | 27,725 B | yes (`PROVENANCE.md`: "additionally fetched ... from the same official tag") |
+| ICU 77.1 C++ sources (10 files): `numsys.cpp olsontz.cpp putil.cpp simpletz.cpp timezone.cpp tzfmt.cpp tznames_impl.cpp uloc.cpp uloc_tag.cpp zonemeta.cpp` | `https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/{i18n,common}/<file>` (list and sha256 in `date_string/data/PROVENANCE.json`) | ICU 77.1 / CLDR 47.0 / tz 2025b as bundled by Node v22.20.0 | ICU licence (Unicode-3.0 plus third-party notices): `icu-ICU.txt` (new) | `native/core/fixtures/js-date-string/reference/*.cpp` (reference for the Rust port, not compiled; 8 of the 10 REMOVED, `uloc.cpp` and `uloc_tag.cpp` kept, see Trim) | 11,412 to 98,470 B each, 631,659 B together | yes (commit 46106aea40, 09:17) |
+| ICU data archive `icudt77l.dat.bz2` | `https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2` | ICU 77.1, sha256 488a0a66...; only read by the offline extractor `benchmarks/rust-core/recorders/extract-js-date-display.py` | ICU licence: `icu-ICU.txt` | `native/core/fixtures/js-date-string/reference/icudt77l.dat.bz2` (REPLACED by `icudt77l.used.dat.bz2`, see Trim) | 11,111,695 B | yes (commit 46106aea40) |
 | Date display names extracted from the archive (shipped in the binary through `include_bytes`) | derived from the archive above by `extract-js-date-display.py`; metadata in `PROVENANCE.json` (dataSha256 c4c8697b..., 639 zones, 526 zone locales, 936 number locales) | ICU 77.1 / CLDR 47.0 / tz 2025b | ICU licence: `icu-ICU.txt` | `native/core/crates/mixdog-js/src/date_string/data/icu77-date-names.json.gz` (+ `PROVENANCE.json`) | 371,010 B (2,299,937 B unpacked) | derived from a downloaded archive (yes, as above) |
 | `LICENSE.icu` | ICU licence of the same tag (exact path not recorded) | sha256 451167c5... | ICU | `fixtures/js-date-string/reference/LICENSE.icu` | 26,487 B | yes (commit 46106aea40) |
 | formulajs `@formulajs/formulajs` (Excel function semantics ported to `mixdog-xlsx-formula`) | npm package installed in the original product (`node_modules/@formulajs/formulajs/lib/esm/index.mjs`, sha256 4d3b6513...) | 4.6.1 | MIT, Copyright (c) 2014 Sutoiku, Inc.: `formulajs-MIT.txt` (new) | ported into `native/core/crates/mixdog-xlsx-formula/src/functions/*.rs`; licence copies in `fixtures/office-engineering/LICENSE.formulajs`, `fixtures/office-stats-distributions/LICENSE.formulajs` | licence 3,320 B | no (read from the installed package of the original; nothing fetched) |
@@ -31,6 +32,53 @@ installed Node package of the original) or authored here. **not shown** = the tr
 | `libwebp-sys` (builds C libwebp) | crates.io | 0.9.6 (`=0.9.6` in `native/core/Cargo.toml`) | MIT (crate's Cargo.toml; it builds the C libwebp, which carries its own BSD notice in the crate) | registry dependency | crate file 5,168,820 B | yes, cache file 2026-11-15 03:54:27, same batch; approval rests only on the plan's reading of an earlier owner answer (audit) |
 | `fancy-regex` (patched so a match can be interrupted) | crates.io | 0.19.2 as modified for Mixdog (`MIXDOG.md`) | MIT: `fancy-regex-MIT.txt` (already present) | `native/core/vendor/fancy-regex/` (800 KB) and `vendor/fancy-regex-differential/` (356 KB) | as given | no (before this session's batch; not in the audit) |
 | Noto test faces (Lisu Regular and Bold, Hebrew; Miriam Libre) | Noto Project / Miriam Libre upstream | as the recorded sha256 in `fixtures/office-measure/golden.json` | SIL OFL 1.1, stated in `fixtures/office-measure/faces/LICENSE.txt` | `native/core/fixtures/office-measure/faces/` | four files | not shown (added with the fonts foundation merge 426a5aef8d) |
+
+## Trim (owner decision of 2026-11-15: downloaded sources are approved only for the parts in use)
+
+Method: for each item, what the build and the tests read was found by searching `include_bytes!`, `include_str!`, `build.rs`,
+`mod` paths, fixture loads and every recorder/extractor script. `mixdog-js` has no `build.rs`; its only embedded data is
+`date_string/data/icu77-date-names.json.gz` and `default_locale/data/icu77-locale.json`; its tests read
+`fixtures/js-date-string/golden.json`, `fixtures/js-math-primitives/golden.json`, `number/radix-golden.json` and
+`testdata/*.json`. No Rust file, test or build step reads any `reference/` source or the ICU archive; they are read only by
+offline recorder/extractor scripts (`extract-js-date-display.py`, `record-radix.mjs`, `record-js-math-primitives.mjs`).
+
+| Item | Kept | Removed | Why | Size before -> after |
+|---|---|---|---|---|
+| V8 math sources (`mixdog-js/src/math/reference/`) | `LICENSE.v8` (cited by the licence comments of `math/trig.rs`, `inverse.rs`, `reduction.rs`) | `ieee754.cc` (sha256 da01a549...), `math-random.cc` (2c0f20ae...), `random-number-generator.h` (62c0c3c6...) | the port is complete; the tests read the recorded golden, not the source; `record-js-math-primitives.mjs` hashes the sources only when re-recorded (it then needs the pinned files back: URL and sha256 are in the golden and above) | 115,398 B -> 3,098 B |
+| V8 radix sources (`mixdog-js/src/number/reference/`) | `LICENSE.v8`, `PROVENANCE.md` (URLs and sha256, text updated) | `v8-conversions.cc`, `v8-double.h`, `v8-builtins-number.cc`, `v8-number.tq` | same; `radix-golden.json` keeps their sha256 under `reference`; `record-radix.mjs` needs them back only to re-record | 95,025 B of sources removed |
+| ICU C++ sources (`fixtures/js-date-string/reference/`) | `uloc.cpp`, `uloc_tag.cpp` (the extractor parses their language and country tables into `icu77-locale.json`), `LICENSE.icu`, `LICENSE.v8` | `numsys.cpp` (8b331438...), `olsontz.cpp` (df312c3e...), `putil.cpp` (273b2d51...), `simpletz.cpp` (1e4c454d...), `timezone.cpp` (e6812800...), `tzfmt.cpp` (dbc54382...), `tznames_impl.cpp` (1470aaf5...), `zonemeta.cpp` (f6a91956...) | nothing reads them (the extractor included); they were reading material for the port; the URL pattern is `https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/{i18n,common}/<file>` (`common` for putil, uloc, uloc_tag) and the full sha256 values are in the git history of `date_string/data/PROVENANCE.json` | 631,659 B -> 176,044 B |
+| ICU data archive | `icudt77l.used.dat.bz2` (sha256 130c51a6...), written by `benchmarks/rust-core/recorders/reduce-icu-data.py` from the pinned full archive (488a0a66...); `extract-js-date-display.py` now reads it | `icudt77l.dat.bz2` | see "The ICU data" | 11,111,695 B -> 1,716,387 B |
+| `date_string/data/icu77-date-names.json.gz`, `default_locale/data/icu77-locale.json` | both, byte for byte unchanged (sha256 c4c8697b... and 0873cdb1...) | - | embedded in the binary and read by the tests | 371,010 B and 57,361 B, unchanged |
+| `date_string/data/PROVENANCE.json` | regenerated by the extractor: it names both archives and lists the two kept sources | the 8 removed source records | records follow the files | - |
+| `fixtures/js-date-string/MANIFEST.json` and its entry in `fixtures/MANIFEST.json` | regenerated from the files that remain (6 files; the index entry's fileCount, totalBytes and manifestSha256 follow); `golden.json` untouched | - | `verify-manifests.mjs` rehashes every listed file and flags unlisted ones | 14 files, 12,751,193 B -> 6 files, 2,910,661 B |
+| formulajs, jStat, bessel | the licence copies (`fixtures/office-engineering/LICENSE.{formulajs,jstat,bessel}`, `fixtures/office-stats-distributions/LICENSE.{formulajs,jstat}`, `LICENSES/*`; 589 to 3,320 B each) | nothing | no package source is in the tree (the npm packages were read from the original's install); the ports are `functions/*.rs`, read by the build; the licence texts are notices the binary needs | unchanged |
+| `icu_collator` (vendored, patched) | `src/`, `LICENSE`, `README.md`, `MIXDOG.md`, `MIXDOG-PROVENANCE.json`, `Cargo.toml`, and its own `tests/` (with 5.3 MB of CLDR conformance data) and `benches/` | `Cargo.toml.orig`, `.cargo_vcs_info.json` (cargo-publish leftovers nothing reads) | the crate is built by `mixdog-js` and `mixdog-migrate`; `tests/tests.rs` and `benches/bench.rs` are declared targets of its manifest (a dependency whose declared target file is missing fails to load) and the tests are the upstream regression suite for the patched comparison code, runnable with `cargo test --manifest-path native/core/vendor/icu_collator/Cargo.toml`; trimming them needs a manifest edit and loses that check | about 5.7 MB, 4.6 KB less |
+| `unicode-script`, `rustybuzz`, `ttf-parser`, `libwebp-sys` | registry dependencies, nothing in the tree | nothing | read by the build: `mixdog-fonts` (`shape.rs`, `tests/twin_measure.rs`) and `mixdog-imaging` (`webp.rs`) | no tree files |
+| `fancy-regex`, Noto test faces | unchanged | nothing | not part of the 2026-11-15 downloads in question | unchanged |
+
+### The ICU data
+
+`icudt77l.dat.bz2` is an ICU common-data package: a header, a table of contents of 4,203 items (locale resources of every
+data category, collation, currency, units, break iterators, transliteration, converters, normalisation, ...) and the item
+bytes. The extractor reads 1,471 of them: `zone/<locale>.res` (display names) and `zone/pool.res`, the root-level
+`<locale>.res` files (numbering-system defaults) and `pool.res`, `zoneinfo64.res`, `timezoneTypes.res`, `metaZones.res`,
+`numberingSystems.res`, `metadata.res` and `keyTypeData.res`. `reduce-icu-data.py` (beside the extractor in
+`benchmarks/rust-core/recorders/`) copies exactly those items byte for byte into a package of the same layout and compresses
+it: package 31,896,432 B -> 6,467,360 B, bz2 11,111,695 B -> 1,716,387 B (9,395,308 B less), no download. The selection is
+the extractor's own predicate, checked by running the extractor on the reduced file in a scratch tree: it produced
+`icu77-date-names.json.gz` and `icu77-locale.json` with the same sha256 as the files in the tree, so the build and every test
+that reads them (`mixdog-js` `date_string` and `default_locale` tests) see identical bytes. The items inside the kept files
+were not cut (that needs a new resource writer and would not be provably the same data).
+
+### What the lead must run (cargo was not run here)
+
+Nothing in use was removed if these pass unchanged:
+
+- `cargo nextest run -p mixdog-js` (`math`, `number::radix_tests`, `date_string::tests`, `default_locale`, `tests/math_primitives_v8.rs`, `tests/utf16_bridges_v8.rs`; the embedded data bytes are unchanged)
+- `cargo build -p mixdog-js -p mixdog-migrate` (the vendored `icu_collator` still loads)
+- `cargo nextest run -p mixdog-xlsx-formula` and `cargo nextest run -p mixdog-fonts` (the formulajs, jStat, bessel ports and `unicode-script`; none of their files changed)
+- `cargo test --manifest-path native/core/vendor/icu_collator/Cargo.toml` (the vendored crate's own tests, kept)
+- `python -I benchmarks/rust-core/recorders/extract-js-date-display.py` in a copy of the tree reproduces the two embedded data files (sha256 above)
 
 ## Inspection files outside the tree
 
@@ -50,10 +98,10 @@ in the tree or the registry source (line ends normalised to LF); none was fetche
 
 ## Open for the owner
 
-- The sources and data marked "yes" were fetched on 2026-11-15 under the Codex lead's approval only. Approve after the fact, or name
-  what is to be removed (nothing is removed here).
-- The 11.1 MB `icudt77l.dat.bz2` and the 5.3 MB of icu_collator test data are used by no product build and no default test; whether to
-  keep them in the repository is the owner's decision.
+- The sources and data marked "yes" were fetched on 2026-11-15 under the Codex lead's approval only. The parts not in use were
+  removed (Trim above); the parts in use remain, awaiting approval after the fact.
+- The 5.3 MB of icu_collator CLDR conformance data is read only by the vendored crate's own `cargo test` (the regression suite of
+  the patch), by no workspace test; whether to keep it is the owner's decision.
 - `icu_collator_data` is CLDR 49 while Node 22.20.0 uses CLDR 47: tailoring differences are possible (stated in `MIXDOG.md`).
 
 ## AVIF decoding crates (mixdog-imaging)

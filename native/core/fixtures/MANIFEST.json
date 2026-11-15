@@ -435,12 +435,12 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-js-date-string.mjs",
-      "fileCount": 14,
+      "fileCount": 6,
       "manifest": "js-date-string/MANIFEST.json",
-      "manifestSha256": "f7abade5c2c963b74368942a77d4f012c98e0fa83920999345736a43d8db1783",
+      "manifestSha256": "2f8571723ea804d9517ed92d93808d6a6ea1caf1c437eafd1ac36de70139f30d",
       "recorder": "benchmarks/rust-core/recorders/record-js-date-string.mjs",
       "set": "js-date-string",
-      "totalBytes": 12751193
+      "totalBytes": 2910661
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
