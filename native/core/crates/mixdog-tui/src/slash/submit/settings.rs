@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use super::panel_write::{begin, end, fail, finish, in_flight};
 use super::{open_panel, submit_prompt};
-use crate::slash::host::{Opener, PromptSurface, SlashHost, SubmitOptions, TextPrompt, Tone};
+use crate::slash::host::{Opener, PromptSurface, SlashHost, TextPrompt, Tone};
 use crate::slash::notices::{project_name_from_path, truthy, value_text};
 use crate::slash::parsers::{memory_core_result_error_text, parse_mcp_server_input, parse_skill_input};
 use crate::slash::store_service_call::service_call;
@@ -277,7 +277,7 @@ fn skill_use(host: &mut dyn SlashHost, target: &TextPrompt, command_text: &str) 
     let suffix = if command_text.is_empty() { String::new() } else { format!(" {command_text}") };
     host.set_prompt(SETTINGS, None);
     let accepted =
-        submit_prompt(host, &PromptContent::Text(format!("${skill_name}{suffix}")), &SubmitOptions::default());
+        submit_prompt(host, &PromptContent::Text(format!("${skill_name}{suffix}")), None);
     if accepted {
         host.arm_transcript_follow();
     }

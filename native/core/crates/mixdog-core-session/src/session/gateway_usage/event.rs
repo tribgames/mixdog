@@ -17,7 +17,7 @@ use serde_json::Value;
 
 /// The route section of the process (`routeSectionKey`, `routeSectionStartedAt`): when the route
 /// identity last changed.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RouteSection {
     key: Option<String>,
     started_at: i64,

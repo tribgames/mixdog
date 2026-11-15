@@ -29,7 +29,7 @@ use mixdog_tui::slash::host::Tone;
 use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::owner::PanelSurface;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
-use mixdog_tui_widgets::picker::IndexMode;
+use mixdog_tui_widgets::picker::{IndexMode, PickerItem};
 use mixdog_tui_widgets::picker::layout::FooterInput;
 use serde_json::{Map, Value, json};
 
@@ -61,6 +61,11 @@ struct Fake {
 
 impl AppCtx for Fake {
     fn store_call(&mut self, action: &str, args: Value) -> Result<Value, String> {
+        // The recorded store has the methods a scenario scripts and no others: Node reads the rest with `store?.method?.()`, which
+        // makes no call, so an unscripted method is neither logged nor does it supersede the panel.
+        if !self.script.contains_key(action) {
+            return Ok(Value::Null);
+        }
         self.calls.push(json!([action, args]));
         if std::mem::take(&mut self.supersede_next) {
             self.surface.supersede();
@@ -228,7 +233,10 @@ impl Fake {
     }
 
     fn select(&mut self, reference: &Value) {
-        let (Some(panel), Some(item)) = (self.panel(), self.row(reference)) else { return };
+        let Some(panel) = self.panel() else { return };
+        // Node calls `panel.onSelect(item?.value, item)` whether or not a row matched; a handler that does not look at the row (the
+        // agent's own panel opens its model list for anything but `off`) still runs.
+        let item = self.row(reference).unwrap_or_else(|| PanelItem::new(PickerItem::new("", ""), json!({})));
         if let Some(handler) = panel.handler {
             handler.on_select(self, &item);
         }
@@ -1004,7 +1012,7 @@ fn speed_option() -> Value {
 }
 
 fn speed_lines(fake: &Fake, id: &str) -> Vec<String> {
-    fake.footer_texts(id).into_iter().filter(|line| line.contains("Fast")).collect()
+    fake.footer_texts(id).into_iter().filter(|line| line.to_lowercase().contains("fast")).collect()
 }
 
 #[test]
@@ -1121,6 +1129,8 @@ fn esc_on_the_model_list_returns_to_the_provider_list_or_to_the_caller_when_nest
         ModelPickerOptions { return_to: Some(returned), return_on_nested_cancel: true, return_label: Some("Agents".to_owned()), ..ModelPickerOptions::default() },
     );
     assert!(nested.panel().and_then(|panel| panel.help).expect("help").ends_with("Esc Agents"));
+    // The open cleared the text prompts (`setProviderPrompt(null)`, `setSettingsPrompt(null)`); the Esc only returns.
+    nested.events.borrow_mut().clear();
     nested.cancel();
     assert_eq!(*nested.events.borrow(), [json!(["returned"])]);
 }

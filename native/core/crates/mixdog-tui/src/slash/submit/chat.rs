@@ -91,7 +91,7 @@ pub fn submit_chat(host: &mut dyn SlashHost, text: &str) -> bool {
             texts: text_snapshot.keys().copied().collect(),
         }),
     };
-    let accepted = submit_prompt(host, &content, &options);
+    let accepted = submit_prompt(host, &content, Some(&options));
     if accepted {
         host.arm_transcript_follow();
         let busy = host.state().busy;

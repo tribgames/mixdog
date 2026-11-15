@@ -51,7 +51,7 @@ fn picker_state(current_path: &str, initial_entry: bool, projects: &[Value], loa
         meta_width: Some(40),
         request_id,
         initial_pending: loading && initial_entry,
-        ..ExtPanel::new("Project", description, items, handler).with_kind("project")
+        ..ExtPanel::new("Project", description, items, handler).with_kind("project").with_layout_kind("project")
     }
 }
 
@@ -180,8 +180,8 @@ impl Extensions {
         host.set_prompt(PromptSurface::Provider, None);
         host.clear_context(&mut own);
         host.close_usage_panel();
-        // An overlay stays up (kind `project`, so the banner and the height stay reserved) but is inert: no selectable rows.
-        let mut opening = ExtPanel::loading("Project", "Opening folder picker\u{2026} choose a folder in the dialog window.", Handler::ProjectOpening).with_kind("project");
+        // An overlay stays up (`kind` project, so the banner and the height stay reserved; it has no `_kind`) but is inert: no selectable rows.
+        let mut opening = ExtPanel::loading("Project", "Opening folder picker\u{2026} choose a folder in the dialog window.", Handler::ProjectOpening).with_layout_kind("project");
         opening.help = Some("Waiting for the system folder dialog\u{2026}".to_owned());
         opening.index_mode = Some(IndexMode::Never);
         host.paint(&mut own, Some(opening));

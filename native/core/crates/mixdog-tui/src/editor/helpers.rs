@@ -9,7 +9,7 @@ use mixdog_tui_style::Key;
 use super::draft::Draft;
 use super::editing::{
     delete_selected_text, len16, next_offset, next_word_offset, previous_offset, previous_word_offset, replace_selection,
-    selection_range, slice16, slice16_from,
+    selection_range, splice16,
 };
 
 /// How a hint under the prompt is toned.
@@ -93,7 +93,7 @@ pub fn delete_backward_char(draft: &Draft) -> Draft {
         return draft.clone();
     }
     let start = previous_offset(&draft.value, draft.cursor);
-    let value = format!("{}{}", slice16(&draft.value, 0, start), slice16_from(&draft.value, draft.cursor));
+    let value = splice16(&draft.value, start, draft.cursor, "");
     Draft { value, cursor: start, selection_anchor: None }
 }
 
@@ -106,7 +106,7 @@ pub fn delete_forward_char(draft: &Draft) -> Draft {
         return draft.clone();
     }
     let end = next_offset(&draft.value, draft.cursor);
-    let value = format!("{}{}", slice16(&draft.value, 0, draft.cursor), slice16_from(&draft.value, end));
+    let value = splice16(&draft.value, draft.cursor, end, "");
     Draft { value, cursor: draft.cursor, selection_anchor: None }
 }
 

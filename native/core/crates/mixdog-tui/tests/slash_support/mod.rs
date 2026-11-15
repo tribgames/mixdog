@@ -33,6 +33,9 @@ pub struct Fake {
     pub provider: Option<TextPrompt>,
     pub settings: Option<TextPrompt>,
     pub images: BTreeMap<u64, PastedImage>,
+    /// The pasted images whose record has no `type: 'image'`: Node's `buildPromptContentWithImages` takes only typed ones, so such an
+    /// image is referenced and snapshotted but never becomes a content part.
+    pub untyped_images: BTreeSet<u64>,
     pub texts: BTreeMap<u64, String>,
     pub open_fails: Vec<String>,
     pub doctor_fails: Option<String>,
@@ -129,8 +132,44 @@ pub fn content_json(content: &PromptContent) -> Value {
     }
 }
 
-fn options_json(options: &SubmitOptions) -> Value {
+/// What Node's `buildPromptContentWithImages` builds when the images in `untyped` are not images to it: the parts of the others, or
+/// the text alone.
+fn node_content(content: &PromptContent, untyped: &BTreeSet<u64>) -> PromptContent {
+    let PromptContent::Parts(parts) = content else { return content.clone() };
+    if untyped.is_empty() {
+        return content.clone();
+    }
+    let mut kept: Vec<PromptPart> = Vec::new();
+    let mut pending_metadata: Option<PromptPart> = None;
+    let mut text: Option<PromptPart> = None;
+    let mut images = 0;
+    for part in parts {
+        match part {
+            PromptPart::Image { paste_id, .. } if untyped.contains(paste_id) => pending_metadata = None,
+            PromptPart::Image { .. } => {
+                kept.extend(pending_metadata.take());
+                kept.push(part.clone());
+                images += 1;
+            }
+            PromptPart::Text(_) if text.is_none() && kept.is_empty() && pending_metadata.is_none() && parts.first() == Some(part) => text = Some(part.clone()),
+            PromptPart::Text(_) => pending_metadata = Some(part.clone()),
+        }
+    }
+    if images == 0 {
+        return match text {
+            Some(PromptPart::Text(value)) => PromptContent::Text(value),
+            _ => content.clone(),
+        };
+    }
+    PromptContent::Parts(text.into_iter().chain(kept).collect())
+}
+
+fn options_json(options: Option<&SubmitOptions>) -> Value {
     let mut map = Map::new();
+    let Some(options) = options else {
+        map.insert("committed".into(), json!(false));
+        return Value::Object(map);
+    };
     if let Some(text) = &options.display_text {
         map.insert("displayText".into(), json!(text));
     }
@@ -468,10 +507,11 @@ impl SlashHost for Fake {
         &mut self,
         method: &str,
         content: &PromptContent,
-        options: &SubmitOptions,
+        options: Option<&SubmitOptions>,
     ) -> Result<Value, String> {
-        self.committed = options.on_committed.clone();
-        self.log.push(json!(["submit", method, content_json(content), options_json(options)]));
+        self.committed = options.and_then(|options| options.on_committed.clone());
+        let content = node_content(content, &self.untyped_images);
+        self.log.push(json!(["submit", method, content_json(&content), options_json(options)]));
         if method == "submit" {
             return Ok(self.submit_result.clone().unwrap_or(json!(true)));
         }
@@ -504,6 +544,9 @@ pub fn fake_from_spec(spec: &Value) -> Fake {
     fake.settings = spec.get("settingsPrompt").filter(|prompt| !prompt.is_null()).map(prompt_from);
     for (id, image) in spec.get("pastedImages").and_then(Value::as_object).into_iter().flatten() {
         let id: u64 = id.parse().unwrap_or(0);
+        if image.get("type").and_then(Value::as_str) != Some("image") {
+            fake.untyped_images.insert(image.get("id").and_then(Value::as_u64).unwrap_or(id));
+        }
         fake.images.insert(
             id,
             PastedImage {
