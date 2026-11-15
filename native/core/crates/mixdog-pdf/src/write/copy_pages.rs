@@ -482,7 +482,7 @@ impl PdfDocument {
             let gone: Vec<Ref> = widgets
                 .iter()
                 .flatten()
-                .filter(|widget| !placed.contains(widget))
+                .filter(|widget| !placed.contains(*widget))
                 .copied()
                 .collect();
             if gone.is_empty() {
@@ -535,12 +535,5 @@ impl PdfDocument {
             copied.push(copier.dest.register(Obj::Dict(Arc::new(clone))));
         }
         Ok(copied)
-    }
-
-    /// `copyPages(thisDocument, indices)`: the document's own pages copied (the source is the document as it is
-    /// before the copy).
-    pub fn copy_own_pages(&mut self, indices: &[usize]) -> Result<Vec<Ref>, WriteError> {
-        let snapshot = self.clone();
-        self.copy_pages(&snapshot, indices)
     }
 }

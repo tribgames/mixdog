@@ -691,6 +691,21 @@ fn keeping_pages_in_order_copies_a_named_twice_page_and_drops_the_rest() {
 }
 
 #[test]
+fn each_repeated_mention_is_a_copy_with_widgets_of_its_own() {
+    let (mut document, pages) = document_with_pages(1);
+    text_field(&mut document, "f", "v", pages[0]);
+    document.register_copied_fields(&pages).unwrap();
+    document.keep_pages_in_order(&[0, 0, 0]).unwrap();
+    let order = document.pages();
+    assert_eq!(order.len(), 3);
+    let widgets: Vec<Obj> = order.iter().flat_map(|page| document.page_annotations(*page)).collect();
+    assert_eq!(widgets.len(), 3);
+    assert_ne!(widgets[1].as_ref_value(), widgets[2].as_ref_value(), "two copies do not share a widget");
+    let names: Vec<String> = document.form_fields().into_iter().map(|field| field.name).collect();
+    assert_eq!(names, vec!["f".to_owned(), "f_2".to_owned(), "f_3".to_owned()]);
+}
+
+#[test]
 fn an_outline_grows_after_what_the_file_has() {
     let (mut document, pages) = document_with_pages(3);
     assert_eq!(document.add_outline_entries(&[]).unwrap(), 0);
