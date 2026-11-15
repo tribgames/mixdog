@@ -1,14 +1,10 @@
 # nr-exthost-pdf-cff-type1 wire fragment
 
-No Cargo, workspace, protocol or compose_flip change: mixdog-pdf is already a workspace member, the readers use only
-crates it already depends on (tracing), and fontfile/mod.rs already declares `cff` and `type1`.
+Nothing to apply. No Cargo, workspace, protocol or compose_flip change: mixdog-pdf is already a workspace member, the
+readers use only crates it already depends on (tracing), and fontfile/mod.rs already declares `cff` and `type1`.
 
-NOTICE.md (root), add a section under the third-party data sections, after the last data section:
-
-    ### Foxit Symbol and Dingbats standard font programs (pdfjs-dist 6.4.299)
-
-    `native/core/crates/mixdog-pdf/src/fontfile/stdfonts/FoxitSymbol.pfb` and `FoxitDingbats.pfb` are the standard
-    font programs pdf.js 6.4.299 ships for non-embedded Symbol and ZapfDingbats. Their license text is carried
-    unchanged in `native/core/crates/mixdog-pdf/src/fontfile/stdfonts/LICENSE_FOXIT`.
+Notice: the crate's own NOTICE (native/core/crates/mixdog-pdf/NOTICE, written by nr-exthost-pdf-syntax) already
+credits the Foxit standard fonts of pdfjs-dist with LICENSE_FOXIT; the licence text is carried unchanged in
+`native/core/crates/mixdog-pdf/src/fontfile/stdfonts/LICENSE_FOXIT`. No NOTICE.md edit is needed.
 
 Packaging: the two .pfb files are include_bytes! data of the crate; nothing to copy at packaging time.
