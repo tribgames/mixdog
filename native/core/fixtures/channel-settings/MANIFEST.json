@@ -3,16 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 37606,
+      "bytes": 37830,
       "path": "golden.json",
-      "sha256": "c1f8e0db76da539030bdfd6fe83aad0c5c0d585fc2c03696a371ad3e206984d5"
+      "sha256": "b6a60c6f1b2de05364bacf3619c526e836ddfcc52d2d0760137a16e3f75a05a5"
     }
   ],
   "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21682,
+    "refComparison": {
+      "closestCommit": "9b5ba38f9da25b3faf02d242dedce06748b8a5fc",
+      "commitFilesMissingFromTree": 761,
+      "exact": false,
+      "filesDifferingFromCommit": 17863
+    },
+    "srcSha256": "771b012162b9264043ecd07836f0764b71a5d1502982a46340b4e92a86c65c68",
     "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channel-settings.mjs",
   "set": "channel-settings",
-  "totalBytes": 37606
+  "totalBytes": 37830
 }

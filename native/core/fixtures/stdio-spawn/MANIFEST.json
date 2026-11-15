@@ -1,0 +1,21 @@
+{
+  "command": null,
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 1021,
+      "path": "win32/MANIFEST.json",
+      "sha256": "029e79b493ae7aecccf63a290640c0eb8ab5def20de6c30d36fe40b4626930db"
+    },
+    {
+      "bytes": 12061,
+      "path": "win32/golden.json",
+      "sha256": "fcd94e3b041b8fe39ea03db4b6a864501e8c4aa7fe73324cd2f2060213ff20b7"
+    }
+  ],
+  "note": "Indexed from the files as they stand: no recorder of this set wrote a manifest (or the set is hand-extracted evidence); not secret-scanned, since some of it (browser-parity/redaction.json) is secret-shaped text on purpose.",
+  "product": null,
+  "recorder": null,
+  "set": "stdio-spawn",
+  "totalBytes": 13082
+}

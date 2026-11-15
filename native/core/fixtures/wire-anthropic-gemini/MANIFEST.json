@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs --tree <exact export of b6f10295a> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-  "fileCount": 2,
+  "fileCount": 3,
   "files": [
     {
       "bytes": 3141278,
@@ -11,6 +11,11 @@
       "bytes": 4844196,
       "path": "gemini.json",
       "sha256": "1ef49b9debc21f7f9990f9ed46022d736902111cd5593ecdb75a159bbbec4e57"
+    },
+    {
+      "bytes": 4558,
+      "path": "observer.json",
+      "sha256": "4bb6dac04174ab258320a142a18b04d11d9beb822120617cee96f41a3975a559"
     }
   ],
   "inputs": [
@@ -29,65 +34,23 @@
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9144,
-    "patch": {
-      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-      "paths": [
-        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-      ],
-      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-    },
-    "patches": [
-      {
-        "file": "node-change-shell-cover-tools.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-        ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-      }
-    ],
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21682,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "9b5ba38f9da25b3faf02d242dedce06748b8a5fc",
+      "commitFilesMissingFromTree": 761,
       "exact": false,
-      "filesDifferingFromCommit": 13
+      "filesDifferingFromCommit": 17863
     },
-    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
+    "srcSha256": "771b012162b9264043ecd07836f0764b71a5d1502982a46340b4e92a86c65c68",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs",
   "recorderSha256": "8daa2ed4244b173febd1f5f4a4ca8595e52289e63122733543d227ffc1a5e13c",
   "set": "wire-anthropic-gemini",
-  "totalBytes": 7985474
+  "totalBytes": 7990032
 }

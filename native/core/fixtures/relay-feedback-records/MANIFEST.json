@@ -1,0 +1,21 @@
+{
+  "command": null,
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 3770,
+      "path": "record.mjs",
+      "sha256": "8a41c588e951de9f3adeadc958fdf4eaef23fdb4e644a0ad30332d9fd80739ff"
+    },
+    {
+      "bytes": 5910,
+      "path": "records.json",
+      "sha256": "71d155b06d9c9f7bf5c87559f02b926b94c881f45275e5a8633eea284f69a6e3"
+    }
+  ],
+  "note": "Indexed from the files as they stand: no recorder of this set wrote a manifest (or the set is hand-extracted evidence); not secret-scanned, since some of it (browser-parity/redaction.json) is secret-shaped text on purpose.",
+  "product": null,
+  "recorder": "native/core/fixtures/relay-feedback-records/record.mjs",
+  "set": "relay-feedback-records",
+  "totalBytes": 9680
+}
