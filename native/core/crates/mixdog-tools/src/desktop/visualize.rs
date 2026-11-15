@@ -21,7 +21,7 @@ use super::pending::PendingWaits;
 use crate::orch::util::cancelled;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
-use crate::orch::util::text;
+use crate::orch::util::text_output;
 
 const ACTIONS: [&str; 8] = ["open", "close", "annotate", "capture", "export", "check", "inspect", "act"];
 const ACT_STEP_KINDS: [&str; 6] = ["click", "type", "key", "scroll", "wait", "evaluate"];
@@ -41,8 +41,10 @@ fn ends_with_ext(value: Option<&Value>, ext: &str) -> bool {
     value.and_then(Value::as_str).is_some_and(|s| s.js_trim().to_lowercase().ends_with(&format!(".{ext}")))
 }
 
+/// `Number.isInteger(value) && min <= value <= max`: an integer-valued float (`375.0`) is a whole pixel count too.
 fn sized(value: Option<&Value>, min: u64, max: u64) -> bool {
-    value.and_then(Value::as_u64).is_some_and(|n| (min..=max).contains(&n))
+    let Some(value) = value.and_then(Value::as_f64) else { return false };
+    value.fract() == 0.0 && value >= min as f64 && value <= max as f64
 }
 
 /// The action and input of a `visualize` call, validated with the existing wordings.
@@ -187,6 +189,15 @@ pub fn format_success(value: &Value) -> String {
     lines.join("\n")
 }
 
+/// Structured tool meta of a result drawn in the panel of the conversation another session works for (a sub-agent, a
+/// room member): the desktop names that owner in its answer, and a chat card opens the owner's panel with it. Only an
+/// id of 1-128 of `[A-Za-z0-9_.:-]` is a session id (`visualizeOwnerMetaSessionId`); anything else carries no meta.
+fn owner_meta(value: &Value) -> Option<Value> {
+    let is_session_id = |o: &&str| (1..=128).contains(&o.len()) && o.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b));
+    let owner = value.get("ownerSessionId").and_then(Value::as_str).filter(is_session_id)?;
+    Some(serde_json::json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": owner }))
+}
+
 pub struct VisualizeTool {
     spec: ToolSpec,
     host: Arc<dyn HostCommands>,
@@ -234,6 +245,10 @@ impl Tool for VisualizeTool {
             watch = Some(self.waits.watch_new_tab(ctx.thread_id.as_str(), &request_id));
             input.insert("openRequestId".to_owned(), Value::String(request_id));
         }
+        // The open's tool call id: the host keeps it with the tab it reveals, so the turn's end names an open whose tab is gone.
+        if action == "open" {
+            input.insert("callId".to_owned(), Value::String(ctx.call_id.as_str().to_owned()));
+        }
         let cwd = ctx.cwd.as_path().to_string_lossy().into_owned();
         let mut value = match self.host.visualize(&ctx.thread_id, &cwd, &action, Value::Object(input), &ctx.cancel).await {
             Ok(value) => value,
@@ -254,7 +269,9 @@ impl Tool for VisualizeTool {
                 object.insert("text".to_owned(), Value::String(opened));
             }
         }
-        text(format_success(&value))
+        let mut output = text_output(format_success(&value));
+        output.meta = owner_meta(&value);
+        Ok(output)
     }
 }
 
@@ -361,6 +378,51 @@ mod tests {
         assert!(!open(json!({"targets":["a.md"]})));
         assert!(!open(json!({"targets":[" https://a.com"]})));
         assert!(!open(json!({"content":{"kind":"svg","source":"x"}})));
+    }
+
+    #[test]
+    fn inspect_viewport_sizes_may_be_integer_valued_floats() {
+        let inspect = |viewport: Value| validate(&json!({"action":"inspect","input":{"tab":"t1","viewport":viewport}})).map(|_| ());
+        assert_eq!(inspect(json!({"width": 375.0, "height": 812.0})), Ok(()));
+        assert!(inspect(json!({"width": 375.5})).is_err());
+        assert!(inspect(json!({"width": 199.0})).is_err());
+        assert!(inspect(json!({"width": 3000, "height": 4001.0})).is_err());
+        assert!(inspect(json!({"width": "375"})).is_err());
+    }
+
+    /// A host that answers every command with the panel of another session, and keeps what it was sent.
+    struct Owned {
+        answer: Value,
+        seen: std::sync::Mutex<Vec<Value>>,
+    }
+
+    #[async_trait]
+    impl HostCommands for Owned {
+        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+            unreachable!()
+        }
+
+        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+            self.seen.lock().unwrap().push(input);
+            Ok(self.answer.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_result_drawn_for_another_sessions_panel_carries_the_owner_as_tool_meta() {
+        let call = |answer: Value| async move {
+            let host = Arc::new(Owned { answer, seen: Default::default() });
+            let waits = crate::desktop::pending::tests::waits(40, 1000);
+            let out = VisualizeTool::new(host.clone(), waits).call(&crate::orch::tests::ctx(), json!({"action":"open","input":{"targets":["a.md"]}})).await.unwrap();
+            (out.meta, host.seen.lock().unwrap()[0].clone())
+        };
+        let (meta, seen) = call(json!({"text": "shown", "ownerSessionId": "sess_lead1x"})).await;
+        assert_eq!(meta, Some(json!({"code": "visualize_owner", "missing": [], "ownerSessionId": "sess_lead1x"})));
+        assert_eq!(seen["callId"], "c");
+        assert_eq!(call(json!({"text": "shown"})).await.0, None);
+        assert_eq!(call(json!({"text": "shown", "ownerSessionId": ""})).await.0, None);
+        assert_eq!(call(json!({"text": "shown", "ownerSessionId": "../evil"})).await.0, None);
+        assert_eq!(call(json!({"text": "shown", "ownerSessionId": "a".repeat(129)})).await.0, None);
     }
 
     #[test]

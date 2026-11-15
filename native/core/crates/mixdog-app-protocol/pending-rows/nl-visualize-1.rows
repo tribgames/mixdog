@@ -1,0 +1,9 @@
+# nl-visualize-1: the core sends the tool call id of a visualize open beside sessionId (the desktop's parseVisualizeRequest reads raw.callId).
+# core -> host request params are not walked by free_text_fields.json: no class line is needed.
+[type_edits]
+# native/core/crates/mixdog-app-protocol/src/v2/host.rs, struct HostVisualizeCommandParams: add after `pub input: Option<JsonValue>,`
+#[serde(default, skip_serializing_if = "Option::is_none")]
+pub call_id: Option<String>,
+# Doc line for the field: /// An `open`'s tool call id; the desktop keeps it with the tab it reveals so the turn's end names opens whose tab is gone.
+# Regenerate schema/*.json, packages/protocol/src/index.ts (HostVisualizeCommandParams gets callId?: string) and the goldens.
+# A literal HostVisualizeCommandParams { .. } elsewhere gets call_id: None (grep the struct name).
