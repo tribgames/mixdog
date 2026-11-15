@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "recorder": "recorder/record-office-com.mjs",
+  "sources": {
+    "office-com-host.ps1": "09233b0d8f54d38f7dc9f67af745e410b6f84f87d2085ec29110162eb4412748",
+    "office-com-session-host.ps1": "3f49583d0cf6bc84d1947e8b66ebe57f6e26f7ad9d39841ddcbc451721ca4c41",
+    "office-com-cleanup.ps1": "a2e43de1b7893e1b661cc52dbb5e07bd8d4716c31b3c12a461b22cc82686d355",
+    "office-word-formatting.ps1": "3ffd23007a717cba4fc022ca5f3f38b5d016307a3cf7927da72a8d1c62785a84"
+  },
+  "powershell": null,
+  "office": null,
+  "fixtures": [
+    {
+      "path": "registry/operations.json",
+      "sha256": "68ac392034e8a307e6a70335231a1abb0f25cf98058fd18dac5fe59f193b2451",
+      "area": "registry",
+      "scenario": null,
+      "recorded": "source"
+    }
+  ]
+}
