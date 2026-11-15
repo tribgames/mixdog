@@ -1,0 +1,34 @@
+# nr-tui-vm-cards
+
+## native/core/crates/mixdog-view-model/Cargo.toml
+
+In [dependencies], add the workspace crate (already a workspace member and a workspace dependency; it depends only on
+mixdog-js, so the edge makes no cycle), after `mixdog-protocol`:
+
+mixdog-termtext = { workspace = true }
+
+card_model::inline_text::safe_inline_text is `stripAnsi(...)` of the Node card model, so it calls
+mixdog_termtext::strip::strip_ansi (the exact `strip-ansi` 7.2.0 / `ansi-regex` 6 reader), not the SGR-only
+mixdog_tui_style::color::strip_ansi. No new crate: Cargo.lock only gains the dependency edge of mixdog-view-model on
+mixdog-termtext (root owns lock and hakari regeneration).
+
+## Exported API (card_model.rs re-exports the Node names; the model is a serde_json::Value with Node's fields)
+
+pub fn card_model::derive_tool_card_model(input: &Value, options: &CardOptions) -> Value;
+pub struct card_model::card_input::CardOptions<'a> { truncate: Option<&dyn Fn(&str, usize) -> String>, max_result_chars: Option<f64>, translate: Option<&dyn Fn(&str, &str, &Value) -> String> }
+pub struct card_model::CardSurface { label, summary, normalized_name, parsed_args, is_shell_surface, is_skill_surface }
+pub fn card_model::terminal_status::derive_tool_outcome_tone(&OutcomeToneInput) -> &'static str;
+pub fn card_model::inline_text::split_line_delta_tokens(&str) -> Vec<DeltaPart>;
+the other helpers of tool-card-model.mjs under their Node names in snake case (card_model.rs re-exports them).
+
+A surface applies width fitting and colours to the model: the terminal rows (nr-tui-* render tasks) call derive_tool_card_model
+with `truncate` set to its own fitter and `max_result_chars` to its row budget; the desktop toolcard keeps its TypeScript
+reader of the model until the desktop port reads it from the core.
+
+## Notes for the lead
+
+- Nothing here registers a protocol method or a service: no SERVICE_PENDING name changes.
+- `cargo test -p mixdog-view-model` needs the Cargo.toml line above first (cards_twin.rs and card_model/* call mixdog_termtext).
+- The golden tests/goldens/cards.json was recorded with
+  node native/core/crates/mixdog-view-model/tests/recorders/record-cards.mjs --tree <tree> --fixtures <int>/native/core/fixtures
+  and is checked with the same command plus --check native/core/crates/mixdog-view-model/tests/goldens/cards.json.
