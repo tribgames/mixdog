@@ -1,6 +1,6 @@
 //! Replays tests/goldens/display.json (recorded from the Node display modules by tests/recorders/record-display.mjs)
 //! through the Rust port: every function gives what Node gave over the recorded inputs. A call Node recorded as an
-//! exception is skipped. A number JSON cannot carry travels as `{ "num": "NaN" | "Infinity" | "-Infinity" }`.
+//! exception fails the test instead of being skipped: the golden holds none. A number JSON cannot carry travels as `{ "num": "NaN" | "Infinity" | "-Infinity" }`.
 
 use mixdog_js::json_number;
 use mixdog_js::string_to_number;
@@ -251,12 +251,9 @@ fn every_display_function_gives_what_node_gave() {
     let cases = golden["cases"].as_array().expect("cases");
     let mut replayed = 0;
     for case in cases {
-        if case.get("threw").is_some() {
-            continue;
-        }
         let name = s(&case["fn"]);
         let args = case["args"].as_array().expect("args");
-        let Some(expected) = case.get("out") else { continue };
+        let expected = case.get("out").unwrap_or_else(|| panic!("{name} has no recorded output (Node threw, which the twin does not list): {case}"));
         let actual = replay(name, args).unwrap_or_else(|| panic!("the golden records {name}, which the twin does not replay"));
         assert_eq!(expected, &actual, "{name} of {}", args.iter().map(Value::to_string).collect::<Vec<_>>().join(", ").chars().take(240).collect::<String>());
         replayed += 1;
