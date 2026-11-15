@@ -299,11 +299,12 @@ fn dedupe(items: Vec<String>) -> Vec<String> {
 pub fn default_office_template_directories(env: &Environment) -> Vec<String> {
     let mut directories = vec![env.bundled_templates.to_string_lossy().into_owned()];
     if env.windows {
-        for root in [&env.program_files, &env.program_files_x86].into_iter().filter(|root| !root.is_empty()) {
+        for root in [js_trim(&env.program_files), js_trim(&env.program_files_x86)].into_iter().filter(|root| !root.is_empty()) {
             directories.push(win32_path(&[root, "Microsoft Office", "root", "Templates"]));
         }
-        if !env.app_data.is_empty() {
-            directories.push(win32_path(&[&env.app_data, "Microsoft", "Templates"]));
+        let app_data = js_trim(&env.app_data);
+        if !app_data.is_empty() {
+            directories.push(win32_path(&[app_data, "Microsoft", "Templates"]));
         }
         if !env.home.is_empty() {
             directories.push(win32_path(&[&env.home, "Documents", "Custom Office Templates"]));

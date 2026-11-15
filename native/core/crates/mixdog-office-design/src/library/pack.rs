@@ -270,11 +270,11 @@ pub fn normalize_local_samples(value: Option<&Value>) -> Result<Value, String> {
                 roles.insert(mixdog_js::number_to_string(shape_index), Value::String(role));
             }
         }
+        let defaults = known_layout_defaults(prop(sample, "defaults"), &format!("Office local template sample {slide_text}"))?;
         let id = match prop(sample, "id") {
             Some(given) if truthy(given) => safe_id(Some(given), &format!("sample {slide_text} layout id"))?,
             _ => String::new(),
         };
-        let defaults = known_layout_defaults(prop(sample, "defaults"), &format!("Office local template sample {slide_text}"))?;
         let mut out = Map::new();
         out.insert("slide".to_owned(), json_number(slide));
         out.insert("id".to_owned(), Value::String(id));
@@ -487,7 +487,8 @@ pub fn verify_office_design_pack_envelope(envelope: &Value, trusted_keys: &Map<S
         return Err(format!("Office design pack signing key {key_id} must be Ed25519"));
     };
     let Some(pack) = prop(envelope, "pack") else {
-        return Err("The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined".to_owned());
+        // `Buffer.from(JSON.stringify(undefined))`.
+        return Err("The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined".to_owned());
     };
     let message = canonical_office_design_pack(pack);
     if UnparsedPublicKey::new(&ED25519, public_key).verify(message.as_bytes(), &signature).is_err() {
@@ -611,7 +612,12 @@ fn stage_pack<L: WriteLane>(lane: &InLane<L>, verified: &Verified, staging: &Pat
             return Err(format!("Office design template {id} sha256 mismatch"));
         }
         let file_path = staging.join("templates").join(format!("{id}{}", text(prop(template, "extension"))));
-        let mut file = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(lane, &file_path).map_err(io)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        // Node's `writeFile(.., { mode: 0o600 })`: owner-only on Unix; Windows has no such mode bits.
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(lane, &file_path).map_err(io)?;
         file.write_all(&bytes).map_err(io)?;
     }
     write_json_atomic(lane, &staging.join("envelope.json"), &verified.envelope)?;

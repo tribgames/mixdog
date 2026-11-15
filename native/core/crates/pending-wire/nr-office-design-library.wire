@@ -39,10 +39,10 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
       "command": "node benchmarks/rust-core/recorders/record-office-library.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-library/MANIFEST.json",
-      "manifestSha256": "39dc790cc3509952f7a7ce1a4a9eab27668d977e82586a316f361899f30d201d",
+      "manifestSha256": "01515514e50b6889d7f9433de3078f89561b3eab14671685d7ce83e90e663306",
       "recorder": "benchmarks/rust-core/recorders/record-office-library.mjs",
       "set": "office-library",
-      "totalBytes": 558651
+      "totalBytes": 550911
     },
 #    (the manifest was written against the checkout of this worktree; if the lead re-records, take the printed values.)
 

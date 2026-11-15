@@ -62,8 +62,10 @@ const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 const slash = (text) => text.split(path.sep).join('/');
 /** A text with the temporary folder as `<root>` and `/` as the separator. */
 const scrubText = (text) => text.split(root).join('<root>').replaceAll('\\', '/');
+/** A document's key (`sha256(canonicalPath(path))`, a hash of the temporary folder) written `<key docs/NAME>`. */
+const documentKeys = new Map();
 const scrub = (value) => {
-  if (typeof value === 'string') return scrubText(value);
+  if (typeof value === 'string') return documentKeys.get(value) ?? scrubText(value);
   if (Array.isArray(value)) return value.map(scrub);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubText(key), scrub(item)]));
   return value;
@@ -318,7 +320,11 @@ pure.defaultDirectories = [
 
 // ---- the script -------------------------------------------------------------------------------------------------------
 const CONFIG = (extra = {}) => ({ manifestUrl: MANIFEST_URL, trustedKeys: { 'key-1': KEYS['key-1'] }, templateDirectories: [], discoverInstalledTemplates: false, ...extra });
-const DOCUMENT = (name) => path.join(root, 'docs', name);
+const DOCUMENT = (name) => {
+  const document = path.join(root, 'docs', name);
+  documentKeys.set(sha256(core.canonicalPath(document)), `<key docs/${name}>`);
+  return document;
+};
 
 /** Every file under the library folder: parsed JSON, else its size and digest. Binding files are named by what they bind. */
 const snapshot = () => {

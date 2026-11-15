@@ -12,6 +12,7 @@
 //! directory, where it writes an index of nothing, which `EmptyIndexer` writes too.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -48,17 +49,22 @@ fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Sen
 
 /// A world's temporary folder and how texts are written against it.
 #[derive(Clone)]
-struct Root(String);
+struct Root {
+    folder: String,
+    /// The key of each document the script names (`sha256(canonical_path(path))`, a hash of the temporary folder), to
+    /// `<key docs/NAME>`, as the recorder writes it.
+    keys: HashMap<String, String>,
+}
 
 impl Root {
     /// A text with the folder as `<root>` and `/` as the separator.
     fn scrub_text(&self, text: &str) -> String {
-        text.replace(&self.0, "<root>").replace('\\', "/")
+        text.replace(&self.folder, "<root>").replace('\\', "/")
     }
 
     fn scrub(&self, value: &Value) -> Value {
         match value {
-            Value::String(text) => Value::String(self.scrub_text(text)),
+            Value::String(text) => Value::String(self.keys.get(text).cloned().unwrap_or_else(|| self.scrub_text(text))),
             Value::Array(items) => Value::Array(items.iter().map(|item| self.scrub(item)).collect()),
             Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (self.scrub_text(key), self.scrub(item))).collect()),
             other => other.clone(),
@@ -68,7 +74,7 @@ impl Root {
     /// The inverse, for an input written with `<root>`.
     fn unscrub(&self, value: &Value) -> Value {
         match value {
-            Value::String(text) => Value::String(text.replace("<root>", &self.0)),
+            Value::String(text) => Value::String(text.replace("<root>", &self.folder)),
             Value::Array(items) => Value::Array(items.iter().map(|item| self.unscrub(item)).collect()),
             Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), self.unscrub(item))).collect()),
             other => other.clone(),
@@ -76,7 +82,19 @@ impl Root {
     }
 
     fn text(&self, value: Option<&Value>) -> String {
-        value.and_then(Value::as_str).map(|text| text.replace("<root>", &self.0)).unwrap_or_default()
+        value.and_then(Value::as_str).map(|text| text.replace("<root>", &self.folder)).unwrap_or_default()
+    }
+
+    /// Learns the key of every document a step of the script names.
+    fn learn_documents(&mut self, env: &Environment, script: &[Value]) {
+        for step in script {
+            for field in ["documentPath", "sourcePath", "excludeDocumentPath"] {
+                let Some(name) = step.get(field).and_then(Value::as_str).and_then(|text| text.strip_prefix("<root>/docs/")) else { continue };
+                let document = self.text(step.get(field));
+                let key = sha256(mixdog_office_design::library::canonical_path(env, &document));
+                self.keys.insert(key, format!("<key docs/{name}>"));
+            }
+        }
     }
 }
 
@@ -107,7 +125,7 @@ impl World {
             bundled_templates: PathBuf::from("<bundled>"),
             now_ms: Arc::new(move || ticking.load(Ordering::SeqCst) as f64),
         };
-        Self { root: Root(dir.to_string_lossy().into_owned()), dir: dir.to_path_buf(), data_dir: dir.join("data"), clock, env }
+        Self { root: Root { folder: dir.to_string_lossy().into_owned(), keys: HashMap::new() }, dir: dir.to_path_buf(), data_dir: dir.join("data"), clock, env }
     }
 
     fn library_root(&self) -> PathBuf {
@@ -495,9 +513,11 @@ fn every_output_equals_the_recording() {
         let path = mixdog_fsio::canonicalize(lane, dir.path()).expect("real path");
         #[cfg(windows)]
         let path = dir.path().to_path_buf();
-        let world = World::new(&path);
+        let mut world = World::new(&path);
+        let script = golden["script"].as_array().expect("script");
+        world.root.learn_documents(&world.env, script);
         replay_pure(lane, &world, &golden["pure"]);
-        replay_script(lane, &world, golden["script"].as_array().expect("script"));
+        replay_script(lane, &world, script);
     });
 }
 

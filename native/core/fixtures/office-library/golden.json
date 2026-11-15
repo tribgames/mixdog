@@ -1,16 +1,16 @@
 {
   "note": "Recorded from the Node office design library modules; tests/twin_library.rs replays it.",
   "keys": {
-    "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n",
-    "key-2": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEApiPLVkhFniXnMlEG8gBYs0hon76ra+os9Z73Vl99D/U=\n-----END PUBLIC KEY-----\n",
-    "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzwNh9L05ieZm3OYxSE7G\nf9Pwh1KZOIkoGMub6GXeSksTrVZ3FlhzFkc/t67pKqf20QAYJY5vg7/AjSMBrvYj\nwnXDlro3AFH89gGJWZhhy4Ebmqt0Qnp1gqwbkBAy/9PIXAm0RfNSNlsBOvPy2IQ1\nfyn/piLIBi94isU9QHuwpoAtpKwvqKYFjM8l7bJ1RwnLU9rRwQqet75iGnJx4xrC\nQWMbs2I/uoWm/kmdIkCD0j5QvFPiksebEO1du957GjgGHKcglpuBC9Z/vjXXjGAl\n5KqINI4r4+JB1c3B5oQUOWiuP9z5BhI3Tfn3ZAWwuj34qRuz3hBsyTFpMMDAEn5h\nlwIDAQAB\n-----END PUBLIC KEY-----\n",
+    "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n",
+    "key-2": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAC2RtXchcIBELgqJoB/gmX72J4FzaBWTUYZasEOJYq1w=\n-----END PUBLIC KEY-----\n",
+    "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2rCXiRxXiTH8Mv6L4Omt\nXvP1yITQ46bJS3O4oFVns/VJictnV7Vg3cVZbUFZL/T6KTbwQ+//IudBMxV0JyQX\n3xQl/3ygP6G+Bhyo2Z7bRuV/xQXeiMsQYCPLHbPmQun1QO+wdD2NiNcONIxEsAgF\nXtK8kWhaBuO8xmtn8uTpuljbY2ofdY3bOrQsB9PiDkIZqIDGJedkH1g8B1GqtkU7\nxRA/oDZ521ltPdkxX5mk2RJjDid9xZgZNPr2Jo4F0bVvUbdx0/zH6AGVpzwTsJ6y\nko3hBAAKnckyXCFvRH2ru7NaM6yDd+UIHRy6wXjvDEFlos0vsRi7Pyqks3C2t/V0\n6QIDAQAB\n-----END PUBLIC KEY-----\n",
     "garbage": "not a key"
   },
   "pure": {
     "keys": {
-      "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n",
-      "key-2": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEApiPLVkhFniXnMlEG8gBYs0hon76ra+os9Z73Vl99D/U=\n-----END PUBLIC KEY-----\n",
-      "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzwNh9L05ieZm3OYxSE7G\nf9Pwh1KZOIkoGMub6GXeSksTrVZ3FlhzFkc/t67pKqf20QAYJY5vg7/AjSMBrvYj\nwnXDlro3AFH89gGJWZhhy4Ebmqt0Qnp1gqwbkBAy/9PIXAm0RfNSNlsBOvPy2IQ1\nfyn/piLIBi94isU9QHuwpoAtpKwvqKYFjM8l7bJ1RwnLU9rRwQqet75iGnJx4xrC\nQWMbs2I/uoWm/kmdIkCD0j5QvFPiksebEO1du957GjgGHKcglpuBC9Z/vjXXjGAl\n5KqINI4r4+JB1c3B5oQUOWiuP9z5BhI3Tfn3ZAWwuj34qRuz3hBsyTFpMMDAEn5h\nlwIDAQAB\n-----END PUBLIC KEY-----\n",
+      "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n",
+      "key-2": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAC2RtXchcIBELgqJoB/gmX72J4FzaBWTUYZasEOJYq1w=\n-----END PUBLIC KEY-----\n",
+      "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2rCXiRxXiTH8Mv6L4Omt\nXvP1yITQ46bJS3O4oFVns/VJictnV7Vg3cVZbUFZL/T6KTbwQ+//IudBMxV0JyQX\n3xQl/3ygP6G+Bhyo2Z7bRuV/xQXeiMsQYCPLHbPmQun1QO+wdD2NiNcONIxEsAgF\nXtK8kWhaBuO8xmtn8uTpuljbY2ofdY3bOrQsB9PiDkIZqIDGJedkH1g8B1GqtkU7\nxRA/oDZ521ltPdkxX5mk2RJjDid9xZgZNPr2Jo4F0bVvUbdx0/zH6AGVpzwTsJ6y\nko3hBAAKnckyXCFvRH2ru7NaM6yDd+UIHRy6wXjvDEFlos0vsRi7Pyqks3C2t/V0\n6QIDAQAB\n-----END PUBLIC KEY-----\n",
       "garbage": "not a key"
     },
     "safeId": [
@@ -791,7 +791,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -880,7 +880,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "value": {
@@ -1023,7 +1023,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1119,7 +1119,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1208,7 +1208,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack signature verification failed"
@@ -1219,7 +1219,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "+kdaHHuQSdggG/QORYuzcUz/pfSPdFyfe0zwoNNHY+5CgpLzN8Pt8oCJ4I3T4C8Yk8Gfd39Yue0rJqzfiMQVDA==",
+            "signature": "w780aPDQ0tmHSYsaLRmHeWbpU/lvjQpMfnaam86nU06sazxm+qaH47YYV9zTkvKdCXrjLvc7KqFdJPKSh4aRDg==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1308,7 +1308,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack signature verification failed"
@@ -1319,7 +1319,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-2",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1408,7 +1408,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack signing key is not trusted: key-2"
@@ -1419,7 +1419,7 @@
           "envelope": {
             "schemaVersion": 2,
             "keyId": "key-1",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1508,7 +1508,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack envelope requires schemaVersion 1"
@@ -1616,7 +1616,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack signature is invalid"
@@ -1627,7 +1627,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "rsa-key",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1716,7 +1716,7 @@
             }
           },
           "trustedKeys": {
-            "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzwNh9L05ieZm3OYxSE7G\nf9Pwh1KZOIkoGMub6GXeSksTrVZ3FlhzFkc/t67pKqf20QAYJY5vg7/AjSMBrvYj\nwnXDlro3AFH89gGJWZhhy4Ebmqt0Qnp1gqwbkBAy/9PIXAm0RfNSNlsBOvPy2IQ1\nfyn/piLIBi94isU9QHuwpoAtpKwvqKYFjM8l7bJ1RwnLU9rRwQqet75iGnJx4xrC\nQWMbs2I/uoWm/kmdIkCD0j5QvFPiksebEO1du957GjgGHKcglpuBC9Z/vjXXjGAl\n5KqINI4r4+JB1c3B5oQUOWiuP9z5BhI3Tfn3ZAWwuj34qRuz3hBsyTFpMMDAEn5h\nlwIDAQAB\n-----END PUBLIC KEY-----\n"
+            "rsa-key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2rCXiRxXiTH8Mv6L4Omt\nXvP1yITQ46bJS3O4oFVns/VJictnV7Vg3cVZbUFZL/T6KTbwQ+//IudBMxV0JyQX\n3xQl/3ygP6G+Bhyo2Z7bRuV/xQXeiMsQYCPLHbPmQun1QO+wdD2NiNcONIxEsAgF\nXtK8kWhaBuO8xmtn8uTpuljbY2ofdY3bOrQsB9PiDkIZqIDGJedkH1g8B1GqtkU7\nxRA/oDZ521ltPdkxX5mk2RJjDid9xZgZNPr2Jo4F0bVvUbdx0/zH6AGVpzwTsJ6y\nko3hBAAKnckyXCFvRH2ru7NaM6yDd+UIHRy6wXjvDEFlos0vsRi7Pyqks3C2t/V0\n6QIDAQAB\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack signing key rsa-key must be Ed25519"
@@ -1727,7 +1727,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "garbage",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1827,7 +1827,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "Bad Key",
-            "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+            "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.1.0",
@@ -1925,7 +1925,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "+z6q2S0tGsWyMxQ0I6ZGIeQTkk5/S4gB4j9j/4Bb2zzVpaaOpl6OFvYScMtra196tK02DUUtQvhpBz2ZK38WAg==",
+            "signature": "mu1iIV/LATAVzF7IpHId11sqLRaUNPwFN3Nbfem1u9u+94bXj6R7/L8tKHDEHzw8oXKAaRPGgWVjYx73NcjSAQ==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.0",
@@ -2006,7 +2006,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack acme-pack has invalid semantic version 1.0"
@@ -2017,7 +2017,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "wShaDt6Dt1A5L2hVO4N9p0lzJNWNgV0ek9YYDjG9Js5yR0knHioXx6B34S74aOCf3p8h2KyHxdiYFm+jby/MBA==",
+            "signature": "zFluEngc/jCL481RAjivhl9JtPpcuA/G7WG+Ql7BsaBFVCmdw2tmI2tqqRF9jz0MkzI/aBcUk5iO+GMdZiefAg==",
             "pack": {
               "id": "Acme-Pack",
               "version": "2.0.0",
@@ -2098,7 +2098,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design template deck-one requires an HTTPS URL"
@@ -2109,7 +2109,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "gMCI0oOzBOmRpS+/J2AWQX7LSyT8pKTy7ccXmtzIeZcO5/vQ4+KKcib7jq91N4UZ8mi+6o2LaqbpKM0Pc7YYBw==",
+            "signature": "jR/VoKsyjjjBN+dnIIbZOi7vQgd6pYCzfROArTRN5w7+UyBnPaISlbfZJtp3oylf0Qz/1iPa4ne2mAO+z2ANCQ==",
             "pack": {
               "id": "Acme-Pack",
               "version": "2.0.0",
@@ -2190,7 +2190,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design template deck-one URL extension does not match pptx"
@@ -2201,7 +2201,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "+gJzj6Usu2bnAT16a04CeGf827Z34p8KC8w8B2Mu8xGcJKivIi1a5A3rZBEpFRT4M/g8AoNUKlWChF6FmLBsBQ==",
+            "signature": "X1G+UyJq+6M7osuyguUB+b7yogwAJT3ihPC+QcBob/LegHghogGkmrJcqOrDye68Zd9NwRL9HWIPM1ASshwLCg==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.0.0",
@@ -2302,7 +2302,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack contains duplicate template id deck-one"
@@ -2313,7 +2313,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "x+FHYWtBQVY/o3OXMVqgKkR3XrLmDZs+q40h/kddgyIoX4uxYf5SawNfM1kCG2D2Xj1TQ8U6KzCHqR8u0HMvDw==",
+            "signature": "saDOOxZZYLOYY6QQ22XszJSA2PWh9/uRDOkqJ5dbRTweQE5YRxKfu2laAT4wiMgYbCsZnn3PHwrikdCtsq6iAA==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.0.0",
@@ -2369,7 +2369,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design profile a has unsupported format gif"
@@ -2380,7 +2380,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "HfkrkLjJg3Y1xYfp8LAYfdIznw2o+jk32lIFIQm5Foqx+dbCcSrHBPQuWE79NU/XpjkTM9BdeAo1h750XrFLAA==",
+            "signature": "c6tDDz/DVvqAMFP3vkIUW8o0Q59L4KuIFHiQIGj3mc0dO+a7YgSc24T/dfqi0jUlKa1mZgcVi2Yc1ohZBvLhDA==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.0.0",
@@ -2432,7 +2432,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design profile a must be an object"
@@ -2443,7 +2443,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "ue5cqjy9SGAOpZmbRaQtlph5WPtlnSt27OX3VUqaEnCdfo0L82GsfA6nZuGTMo/P7AksBN1M06qOaws6QRhLBA==",
+            "signature": "yaNydyeHgawriYmqrtuBh0afi2gCVKlFj4Sp2JZVPYsKZK0Wl5iDJAzX9Z579xxTMbUTQJCuqyb33JjsaEOBDQ==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.0.0",
@@ -2503,7 +2503,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "error": "Office design pack acme-pack has unsupported default format gif"
@@ -2514,7 +2514,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "XbaGA//ei6m76Vt3OnE/V0vtLfBVASxW5qaEBgbnM3j+Yw5PCiOute559poueIIsRfeEK/kzXzjm47KuKrBLCw==",
+            "signature": "a4AbR3dzORoqJKvGbuJ+luBd/Pw9c+vRyIT+Ys52dMVXGsXuPhcIq3pcMwJNMWVHIr38JKhpchKSyC2ys9lvBg==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.2.0-beta.1",
@@ -2595,7 +2595,7 @@
             }
           },
           "trustedKeys": {
-            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+            "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
           }
         },
         "value": {
@@ -2728,7 +2728,7 @@
           "envelope": {
             "schemaVersion": 1,
             "keyId": "key-1",
-            "signature": "XbaGA//ei6m76Vt3OnE/V0vtLfBVASxW5qaEBgbnM3j+Yw5PCiOute559poueIIsRfeEK/kzXzjm47KuKrBLCw==",
+            "signature": "a4AbR3dzORoqJKvGbuJ+luBd/Pw9c+vRyIT+Ys52dMVXGsXuPhcIq3pcMwJNMWVHIr38JKhpchKSyC2ys9lvBg==",
             "pack": {
               "id": "Acme-Pack",
               "version": "1.2.0-beta.1",
@@ -3394,7 +3394,7 @@
       "config": {
         "manifestUrl": "",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -3424,8 +3424,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -3445,7 +3445,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -3622,7 +3622,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -3714,7 +3714,7 @@
           },
           "lastCheckedAt": 1700000000000,
           "lastActivatedAt": 1700000000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         }
       }
@@ -3730,7 +3730,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -3894,7 +3894,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -4065,7 +4065,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -4226,7 +4226,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"bf829718\""
+          "ifNoneMatch": "\"46d63f82\""
         }
       ]
     },
@@ -4237,7 +4237,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -4329,7 +4329,7 @@
           },
           "lastCheckedAt": 1700000600000,
           "lastActivatedAt": 1700000000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         },
         "state.json.bak": {
@@ -4340,7 +4340,7 @@
           },
           "lastCheckedAt": 1700000000000,
           "lastActivatedAt": 1700000000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         }
       }
@@ -4351,8 +4351,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiVDFpK3F6N21zbUNkR3ZMOUhDT1ltWVVZeE40YWNYdXVXcTRLKy8yeW1DOHBVSnVZcW9JVmh1WllXd1Y2T09heE9KRnZ5bEoxcVBhYTcyb1RlajNiQkE9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
-          "etag": "\"5cb76d7f\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiR1ZIUkJmSlJsYWFJYzlaK280Y0YrV2JoaEdJWGZJWm9jZGR5SGNBQTYxcjM2SWdoZXdSNDhGdVRxVVJUNVlTUk5Oa0ZDQkJ5clA3aDh0VWJKbzdQQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
+          "etag": "\"e2bd00c7\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -4377,7 +4377,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -4551,7 +4551,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"bf829718\""
+          "ifNoneMatch": "\"46d63f82\""
         },
         {
           "url": "https://packs.example.test/t/deck-one.pptx",
@@ -4570,7 +4570,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -4657,7 +4657,7 @@
         "packs/acme-pack/1.1.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+          "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.1.0",
@@ -4761,7 +4761,7 @@
           },
           "lastCheckedAt": 1700001200000,
           "lastActivatedAt": 1700001200000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": ""
         },
         "state.json.bak": {
@@ -4772,7 +4772,7 @@
           },
           "lastCheckedAt": 1700000600000,
           "lastActivatedAt": 1700000000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         }
       }
@@ -4783,8 +4783,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoic2FjTG1kdlRhS28zL25JdnlRZkhsRGtZb3Vza1hMbFBUL0FoNWNoZkNxSDZyY2Q3QVFvV0FoSkJDamZkSVZ0U0NQYU9HM1VYN1J4dXNtUWNEQmEyQWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMC45LjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"f37e7bef\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiYmpPNEhFd3A5akFkbVY0bnlVTTRLMndaeE8ydlFtMGdpNVFuK3o1TTlhNlVmUzR1K24wOXMwdllpZGxQUEpEOTdYUzk4clRiRExwSG9PTUVPWVBMQ2c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMC45LjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"8fdf79af\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -4804,7 +4804,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -4979,7 +4979,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -4989,8 +4989,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiWGJhR0EvL2VpNm03NlZ0M09uRS9WMHZ0TGZCVkFTeFc1cWFFQmdibk0zaitZdzVQQ2lPdXRlNTU5cG91ZUlJc1JmZUVLL2t6WHpqbTQ3S3VLckJMQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4yLjAtYmV0YS4xIiwiY2hhbm5lbCI6IlN0YWJsZSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfV19fQ==",
-          "etag": "\"f104c627\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiYTRBYlIzZHpPUm9xSkt2R2J1SitsdUJkL1B3OWMrdlJ5SVQrWXM1MmRNVlhHc1h1UGhjSXEzcGNNd0pOTVdWSElyMzhKS2hwY2hLU3lDMnlzOWx2Qmc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4yLjAtYmV0YS4xIiwiY2hhbm5lbCI6IlN0YWJsZSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfV19fQ==",
+          "etag": "\"cf495994\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -5010,7 +5010,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -5172,7 +5172,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"f37e7bef\""
+          "ifNoneMatch": "\"8fdf79af\""
         },
         {
           "url": "https://packs.example.test/t/deck-one.pptx",
@@ -5186,8 +5186,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiVDFpK3F6N21zbUNkR3ZMOUhDT1ltWVVZeE40YWNYdXVXcTRLKy8yeW1DOHBVSnVZcW9JVmh1WllXd1Y2T09heE9KRnZ5bEoxcVBhYTcyb1RlajNiQkE9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
-          "etag": "\"5cb76d7f\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiR1ZIUkJmSlJsYWFJYzlaK280Y0YrV2JoaEdJWGZJWm9jZGR5SGNBQTYxcjM2SWdoZXdSNDhGdVRxVVJUNVlTUk5Oa0ZDQkJ5clA3aDh0VWJKbzdQQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
+          "etag": "\"e2bd00c7\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -5207,7 +5207,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -5369,7 +5369,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"f104c627\""
+          "ifNoneMatch": "\"cf495994\""
         }
       ]
     },
@@ -5379,7 +5379,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -5417,8 +5417,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiVDFpK3F6N21zbUNkR3ZMOUhDT1ltWVVZeE40YWNYdXVXcTRLKy8yeW1DOHBVSnVZcW9JVmh1WllXd1Y2T09heE9KRnZ5bEoxcVBhYTcyb1RlajNiQkE9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDMwLTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
-          "etag": "\"c5bfbfb9\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiR1ZIUkJmSlJsYWFJYzlaK280Y0YrV2JoaEdJWGZJWm9jZGR5SGNBQTYxcjM2SWdoZXdSNDhGdVRxVVJUNVlTUk5Oa0ZDQkJ5clA3aDh0VWJKbzdQQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDMwLTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
+          "etag": "\"294f14d6\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -5438,7 +5438,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -5600,7 +5600,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -5611,7 +5611,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -5698,7 +5698,7 @@
         "packs/acme-pack/1.1.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+          "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.1.0",
@@ -5797,7 +5797,7 @@
         "packs/acme-pack/1.2.0-beta.1/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "XbaGA//ei6m76Vt3OnE/V0vtLfBVASxW5qaEBgbnM3j+Yw5PCiOute559poueIIsRfeEK/kzXzjm47KuKrBLCw==",
+          "signature": "a4AbR3dzORoqJKvGbuJ+luBd/Pw9c+vRyIT+Ys52dMVXGsXuPhcIq3pcMwJNMWVHIr38JKhpchKSyC2ys9lvBg==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.2.0-beta.1",
@@ -5889,7 +5889,7 @@
           },
           "lastCheckedAt": 1700001800000,
           "lastActivatedAt": 1700001200000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": "Office design pack signature verification failed"
         },
         "state.json.bak": {
@@ -5900,7 +5900,7 @@
           },
           "lastCheckedAt": 1700001200000,
           "lastActivatedAt": 1700001200000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": ""
         }
       }
@@ -5923,7 +5923,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6085,7 +6085,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -6106,7 +6106,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6268,7 +6268,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -6289,7 +6289,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6451,7 +6451,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -6467,7 +6467,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6629,7 +6629,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -6639,7 +6639,7 @@
       "config": {
         "manifestUrl": "http://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6805,7 +6805,7 @@
       "config": {
         "manifestUrl": "packs",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -6971,8 +6971,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiNVNhVEhXbnZWTzU2L1B6K1pLSlhhKzV6VElueDhEd3AvVjBKcUJWQjVOaE95clV1OWk3dXRGbWVRdXYxQUFOM3pndkpzbUw1ZGdPYW51TERraUxWQlE9PSIsInBhY2siOnsiaWQiOiJPdGhlci1QYWNrIiwidmVyc2lvbiI6IjEuMS4wIiwiY2hhbm5lbCI6IlN0YWJsZSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfSx7ImlkIjoiZGVjay10d28iLCJsYWJlbCI6IkRlY2sgZGVjay10d28iLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLXR3by5wcHR4Iiwic2hhMjU2IjoiMmRmOWVkMjU0OWJlNWVmYWVmOGEyNTMxNWEyMmRiYjVlMjk4OWM5NDc5MmRiYWNiM2Q5ZDk5MjQxZjE5MWNhNSIsImJ5dGVzIjo3MTV9XX19",
-          "etag": "\"9ff96372\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUFMWjE0V1prUkR0eDRnNWdxRWFmYVcwYUE2Q3E2bFNORHU5WDZxS1dTNmVXcWowdWY1YktzL0tTSStuL3pDdlo3dXV2bS9aRTB6UEVZZEhreDNUREE9PSIsInBhY2siOnsiaWQiOiJPdGhlci1QYWNrIiwidmVyc2lvbiI6IjEuMS4wIiwiY2hhbm5lbCI6IlN0YWJsZSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfSx7ImlkIjoiZGVjay10d28iLCJsYWJlbCI6IkRlY2sgZGVjay10d28iLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLXR3by5wcHR4Iiwic2hhMjU2IjoiMmRmOWVkMjU0OWJlNWVmYWVmOGEyNTMxNWEyMmRiYjVlMjk4OWM5NDc5MmRiYWNiM2Q5ZDk5MjQxZjE5MWNhNSIsImJ5dGVzIjo3MTV9XX19",
+          "etag": "\"ad7c82d7\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -6992,7 +6992,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false,
@@ -7155,7 +7155,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -7165,8 +7165,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiQ0UraU41dHNUZHRmL20vVUp6SDg1aFp2QWNvbHc3OE9nbGlkMk80N3VHSXlIb2FCV1JVQ1FsYmo5eDZEcDRyMHB1OVk2WDZ6NUdoZjAzNTU5a0MvRHc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiYmV0YSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfSx7ImlkIjoiZGVjay10d28iLCJsYWJlbCI6IkRlY2sgZGVjay10d28iLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLXR3by5wcHR4Iiwic2hhMjU2IjoiMmRmOWVkMjU0OWJlNWVmYWVmOGEyNTMxNWEyMmRiYjVlMjk4OWM5NDc5MmRiYWNiM2Q5ZDk5MjQxZjE5MWNhNSIsImJ5dGVzIjo3MTV9XX19",
-          "etag": "\"603747a9\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiaXZJMG1Gd3UzSm5LME1tMnF5ZnloWUNSS3FibEp0U09ySTJpV2piTW1admZMcGJIcEorV0lxTkZZcWFmMy9ZcHkvV05RZG9uanVHZVIwMms0eFBZRHc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiYmV0YSIsInB1Ymxpc2hlZEF0IjoiMjAyNi0wMS0wMlQwMzowNDowNS4wMDBaIiwicHJvZmlsZXMiOnsiRWRpdG9yaWFsIjp7ImV4dGVuZHMiOiJCYXNlIiwiZm9ybWF0cyI6eyJwcHR4Ijp7ImRlbnNpdHkiOiJsaWdodCJ9fSwidG9uZSI6ImNhbG0ifX0sImRlZmF1bHRQcm9maWxlcyI6eyJwcHR4IjoiRWRpdG9yaWFsIn0sImxheW91dHMiOlt7ImlkIjoiQ292ZXItQSIsImZvcm1hdCI6IlBQVFgiLCJraW5kIjoiIENvdmVyICIsInRlbXBsYXRlSWQiOiJEZWNrLU9uZSIsInB1cnBvc2VzIjpbIkV4cGxhaW4iLCJleHBsYWluIiwiICJdLCJzbG90cyI6W3sicm9sZSI6IlRpdGxlIiwic2hhcGUiOjEsInR5cGUiOiJURVhUIiwicmVxdWlyZWQiOnRydWUsImdlb21ldHJ5Ijp7IngiOjF9fV0sImNhcGFjaXR5Ijp7InRleHRTbG90cyI6MywidGV4dEFyZWEiOjUwMDB9LCJwcmlvcml0eSI6NSwiZGVmYXVsdHMiOnsiYmFja2dyb3VuZCI6IjExMTExMSJ9fSx7ImlkIjoiUGxhaW4iLCJraW5kIjoicHJvY2VzcyJ9XSwidGVtcGxhdGVzIjpbeyJpZCI6ImRlY2stb25lIiwibGFiZWwiOiJEZWNrIGRlY2stb25lIiwiZm9ybWF0IjoicHB0eCIsInVybCI6Imh0dHBzOi8vcGFja3MuZXhhbXBsZS50ZXN0L3QvZGVjay1vbmUucHB0eCIsInNoYTI1NiI6IjU0OTQ2MDZkNTI1OWE2ZmQ5MzIwOTdhNjYzYWE5ODhhOTk2ZmYzMDk1ZDdiMjNjMGJkYWNkMjRlMmM1NWZmMmYiLCJieXRlcyI6NTIwLCJsYXlvdXRzIjpbeyJpZCI6ImlubmVyIiwia2luZCI6InByb2Nlc3MiLCJzbG90cyI6W3sicm9sZSI6InRpdGxlIiwic2hhcGUiOjJ9XX1dfSx7ImlkIjoiZGVjay10d28iLCJsYWJlbCI6IkRlY2sgZGVjay10d28iLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLXR3by5wcHR4Iiwic2hhMjU2IjoiMmRmOWVkMjU0OWJlNWVmYWVmOGEyNTMxNWEyMmRiYjVlMjk4OWM5NDc5MmRiYWNiM2Q5ZDk5MjQxZjE5MWNhNSIsImJ5dGVzIjo3MTV9XX19",
+          "etag": "\"4fd9305e\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -7186,7 +7186,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -7348,7 +7348,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -7358,7 +7358,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false,
@@ -7522,7 +7522,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"5cb76d7f\""
+          "ifNoneMatch": "\"e2bd00c7\""
         }
       ]
     },
@@ -7533,7 +7533,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -7620,7 +7620,7 @@
         "packs/acme-pack/1.1.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+          "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.1.0",
@@ -7719,7 +7719,7 @@
         "packs/acme-pack/1.2.0-beta.1/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "XbaGA//ei6m76Vt3OnE/V0vtLfBVASxW5qaEBgbnM3j+Yw5PCiOute559poueIIsRfeEK/kzXzjm47KuKrBLCw==",
+          "signature": "a4AbR3dzORoqJKvGbuJ+luBd/Pw9c+vRyIT+Ys52dMVXGsXuPhcIq3pcMwJNMWVHIr38JKhpchKSyC2ys9lvBg==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.2.0-beta.1",
@@ -7811,7 +7811,7 @@
           },
           "lastCheckedAt": 1700001800000,
           "lastActivatedAt": 1700001200000,
-          "etag": "\"603747a9\"",
+          "etag": "\"4fd9305e\"",
           "lastError": ""
         },
         "state.json.bak": {
@@ -7822,7 +7822,7 @@
           },
           "lastCheckedAt": 1700001800000,
           "lastActivatedAt": 1700001200000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": "Office design pack channel beta does not match stable"
         }
       }
@@ -7857,8 +7857,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -7878,7 +7878,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -7915,8 +7915,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -7936,7 +7936,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -7973,8 +7973,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -7994,7 +7994,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -8031,8 +8031,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         }
       },
@@ -8044,7 +8044,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -8081,8 +8081,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoid1NoYUR0NkR0MUE1TDJoVk80TjlwMGx6Sk5XTmdWMGVrOVlZRGpHOUpzNXlSMGtuSGlvWHg2QjM0Uzc0YU9DZjNwOGgyS3lIeGRpWUZtK2pieS9NQkE9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMi4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cDovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stb25lLnBwdHgiLCJzaGEyNTYiOiI1NDk0NjA2ZDUyNTlhNmZkOTMyMDk3YTY2M2FhOTg4YTk5NmZmMzA5NWQ3YjIzYzBiZGFjZDI0ZTJjNTVmZjJmIiwiYnl0ZXMiOjUyMCwibGF5b3V0cyI6W3siaWQiOiJpbm5lciIsImtpbmQiOiJwcm9jZXNzIiwic2xvdHMiOlt7InJvbGUiOiJ0aXRsZSIsInNoYXBlIjoyfV19XX1dfX0=",
-          "etag": "\"86515820\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiekZsdUVuZ2MvakNMNDgxUkFqaXZobDlKdFBwY3VBL0c3V0crUWw3QnNhQkZWQ21kdzJ0bUkydHFxUkY5anowTWt6SS9hQmNVazVpTytHTWRaaWVmQWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMi4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cDovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stb25lLnBwdHgiLCJzaGEyNTYiOiI1NDk0NjA2ZDUyNTlhNmZkOTMyMDk3YTY2M2FhOTg4YTk5NmZmMzA5NWQ3YjIzYzBiZGFjZDI0ZTJjNTVmZjJmIiwiYnl0ZXMiOjUyMCwibGF5b3V0cyI6W3siaWQiOiJpbm5lciIsImtpbmQiOiJwcm9jZXNzIiwic2xvdHMiOlt7InJvbGUiOiJ0aXRsZSIsInNoYXBlIjoyfV19XX1dfX0=",
+          "etag": "\"ea4591e1\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -8102,7 +8102,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -8175,8 +8175,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiMUxTUVNTSWVieG9IZGFPY0VacUR6SGRhdVlDZURoZWEyTWl4bVpIVGdITk43d3NKdnRwOFRnUVBKL3FoV1JkWjNsOGtsRitQNG1yZFRJc0dUTzJKQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
-          "etag": "\"bf829718\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiRTJPdGx3cWVIRk5ITUxrS25hVzhSbzAvTWxCRXprVXp2TlJ5c0xqZVB4OGRLVVNOY24zZ2J5c2Zlb3MrOCtrQUdTMVVRSHNJL1dpUGxWem11SFk0QWc9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4wLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19XX19",
+          "etag": "\"46d63f82\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -8196,7 +8196,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -8377,8 +8377,8 @@
       "routes": {
         "https://packs.example.test/manifest.json": {
           "status": 200,
-          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiVDFpK3F6N21zbUNkR3ZMOUhDT1ltWVVZeE40YWNYdXVXcTRLKy8yeW1DOHBVSnVZcW9JVmh1WllXd1Y2T09heE9KRnZ5bEoxcVBhYTcyb1RlajNiQkE9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
-          "etag": "\"5cb76d7f\"",
+          "bodyBase64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJrZXlJZCI6ImtleS0xIiwic2lnbmF0dXJlIjoiR1ZIUkJmSlJsYWFJYzlaK280Y0YrV2JoaEdJWGZJWm9jZGR5SGNBQTYxcjM2SWdoZXdSNDhGdVRxVVJUNVlTUk5Oa0ZDQkJ5clA3aDh0VWJKbzdQQ3c9PSIsInBhY2siOnsiaWQiOiJBY21lLVBhY2siLCJ2ZXJzaW9uIjoiMS4xLjAiLCJjaGFubmVsIjoiU3RhYmxlIiwicHVibGlzaGVkQXQiOiIyMDI2LTAxLTAyVDAzOjA0OjA1LjAwMFoiLCJwcm9maWxlcyI6eyJFZGl0b3JpYWwiOnsiZXh0ZW5kcyI6IkJhc2UiLCJmb3JtYXRzIjp7InBwdHgiOnsiZGVuc2l0eSI6ImxpZ2h0In19LCJ0b25lIjoiY2FsbSJ9fSwiZGVmYXVsdFByb2ZpbGVzIjp7InBwdHgiOiJFZGl0b3JpYWwifSwibGF5b3V0cyI6W3siaWQiOiJDb3Zlci1BIiwiZm9ybWF0IjoiUFBUWCIsImtpbmQiOiIgQ292ZXIgIiwidGVtcGxhdGVJZCI6IkRlY2stT25lIiwicHVycG9zZXMiOlsiRXhwbGFpbiIsImV4cGxhaW4iLCIgIl0sInNsb3RzIjpbeyJyb2xlIjoiVGl0bGUiLCJzaGFwZSI6MSwidHlwZSI6IlRFWFQiLCJyZXF1aXJlZCI6dHJ1ZSwiZ2VvbWV0cnkiOnsieCI6MX19XSwiY2FwYWNpdHkiOnsidGV4dFNsb3RzIjozLCJ0ZXh0QXJlYSI6NTAwMH0sInByaW9yaXR5Ijo1LCJkZWZhdWx0cyI6eyJiYWNrZ3JvdW5kIjoiMTExMTExIn19LHsiaWQiOiJQbGFpbiIsImtpbmQiOiJwcm9jZXNzIn1dLCJ0ZW1wbGF0ZXMiOlt7ImlkIjoiZGVjay1vbmUiLCJsYWJlbCI6IkRlY2sgZGVjay1vbmUiLCJmb3JtYXQiOiJwcHR4IiwidXJsIjoiaHR0cHM6Ly9wYWNrcy5leGFtcGxlLnRlc3QvdC9kZWNrLW9uZS5wcHR4Iiwic2hhMjU2IjoiNTQ5NDYwNmQ1MjU5YTZmZDkzMjA5N2E2NjNhYTk4OGE5OTZmZjMwOTVkN2IyM2MwYmRhY2QyNGUyYzU1ZmYyZiIsImJ5dGVzIjo1MjAsImxheW91dHMiOlt7ImlkIjoiaW5uZXIiLCJraW5kIjoicHJvY2VzcyIsInNsb3RzIjpbeyJyb2xlIjoidGl0bGUiLCJzaGFwZSI6Mn1dfV19LHsiaWQiOiJkZWNrLXR3byIsImxhYmVsIjoiRGVjayBkZWNrLXR3byIsImZvcm1hdCI6InBwdHgiLCJ1cmwiOiJodHRwczovL3BhY2tzLmV4YW1wbGUudGVzdC90L2RlY2stdHdvLnBwdHgiLCJzaGEyNTYiOiIyZGY5ZWQyNTQ5YmU1ZWZhZWY4YTI1MzE1YTIyZGJiNWUyOTg5Yzk0NzkyZGJhY2IzZDlkOTkyNDFmMTkxY2E1IiwiYnl0ZXMiOjcxNX1dfX0=",
+          "etag": "\"e2bd00c7\"",
           "conditional": true
         },
         "https://packs.example.test/t/deck-one.pptx": {
@@ -8398,7 +8398,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -8579,7 +8579,7 @@
       "requests": [
         {
           "url": "https://packs.example.test/manifest.json",
-          "ifNoneMatch": "\"bf829718\""
+          "ifNoneMatch": "\"46d63f82\""
         },
         {
           "url": "https://packs.example.test/t/deck-one.pptx",
@@ -8598,7 +8598,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -8685,7 +8685,7 @@
         "packs/acme-pack/1.1.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+          "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.1.0",
@@ -8789,7 +8789,7 @@
           },
           "lastCheckedAt": 1700003060000,
           "lastActivatedAt": 1700003060000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": ""
         },
         "state.json.bak": {
@@ -8800,7 +8800,7 @@
           },
           "lastCheckedAt": 1700003000000,
           "lastActivatedAt": 1700003000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         },
         "template-index.json": {
@@ -8824,7 +8824,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9069,7 +9069,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9324,7 +9324,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9506,7 +9506,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9525,7 +9525,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9544,7 +9544,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9856,7 +9856,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9875,7 +9875,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9895,7 +9895,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9915,7 +9915,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -9936,7 +9936,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -10233,7 +10233,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -10250,7 +10250,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -10495,7 +10495,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -10805,7 +10805,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false,
@@ -11226,6 +11226,20 @@
       "op": "snapshot",
       "name": "bindings written",
       "value": {
+        "bindings/<root>/docs/c.pptx": {
+          "schemaVersion": 1,
+          "source": "mixdog-starter",
+          "format": "pptx",
+          "packId": "",
+          "packVersion": "",
+          "keyId": "",
+          "templateId": "",
+          "templateVersion": "",
+          "templateSource": "",
+          "pinnedAt": "x",
+          "documentPath": "<root>/docs/c.pptx",
+          "updatedAt": "2023-11-14T23:05:20.000Z"
+        },
         "bindings/<root>/docs/b.pptx": {
           "schemaVersion": 9,
           "source": "remote-pack",
@@ -11271,20 +11285,6 @@
           "documentPath": "<root>/docs/f.pptx",
           "updatedAt": "2023-11-14T23:05:20.000Z"
         },
-        "bindings/<root>/docs/c.pptx": {
-          "schemaVersion": 1,
-          "source": "mixdog-starter",
-          "format": "pptx",
-          "packId": "",
-          "packVersion": "",
-          "keyId": "",
-          "templateId": "",
-          "templateVersion": "",
-          "templateSource": "",
-          "pinnedAt": "x",
-          "documentPath": "<root>/docs/c.pptx",
-          "updatedAt": "2023-11-14T23:05:20.000Z"
-        },
         "bindings/<root>/docs/e.pptx": {
           "schemaVersion": 1,
           "source": "remote-pack",
@@ -11302,7 +11302,7 @@
         "packs/acme-pack/1.0.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "1LSQSSIebxoHdaOcEZqDzHdauYCeDhea2MixmZHTgHNN7wsJvtp8TgQPJ/qhWRdZ3l8klF+P4mrdTIsGTO2JCw==",
+          "signature": "E2OtlwqeHFNHMLkKnaW8Ro0/MlBEzkUzvNRysLjePx8dKUSNcn3gbysfeos+8+kAGS1UQHsI/WiPlVzmuHY4Ag==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.0.0",
@@ -11389,7 +11389,7 @@
         "packs/acme-pack/1.1.0/envelope.json": {
           "schemaVersion": 1,
           "keyId": "key-1",
-          "signature": "T1i+qz7msmCdGvL9HCOYmYUYxN4acXuuWq4K+/2ymC8pUJuYqoIVhuZYWwV6OOaxOJFvylJ1qPaa72oTej3bBA==",
+          "signature": "GVHRBfJRlaaIc9Z+o4cF+WbhhGIXfIZocddyHcAA61r36IghewR48FuTqURT5YSRNNkFCBByrP7h8tUbJo7PCw==",
           "pack": {
             "id": "Acme-Pack",
             "version": "1.1.0",
@@ -11493,7 +11493,7 @@
           },
           "lastCheckedAt": 1700003060000,
           "lastActivatedAt": 1700003060000,
-          "etag": "\"5cb76d7f\"",
+          "etag": "\"e2bd00c7\"",
           "lastError": ""
         },
         "state.json.bak": {
@@ -11504,7 +11504,7 @@
           },
           "lastCheckedAt": 1700003000000,
           "lastActivatedAt": 1700003000000,
-          "etag": "\"bf829718\"",
+          "etag": "\"46d63f82\"",
           "lastError": ""
         },
         "template-index.json": {
@@ -11528,7 +11528,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -11831,7 +11831,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -11872,7 +11872,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -12118,7 +12118,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -12160,7 +12160,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -12463,7 +12463,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -12708,7 +12708,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -12957,7 +12957,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -13003,7 +13003,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -13030,7 +13030,7 @@
       "config": {
         "manifestUrl": "https://packs.example.test/manifest.json",
         "trustedKeys": {
-          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmTpfVtoyx9KCbdJk4dmVR5WuUQeAkqqhw+9d734LY94=\n-----END PUBLIC KEY-----\n"
+          "key-1": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5vFPqoWkc+JZc1gIwqEA1Y481qJXBLNM44VUmU7nGjw=\n-----END PUBLIC KEY-----\n"
         },
         "templateDirectories": [],
         "discoverInstalledTemplates": false
@@ -13106,7 +13106,7 @@
         "compositionIds": [
           "c1"
         ],
-        "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+        "documentKey": "<key docs/h1.pptx>",
         "createdAt": "2023-11-14T22:13:21.000Z"
       }
     },
@@ -13140,7 +13140,7 @@
           "c2",
           "c1"
         ],
-        "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+        "documentKey": "<key docs/h2.pptx>",
         "createdAt": "2023-11-14T22:13:22.000Z"
       }
     },
@@ -13174,7 +13174,7 @@
           "c3",
           "c1"
         ],
-        "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+        "documentKey": "<key docs/h3.pptx>",
         "createdAt": "2023-11-14T22:13:23.000Z"
       }
     },
@@ -13208,7 +13208,7 @@
           "c4",
           "c1"
         ],
-        "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+        "documentKey": "<key docs/h4.pptx>",
         "createdAt": "2023-11-14T22:13:24.000Z"
       }
     },
@@ -13233,7 +13233,7 @@
         "compositionIds": [
           "z"
         ],
-        "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+        "documentKey": "<key docs/h2.pptx>",
         "createdAt": "2023-11-14T22:13:24.000Z"
       }
     },
@@ -13424,7 +13424,7 @@
           "id62",
           "id63"
         ],
-        "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+        "documentKey": "<key docs/h6.pptx>",
         "createdAt": "2023-11-14T22:13:24.000Z"
       }
     },
@@ -13504,7 +13504,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13516,7 +13516,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13529,7 +13529,7 @@
             "c4",
             "c1"
           ],
-          "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+          "documentKey": "<key docs/h4.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13542,7 +13542,7 @@
             "c3",
             "c1"
           ],
-          "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+          "documentKey": "<key docs/h3.pptx>",
           "createdAt": "2023-11-14T22:13:23.000Z"
         },
         {
@@ -13554,7 +13554,7 @@
           "compositionIds": [
             "c1"
           ],
-          "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+          "documentKey": "<key docs/h1.pptx>",
           "createdAt": "2023-11-14T22:13:21.000Z"
         }
       ]
@@ -13573,7 +13573,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13586,7 +13586,7 @@
             "c4",
             "c1"
           ],
-          "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+          "documentKey": "<key docs/h4.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13598,7 +13598,7 @@
           "compositionIds": [
             "c1"
           ],
-          "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+          "documentKey": "<key docs/h1.pptx>",
           "createdAt": "2023-11-14T22:13:21.000Z"
         }
       ]
@@ -13680,7 +13680,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13693,7 +13693,7 @@
             "c3",
             "c1"
           ],
-          "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+          "documentKey": "<key docs/h3.pptx>",
           "createdAt": "2023-11-14T22:13:23.000Z"
         }
       ]
@@ -13775,7 +13775,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13787,7 +13787,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13800,7 +13800,7 @@
             "c4",
             "c1"
           ],
-          "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+          "documentKey": "<key docs/h4.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13813,7 +13813,7 @@
             "c3",
             "c1"
           ],
-          "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+          "documentKey": "<key docs/h3.pptx>",
           "createdAt": "2023-11-14T22:13:23.000Z"
         }
       ]
@@ -13895,7 +13895,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -13907,7 +13907,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         }
       ]
@@ -13989,7 +13989,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14001,7 +14001,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14014,7 +14014,7 @@
             "c4",
             "c1"
           ],
-          "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+          "documentKey": "<key docs/h4.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14027,7 +14027,7 @@
             "c3",
             "c1"
           ],
-          "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+          "documentKey": "<key docs/h3.pptx>",
           "createdAt": "2023-11-14T22:13:23.000Z"
         },
         {
@@ -14039,7 +14039,7 @@
           "compositionIds": [
             "c1"
           ],
-          "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+          "documentKey": "<key docs/h1.pptx>",
           "createdAt": "2023-11-14T22:13:21.000Z"
         }
       ]
@@ -14121,7 +14121,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14133,7 +14133,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         }
       ]
@@ -14215,7 +14215,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         }
       ]
@@ -14297,7 +14297,7 @@
             "id62",
             "id63"
           ],
-          "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+          "documentKey": "<key docs/h6.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14309,7 +14309,7 @@
           "compositionIds": [
             "z"
           ],
-          "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+          "documentKey": "<key docs/h2.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         },
         {
@@ -14322,7 +14322,7 @@
             "c4",
             "c1"
           ],
-          "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+          "documentKey": "<key docs/h4.pptx>",
           "createdAt": "2023-11-14T22:13:24.000Z"
         }
       ]
@@ -14406,7 +14406,7 @@
                 "id62",
                 "id63"
               ],
-              "documentKey": "eca9fc77103c408c7f012f29bfb744d8398019dfb082ff912278edeb6494d944",
+              "documentKey": "<key docs/h6.pptx>",
               "createdAt": "2023-11-14T22:13:24.000Z"
             },
             {
@@ -14418,7 +14418,7 @@
               "compositionIds": [
                 "z"
               ],
-              "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+              "documentKey": "<key docs/h2.pptx>",
               "createdAt": "2023-11-14T22:13:24.000Z"
             },
             {
@@ -14431,7 +14431,7 @@
                 "c4",
                 "c1"
               ],
-              "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+              "documentKey": "<key docs/h4.pptx>",
               "createdAt": "2023-11-14T22:13:24.000Z"
             },
             {
@@ -14444,7 +14444,7 @@
                 "c3",
                 "c1"
               ],
-              "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+              "documentKey": "<key docs/h3.pptx>",
               "createdAt": "2023-11-14T22:13:23.000Z"
             },
             {
@@ -14456,7 +14456,7 @@
               "compositionIds": [
                 "c1"
               ],
-              "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+              "documentKey": "<key docs/h1.pptx>",
               "createdAt": "2023-11-14T22:13:21.000Z"
             }
           ]
@@ -14473,7 +14473,7 @@
               "compositionIds": [
                 "z"
               ],
-              "documentKey": "29e77c0f337dcfefdec1029fd5989541cdf9b9dce2f3a66339253d5ad0060644",
+              "documentKey": "<key docs/h2.pptx>",
               "createdAt": "2023-11-14T22:13:24.000Z"
             },
             {
@@ -14486,7 +14486,7 @@
                 "c4",
                 "c1"
               ],
-              "documentKey": "bf102e4216eedcc5bfe01652bcdd69cd67886740084a37be000f81ae48a910e4",
+              "documentKey": "<key docs/h4.pptx>",
               "createdAt": "2023-11-14T22:13:24.000Z"
             },
             {
@@ -14499,7 +14499,7 @@
                 "c3",
                 "c1"
               ],
-              "documentKey": "6602cf94500fe934cd8220aaee0766e0dfbc57072bc624725d53214a0a121786",
+              "documentKey": "<key docs/h3.pptx>",
               "createdAt": "2023-11-14T22:13:23.000Z"
             },
             {
@@ -14511,7 +14511,7 @@
               "compositionIds": [
                 "c1"
               ],
-              "documentKey": "7db7a311d8e697953ba11111be15cee4d7ea19281190fbfce085a557e217a806",
+              "documentKey": "<key docs/h1.pptx>",
               "createdAt": "2023-11-14T22:13:21.000Z"
             }
           ]
@@ -14548,7 +14548,7 @@
           "c100",
           "c1"
         ],
-        "documentKey": "7a43a659129078c3826ea38763fac78db085791a00567aa90c2239c10b3ba77e",
+        "documentKey": "<key docs/h100.pptx>",
         "createdAt": "2023-11-14T22:15:00.000Z"
       }
     },
@@ -14582,7 +14582,7 @@
           "c101",
           "c1"
         ],
-        "documentKey": "f899b4e7c5fdc475485833683571f9a5b2e1eaa6eb6fe4dc8ab052411bcd13cf",
+        "documentKey": "<key docs/h101.pptx>",
         "createdAt": "2023-11-14T22:15:01.000Z"
       }
     },
@@ -14616,7 +14616,7 @@
           "c102",
           "c1"
         ],
-        "documentKey": "062c647662ba4585e8b10932ca317eb4697317f3e77b29a76d22f851830e9d09",
+        "documentKey": "<key docs/h102.pptx>",
         "createdAt": "2023-11-14T22:15:02.000Z"
       }
     },
@@ -14650,7 +14650,7 @@
           "c103",
           "c1"
         ],
-        "documentKey": "d96744f65fa89ca92918d2762d93193fcf6322cb1a94b4464d53a7486c103de5",
+        "documentKey": "<key docs/h103.pptx>",
         "createdAt": "2023-11-14T22:15:03.000Z"
       }
     },
@@ -14684,7 +14684,7 @@
           "c104",
           "c1"
         ],
-        "documentKey": "3c24e22b4562ddd9dd346d0de81d795c1bd231d9fecf53c1a465cec467c9e43f",
+        "documentKey": "<key docs/h104.pptx>",
         "createdAt": "2023-11-14T22:15:04.000Z"
       }
     },
@@ -14718,7 +14718,7 @@
           "c105",
           "c1"
         ],
-        "documentKey": "bfe3d9d6c80ab1184889090ae72d0cc1450f4581265ea4deca3e05b96831df9e",
+        "documentKey": "<key docs/h105.pptx>",
         "createdAt": "2023-11-14T22:15:05.000Z"
       }
     },
@@ -14752,7 +14752,7 @@
           "c106",
           "c1"
         ],
-        "documentKey": "f7655aa3c4f299124cb8d8083369efe4e8ce1563a27ad74c7a506226b026b39a",
+        "documentKey": "<key docs/h106.pptx>",
         "createdAt": "2023-11-14T22:15:06.000Z"
       }
     },
@@ -14786,7 +14786,7 @@
           "c107",
           "c1"
         ],
-        "documentKey": "28a7f4387a55862df828318fed944aa7c7dc2513eeafd6f982c1a507357f8db5",
+        "documentKey": "<key docs/h107.pptx>",
         "createdAt": "2023-11-14T22:15:07.000Z"
       }
     },
@@ -14820,7 +14820,7 @@
           "c108",
           "c1"
         ],
-        "documentKey": "3f87953f7fd62a5738af3fd9fa36b2fe44c43fda5f2ced237153ef3f4dbe781d",
+        "documentKey": "<key docs/h108.pptx>",
         "createdAt": "2023-11-14T22:15:08.000Z"
       }
     },
@@ -14854,7 +14854,7 @@
           "c109",
           "c1"
         ],
-        "documentKey": "7d7aaf909d2493188fc3414f6ddf6fc94a04dddc8f6ac2d127eb3c81018bf19f",
+        "documentKey": "<key docs/h109.pptx>",
         "createdAt": "2023-11-14T22:15:09.000Z"
       }
     },
@@ -14888,7 +14888,7 @@
           "c110",
           "c1"
         ],
-        "documentKey": "f6b9bd99bc1331dd79d86fcf9a9edfa538a3a47c00dc0b53cba3127623f4bb19",
+        "documentKey": "<key docs/h110.pptx>",
         "createdAt": "2023-11-14T22:15:10.000Z"
       }
     },
@@ -14922,7 +14922,7 @@
           "c111",
           "c1"
         ],
-        "documentKey": "dcc3ebe9fcc5ce210df2a435b68e21828f06af705e9819673c22187c855b8c79",
+        "documentKey": "<key docs/h111.pptx>",
         "createdAt": "2023-11-14T22:15:11.000Z"
       }
     },
@@ -14956,7 +14956,7 @@
           "c112",
           "c1"
         ],
-        "documentKey": "3bade7fe40e926ec891c50386a909fb747b3f08a1b666663602af397c034cc0f",
+        "documentKey": "<key docs/h112.pptx>",
         "createdAt": "2023-11-14T22:15:12.000Z"
       }
     },
@@ -14990,7 +14990,7 @@
           "c113",
           "c1"
         ],
-        "documentKey": "72ac22db6a48de7983de0ac2f0323ad482737da09ef27815154da5cc9dec96fa",
+        "documentKey": "<key docs/h113.pptx>",
         "createdAt": "2023-11-14T22:15:13.000Z"
       }
     },
@@ -15024,7 +15024,7 @@
           "c114",
           "c1"
         ],
-        "documentKey": "b641c5e5cd2ecb63b3c1f508d32f9e5972f13b6909012c7260fcb7a02d96faf9",
+        "documentKey": "<key docs/h114.pptx>",
         "createdAt": "2023-11-14T22:15:14.000Z"
       }
     },
@@ -15058,7 +15058,7 @@
           "c115",
           "c1"
         ],
-        "documentKey": "aba5ea89309e4bffec72d32e848b08a04a6dd0b5582e3a0418f56e9c326a7181",
+        "documentKey": "<key docs/h115.pptx>",
         "createdAt": "2023-11-14T22:15:15.000Z"
       }
     },
@@ -15092,7 +15092,7 @@
           "c116",
           "c1"
         ],
-        "documentKey": "d4f49c988dd0d9b4525d49c86f8af215087fb01c74201b3ccc26d4305acfafac",
+        "documentKey": "<key docs/h116.pptx>",
         "createdAt": "2023-11-14T22:15:16.000Z"
       }
     },
@@ -15126,7 +15126,7 @@
           "c117",
           "c1"
         ],
-        "documentKey": "59930119f07891b3d08208f42376747afa95e3b23105adfb6314b5031d7d6472",
+        "documentKey": "<key docs/h117.pptx>",
         "createdAt": "2023-11-14T22:15:17.000Z"
       }
     },
@@ -15160,7 +15160,7 @@
           "c118",
           "c1"
         ],
-        "documentKey": "619ea23691322c8e4b894d3922d17d0f00a5b305060871a9f34db83568e414e5",
+        "documentKey": "<key docs/h118.pptx>",
         "createdAt": "2023-11-14T22:15:18.000Z"
       }
     },
@@ -15194,7 +15194,7 @@
           "c119",
           "c1"
         ],
-        "documentKey": "49f9380cb679d9d0ece619e059dd307bd1433af932968dbbc4668f6274098847",
+        "documentKey": "<key docs/h119.pptx>",
         "createdAt": "2023-11-14T22:15:19.000Z"
       }
     },
@@ -15228,7 +15228,7 @@
           "c120",
           "c1"
         ],
-        "documentKey": "e29f49545e732bca1db74a939fca503f4a0021919ec9d1208b528257f0b4ac37",
+        "documentKey": "<key docs/h120.pptx>",
         "createdAt": "2023-11-14T22:15:20.000Z"
       }
     },
@@ -15262,7 +15262,7 @@
           "c121",
           "c1"
         ],
-        "documentKey": "be9aec06e3a2a0a58309caf1ac18466317820be57417f357a4045aba8a733c77",
+        "documentKey": "<key docs/h121.pptx>",
         "createdAt": "2023-11-14T22:15:21.000Z"
       }
     },
@@ -15296,7 +15296,7 @@
           "c122",
           "c1"
         ],
-        "documentKey": "3167e4ac8ece9a356ff5c8fbd7cc741eaede0b5d1ad3e6ec7a72968de1696f63",
+        "documentKey": "<key docs/h122.pptx>",
         "createdAt": "2023-11-14T22:15:22.000Z"
       }
     },
@@ -15330,7 +15330,7 @@
           "c123",
           "c1"
         ],
-        "documentKey": "bdb1e59232c38f159cb1fed3694243694a69be1ec75e55362b21399e897b2818",
+        "documentKey": "<key docs/h123.pptx>",
         "createdAt": "2023-11-14T22:15:23.000Z"
       }
     },
@@ -15364,7 +15364,7 @@
           "c124",
           "c1"
         ],
-        "documentKey": "ef24984f72d83b946cc2f9aa7adb3d55a648c40748a8816344a278267c80cfb8",
+        "documentKey": "<key docs/h124.pptx>",
         "createdAt": "2023-11-14T22:15:24.000Z"
       }
     },
@@ -15398,7 +15398,7 @@
           "c125",
           "c1"
         ],
-        "documentKey": "a6d6631b7d52a8379f7278c0ce09f2f345ef3b2ee138261f6d7ac349ef88c5f1",
+        "documentKey": "<key docs/h125.pptx>",
         "createdAt": "2023-11-14T22:15:25.000Z"
       }
     },
@@ -15432,7 +15432,7 @@
           "c126",
           "c1"
         ],
-        "documentKey": "93202c994046b8f655c12a334aba94c65bf305d54ae843b3444e07bbc04426dc",
+        "documentKey": "<key docs/h126.pptx>",
         "createdAt": "2023-11-14T22:15:26.000Z"
       }
     },
@@ -15466,7 +15466,7 @@
           "c127",
           "c1"
         ],
-        "documentKey": "c19c407dfb592c2f1f03bf60948c010065a3334b2eb67f389f172f7fd13d2510",
+        "documentKey": "<key docs/h127.pptx>",
         "createdAt": "2023-11-14T22:15:27.000Z"
       }
     },
@@ -15500,7 +15500,7 @@
           "c128",
           "c1"
         ],
-        "documentKey": "b24dad020bd7fe24c15eb4fc09f893b98ca665326e146e017b7ae05e456f3c5b",
+        "documentKey": "<key docs/h128.pptx>",
         "createdAt": "2023-11-14T22:15:28.000Z"
       }
     },
@@ -15534,7 +15534,7 @@
           "c129",
           "c1"
         ],
-        "documentKey": "3f9ff17102ee562da9a6963b7403b65d437395142c383f417b0a01c759a354ab",
+        "documentKey": "<key docs/h129.pptx>",
         "createdAt": "2023-11-14T22:15:29.000Z"
       }
     },
@@ -15568,7 +15568,7 @@
           "c130",
           "c1"
         ],
-        "documentKey": "fb241f3c91c934915a62e3439afd22fb8b9c2716ec21fb7b3a900eeafb5224cf",
+        "documentKey": "<key docs/h130.pptx>",
         "createdAt": "2023-11-14T22:15:30.000Z"
       }
     },
@@ -15602,7 +15602,7 @@
           "c131",
           "c1"
         ],
-        "documentKey": "e93fc49a601b260f24aa9609637c5caf40a55eee6ecfd626a6251c68287ec9e3",
+        "documentKey": "<key docs/h131.pptx>",
         "createdAt": "2023-11-14T22:15:31.000Z"
       }
     },
@@ -15636,7 +15636,7 @@
           "c132",
           "c1"
         ],
-        "documentKey": "352f2bcc2c4b08f23ae500952e08645343f8ede07b7839d5130fb336dec2654c",
+        "documentKey": "<key docs/h132.pptx>",
         "createdAt": "2023-11-14T22:15:32.000Z"
       }
     },
@@ -15670,7 +15670,7 @@
           "c133",
           "c1"
         ],
-        "documentKey": "0f7ab25ae7ea623e745149d4e14af762d0fb8bf9f61199286b1b4bb0aefa77af",
+        "documentKey": "<key docs/h133.pptx>",
         "createdAt": "2023-11-14T22:15:33.000Z"
       }
     },
@@ -15704,7 +15704,7 @@
           "c134",
           "c1"
         ],
-        "documentKey": "a0f5712f788c9a491fa5a47817c365c083cebbdca81ac218700de980d7661fa3",
+        "documentKey": "<key docs/h134.pptx>",
         "createdAt": "2023-11-14T22:15:34.000Z"
       }
     },
@@ -15738,7 +15738,7 @@
           "c135",
           "c1"
         ],
-        "documentKey": "45dd7af83eef9597a5f5dde8c7c82f05f6111ac0f692cdf0f45d94beeff7548b",
+        "documentKey": "<key docs/h135.pptx>",
         "createdAt": "2023-11-14T22:15:35.000Z"
       }
     },
@@ -15772,7 +15772,7 @@
           "c136",
           "c1"
         ],
-        "documentKey": "de057dcede37dc7ed6c1c08c295eb4e4f598b737c8a3ba5238de099ab3c33991",
+        "documentKey": "<key docs/h136.pptx>",
         "createdAt": "2023-11-14T22:15:36.000Z"
       }
     },
@@ -15806,7 +15806,7 @@
           "c137",
           "c1"
         ],
-        "documentKey": "da16d8ffc8fb0b72c10fd39e02d45a684063268c3cf1bab0cd643225e770d68f",
+        "documentKey": "<key docs/h137.pptx>",
         "createdAt": "2023-11-14T22:15:37.000Z"
       }
     },
@@ -15840,7 +15840,7 @@
           "c138",
           "c1"
         ],
-        "documentKey": "538d5befbd26f16e374aaedf57de6397f0ba25013d99f7496225b5083f938cef",
+        "documentKey": "<key docs/h138.pptx>",
         "createdAt": "2023-11-14T22:15:38.000Z"
       }
     },
@@ -15874,7 +15874,7 @@
           "c139",
           "c1"
         ],
-        "documentKey": "16ce1fb1e1b0795cbcdce5a45363822ff4e84cb2155d3b39d55f033b7f15634f",
+        "documentKey": "<key docs/h139.pptx>",
         "createdAt": "2023-11-14T22:15:39.000Z"
       }
     },
@@ -15908,7 +15908,7 @@
           "c140",
           "c1"
         ],
-        "documentKey": "a3d5154cc9273c939618cff540adc334910e897c8891b7d0e64488ecdbaafd04",
+        "documentKey": "<key docs/h140.pptx>",
         "createdAt": "2023-11-14T22:15:40.000Z"
       }
     },
@@ -15942,7 +15942,7 @@
           "c141",
           "c1"
         ],
-        "documentKey": "9a5905487953d2e604fd62f01389f790f51e00e4197ab99401106fcebced7d95",
+        "documentKey": "<key docs/h141.pptx>",
         "createdAt": "2023-11-14T22:15:41.000Z"
       }
     },
@@ -15976,7 +15976,7 @@
           "c142",
           "c1"
         ],
-        "documentKey": "62eab3767e1cb28dac71e1cde19d8c81af3bf24267a36d902288db0501823424",
+        "documentKey": "<key docs/h142.pptx>",
         "createdAt": "2023-11-14T22:15:42.000Z"
       }
     },
@@ -16010,7 +16010,7 @@
           "c143",
           "c1"
         ],
-        "documentKey": "2d8669bcd47eb7488da6caf7f2d4a19673dd0202565a2999361ffa5adace9c66",
+        "documentKey": "<key docs/h143.pptx>",
         "createdAt": "2023-11-14T22:15:43.000Z"
       }
     },
@@ -16044,7 +16044,7 @@
           "c144",
           "c1"
         ],
-        "documentKey": "dc0dcc346a1678a211a63fd8595ae28ee8acd2f808d9da892a0febca5f2b62b6",
+        "documentKey": "<key docs/h144.pptx>",
         "createdAt": "2023-11-14T22:15:44.000Z"
       }
     },
@@ -16078,7 +16078,7 @@
           "c145",
           "c1"
         ],
-        "documentKey": "9640a066f76e04236ed4dbe3b7b8c76eb49f6f78c42cd30d26d3c8d023dcb262",
+        "documentKey": "<key docs/h145.pptx>",
         "createdAt": "2023-11-14T22:15:45.000Z"
       }
     },
@@ -16112,7 +16112,7 @@
           "c146",
           "c1"
         ],
-        "documentKey": "efd35458589f9095c5be52659e19e3dc441b3f4b80ab3edc0a7ec6f86ae8a1ac",
+        "documentKey": "<key docs/h146.pptx>",
         "createdAt": "2023-11-14T22:15:46.000Z"
       }
     },
@@ -16146,7 +16146,7 @@
           "c147",
           "c1"
         ],
-        "documentKey": "a4b5e979c2e2ff524762ab163fc0107957705c76c4d92358d4dce316ddba599d",
+        "documentKey": "<key docs/h147.pptx>",
         "createdAt": "2023-11-14T22:15:47.000Z"
       }
     },
@@ -16180,7 +16180,7 @@
           "c148",
           "c1"
         ],
-        "documentKey": "036a415075ff91d9d38ccc179d7d8f808686f6b4cbdb044039faa882d8392a85",
+        "documentKey": "<key docs/h148.pptx>",
         "createdAt": "2023-11-14T22:15:48.000Z"
       }
     },
@@ -16214,7 +16214,7 @@
           "c149",
           "c1"
         ],
-        "documentKey": "c933fcd233225939e64c572143c8225cf56cc83d7a02b1efe757a45ea7a4390f",
+        "documentKey": "<key docs/h149.pptx>",
         "createdAt": "2023-11-14T22:15:49.000Z"
       }
     },
@@ -16248,7 +16248,7 @@
           "c150",
           "c1"
         ],
-        "documentKey": "cc5fc54f3d3a69859b02f9387c735c93927b672518ce30c6fdabb39408520bcb",
+        "documentKey": "<key docs/h150.pptx>",
         "createdAt": "2023-11-14T22:15:50.000Z"
       }
     },
@@ -16282,7 +16282,7 @@
           "c151",
           "c1"
         ],
-        "documentKey": "6f17318111802ad59282e92fa8e85ccdb96676162cc4ed8eabcf3592dc652d7e",
+        "documentKey": "<key docs/h151.pptx>",
         "createdAt": "2023-11-14T22:15:51.000Z"
       }
     },
@@ -16316,7 +16316,7 @@
           "c152",
           "c1"
         ],
-        "documentKey": "3e3ef6bf5e81b43d83450931df31345adb47b1f1cef580ad45f08922d39136b8",
+        "documentKey": "<key docs/h152.pptx>",
         "createdAt": "2023-11-14T22:15:52.000Z"
       }
     },
@@ -16350,7 +16350,7 @@
           "c153",
           "c1"
         ],
-        "documentKey": "20a119b21ddcc84db847cead786982ddf1c0b8a442259ae01aa696b0bec2e946",
+        "documentKey": "<key docs/h153.pptx>",
         "createdAt": "2023-11-14T22:15:53.000Z"
       }
     },
@@ -16384,7 +16384,7 @@
           "c154",
           "c1"
         ],
-        "documentKey": "ce850cd872aa0c39815f05b8f612d4755916f44880a068a0b0ba460982c57a83",
+        "documentKey": "<key docs/h154.pptx>",
         "createdAt": "2023-11-14T22:15:54.000Z"
       }
     },
@@ -16418,7 +16418,7 @@
           "c155",
           "c1"
         ],
-        "documentKey": "9a04bcaa9ca2dec4c5fa6e45aa156450e16ecb1511332cc94028d148bd839419",
+        "documentKey": "<key docs/h155.pptx>",
         "createdAt": "2023-11-14T22:15:55.000Z"
       }
     },
@@ -16452,7 +16452,7 @@
           "c156",
           "c1"
         ],
-        "documentKey": "c70e24762c74274e4113fc5326772a4da6acca3236b56941c41498314bf58843",
+        "documentKey": "<key docs/h156.pptx>",
         "createdAt": "2023-11-14T22:15:56.000Z"
       }
     },
@@ -16486,7 +16486,7 @@
           "c157",
           "c1"
         ],
-        "documentKey": "45218fc3adeb4f7f88dc5382d231cbde87a9eed089dec7e596c2bd8cf9bf0800",
+        "documentKey": "<key docs/h157.pptx>",
         "createdAt": "2023-11-14T22:15:57.000Z"
       }
     },
@@ -16520,7 +16520,7 @@
           "c158",
           "c1"
         ],
-        "documentKey": "24f62fc6190186e2f92dea230aa06f9a1744c311fc8176839bd0c3c412f99164",
+        "documentKey": "<key docs/h158.pptx>",
         "createdAt": "2023-11-14T22:15:58.000Z"
       }
     },
@@ -16554,7 +16554,7 @@
           "c159",
           "c1"
         ],
-        "documentKey": "b11c09422a70b07a91962b6b0375a7d6b5de93438b3994fc90edbccb64869639",
+        "documentKey": "<key docs/h159.pptx>",
         "createdAt": "2023-11-14T22:15:59.000Z"
       }
     },
@@ -16573,7 +16573,7 @@
             "c159",
             "c1"
           ],
-          "documentKey": "b11c09422a70b07a91962b6b0375a7d6b5de93438b3994fc90edbccb64869639",
+          "documentKey": "<key docs/h159.pptx>",
           "createdAt": "2023-11-14T22:15:59.000Z"
         },
         {
@@ -16586,7 +16586,7 @@
             "c158",
             "c1"
           ],
-          "documentKey": "24f62fc6190186e2f92dea230aa06f9a1744c311fc8176839bd0c3c412f99164",
+          "documentKey": "<key docs/h158.pptx>",
           "createdAt": "2023-11-14T22:15:58.000Z"
         },
         {
@@ -16599,7 +16599,7 @@
             "c157",
             "c1"
           ],
-          "documentKey": "45218fc3adeb4f7f88dc5382d231cbde87a9eed089dec7e596c2bd8cf9bf0800",
+          "documentKey": "<key docs/h157.pptx>",
           "createdAt": "2023-11-14T22:15:57.000Z"
         },
         {
@@ -16612,7 +16612,7 @@
             "c156",
             "c1"
           ],
-          "documentKey": "c70e24762c74274e4113fc5326772a4da6acca3236b56941c41498314bf58843",
+          "documentKey": "<key docs/h156.pptx>",
           "createdAt": "2023-11-14T22:15:56.000Z"
         },
         {
@@ -16625,7 +16625,7 @@
             "c155",
             "c1"
           ],
-          "documentKey": "9a04bcaa9ca2dec4c5fa6e45aa156450e16ecb1511332cc94028d148bd839419",
+          "documentKey": "<key docs/h155.pptx>",
           "createdAt": "2023-11-14T22:15:55.000Z"
         },
         {
@@ -16638,7 +16638,7 @@
             "c154",
             "c1"
           ],
-          "documentKey": "ce850cd872aa0c39815f05b8f612d4755916f44880a068a0b0ba460982c57a83",
+          "documentKey": "<key docs/h154.pptx>",
           "createdAt": "2023-11-14T22:15:54.000Z"
         },
         {
@@ -16651,7 +16651,7 @@
             "c153",
             "c1"
           ],
-          "documentKey": "20a119b21ddcc84db847cead786982ddf1c0b8a442259ae01aa696b0bec2e946",
+          "documentKey": "<key docs/h153.pptx>",
           "createdAt": "2023-11-14T22:15:53.000Z"
         },
         {
@@ -16664,7 +16664,7 @@
             "c152",
             "c1"
           ],
-          "documentKey": "3e3ef6bf5e81b43d83450931df31345adb47b1f1cef580ad45f08922d39136b8",
+          "documentKey": "<key docs/h152.pptx>",
           "createdAt": "2023-11-14T22:15:52.000Z"
         },
         {
@@ -16677,7 +16677,7 @@
             "c151",
             "c1"
           ],
-          "documentKey": "6f17318111802ad59282e92fa8e85ccdb96676162cc4ed8eabcf3592dc652d7e",
+          "documentKey": "<key docs/h151.pptx>",
           "createdAt": "2023-11-14T22:15:51.000Z"
         },
         {
@@ -16690,7 +16690,7 @@
             "c150",
             "c1"
           ],
-          "documentKey": "cc5fc54f3d3a69859b02f9387c735c93927b672518ce30c6fdabb39408520bcb",
+          "documentKey": "<key docs/h150.pptx>",
           "createdAt": "2023-11-14T22:15:50.000Z"
         },
         {
@@ -16703,7 +16703,7 @@
             "c149",
             "c1"
           ],
-          "documentKey": "c933fcd233225939e64c572143c8225cf56cc83d7a02b1efe757a45ea7a4390f",
+          "documentKey": "<key docs/h149.pptx>",
           "createdAt": "2023-11-14T22:15:49.000Z"
         },
         {
@@ -16716,7 +16716,7 @@
             "c148",
             "c1"
           ],
-          "documentKey": "036a415075ff91d9d38ccc179d7d8f808686f6b4cbdb044039faa882d8392a85",
+          "documentKey": "<key docs/h148.pptx>",
           "createdAt": "2023-11-14T22:15:48.000Z"
         },
         {
@@ -16729,7 +16729,7 @@
             "c147",
             "c1"
           ],
-          "documentKey": "a4b5e979c2e2ff524762ab163fc0107957705c76c4d92358d4dce316ddba599d",
+          "documentKey": "<key docs/h147.pptx>",
           "createdAt": "2023-11-14T22:15:47.000Z"
         },
         {
@@ -16742,7 +16742,7 @@
             "c146",
             "c1"
           ],
-          "documentKey": "efd35458589f9095c5be52659e19e3dc441b3f4b80ab3edc0a7ec6f86ae8a1ac",
+          "documentKey": "<key docs/h146.pptx>",
           "createdAt": "2023-11-14T22:15:46.000Z"
         },
         {
@@ -16755,7 +16755,7 @@
             "c145",
             "c1"
           ],
-          "documentKey": "9640a066f76e04236ed4dbe3b7b8c76eb49f6f78c42cd30d26d3c8d023dcb262",
+          "documentKey": "<key docs/h145.pptx>",
           "createdAt": "2023-11-14T22:15:45.000Z"
         },
         {
@@ -16768,7 +16768,7 @@
             "c144",
             "c1"
           ],
-          "documentKey": "dc0dcc346a1678a211a63fd8595ae28ee8acd2f808d9da892a0febca5f2b62b6",
+          "documentKey": "<key docs/h144.pptx>",
           "createdAt": "2023-11-14T22:15:44.000Z"
         },
         {
@@ -16781,7 +16781,7 @@
             "c143",
             "c1"
           ],
-          "documentKey": "2d8669bcd47eb7488da6caf7f2d4a19673dd0202565a2999361ffa5adace9c66",
+          "documentKey": "<key docs/h143.pptx>",
           "createdAt": "2023-11-14T22:15:43.000Z"
         },
         {
@@ -16794,7 +16794,7 @@
             "c142",
             "c1"
           ],
-          "documentKey": "62eab3767e1cb28dac71e1cde19d8c81af3bf24267a36d902288db0501823424",
+          "documentKey": "<key docs/h142.pptx>",
           "createdAt": "2023-11-14T22:15:42.000Z"
         },
         {
@@ -16807,7 +16807,7 @@
             "c141",
             "c1"
           ],
-          "documentKey": "9a5905487953d2e604fd62f01389f790f51e00e4197ab99401106fcebced7d95",
+          "documentKey": "<key docs/h141.pptx>",
           "createdAt": "2023-11-14T22:15:41.000Z"
         },
         {
@@ -16820,7 +16820,7 @@
             "c140",
             "c1"
           ],
-          "documentKey": "a3d5154cc9273c939618cff540adc334910e897c8891b7d0e64488ecdbaafd04",
+          "documentKey": "<key docs/h140.pptx>",
           "createdAt": "2023-11-14T22:15:40.000Z"
         },
         {
@@ -16833,7 +16833,7 @@
             "c139",
             "c1"
           ],
-          "documentKey": "16ce1fb1e1b0795cbcdce5a45363822ff4e84cb2155d3b39d55f033b7f15634f",
+          "documentKey": "<key docs/h139.pptx>",
           "createdAt": "2023-11-14T22:15:39.000Z"
         },
         {
@@ -16846,7 +16846,7 @@
             "c138",
             "c1"
           ],
-          "documentKey": "538d5befbd26f16e374aaedf57de6397f0ba25013d99f7496225b5083f938cef",
+          "documentKey": "<key docs/h138.pptx>",
           "createdAt": "2023-11-14T22:15:38.000Z"
         },
         {
@@ -16859,7 +16859,7 @@
             "c137",
             "c1"
           ],
-          "documentKey": "da16d8ffc8fb0b72c10fd39e02d45a684063268c3cf1bab0cd643225e770d68f",
+          "documentKey": "<key docs/h137.pptx>",
           "createdAt": "2023-11-14T22:15:37.000Z"
         },
         {
@@ -16872,7 +16872,7 @@
             "c136",
             "c1"
           ],
-          "documentKey": "de057dcede37dc7ed6c1c08c295eb4e4f598b737c8a3ba5238de099ab3c33991",
+          "documentKey": "<key docs/h136.pptx>",
           "createdAt": "2023-11-14T22:15:36.000Z"
         },
         {
@@ -16885,7 +16885,7 @@
             "c135",
             "c1"
           ],
-          "documentKey": "45dd7af83eef9597a5f5dde8c7c82f05f6111ac0f692cdf0f45d94beeff7548b",
+          "documentKey": "<key docs/h135.pptx>",
           "createdAt": "2023-11-14T22:15:35.000Z"
         },
         {
@@ -16898,7 +16898,7 @@
             "c134",
             "c1"
           ],
-          "documentKey": "a0f5712f788c9a491fa5a47817c365c083cebbdca81ac218700de980d7661fa3",
+          "documentKey": "<key docs/h134.pptx>",
           "createdAt": "2023-11-14T22:15:34.000Z"
         },
         {
@@ -16911,7 +16911,7 @@
             "c133",
             "c1"
           ],
-          "documentKey": "0f7ab25ae7ea623e745149d4e14af762d0fb8bf9f61199286b1b4bb0aefa77af",
+          "documentKey": "<key docs/h133.pptx>",
           "createdAt": "2023-11-14T22:15:33.000Z"
         },
         {
@@ -16924,7 +16924,7 @@
             "c132",
             "c1"
           ],
-          "documentKey": "352f2bcc2c4b08f23ae500952e08645343f8ede07b7839d5130fb336dec2654c",
+          "documentKey": "<key docs/h132.pptx>",
           "createdAt": "2023-11-14T22:15:32.000Z"
         },
         {
@@ -16937,7 +16937,7 @@
             "c131",
             "c1"
           ],
-          "documentKey": "e93fc49a601b260f24aa9609637c5caf40a55eee6ecfd626a6251c68287ec9e3",
+          "documentKey": "<key docs/h131.pptx>",
           "createdAt": "2023-11-14T22:15:31.000Z"
         },
         {
@@ -16950,7 +16950,7 @@
             "c130",
             "c1"
           ],
-          "documentKey": "fb241f3c91c934915a62e3439afd22fb8b9c2716ec21fb7b3a900eeafb5224cf",
+          "documentKey": "<key docs/h130.pptx>",
           "createdAt": "2023-11-14T22:15:30.000Z"
         },
         {
@@ -16963,7 +16963,7 @@
             "c129",
             "c1"
           ],
-          "documentKey": "3f9ff17102ee562da9a6963b7403b65d437395142c383f417b0a01c759a354ab",
+          "documentKey": "<key docs/h129.pptx>",
           "createdAt": "2023-11-14T22:15:29.000Z"
         },
         {
@@ -16976,7 +16976,7 @@
             "c128",
             "c1"
           ],
-          "documentKey": "b24dad020bd7fe24c15eb4fc09f893b98ca665326e146e017b7ae05e456f3c5b",
+          "documentKey": "<key docs/h128.pptx>",
           "createdAt": "2023-11-14T22:15:28.000Z"
         },
         {
@@ -16989,7 +16989,7 @@
             "c127",
             "c1"
           ],
-          "documentKey": "c19c407dfb592c2f1f03bf60948c010065a3334b2eb67f389f172f7fd13d2510",
+          "documentKey": "<key docs/h127.pptx>",
           "createdAt": "2023-11-14T22:15:27.000Z"
         },
         {
@@ -17002,7 +17002,7 @@
             "c126",
             "c1"
           ],
-          "documentKey": "93202c994046b8f655c12a334aba94c65bf305d54ae843b3444e07bbc04426dc",
+          "documentKey": "<key docs/h126.pptx>",
           "createdAt": "2023-11-14T22:15:26.000Z"
         },
         {
@@ -17015,7 +17015,7 @@
             "c125",
             "c1"
           ],
-          "documentKey": "a6d6631b7d52a8379f7278c0ce09f2f345ef3b2ee138261f6d7ac349ef88c5f1",
+          "documentKey": "<key docs/h125.pptx>",
           "createdAt": "2023-11-14T22:15:25.000Z"
         },
         {
@@ -17028,7 +17028,7 @@
             "c124",
             "c1"
           ],
-          "documentKey": "ef24984f72d83b946cc2f9aa7adb3d55a648c40748a8816344a278267c80cfb8",
+          "documentKey": "<key docs/h124.pptx>",
           "createdAt": "2023-11-14T22:15:24.000Z"
         },
         {
@@ -17041,7 +17041,7 @@
             "c123",
             "c1"
           ],
-          "documentKey": "bdb1e59232c38f159cb1fed3694243694a69be1ec75e55362b21399e897b2818",
+          "documentKey": "<key docs/h123.pptx>",
           "createdAt": "2023-11-14T22:15:23.000Z"
         },
         {
@@ -17054,7 +17054,7 @@
             "c122",
             "c1"
           ],
-          "documentKey": "3167e4ac8ece9a356ff5c8fbd7cc741eaede0b5d1ad3e6ec7a72968de1696f63",
+          "documentKey": "<key docs/h122.pptx>",
           "createdAt": "2023-11-14T22:15:22.000Z"
         },
         {
@@ -17067,7 +17067,7 @@
             "c121",
             "c1"
           ],
-          "documentKey": "be9aec06e3a2a0a58309caf1ac18466317820be57417f357a4045aba8a733c77",
+          "documentKey": "<key docs/h121.pptx>",
           "createdAt": "2023-11-14T22:15:21.000Z"
         },
         {
@@ -17080,7 +17080,7 @@
             "c120",
             "c1"
           ],
-          "documentKey": "e29f49545e732bca1db74a939fca503f4a0021919ec9d1208b528257f0b4ac37",
+          "documentKey": "<key docs/h120.pptx>",
           "createdAt": "2023-11-14T22:15:20.000Z"
         },
         {
@@ -17093,7 +17093,7 @@
             "c119",
             "c1"
           ],
-          "documentKey": "49f9380cb679d9d0ece619e059dd307bd1433af932968dbbc4668f6274098847",
+          "documentKey": "<key docs/h119.pptx>",
           "createdAt": "2023-11-14T22:15:19.000Z"
         },
         {
@@ -17106,7 +17106,7 @@
             "c118",
             "c1"
           ],
-          "documentKey": "619ea23691322c8e4b894d3922d17d0f00a5b305060871a9f34db83568e414e5",
+          "documentKey": "<key docs/h118.pptx>",
           "createdAt": "2023-11-14T22:15:18.000Z"
         },
         {
@@ -17119,7 +17119,7 @@
             "c117",
             "c1"
           ],
-          "documentKey": "59930119f07891b3d08208f42376747afa95e3b23105adfb6314b5031d7d6472",
+          "documentKey": "<key docs/h117.pptx>",
           "createdAt": "2023-11-14T22:15:17.000Z"
         },
         {
@@ -17132,7 +17132,7 @@
             "c116",
             "c1"
           ],
-          "documentKey": "d4f49c988dd0d9b4525d49c86f8af215087fb01c74201b3ccc26d4305acfafac",
+          "documentKey": "<key docs/h116.pptx>",
           "createdAt": "2023-11-14T22:15:16.000Z"
         },
         {
@@ -17145,7 +17145,7 @@
             "c115",
             "c1"
           ],
-          "documentKey": "aba5ea89309e4bffec72d32e848b08a04a6dd0b5582e3a0418f56e9c326a7181",
+          "documentKey": "<key docs/h115.pptx>",
           "createdAt": "2023-11-14T22:15:15.000Z"
         },
         {
@@ -17158,7 +17158,7 @@
             "c114",
             "c1"
           ],
-          "documentKey": "b641c5e5cd2ecb63b3c1f508d32f9e5972f13b6909012c7260fcb7a02d96faf9",
+          "documentKey": "<key docs/h114.pptx>",
           "createdAt": "2023-11-14T22:15:14.000Z"
         },
         {
@@ -17171,7 +17171,7 @@
             "c113",
             "c1"
           ],
-          "documentKey": "72ac22db6a48de7983de0ac2f0323ad482737da09ef27815154da5cc9dec96fa",
+          "documentKey": "<key docs/h113.pptx>",
           "createdAt": "2023-11-14T22:15:13.000Z"
         },
         {
@@ -17184,7 +17184,7 @@
             "c112",
             "c1"
           ],
-          "documentKey": "3bade7fe40e926ec891c50386a909fb747b3f08a1b666663602af397c034cc0f",
+          "documentKey": "<key docs/h112.pptx>",
           "createdAt": "2023-11-14T22:15:12.000Z"
         }
       ]
@@ -17203,7 +17203,7 @@
             "c159",
             "c1"
           ],
-          "documentKey": "b11c09422a70b07a91962b6b0375a7d6b5de93438b3994fc90edbccb64869639",
+          "documentKey": "<key docs/h159.pptx>",
           "createdAt": "2023-11-14T22:15:59.000Z"
         },
         {
@@ -17216,7 +17216,7 @@
             "c158",
             "c1"
           ],
-          "documentKey": "24f62fc6190186e2f92dea230aa06f9a1744c311fc8176839bd0c3c412f99164",
+          "documentKey": "<key docs/h158.pptx>",
           "createdAt": "2023-11-14T22:15:58.000Z"
         },
         {
@@ -17229,7 +17229,7 @@
             "c157",
             "c1"
           ],
-          "documentKey": "45218fc3adeb4f7f88dc5382d231cbde87a9eed089dec7e596c2bd8cf9bf0800",
+          "documentKey": "<key docs/h157.pptx>",
           "createdAt": "2023-11-14T22:15:57.000Z"
         },
         {
@@ -17242,7 +17242,7 @@
             "c156",
             "c1"
           ],
-          "documentKey": "c70e24762c74274e4113fc5326772a4da6acca3236b56941c41498314bf58843",
+          "documentKey": "<key docs/h156.pptx>",
           "createdAt": "2023-11-14T22:15:56.000Z"
         },
         {
@@ -17255,7 +17255,7 @@
             "c155",
             "c1"
           ],
-          "documentKey": "9a04bcaa9ca2dec4c5fa6e45aa156450e16ecb1511332cc94028d148bd839419",
+          "documentKey": "<key docs/h155.pptx>",
           "createdAt": "2023-11-14T22:15:55.000Z"
         },
         {
@@ -17268,7 +17268,7 @@
             "c154",
             "c1"
           ],
-          "documentKey": "ce850cd872aa0c39815f05b8f612d4755916f44880a068a0b0ba460982c57a83",
+          "documentKey": "<key docs/h154.pptx>",
           "createdAt": "2023-11-14T22:15:54.000Z"
         },
         {
@@ -17281,7 +17281,7 @@
             "c153",
             "c1"
           ],
-          "documentKey": "20a119b21ddcc84db847cead786982ddf1c0b8a442259ae01aa696b0bec2e946",
+          "documentKey": "<key docs/h153.pptx>",
           "createdAt": "2023-11-14T22:15:53.000Z"
         },
         {
@@ -17294,7 +17294,7 @@
             "c152",
             "c1"
           ],
-          "documentKey": "3e3ef6bf5e81b43d83450931df31345adb47b1f1cef580ad45f08922d39136b8",
+          "documentKey": "<key docs/h152.pptx>",
           "createdAt": "2023-11-14T22:15:52.000Z"
         },
         {
@@ -17307,7 +17307,7 @@
             "c151",
             "c1"
           ],
-          "documentKey": "6f17318111802ad59282e92fa8e85ccdb96676162cc4ed8eabcf3592dc652d7e",
+          "documentKey": "<key docs/h151.pptx>",
           "createdAt": "2023-11-14T22:15:51.000Z"
         },
         {
@@ -17320,7 +17320,7 @@
             "c150",
             "c1"
           ],
-          "documentKey": "cc5fc54f3d3a69859b02f9387c735c93927b672518ce30c6fdabb39408520bcb",
+          "documentKey": "<key docs/h150.pptx>",
           "createdAt": "2023-11-14T22:15:50.000Z"
         },
         {
@@ -17333,7 +17333,7 @@
             "c149",
             "c1"
           ],
-          "documentKey": "c933fcd233225939e64c572143c8225cf56cc83d7a02b1efe757a45ea7a4390f",
+          "documentKey": "<key docs/h149.pptx>",
           "createdAt": "2023-11-14T22:15:49.000Z"
         },
         {
@@ -17346,7 +17346,7 @@
             "c148",
             "c1"
           ],
-          "documentKey": "036a415075ff91d9d38ccc179d7d8f808686f6b4cbdb044039faa882d8392a85",
+          "documentKey": "<key docs/h148.pptx>",
           "createdAt": "2023-11-14T22:15:48.000Z"
         },
         {
@@ -17359,7 +17359,7 @@
             "c147",
             "c1"
           ],
-          "documentKey": "a4b5e979c2e2ff524762ab163fc0107957705c76c4d92358d4dce316ddba599d",
+          "documentKey": "<key docs/h147.pptx>",
           "createdAt": "2023-11-14T22:15:47.000Z"
         },
         {
@@ -17372,7 +17372,7 @@
             "c146",
             "c1"
           ],
-          "documentKey": "efd35458589f9095c5be52659e19e3dc441b3f4b80ab3edc0a7ec6f86ae8a1ac",
+          "documentKey": "<key docs/h146.pptx>",
           "createdAt": "2023-11-14T22:15:46.000Z"
         },
         {
@@ -17385,7 +17385,7 @@
             "c145",
             "c1"
           ],
-          "documentKey": "9640a066f76e04236ed4dbe3b7b8c76eb49f6f78c42cd30d26d3c8d023dcb262",
+          "documentKey": "<key docs/h145.pptx>",
           "createdAt": "2023-11-14T22:15:45.000Z"
         },
         {
@@ -17398,7 +17398,7 @@
             "c144",
             "c1"
           ],
-          "documentKey": "dc0dcc346a1678a211a63fd8595ae28ee8acd2f808d9da892a0febca5f2b62b6",
+          "documentKey": "<key docs/h144.pptx>",
           "createdAt": "2023-11-14T22:15:44.000Z"
         },
         {
@@ -17411,7 +17411,7 @@
             "c143",
             "c1"
           ],
-          "documentKey": "2d8669bcd47eb7488da6caf7f2d4a19673dd0202565a2999361ffa5adace9c66",
+          "documentKey": "<key docs/h143.pptx>",
           "createdAt": "2023-11-14T22:15:43.000Z"
         },
         {
@@ -17424,7 +17424,7 @@
             "c142",
             "c1"
           ],
-          "documentKey": "62eab3767e1cb28dac71e1cde19d8c81af3bf24267a36d902288db0501823424",
+          "documentKey": "<key docs/h142.pptx>",
           "createdAt": "2023-11-14T22:15:42.000Z"
         },
         {
@@ -17437,7 +17437,7 @@
             "c141",
             "c1"
           ],
-          "documentKey": "9a5905487953d2e604fd62f01389f790f51e00e4197ab99401106fcebced7d95",
+          "documentKey": "<key docs/h141.pptx>",
           "createdAt": "2023-11-14T22:15:41.000Z"
         },
         {
@@ -17450,7 +17450,7 @@
             "c140",
             "c1"
           ],
-          "documentKey": "a3d5154cc9273c939618cff540adc334910e897c8891b7d0e64488ecdbaafd04",
+          "documentKey": "<key docs/h140.pptx>",
           "createdAt": "2023-11-14T22:15:40.000Z"
         },
         {
@@ -17463,7 +17463,7 @@
             "c139",
             "c1"
           ],
-          "documentKey": "16ce1fb1e1b0795cbcdce5a45363822ff4e84cb2155d3b39d55f033b7f15634f",
+          "documentKey": "<key docs/h139.pptx>",
           "createdAt": "2023-11-14T22:15:39.000Z"
         },
         {
@@ -17476,7 +17476,7 @@
             "c138",
             "c1"
           ],
-          "documentKey": "538d5befbd26f16e374aaedf57de6397f0ba25013d99f7496225b5083f938cef",
+          "documentKey": "<key docs/h138.pptx>",
           "createdAt": "2023-11-14T22:15:38.000Z"
         },
         {
@@ -17489,7 +17489,7 @@
             "c137",
             "c1"
           ],
-          "documentKey": "da16d8ffc8fb0b72c10fd39e02d45a684063268c3cf1bab0cd643225e770d68f",
+          "documentKey": "<key docs/h137.pptx>",
           "createdAt": "2023-11-14T22:15:37.000Z"
         },
         {
@@ -17502,7 +17502,7 @@
             "c136",
             "c1"
           ],
-          "documentKey": "de057dcede37dc7ed6c1c08c295eb4e4f598b737c8a3ba5238de099ab3c33991",
+          "documentKey": "<key docs/h136.pptx>",
           "createdAt": "2023-11-14T22:15:36.000Z"
         }
       ]
