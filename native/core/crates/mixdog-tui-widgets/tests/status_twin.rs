@@ -313,7 +313,9 @@ fn compute(case: &Value) -> Value {
         "localLine.buildLocalSnapLine" => Value::String(build_local_snap_line(&OwnedLocalArgs::of(&args[0]).args(), &string(1), 0.0)),
         "liveSpinnerVisibility.isLiveSpinnerMetaVisible" => {
             let input = &args[0];
-            let item = |value: Option<&Value>| value.filter(|item| item.is_object());
+            fn item(value: Option<&Value>) -> Option<&Value> {
+                value.filter(|item| item.is_object())
+            }
             let latest = item(input.get("latestTranscriptItem")).map(|item| (text(item, "kind"), item.get("id").and_then(Value::as_str).map(str::to_owned)));
             let tail = item(input.get("streamingTail")).map(|tail| (text(tail, "kind"), flag(tail, "streaming"), text(tail, "text")));
             Value::Bool(is_live_spinner_meta_visible(&SpinnerVisibility {

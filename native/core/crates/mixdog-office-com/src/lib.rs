@@ -13,6 +13,7 @@ pub mod com;
 pub mod identity;
 pub mod platform;
 pub mod ps;
+pub mod host;
 mod oneshot;
 mod route;
 mod scripts;

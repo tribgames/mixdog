@@ -26,6 +26,8 @@ mixdog-statefile = { workspace = true }
 reqwest = { workspace = true }
 tar = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "net", "process", "io-util"] }
+mixdog-xlsx-formula = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 base64 = { workspace = true }

@@ -62,6 +62,12 @@ enum Command {
     /// The extension-host worker: the process the core's extension host pool starts; it prints READY on its frame pipe and
     /// serves document calls until the pool says bye. Started by the core, never by a user.
     #[command(name = "ext-worker", hide = true)]
+    /// The process Microsoft Office automation runs in; started by the core, never by a user.
+    #[command(name = "office-com-host", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
+    OfficeComHost {
+        #[arg(allow_hyphen_values = true, value_name = "ARGS")]
+        args: Vec<std::ffi::OsString>,
+    },
     ExtWorker,
     /// The program the `mixdog-skill-node` launchers start: runs a skill script.
     #[command(name = "skill-run", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
@@ -162,6 +168,7 @@ fn main() -> ExitCode {
         Command::EffortJudgeHost { dir, ort_library, explicit } => {
             ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
         }
+        Command::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
         Command::ExtWorker => mixdog_exthost_worker::ext_worker_main(),
         Command::SkillRun { args } => {
             // A script that is not shipped runs on the install's script interpreter.

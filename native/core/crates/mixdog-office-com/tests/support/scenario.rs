@@ -275,7 +275,7 @@ pub mod live {
 
         fn open(&mut self, _out: &mut Emitter, request: &Value) -> Result<Value, String> {
             let id = convert::to_ps_string(&payload::property(request, "session"));
-            let app = create_object("Word.Application").map_err(|error| error.to_string())?;
+            let app = create_object("Word.Application").map_err(|error| error.message.clone())?;
             self.id = Some(id.clone());
             self.word = Some(Word { app, document: None });
             let word = self.word.as_mut().expect("just set");

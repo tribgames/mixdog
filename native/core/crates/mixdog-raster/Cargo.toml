@@ -17,6 +17,7 @@ mixdog-fonts = { workspace = true }
 mixdog-fsio = { workspace = true }
 tiny-skia = { workspace = true }
 ttf-parser = { workspace = true }
+resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 
 [dev-dependencies]
 base64 = { workspace = true }

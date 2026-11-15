@@ -22,6 +22,7 @@ pub mod ops;
 pub mod smartcrop;
 pub mod stats;
 pub mod canvas;
+pub mod svg;
 
 pub use crate::composite::Blend;
 pub use crate::composite::Overlay;

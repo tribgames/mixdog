@@ -55,6 +55,7 @@ use crate::heif::Transform;
 const EAGAIN: c_int = 11;
 
 /// What a decode of an AVIF gives the crate.
+#[derive(Debug)]
 pub struct AvifImage {
     pub width: u32,
     pub height: u32,

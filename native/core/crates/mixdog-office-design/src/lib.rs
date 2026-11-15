@@ -16,6 +16,9 @@ pub mod tokens;
 pub mod docx;
 pub mod library;
 pub mod xlsx;
+pub mod composition;
+pub mod design_system;
+pub mod native_design;
 
 use mixdog_js::value_to_string;
 use mixdog_office_base::values::truthy;

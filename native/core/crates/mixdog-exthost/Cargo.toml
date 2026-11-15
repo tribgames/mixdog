@@ -71,6 +71,7 @@ mixdog-exthost = { path = ".", features = ["test-support"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true }
 
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).
