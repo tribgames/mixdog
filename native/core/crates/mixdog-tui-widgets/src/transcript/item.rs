@@ -144,11 +144,13 @@ pub(crate) fn draw_item(item: &Value, ctx: &ItemCtx) -> Drawn {
             if is_hook_approval_denial_tool_item(item) {
                 return Drawn::Block(Box::new(HookDenialCard::new(item, columns)));
             }
-            // The tool card is expanded by the transcript-wide switch or by the item.
+            // The tool card is expanded by the transcript-wide switch or by the item, and every card keeps its row above
+            // (`attached={false}`: consecutive cards stacked flush read broken).
             let mut card = item.clone();
             let expanded = ctx.tool_output_expanded || truthy(item.get("expanded"));
             if let Some(object) = card.as_object_mut() {
                 object.insert("expanded".to_owned(), Value::Bool(expanded));
+                object.insert("attached".to_owned(), Value::Bool(false));
             }
             Drawn::Lines(render_tool_card(&card, &CardCtx { columns }))
         }
