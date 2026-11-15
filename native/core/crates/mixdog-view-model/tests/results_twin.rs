@@ -1,6 +1,6 @@
 //! Replays tests/goldens/results.json (recorded from the Node tool result modules by tests/recorders/record-results.mjs)
-//! through the Rust port: every summary, status, text, classification and read-row case gives what Node gave. An output Node
-//! recorded as an exception is skipped.
+//! through the Rust port: every summary, status, text, classification and read-row case gives what Node gave. The golden holds no output Node
+//! threw on, and an exception recorded by a later re-recording fails the test instead of being skipped.
 
 use mixdog_js::json_number;
 use mixdog_js::to_number_of;
@@ -21,9 +21,10 @@ fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/results.json")).expect("the golden is JSON")
 }
 
-/// The recorded output, or `None` when Node threw.
+/// The recorded output. An output Node recorded as an exception fails the test: it would otherwise go uncompared.
 fn recorded(value: &Value) -> Option<&Value> {
-    value.get("threw").is_none().then_some(value)
+    assert!(value.get("threw").is_none(), "Node threw on a recorded output and the twin does not list it: {value}");
+    Some(value)
 }
 
 fn describe(value: &impl std::fmt::Debug) -> String {
