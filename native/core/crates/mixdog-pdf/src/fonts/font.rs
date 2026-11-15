@@ -1954,6 +1954,11 @@ impl FontLoader {
         let Ok(Obj::Name(base_font)) = xref.get(&pre.dict, "BaseFont") else {
             return;
         };
+        // `fetchStandardFontData` with system fonts on still loads Symbol and ZapfDingbats: such a font is internal, and
+        // `getFontSubstitution` is not called for it.
+        if get_standard_font_name(&base_font).and_then(standard_font_data).is_some() {
+            return;
+        }
         let mut name: &str = &base_font;
         if (pre.ty == "TrueType" || pre.ty == "Type1")
             && name.len() > 7
