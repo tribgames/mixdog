@@ -46,9 +46,8 @@ fn registry(golden: &Value) -> Registry {
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         }
     }
-    // The recording was made on Windows: a font the workbook names that is not a fixture face (Calibri, which a workbook
-    // without styles is measured in, and Malgun Gothic for Hangul) was set in the system's own face. The same files are
-    // registered here.
+    // The recording was made on Windows: Calibri, which a workbook without styles is measured in and which is not a fixture
+    // face, was set in the system's own face. The same file is registered here.
     let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")).map(std::path::PathBuf::from).expect("the Windows directory");
     for (alias, files) in [("Calibri", ["calibri.ttf"].as_slice())] {
         for file in files {
