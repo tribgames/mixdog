@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use super::RuntimeInstallError;
 
-/// The manifest shipped with this build: a copy of Node's `src/runtime/memory/data/runtime-manifest.json`.
-const BUNDLED: &str = include_str!("runtime-manifest.json");
+/// The manifest shipped with this build: the repository's own `src/runtime/memory/data/runtime-manifest.json`, the one file the runtime release, the deploy, the smoke and the health check also read.
+const BUNDLED: &str = include_str!("../../../../../../../../src/runtime/memory/data/runtime-manifest.json");
 
 static GITHUB_RELEASE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"^https://github\.com/([^/]+/[^/]+)/releases/download/", "i"));

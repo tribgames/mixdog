@@ -389,7 +389,7 @@ fn only_github_release_urls_have_fallback_repositories() {
 #[test]
 fn the_bundled_manifest_serves_every_platform_it_lists() {
     let manifest = Manifest::bundled().expect("bundled manifest");
-    let text: Value = serde_json::from_str(include_str!("runtime-manifest.json")).expect("manifest json");
+    let text: Value = serde_json::from_str(include_str!("../../../../../../../../src/runtime/memory/data/runtime-manifest.json")).expect("manifest json");
     for key in text["assets"].as_object().expect("assets").keys() {
         let (asset, selected) = manifest.select(&platform_of(key)).expect("a usable asset");
         assert_eq!(&selected, key);

@@ -8,13 +8,18 @@ test lives in the built-in `test-suite` skill, not here.
 `npm test` (root and `apps/desktop`) runs `scripts/test.mjs`, which globs every
 `*.test.mjs` and `*-test.mjs` under `src/` and `scripts/` of the invoking
 package. A file joins the suite by existing; `package.json` lists no test
-paths. The lane comes from the file name:
+paths. The root package also discovers `packages/**` (the workspace packages,
+`*.test.ts` included, run through tsx) and `apps/mixdogd-npm`, so those tests
+run in the root fast and slow lanes. The one exception is
+`packages/protocol-client/test/rows/node-oracle`, which replays the rows tests
+against a checkout of the old Node tree (`MIXDOG_NODE_REFERENCE_REPO`) and is
+run by hand where that checkout exists. The lane comes from the file name:
 
 | Name | Lane | Runs |
 | --- | --- | --- |
 | `*.test.mjs` | fast | `npm test`; every push in `release-gate.yml` |
 | `*.slow.test.mjs` | slow | `npm run test:slow`; its own gate job beside the fast one |
-| `*.live.test.mjs` | live | `npm run test:live`; needs a built artifact or live system |
+| `*.live.test.mjs` | live | `npm run test:live --prefix apps/desktop` (the root has no live test); needs a built artifact or live system |
 | `*.electron.test.mjs` | electron | `npm run test:electron` (apps/desktop); needs a real Electron and window-capture surface, never two runs at once |
 
 A file over ~10s alone is renamed `*.slow.test.mjs`; nothing else changes. The
@@ -34,7 +39,8 @@ root slow lane and the desktop fast lane are each split with `--test-shard=N/2`
 - `node scripts/test-direct.mjs [Node test options] <files...>` takes exact
   paths or globs with no discovery or lane filtering, the same summary and
   full-log reporting, and forwards Node options unchanged (heap limits,
-  preloads). An explicit `--test-concurrency` wins over the environment
+  preloads). A named file or glob that matches nothing fails the run (Node
+  itself exits 0 on it). An explicit `--test-concurrency` wins over the environment
   budget. Example:
   `node scripts/test-direct.mjs --test-name-pattern=parsing src/example.test.mjs`.
 - The console summary omits passing test names; failures, warnings, skip/todo
@@ -56,6 +62,18 @@ fails.
   `shipped-history` jobs on every push.
 - Built-artifact checks run after their build: `verify:packaging-artifact`
   (`packaging-artifact.live.test.mjs`) in the desktop build job.
+- `npm run typecheck:packages` type-checks `packages/protocol-client` and
+  `packages/protocol` (it needs `npm ci --prefix packages/protocol-client`).
+- `npm run test:bench-tools` runs the Windows recorder and harness tests under
+  `benchmarks/` (job objects, PowerShell); the `rust-core-windows` job owns it.
+  `core-restart-after-kill.test.mjs` (needs `MIXDOGD_EXE`) and
+  `delivery-wait.test.mjs` (needs `MIXDOG_BENCH_TREE`, a checkout of the old
+  Node tree) are manual.
+- The desktop live lane is `packaging-artifact.live.test.mjs` only in CI
+  (`verify:packaging-artifact`); the cursor-theme and clipboard live tests are
+  manual Windows checks, and the `*:integration` desktop harnesses
+  (`browser-host`, `browser-profile-import`, `remote-webrtc-sender`,
+  `computer-host`) are manual with no CI owner.
 - `suite-health.yml` runs every `test:*`/`smoke:*` script weekly through the
   opt-out enumeration in `scripts/suite-health.mjs` (stale exclusions fail
   closed, new scripts join) and opens a tracked issue on failure.

@@ -31,9 +31,16 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises';
 
+          // Every manifest of release URLs the Rust core embeds or reads. The
+          // Postgres runtime manifest is one file: the core includes it from
+          // here at build time.
           const manifestPaths = [
             'src/runtime/memory/data/runtime-manifest.json',
             'src/runtime/channels/data/voice-runtime-manifest.json',
+            'native/core/crates/mixdog-services/data/local-provider-manifest.json',
+            'native/core/crates/mixdog-services/src/effort_judge/model-manifest.json',
+            'native/core/crates/mixdog-services/data/tidy-engines-manifest.json',
+            'src/runtime/agent/orchestrator/tools/graph-manifest.json',
           ];
           const failures = [];
           const assets = [];
@@ -41,7 +48,8 @@ jobs:
 
           function collectAssets(value, path, output) {
             if (!value || typeof value !== 'object') return;
-            if (typeof value.url === 'string' && 'size' in value) output.push([path, value]);
+            // The tidy and graph manifests carry sha256 but no size.
+            if (typeof value.url === 'string' && ('size' in value || 'sha256' in value)) output.push([path, value]);
             for (const [key, child] of Object.entries(value)) {
               collectAssets(child, path ? `${path}.${key}` : key, output);
             }
@@ -54,7 +62,7 @@ jobs:
               collectAssets(manifest, '', declared);
               if (declared.length === 0) failures.push(`${manifestPath}: manifest has no assets.`);
               assets.push(...declared.map(([name, asset]) => [`${manifestPath}:${name}`, asset]));
-              releaseTags.push(`${manifestPath}: ${manifest.release_tag ?? manifest.version ?? 'missing'}`);
+              releaseTags.push(`${manifestPath}: ${manifest.release_tag ?? manifest.release ?? manifest.version ?? 'missing'}`);
             } catch (error) {
               failures.push(`${manifestPath}: manifest could not be read: ${error.message}`);
             }
@@ -64,7 +72,8 @@ jobs:
             if (typeof asset?.url !== 'string' || new URL(asset.url).protocol !== 'https:') {
               throw new Error('invalid HTTPS URL');
             }
-            if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
+            const sized = 'size' in asset;
+            if (sized && (!Number.isSafeInteger(asset.size) || asset.size <= 0)) {
               throw new Error(`invalid declared size: ${asset.size}`);
             }
             if (!/^[a-f0-9]{64}$/i.test(String(asset.sha256 || ''))) {
@@ -89,19 +98,36 @@ jobs:
             const contentLength = response.headers.get('content-length');
             const remoteSize = contentRange
               ? Number(contentRange.match(/\/(\d+)$/)?.[1])
-              : Number(contentLength);
+              : contentLength == null ? NaN : Number(contentLength);
             await response.body?.cancel();
 
-            if (!Number.isSafeInteger(remoteSize) || remoteSize <= 0) {
-              throw new Error('response did not report total asset size');
+            if (sized) {
+              if (!Number.isSafeInteger(remoteSize) || remoteSize <= 0) {
+                throw new Error('response did not report total asset size');
+              }
+              if (remoteSize !== asset.size) {
+                throw new Error(`size mismatch: manifest=${asset.size}, remote=${remoteSize}`);
+              }
+            } else if (Number.isFinite(remoteSize) && remoteSize <= 0) {
+              // No declared size to compare: the asset must exist, and a reported length must not be empty.
+              throw new Error(`empty asset (reported ${remoteSize} bytes)`);
             }
-            if (remoteSize !== asset.size) {
-              throw new Error(`size mismatch: manifest=${asset.size}, remote=${remoteSize}`);
-            }
-            console.log(`${label}: OK (${remoteSize} bytes)`);
+            console.log(`${label}: OK (${Number.isFinite(remoteSize) ? `${remoteSize} bytes` : 'size not reported'})`);
           }
 
+          // One probe per URL (copies of an asset in two manifests are probed
+          // once), eight at a time, so a slow third-party host cannot spend the
+          // job's time before the report and the issue steps run.
+          const unique = [];
+          const seen = new Set();
           for (const [label, asset] of assets) {
+            const key = `${asset?.url}|${asset?.size}|${asset?.sha256}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            unique.push([label, asset]);
+          }
+
+          async function check([label, asset]) {
             let lastError;
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
@@ -115,6 +141,13 @@ jobs:
             }
             if (lastError) failures.push(`${label}: ${lastError.message} (${asset?.url ?? 'no URL'})`);
           }
+
+          let next = 0;
+          await Promise.all(
+            Array.from({ length: Math.min(8, unique.length) }, async () => {
+              while (next < unique.length) await check(unique[next++]);
+            })
+          );
 
           if (failures.length > 0) {
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
