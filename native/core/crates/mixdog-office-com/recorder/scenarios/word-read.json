@@ -1,0 +1,328 @@
+{
+  "area": "word-read",
+  "description": "What the Word reader of office-com-host.ps1 (Snapshot-Word with its reading context, Word-CanonicalStyleName, the docx branch of Snapshot-Selection, Issues-Word) answers and asks Word, for the documents the batch operations of the session host can make: paragraphs with a style, a list and a note, a table, headers and footers, a section set to landscape, tracked changes made inside paragraphs, comments with a reply and a resolved state. Each document is made in a prepare session (not recorded), then read by one-shot snapshots (whole, paged, targeted at a paragraph) and issues; a live document read with includeSelection records the selection. Documents the operations cannot make are inputs to add under tests/fixtures/word-read/inputs and one scenario each, as the actions area does with copy steps: hidden runs, inline pictures, content controls, a multi-column section, first and even page headers, a Korean-UI style name, a table of contents, fields with errors, a paragraph that spans a page break, and tracked deletions inside table cells. Not covered until then: those documents, and the wall-time comparison with the PowerShell host (the second, unhooked run of every scenario records the time of each request).",
+  "scenarios": [
+    {
+      "id": "plain-document",
+      "description": "Paragraphs with styles, a bullet and a numbered list, a footnote and an endnote, a table, a header and a footer, then the whole snapshot, a page of one paragraph, a snapshot targeted at a paragraph, and issues.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\plain.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "batch",
+              "session": "mk-docx",
+              "operations": [
+                { "op": "append_text", "text": "Quarterly report", "style": "Heading1" },
+                { "op": "append_text", "text": "Revenue grew 12% this quarter." },
+                { "op": "append_text", "text": "First item" },
+                { "op": "append_text", "text": "Second item" },
+                { "op": "set_list", "paragraph": 3, "kind": "bullet" },
+                { "op": "set_list", "paragraph": 4, "kind": "bullet" },
+                { "op": "add_note", "kind": "footnote", "paragraph": 2, "text": "Unaudited." },
+                { "op": "add_note", "kind": "endnote", "paragraph": 2, "text": "See the appendix." },
+                { "op": "add_table", "values": [["Region", "Revenue"], ["North", "120"], ["South", "95"]] },
+                { "op": "set_header_footer", "kind": "header", "text": "Confidential" },
+                { "op": "set_header_footer", "kind": "footer", "text": "Page footer" }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\plain.docx"
+          },
+          "label": "snapshot-whole",
+          "expect": {
+            "contains": "\"format\":\"docx\""
+          }
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\plain.docx",
+            "paged": true,
+            "offset": 1,
+            "limit": 1
+          },
+          "label": "snapshot-page",
+          "expect": {
+            "contains": "\"pagination\""
+          }
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\plain.docx",
+            "paged": true,
+            "target": "/body/p[3]"
+          },
+          "label": "snapshot-target",
+          "expect": {
+            "contains": "\"pagination\""
+          }
+        },
+        {
+          "oneShot": {
+            "action": "issues",
+            "format": "docx",
+            "path": "${work}\\plain.docx"
+          },
+          "label": "issues",
+          "expect": {
+            "contains": "\"format\":\"docx\""
+          }
+        }
+      ],
+      "collect": [
+        "plain.docx"
+      ]
+    },
+    {
+      "id": "landscape-section",
+      "description": "A section set to landscape: the orientation, the margins and the single text column of the section record.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\landscape.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "batch",
+              "session": "mk-docx",
+              "operations": [
+                { "op": "append_text", "text": "Wide page" },
+                { "op": "set_page", "properties": { "orientation": "landscape" } }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\landscape.docx"
+          },
+          "label": "snapshot",
+          "expect": {
+            "contains": "\"sections\""
+          }
+        }
+      ],
+      "collect": [
+        "landscape.docx"
+      ]
+    },
+    {
+      "id": "tracked-changes-and-comments",
+      "description": "Tracked changes made inside a paragraph (an insertion and a deletion by one author), a comment with a reply, and a comment marked resolved: the accepted text with the deleted text beside it, the revisions with the paragraph each starts in and the per-author tallies, the comments with their replies, then issues (unresolved revisions and comments).",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\revised.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "batch",
+              "session": "mk-docx",
+              "operations": [
+                { "op": "append_text", "text": "The launch is planned for March and the budget is fixed." },
+                { "op": "append_text", "text": "A second paragraph that is commented." },
+                { "op": "add_comment", "find": "second paragraph", "text": "Check this wording." },
+                { "op": "add_comment_reply", "comment": 1, "text": "Done." },
+                { "op": "set_comment_resolved", "comment": 1, "resolved": true },
+                { "op": "track_changes", "enabled": true },
+                { "op": "replace_text", "find": "March", "replace": "April" },
+                { "op": "replace_text", "find": "fixed", "replace": "approved" }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\revised.docx"
+          },
+          "label": "snapshot",
+          "expect": {
+            "contains": "\"revisions\""
+          }
+        },
+        {
+          "oneShot": {
+            "action": "issues",
+            "format": "docx",
+            "path": "${work}\\revised.docx"
+          },
+          "label": "issues",
+          "expect": {
+            "contains": "unresolved_revisions"
+          }
+        }
+      ],
+      "collect": [
+        "revised.docx"
+      ]
+    },
+    {
+      "id": "live-selection",
+      "description": "A document an application of the user holds open, read with includeSelection: the selection of the active Word window is the answer's selection (insertion point at the start of the document), and a document of another application has none of its own.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "snapshot",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "includeSelection": true
+          },
+          "label": "snapshot-with-selection",
+          "expect": {
+            "contains": "\"selection\""
+          }
+        }
+      ],
+      "collect": []
+    }
+  ]
+}
