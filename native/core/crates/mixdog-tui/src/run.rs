@@ -358,6 +358,7 @@ struct Driver {
     frame_due: Option<u64>,
     turns: u8,
     cleanup: SignalCleanup,
+    was_busy: bool,
 }
 
 impl Driver {
@@ -381,7 +382,7 @@ impl Driver {
         let frames = PacedFrames::new(FrameWriter::new(stdout(), level), move |_ack| {
             ack_store.tick();
         });
-        Self { app, clock, start: Instant::now(), env: *env, restorer, store, runtime, tx, decoder: Decoder::new(), frames, size, dirty: true, disposing: false, frame_due: None, turns: 0, cleanup }
+        Self { app, clock, start: Instant::now(), env: *env, restorer, store, runtime, tx, decoder: Decoder::new(), frames, size, dirty: true, disposing: false, frame_due: None, turns: 0, cleanup, was_busy: false }
     }
 
     fn now_ms(&self) -> u64 {
@@ -424,6 +425,7 @@ impl Driver {
             }
         };
         consider(self.app.next_deadline());
+        consider(self.app.mouse_deadline());
         consider(self.app.statusline_wake_in_ms().map(|wait| now + wait.ceil() as u64));
         consider(self.frame_due);
         let until = |instant: Instant| u64::try_from(instant.saturating_duration_since(Instant::now()).as_millis()).unwrap_or(0);
@@ -473,13 +475,14 @@ impl Driver {
         }
     }
 
-    /// One decoded input: the picker on screen takes the keys that are its, the prompt box the rest. The mouse, the paste and the
-    /// keys of the text-entry prompts are not connected yet.
+    /// One decoded input: a key goes through the global handler, the picker on screen, the tool approval and the prompt; the mouse
+    /// and a bracketed paste to their handlers.
     fn input(&mut self, input: InputEvent) {
-        if let InputEvent::Key { input, key } = input {
-            if !self.app.picker_input(&input, &key) && !self.app.text_entry_open() {
-                self.app.prompt_key(&input, &key);
-            }
+        match input {
+            InputEvent::Key { input, key } => self.app.on_key(&input, &key),
+            InputEvent::Mouse(report) => self.app.on_mouse(&report),
+            InputEvent::Paste(text) => self.app.prompt_paste(&text),
+            InputEvent::Focus(_) => {}
         }
     }
 
@@ -496,6 +499,16 @@ impl Driver {
             self.apply_size();
         }
         self.app.on_timers();
+        self.app.on_mouse_timers();
+        self.app.apply_published_override();
+        let busy = self.store_busy();
+        if busy != self.was_busy {
+            self.was_busy = busy;
+            self.app.on_busy_flip();
+        }
+        if self.app.take_frame_request() {
+            self.dirty = true;
+        }
         if self.app.statusline_turn(usize::from(self.size.0), usize::from(self.size.1)) {
             self.dirty = true;
         }
@@ -545,7 +558,9 @@ impl Driver {
         let wait = if self.dirty {
             let (grid, cursor) = self.app.render_frame(columns, rows);
             self.dirty = false;
-            self.frames.draw(grid, cursor, now)
+            let wait = self.frames.draw(grid, cursor, now);
+            self.app.after_frame();
+            wait
         } else {
             self.frames.poll(now)
         };

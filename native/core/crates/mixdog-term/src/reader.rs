@@ -296,6 +296,9 @@ mod platform {
     use super::{ReaderHandle, TermEvent, push_utf16_unit};
     use crate::console::{self, open_console};
 
+    /// `VK_MENU`: the Alt key.
+    const VK_MENU: u16 = 0x12;
+
     /// A manual-reset event that is set when the reader must stop.
     struct Waker(HANDLE);
 
@@ -369,11 +372,13 @@ mod platform {
                     KEY_EVENT => {
                         // SAFETY: EventType says the KeyEvent member is the one set.
                         let key = unsafe { record.Event.KeyEvent };
-                        if key.bKeyDown == 0 {
-                            continue;
-                        }
                         // SAFETY: both members of the union are plain integers.
                         let unit = unsafe { key.uChar.UnicodeChar };
+                        // A key-down carries its character; the release of Alt carries the one typed with the Alt+numpad sequence
+                        // (the console host delivers every UTF-16 unit it has no key for, an emoji's two halves, that way).
+                        if key.bKeyDown == 0 && !(key.wVirtualKeyCode == VK_MENU && unit != 0) {
+                            continue;
+                        }
                         if unit == 0 {
                             continue;
                         }
