@@ -11,6 +11,7 @@
 //! Not masked: header names and their order, every byte of a body, close codes and reasons.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -311,7 +312,8 @@ fn string_equal(a: &str, b: &str, tolerance_ms: u64) -> bool {
     if a == b {
         return true;
     }
-    let marker = Regex::new("\u{27e6}t:(-?\\d+)\u{27e7}").expect("the marker pattern");
+    static MARKER: OnceLock<Regex> = OnceLock::new();
+    let marker = MARKER.get_or_init(|| Regex::new("\u{27e6}t:(-?\\d+)\u{27e7}").expect("the marker pattern"));
     let deltas = |text: &str| -> Vec<i64> { marker.captures_iter(text).filter_map(|c| c[1].parse().ok()).collect() };
     let (left, right) = (deltas(a), deltas(b));
     if left.is_empty() || left.len() != right.len() {
