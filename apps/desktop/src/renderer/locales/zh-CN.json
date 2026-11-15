@@ -1817,6 +1817,8 @@
   "Downloading {{received}} MB": "正在下载 {{received}} MB",
   "Downloading {{received}} MB / {{total}} MB": "正在下载 {{received}} MB / {{total}} MB",
   "Downloading from the server is unavailable.": "从服务器下载不可用。",
+  "Downloading the memory database for the first time. This can take a few minutes.": "正在首次下载记忆数据库，可能需要几分钟。",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "正在首次下载记忆搜索模型，可能需要几分钟。",
   "Downloading v{{version}}…": "正在下载 v{{version}}…",
   "Downloading v{{version}}… {{percent}}%": "正在下载 v{{version}}… {{percent}}%",
   "Downloads from the PC": "来自 PC 的下载",
@@ -6007,7 +6009,5 @@
   "Zoom options": "缩放选项",
   "Zoom out": "缩小",
   "Zoom Out": "缩小",
-  "Zoom to {{value0}}%": "缩放到 {{value0}}%",
-  "Downloading the memory search model for the first time. This can take a few minutes.": "正在首次下载记忆搜索模型，可能需要几分钟。",
-  "Downloading the memory database for the first time. This can take a few minutes.": "正在首次下载记忆数据库，可能需要几分钟。"
+  "Zoom to {{value0}}%": "缩放到 {{value0}}%"
 }

@@ -645,6 +645,8 @@ pub struct JsRuntime {
     pub package_root: PathBuf,
     /// The program is an Electron binary that needs node mode.
     pub electron: bool,
+    /// The script interpreter version as the install metadata states it; the doctor never runs the interpreter to ask.
+    pub node_version: Option<String>,
 }
 
 pub struct ComposeConfig {

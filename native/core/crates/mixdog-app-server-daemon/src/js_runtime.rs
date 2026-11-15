@@ -56,6 +56,8 @@ struct Manifest {
     electron: bool,
     #[serde(default)]
     ort_library: Option<String>,
+    #[serde(default)]
+    node_version: Option<String>,
 }
 
 /// The manifest beside `exe`, with its path and directory.
@@ -100,7 +102,7 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     if !package_present(&package_root) {
         return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
     }
-    Ok(JsRuntime { program, package_root, electron: manifest.electron })
+    Ok(JsRuntime { program, package_root, electron: manifest.electron, node_version: manifest.node_version })
 }
 
 /// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which

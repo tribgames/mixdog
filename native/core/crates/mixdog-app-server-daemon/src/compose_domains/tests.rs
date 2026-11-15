@@ -526,8 +526,6 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 data_dir: dir.clone(),
                 user_data_dir: dir.join("userdata"),
                 package_root: js.package_root.clone(),
-                node: js.program.clone(),
-                electron: js.electron,
             },
             env: Arc::new(|_| None),
             app_feed,

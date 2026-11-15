@@ -1914,6 +1914,8 @@
   "Downloading {{received}} MB": "Descargando {{received}} MB",
   "Downloading {{received}} MB / {{total}} MB": "Descargando {{received}} MB / {{total}} MB",
   "Downloading from the server is unavailable.": "La descarga desde el servidor no está disponible.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "Descargando por primera vez la base de datos de la memoria. Puede tardar unos minutos.",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "Descargando por primera vez el modelo de búsqueda de la memoria. Puede tardar unos minutos.",
   "Downloading v{{version}}…": "Descargando v{{version}}…",
   "Downloading v{{version}}… {{percent}}%": "Descargando v{{version}}… {{percent}}%",
   "Downloads from the PC": "Descargas del PC",
@@ -6137,7 +6139,5 @@
   "Zoom options": "Opciones de zoom",
   "Zoom out": "Alejar",
   "Zoom Out": "Alejar",
-  "Zoom to {{value0}}%": "Zoom al {{value0}}%",
-  "Downloading the memory search model for the first time. This can take a few minutes.": "Descargando por primera vez el modelo de búsqueda de la memoria. Puede tardar unos minutos.",
-  "Downloading the memory database for the first time. This can take a few minutes.": "Descargando por primera vez la base de datos de la memoria. Puede tardar unos minutos."
+  "Zoom to {{value0}}%": "Zoom al {{value0}}%"
 }
