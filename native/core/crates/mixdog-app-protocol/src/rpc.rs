@@ -161,6 +161,8 @@ pub struct JsonRpcErrorBody {
 
 /// Outcome of decoding one inbound text frame (P §3 framing).
 #[derive(Debug, Clone, PartialEq)]
+// The inline enum footprint is bounded; variable-size fields keep their owned storage.
+#[allow(clippy::large_enum_variant, reason = "Keep the common successfully decoded message inline; boxing it would allocate for every valid inbound frame and change the public decoder API")]
 pub enum InboundText {
     Message(JsonRpcMessage),
     /// Larger than `maxInboundFrameBytes`: close with 1009.

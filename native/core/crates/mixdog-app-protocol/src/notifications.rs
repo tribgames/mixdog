@@ -307,6 +307,8 @@ pub struct ProcessInputParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "method", content = "params")]
+// The inline enum footprint is bounded; variable-size fields keep their owned storage.
+#[allow(clippy::large_enum_variant, reason = "Keep public notification DTO variants by value; boxing page facts would add a payload allocation and change Rust constructors")]
 pub enum ClientNotification {
     /// No params; changes no state.
     #[serde(rename = "initialized")]
