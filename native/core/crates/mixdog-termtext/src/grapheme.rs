@@ -9,7 +9,8 @@ use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 use crate::policy::display_width;
 
-pub use mixdog_js::utf16_len;
+pub use crate::lone::utf16_len;
+use crate::lone::units_of;
 
 /// A grapheme cluster of a text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +61,7 @@ pub fn prev_boundary(text: &str, at: usize) -> usize {
 pub fn utf16_to_byte(text: &str, units: usize) -> usize {
     let mut seen = 0;
     for (at, ch) in text.char_indices() {
-        let next = seen + ch.len_utf16();
+        let next = seen + units_of(ch);
         if next > units {
             return at;
         }

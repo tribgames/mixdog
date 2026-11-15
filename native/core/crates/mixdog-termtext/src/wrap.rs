@@ -19,6 +19,7 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::lone;
 use crate::ansi::{
     BEL, ESC, InkTokenKind, is_close_code, js_parse_int, js_trim_end, js_trim_start, sgr_code, style_close,
     tokenize_ink,
@@ -1057,22 +1058,19 @@ pub fn wrap_lines(text: &str, width: usize, hard: bool) -> Vec<String> {
 /// is a cluster of its own and takes no cell (string-width counts `\p{Surrogate}` as zero), so the width is that of the
 /// well-formed runs between the halves.
 fn width_of_units(units: &[u16], wide: bool) -> usize {
-    let mut total = 0;
-    let mut run = String::new();
-    for decoded in char::decode_utf16(units.iter().copied()) {
-        match decoded {
-            Ok(c) => run.push(c),
-            Err(_) => {
-                total += display_width_with(&run, wide);
-                run.clear();
-            }
-        }
-    }
-    total + display_width_with(&run, wide)
+    display_width_with(&lone::from_units(units), wide)
 }
 
-/// `hardWrapAnsiLines(text, width)` under the display-width policy `wide`.
+/// `hardWrapAnsiLines(text, width)` under the display-width policy `wide`: a half of a cut pair is U+FFFD in the
+/// lines, which is what Node writes to a terminal for it.
 pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<String> {
+    hard_wrap_ansi_lines_carrying(text, columns, wide).iter().map(|line| lone::replace_carriers(line)).collect()
+}
+
+/// `hardWrapAnsiLines(text, width)` with the halves of a cut pair carried as [`lone`] carriers (zero cells wide, one
+/// unit long), so that a later cut or measure of these lines reads them as Node reads the halves. The text may hold
+/// the carriers of an earlier cut.
+pub fn hard_wrap_ansi_lines_carrying(text: &str, columns: usize, wide: bool) -> Vec<String> {
     let max = columns.max(1);
     if text.is_empty() {
         return vec![String::new()];
@@ -1081,9 +1079,8 @@ pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<
     for soft_line in wrap_lines(text, max, true) {
         if soft_line.chars().any(|c| c.len_utf16() == 2) {
             // The Node code cuts at UTF-16 units (the longest prefix that fits, at least one unit), so a cut can
-            // fall inside a surrogate pair and leave a half on each side. A Rust string cannot hold a half, and
-            // Node writes one to a terminal as U+FFFD: each half is that in the lines.
-            let mut units: Vec<u16> = soft_line.encode_utf16().collect();
+            // fall inside a surrogate pair and leave a half on each side.
+            let mut units: Vec<u16> = lone::to_units(&soft_line);
             while !units.is_empty() && width_of_units(&units, wide) > max {
                 let mut take = 1;
                 for at in 1..=units.len() {
@@ -1093,11 +1090,11 @@ pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<
                         break;
                     }
                 }
-                out.push(String::from_utf16_lossy(&units[..take]));
+                out.push(lone::from_units(&units[..take]));
                 units.drain(..take);
             }
             if !units.is_empty() {
-                out.push(String::from_utf16_lossy(&units));
+                out.push(lone::from_units(&units));
             }
             continue;
         }
@@ -1124,6 +1121,12 @@ pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<
     if out.is_empty() { vec![String::new()] } else { out }
 }
 
+/// `hardWrapAnsiLines(text, width)` with the halves of a cut pair carried (see [`hard_wrap_ansi_lines_carrying`]), for a
+/// caller that cuts or measures the lines again.
+pub fn hard_wrap_ansi_lines_carried(text: &str, columns: usize) -> Vec<String> {
+    hard_wrap_ansi_lines_carrying(text, columns, process_policy())
+}
+
 /// `hardWrapAnsiLines(text, width)`: the lines of `text` cut at `columns` cells, escapes carried across the cuts.
 pub fn hard_wrap_ansi_lines(text: &str, columns: usize) -> Vec<String> {
     hard_wrap_ansi_lines_with(text, columns, process_policy())
@@ -1146,6 +1149,16 @@ mod tests {
         // A half of a pair takes no cell; each half is the replacement character in the lines.
         assert_eq!(hard_wrap_ansi_lines_with("\u{1F642}a", 1, false), ["\u{FFFD}", "\u{FFFD}", "a"]);
         assert_eq!(hard_wrap_ansi_lines_with("\u{1F642}\u{1F642}", 2, false), ["\u{1F642}", "\u{1F642}"]);
+    }
+
+    #[test]
+    fn a_carried_half_takes_no_cell_when_the_lines_are_cut_again() {
+        let half = lone::carrier_of(0xde42);
+        let fits = hard_wrap_ansi_lines_carrying(&format!("{half}ab"), 2, false);
+        assert_eq!(fits.len(), 1, "the half and two letters are two cells");
+        let cut = hard_wrap_ansi_lines_carrying(&format!("{half}a b"), 2, false);
+        let shown: Vec<String> = cut.iter().map(|line| lone::replace_carriers(line)).collect();
+        assert_eq!(shown, ["\u{FFFD}a ", "b"]);
     }
 
     #[test]

@@ -143,13 +143,17 @@ fn corpus_text<'a>(corpus: &'a [(&str, Value)], group: &str, id: &str) -> Option
     entries(list).iter().find(|entry| str_of(entry, "id") == id).map(|entry| str_of(entry, "text"))
 }
 
-/// The rows the renderer paints for `text` at `columns`: the lines it lays out, each counted by its wrapped rows.
+/// The rows the renderer paints for `text` at `columns`: the lines it lays out, each counted by its wrapped rows. A
+/// U+FFFD in these tables is half of a surrogate pair Node cut (the texts hold no other): Node measures its own line, which
+/// holds the half, as no cell, so the half is measured as the carrier of it, not as the replacement character it is
+/// written as.
 fn painted_rows(text: &str, columns: usize) -> usize {
     if text.is_empty() {
         return 1;
     }
     let width = assistant_body_width(columns);
-    let rows: usize = render_markdown_ansi(text, width).iter().map(|line| wrapped_line_rows(&strip_ansi(line), width)).sum();
+    let carrier = mixdog_termtext::lone::carrier_of(0xd83d);
+    let rows: usize = render_markdown_ansi(text, width).iter().map(|line| wrapped_line_rows(&strip_ansi(line).replace('�', &carrier.to_string()), width)).sum();
     rows.max(1)
 }
 

@@ -366,7 +366,7 @@ fn render_rows_equal_inks_hard_wrap() {
                 .iter()
                 .map(|spans| spans.iter().map(|span| span.text.as_str()).collect::<String>())
                 .collect();
-            let want: Vec<String> = row[3].as_array().expect("rows").iter().map(|line| text_of(line).to_owned()).collect();
+            let want: Vec<String> = row[3].as_array().expect("rows").iter().map(|line| mixdog_termtext::lone::replace_carriers(text_of(line))).collect();
             bad.expect(&format!("{text:?} width {width} trailing {trailing}"), rows, want);
         }
     }
@@ -517,7 +517,7 @@ fn key_sessions_agree_event_by_event() {
                 (undo.past_len(), undo.future_len(), undo.past().last().map(|d| d.value.clone())),
                 editor.escape_clear_armed_at(),
             );
-            let want_log: Vec<String> = step[3].as_array().expect("log").iter().map(|line| text_of(line).to_owned()).collect();
+            let want_log: Vec<String> = step[3].as_array().expect("log").iter().map(|line| mixdog_termtext::lone::replace_carriers(text_of(line))).collect();
             let want = (
                 want_shape(&serde_json::json!([step[0], step[1], step[2]])),
                 want_log,
@@ -550,8 +550,9 @@ fn hex4(digits: &[u8]) -> Option<u32> {
 }
 
 /// A recorded string may hold half of a surrogate pair (Node cuts a string by UTF-16 unit): JSON text writes that as a lone
-/// `\ud83d`, which a Rust string cannot hold. Each lone half is read as U+FFFD, which is also what the recorder's SHA-256 over
-/// UTF-8 saw. Such a value is still compared exactly, as the U+FFFD it was read as.
+/// escape (backslash, u, d83d), which a Rust string cannot hold. The editor carries such a half as the carrier of
+/// `mixdog_termtext::lone` (zero cells wide, one unit long), and so does the draft read here. What a callback is given is
+/// the text as the store takes it, each half U+FFFD (the recorded log lines are read the same way).
 fn read_lone_surrogates(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
@@ -576,7 +577,7 @@ fn read_lone_surrogates(text: &str) -> String {
             at += 12;
         } else if (0xD800..0xE000).contains(&unit) {
             out.push_str(&text[copied..at]);
-            out.push_str("\\ufffd");
+            out.push(mixdog_termtext::lone::carrier_of(unit as u16));
             at += 6;
             copied = at;
         } else {
