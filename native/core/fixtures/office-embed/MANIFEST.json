@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-embed.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 208398,
+      "path": "golden.json",
+      "sha256": "c04f0fe8eee0c77a05665edca02754a191ac7542d8589f4970a119197ab53867"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "4b8d1c938dd684e6ad23506470cc89081669ed9b",
+      "commitFilesMissingFromTree": 766,
+      "exact": false,
+      "filesDifferingFromCommit": 17829
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-embed.mjs",
+  "set": "office-embed",
+  "totalBytes": 208398
+}
