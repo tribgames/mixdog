@@ -11,6 +11,7 @@ use ::image::ImageEncoder;
 use ::image::codecs::png::CompressionType;
 use ::image::codecs::png::FilterType;
 use ::image::codecs::png::PngEncoder;
+use ::image::metadata::Orientation;
 use mixdog_imaging::DEFAULT_PIXEL_LIMIT;
 use mixdog_imaging::Format;
 use mixdog_imaging::Raster;
@@ -31,7 +32,7 @@ pub struct Metadata {
     pub has_alpha: bool,
     /// Pixels per inch, when the file states a resolution above 1 pixel per millimetre.
     pub density: Option<u32>,
-    /// The EXIF orientation, 2 to 8, when the file carries one other than the identity.
+    /// The EXIF orientation tag, 1 to 8, when the file states one (sharp reports a stated 1 too).
     pub orientation: Option<u8>,
 }
 
@@ -43,8 +44,24 @@ pub struct Image {
     channels: u8,
     format: Option<Format>,
     density: Option<u32>,
+    /// The orientation applied by [`Image::auto_orient`], 1 to 8 (1 when there is none).
     orientation: u8,
+    /// The orientation tag the file states, for [`Metadata::orientation`].
+    stated_orientation: Option<u8>,
     data: Vec<u8>,
+}
+
+/// What a PNG or JPEG header states beyond the pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct HeaderFacts {
+    channels: Option<u8>,
+    density: Option<u32>,
+    orientation: Option<u8>,
+}
+
+/// The orientation tag of a TIFF-headed EXIF block, when it has one.
+fn exif_orientation(exif: &[u8]) -> Option<u8> {
+    Orientation::from_exif_chunk(exif).map(Orientation::to_exif)
 }
 
 fn be32(bytes: &[u8], at: usize) -> Option<u32> {
@@ -59,17 +76,20 @@ fn be16(bytes: &[u8], at: usize) -> Option<u16> {
 const DEFAULT_DENSITY: u32 = 72;
 
 /// The band count and resolution a PNG's header states: colour type, `tRNS` (libvips adds an alpha band for it) and
-/// `pHYs` (a stated resolution of exactly 1 pixel per millimetre is libvips's own "none"; a file without one reads as 72 dpi).
-fn png_facts(bytes: &[u8]) -> (Option<u8>, Option<u32>) {
+/// `pHYs` (a stated resolution of exactly 1 pixel per millimetre is libvips's own "none"; a file without one reads as 72 dpi)
+/// and the orientation tag of an `eXIf` chunk.
+fn png_facts(bytes: &[u8]) -> HeaderFacts {
     let mut colour_type = None;
     let mut transparency = false;
     let mut density = Some(DEFAULT_DENSITY);
+    let mut orientation = None;
     let mut at = 8usize;
     while let (Some(length), Some(kind)) = (be32(bytes, at), bytes.get(at + 4..at + 8)) {
         let body = at + 8;
         match kind {
             b"IHDR" => colour_type = bytes.get(body + 9).copied(),
             b"tRNS" => transparency = true,
+            b"eXIf" => orientation = bytes.get(body..body.saturating_add(length as usize)).and_then(exif_orientation),
             b"pHYs" => {
                 if let (Some(per_metre), Some(1)) = (be32(bytes, body), bytes.get(body + 8).copied()) {
                     let per_millimetre = f64::from(per_metre) / 1000.0;
@@ -88,15 +108,16 @@ fn png_facts(bytes: &[u8]) -> (Option<u8>, Option<u32>) {
         6 => Some(4),
         _ => None,
     });
-    (channels, density)
+    HeaderFacts { channels, density, orientation }
 }
 
-/// The component count and the resolution of a JPEG: the JFIF density in dots per inch or centimetre; a file with
-/// neither a JFIF nor an EXIF segment reads as 72 dpi, and one with only EXIF (whose resolution tags are not read here)
-/// states none.
-fn jpeg_facts(bytes: &[u8]) -> (Option<u8>, Option<u32>) {
+/// The component count, the resolution and the EXIF orientation tag of a JPEG: the JFIF density in dots per inch or
+/// centimetre; a file with neither a JFIF nor an EXIF segment reads as 72 dpi, and one with only EXIF (whose resolution
+/// tags are not read here) states none.
+fn jpeg_facts(bytes: &[u8]) -> HeaderFacts {
     let mut components = None;
     let mut density = None;
+    let mut orientation = None;
     let mut exif = false;
     let mut jfif = false;
     let mut at = 2usize;
@@ -108,7 +129,13 @@ fn jpeg_facts(bytes: &[u8]) -> (Option<u8>, Option<u32>) {
         }
         let Some(length) = be16(bytes, at + 2) else { break };
         let body = at + 4;
+        if marker == 0xE1 && bytes.get(body..body + 6) == Some(&b"Exif\0\0"[..]) {
+            exif = true;
+            let end = (at + 2 + usize::from(length)).min(bytes.len());
+            orientation = bytes.get(body + 6..end).and_then(exif_orientation);
+        }
         if marker == 0xE0 && bytes.get(body..body + 5) == Some(&b"JFIF\0"[..]) {
+            jfif = true;
             let units = bytes.get(body + 7).copied().unwrap_or(0);
             let x = f64::from(be16(bytes, body + 8).unwrap_or(0));
             let per_inch = match units {
@@ -131,7 +158,7 @@ fn jpeg_facts(bytes: &[u8]) -> (Option<u8>, Option<u32>) {
     if !jfif && !exif {
         density = Some(DEFAULT_DENSITY);
     }
-    (components, density)
+    HeaderFacts { channels: components, density, orientation }
 }
 
 /// True when every pixel has red = green = blue.
@@ -145,14 +172,14 @@ impl Image {
         let decoded = mixdog_imaging::decode(bytes, DEFAULT_PIXEL_LIMIT).map_err(|error| RasterError::new(error.to_string()))?;
         let raster = &decoded.raster;
         let from_pixels = if raster.has_alpha { 4 } else { 3 };
-        let (header_channels, density) = match decoded.format {
+        let facts = match decoded.format {
             Format::Png => png_facts(bytes),
             Format::Jpeg => jpeg_facts(bytes),
-            _ => (None, None),
+            _ => HeaderFacts::default(),
         };
         // A header band count is trusted only where it agrees with the pixels the decoder produced (a grey source
         // has no colour, a palette or colour-keyed source has an alpha band when it has transparency).
-        let channels = match header_channels {
+        let channels = match facts.channels {
             Some(count) if (count == 2 || count == 4) == raster.has_alpha && (count >= 3 || is_grey(raster)) => count,
             _ => from_pixels,
         };
@@ -161,8 +188,9 @@ impl Image {
             height: raster.height,
             channels,
             format: Some(decoded.format),
-            density,
+            density: facts.density,
             orientation: decoded.orientation,
+            stated_orientation: facts.orientation,
             data: raster.to_rgba(),
         })
     }
@@ -202,7 +230,7 @@ impl Image {
     /// Pixels already in RGBA (a grey image has red = green = blue): `data` is `width * height * 4` bytes.
     pub(crate) fn from_rgba(width: u32, height: u32, channels: u8, data: Vec<u8>) -> Self {
         debug_assert_eq!(data.len(), width as usize * height as usize * 4);
-        Self { width, height, channels, format: None, density: None, orientation: 1, data }
+        Self { width, height, channels, format: None, density: None, orientation: 1, stated_orientation: None, data }
     }
 
     pub fn width(&self) -> u32 {
@@ -235,7 +263,7 @@ impl Image {
             channels: self.channels,
             has_alpha: self.has_alpha(),
             density: self.density,
-            orientation: (self.orientation > 1).then_some(self.orientation),
+            orientation: self.stated_orientation,
         }
     }
 
@@ -329,7 +357,16 @@ impl Image {
                 data.extend_from_slice(&self.data[at..at + 4]);
             }
         }
-        Self { width: ow as u32, height: oh as u32, channels: self.channels, format: self.format, density: self.density, orientation: 1, data }
+        Self {
+            width: ow as u32,
+            height: oh as u32,
+            channels: self.channels,
+            format: self.format,
+            density: self.density,
+            orientation: 1,
+            stated_orientation: None,
+            data,
+        }
     }
 }
 
@@ -374,7 +411,56 @@ mod tests {
         png.extend_from_slice(b"IHDR");
         png.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0]);
         png.extend_from_slice(&[0; 4]);
-        assert_eq!(png_facts(&png), (Some(1), Some(72)));
+        assert_eq!(png_facts(&png), HeaderFacts { channels: Some(1), density: Some(72), orientation: None });
+    }
+
+    /// A JPEG header (no scan) of the given segments, each `(marker, body)`, then an SOF0 of three components.
+    fn jpeg_with(segments: &[(u8, Vec<u8>)]) -> Vec<u8> {
+        let mut jpeg = vec![0xFF, 0xD8];
+        let sof = vec![8, 0, 1, 0, 1, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
+        for (marker, body) in segments.iter().chain([(0xC0u8, sof)].iter()) {
+            jpeg.extend_from_slice(&[0xFF, *marker]);
+            jpeg.extend_from_slice(&((body.len() + 2) as u16).to_be_bytes());
+            jpeg.extend_from_slice(body);
+        }
+        jpeg
+    }
+
+    /// A little-endian TIFF header with one IFD entry: the orientation tag (0x0112) set to `value`.
+    fn exif_orientation_block(value: u16) -> Vec<u8> {
+        let mut tiff = vec![b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0];
+        tiff.extend_from_slice(&[0x12, 0x01, 3, 0, 1, 0, 0, 0]);
+        tiff.extend_from_slice(&value.to_le_bytes());
+        tiff.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        tiff
+    }
+
+    #[test]
+    fn jpeg_density_follows_jfif_and_exif_as_libvips_reads_them() {
+        // Neither JFIF nor EXIF: 72 dpi.
+        assert_eq!(jpeg_facts(&jpeg_with(&[])), HeaderFacts { channels: Some(3), density: Some(72), orientation: None });
+        // JFIF at 300 dots per inch.
+        let jfif = vec![b'J', b'F', b'I', b'F', 0, 1, 1, 1, 1, 44, 1, 44, 0, 0];
+        assert_eq!(jpeg_facts(&jpeg_with(&[(0xE0, jfif)])).density, Some(300));
+        // EXIF only, with an orientation: no density, the orientation stated.
+        let mut exif = b"Exif\0\0".to_vec();
+        exif.extend_from_slice(&exif_orientation_block(6));
+        assert_eq!(jpeg_facts(&jpeg_with(&[(0xE1, exif)])), HeaderFacts { channels: Some(3), density: None, orientation: Some(6) });
+    }
+
+    #[test]
+    fn a_png_exif_chunk_states_its_orientation_even_when_it_is_one() {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+        png.extend_from_slice(&[0; 4]);
+        let exif = exif_orientation_block(1);
+        png.extend_from_slice(&(exif.len() as u32).to_be_bytes());
+        png.extend_from_slice(b"eXIf");
+        png.extend_from_slice(&exif);
+        png.extend_from_slice(&[0; 4]);
+        assert_eq!(png_facts(&png).orientation, Some(1));
     }
 
     #[test]
@@ -416,10 +502,10 @@ mod tests {
         png.extend_from_slice(&2835u32.to_be_bytes());
         png.push(1);
         png.extend_from_slice(&[0; 4]);
-        assert_eq!(png_facts(&png), (Some(2), Some(72)));
+        assert_eq!(png_facts(&png), HeaderFacts { channels: Some(2), density: Some(72), orientation: None });
         // 1000 pixels per metre is one per millimetre: libvips's own "nothing stated".
         let at = png.len() - 13;
         png[at..at + 4].copy_from_slice(&1000u32.to_be_bytes());
-        assert_eq!(png_facts(&png).1, None);
+        assert_eq!(png_facts(&png).density, None);
     }
 }
