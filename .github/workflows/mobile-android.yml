@@ -125,12 +125,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/mobile/package-lock.json
+          cache-dependency-path: |
+            apps/mobile/package-lock.json
+            packages/protocol-client/package-lock.json
 
+      # The Gradle distribution and the dependencies are keyed on the files that
+      # decide them (the wrapper version and every Gradle script of the project).
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: 21
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+            apps/mobile/android/gradle.properties
 
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
@@ -138,10 +147,16 @@ jobs:
           # current sdkmanager no longer has and fails on.
           packages: platform-tools
 
+      # The phone client tests and the typecheck import packages/protocol-client
+      # (its `@mixdog/protocol` link is a file: dependency of that package).
+      # The relay end to end test needs the Rust relay binary and runs in the
+      # Release Gate (`npm run test:e2e`), not in a signed-build job. The web
+      # shell is built once, by sync:android below.
       - name: Install and check
         run: |
+          npm ci --prefix ../../packages/protocol-client
           npm ci
-          npm run check
+          npm run check:source
           npm run test:java
 
       - name: Firebase config and signing key

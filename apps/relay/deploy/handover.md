@@ -1,9 +1,11 @@
 # Relay hand-over: Node to the `mixdog-relay` binary
 
-The procedure the owner runs on the VPS, in order. Nothing in it is run by a
-release: `deploy-release.sh` only starts at step 4, and only on the owner's go
-(merging `nr-relay-switch`). Each step says how to tell it worked and what to do
-if it did not. Run everything as root on the VPS unless a step says otherwise.
+The procedure the owner authorizes on the VPS, in order. The release workflow
+already stages and deploys the Rust binary. Complete the shadow verification and
+the owner-approved initial switch below before the first release from this tree.
+Merging the code alone does not authorize a production switch. Each step says how
+to tell it worked and what to do if it did not. Run everything as root on the VPS
+unless a step says otherwise.
 `<domain>` is the relay's domain (the name in `/etc/letsencrypt/live/`).
 
 The pieces this uses, all in this directory: `deploy-release.sh`,
@@ -214,9 +216,11 @@ must show nothing.
 
 ## 4. Switch
 
-On the owner's go: merge `nr-relay-switch`, then run the deploy workflow as for any
-release (`gh workflow run deploy.yml`, or the way releases are started today). The
-release's `stage-relay` job stages the Linux binary of its `mixdogd-build` job with
+After the shadow checks pass and the owner authorizes the switch, use the verified
+candidate with the existing deployment transaction for the initial switch. Do this
+before the first ordinary release from this tree; `nr-relay-switch` is already
+integrated. Later releases use the normal deploy workflow. The release's
+`stage-relay` job stages the Linux binary of its `mixdogd-build` job with
 `deploy/` and `renderer/`; `deploy-relay` runs `deploy-release.sh` on the host.
 What `deploy-release.sh <domain> <tag> [desktop-version] [android-url]` does, under
 the deployment lock and the release transaction (`release-transaction.sh`):

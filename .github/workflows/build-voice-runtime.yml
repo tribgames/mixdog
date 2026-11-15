@@ -26,6 +26,7 @@ jobs:
   plan:
     name: plan-immutable-release
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.plan.outputs.tag }}
       version: ${{ steps.plan.outputs.version }}
@@ -57,6 +58,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.build_needed == 'true' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - name: Create or resume hidden draft
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -73,6 +75,7 @@ jobs:
     needs: [plan, prepare-release]
     if: ${{ needs.plan.outputs.build_needed == 'true' }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +185,7 @@ jobs:
     needs: [plan, build]
     if: ${{ needs.plan.outputs.build_needed == 'true' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -228,6 +232,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.build_needed == 'false' && needs.plan.outputs.sync_needed == 'true' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -253,6 +258,7 @@ jobs:
     needs: [plan, manifest]
     if: ${{ needs.plan.outputs.build_needed == 'true' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - name: Publish without replacing the application latest release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -283,6 +289,7 @@ jobs:
         )
       }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     concurrency:
       group: runtime-manifest-sync
       cancel-in-progress: false
