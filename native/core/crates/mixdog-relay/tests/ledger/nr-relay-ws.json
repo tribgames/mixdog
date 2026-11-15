@@ -1,0 +1,14 @@
+[
+  {
+    "node": "apps/relay/security.test.mjs::a malformed frame on an answered-and-closing socket cannot crash the relay, and frees its slot",
+    "rust": "ws::a_malformed_frame_on_a_closing_socket_ends_the_connection_and_frees_its_slot"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a burst of control frames pins no ingress reservation",
+    "rust": "ws::pings_are_answered_with_pongs_in_order_and_reported"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a leg parked for ingress admission waits instead of losing its frame",
+    "rust": "ws::the_raw_tap_sees_the_leftover_bytes_first_and_may_pause_before_the_parser_takes_the_chunk"
+  }
+]
