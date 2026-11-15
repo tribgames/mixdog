@@ -1,0 +1,8 @@
+nr-exthost-pdf-cmap-truetype: nothing to apply.
+
+- No Cargo change: the crate uses tracing (already a dependency) and the tests use flate2 (already a dev-dependency).
+- native/core/crates/mixdog-pdf/src/fontfile/mod.rs is not owned by this task and has no `pub mod bcmap;` line. The module is
+  declared inside cmap.rs with #[path = "bcmap.rs"] pub mod bcmap; (path fontfile::cmap::bcmap). If a later task owning mod.rs
+  prefers `pub mod bcmap;` there, it removes that line and the #[path] declaration together and updates the imports
+  (cmap.rs `bcmap::`, tests/fontfile_cmap_truetype.rs `fontfile::cmap::bcmap`).
+- Fixture added: native/core/fixtures/pdf-cmap/cmaps.txt (recorded from pdfjs-dist 6.4.299 by tests/record_cmaps.mjs).
