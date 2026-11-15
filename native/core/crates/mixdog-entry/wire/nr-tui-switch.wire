@@ -1,0 +1,63 @@
+# nr-tui-switch: the `mixdog` binary runs the terminal interface and the --plain REPL.
+# Files: crates/mixdog-entry/{Cargo.toml, src/interactive.rs, tests/node_free.rs, tests/pty_twin.rs, tests/support/*}.
+# Nothing here was compiled (no cargo in this task). mixdog-entry, mixdog-tui and mixdog-repl are workspace members already.
+
+## 1. native/core/Cargo.lock
+Package `mixdog-entry`: `dependencies` gain (alphabetical, merged into the list nr-tui-entry-argv.wire section 3 describes):
+ "mixdog-core-session", "mixdog-fsio", "mixdog-repl", "mixdog-tui", "mixdog-tui-style", "mixdog-view-model"
+and the dev-dependencies add "mixdog-term" and "portable-pty". All are workspace crates or crates already in the lock (portable-pty is
+mixdog-term's and mixdog-tui's dev-dependency). No package is added to the lock.
+No workspace Cargo.toml change: every one of them is already a [workspace.dependencies] entry (mixdog-tui, mixdog-repl, mixdog-tui-style,
+mixdog-view-model, mixdog-core-session, mixdog-fsio, mixdog-term, portable-pty).
+
+## 2. native/core/crates/mixdog-workspace-hack/Cargo.toml
+`cargo hakari generate` after the members of nr-tui-entry-argv.wire section 1 and nr-tui-repl.wire section 1 are in.
+D:\mixdog-build\tools\unify-test-features.py for mixdog-entry (its tests now build mixdog-term and portable-pty, which carry no test-only feature).
+
+## 3. compose_flip.rs SERVICE_PENDING
+Nothing: the crate registers no protocol method.
+
+## 4. What interactive.rs does (so the wiring can check it)
+- dispatch.rs (nr-tui-entry-argv, unchanged here) brackets every non-exec run with the lifecycle ledger (begin/finish_process_lifecycle,
+  record_catchable_fatal), performs the pending staged swap and re-runs itself with MIXDOG_SWAP_REEXEC=1 returning the child's code, and
+  registers the live session; interactive.rs only maps options and calls the run.
+- `Mode::Tui` calls `mixdog_tui::run::run_tui(TuiOptions { provider, model, effort, fast, web_search, tool_mode: "full"|"readonly",
+  remote, force_onboarding, worktree: {mode:"worktree",name}|{mode:"branch"}|none, cwd: None, resume: None })`.
+- `Mode::Plain` calls `mixdog_repl::run(ReplOptions { provider, model, tool_mode, cwd: None }, Arc<StatuslineRenderer>)`.
+- The exit code is read back from the `ExitCode` run_tui / run return, by its Debug text (the type has no accessor). One-line follow-up for
+  the owners of mixdog-tui/src/run.rs and mixdog-repl/src/lib.rs: expose the `i32` their `ExitCode` is made from (`run_tui_code`,
+  `run_code`), then delete `exit_code_of` in interactive.rs.
+
+## 5. Packaging (decision D7: the binary beside `mixdogd`; the owner's installer decides PATH)
+- package.json: `bin.mixdog` stops pointing at src/cli.mjs. With the native distribution it names the shim the installer puts beside
+  `mixdogd` (or `bin` is removed when the npm package is retired). Remove the script `build:tui` and the `build:tui` step of `prepack`
+  (`"prepack": "npm run build:shipped-history"`), and the script `bench:tui-load`.
+- Installer / release scripts (the packaging task of the wave that publishes the CLI): place `mixdog` (`mixdog.exe`) in the same folder as
+  `mixdogd` (ensure_core's `core_binary` looks beside the running executable), publish `mixdog-cli-manifest.json` as nr-tui-launch-update.wire
+  section 4 says, and add the folder to PATH as the owner decides.
+- Run once the pieces above exist: `cargo test --offline -p mixdog-entry`, `... --test node_free`, `... --test pty_twin -- --ignored`
+  (a machine with node and C:/Project/mixdog; MIXDOGD_BIN = a mixdogd built with the test-support feature of mixdog-ai, for the pty runs).
+
+## 6. Deletion list (task nr-tui-delete, wave 10: only after node_free and pty_twin are green and the import-closure check passes)
+The Node TUI is not kept behind any switch. The list is plan-tui.json `deletions` as it stands: src/cli.mjs, src/app.mjs, src/help.mjs,
+src/headless-command.mjs (+ test); src/repl.mjs and src/repl/**; src/tui/** except the files the Electron renderer imports (decision D9);
+src/ui/{ansi,markdown,session-stats,statusline,statusline-agents,stream-finalize,tool-card}.mjs and their tests; src/vendor/statusline/**
+when no daemon importer remains; src/standalone/session-client.mjs and session-client/**, folder-dialog.mjs; src/runtime/shared/
+{staged-update,process-lifecycle,staged-child-result}.mjs when no importer remains; scripts/build-tui.mjs, tui-frame-harness.mjs,
+tui-transcript-jitter-harness-entry.jsx, tui-perf-run.ps1, tui-runtime-load-bench.mjs, markdown-surface-test.mjs; the package.json
+dependencies only that code used (ink, react (root), marked, cli-highlight, string-width, strip-ansi, wrap-ansi, chalk, diff) after the check.
+
+## 7. Not done by this task (reported in its result)
+The statusline of `--plain` is built from a StatusHost that has no model catalog, plan-usage cache or session runtimes (they are the core's,
+not this process's): the model-window, quota and sub-agent segments are what the files of the data folder give, no more. The footer of the
+terminal interface itself is not painted by mixdog-tui's run loop yet (render.rs passes footer ""), which is nr-tui-app-run's.
+
+## 8. For the owner of mixdog-entry/src/main.rs and dispatch.rs (nr-tui-entry-argv; found in review, not this task's files)
+- nr-tui-launch-update.wire section 3 is not applied: main.rs must, first of all, when argv[1] == mixdog_launch::staged_update::STAGED_INSTALL_ARG
+  ("--staged-install-worker"), `std::process::exit(mixdog_launch::staged_update::run_staged_install_worker(&argv[2]))`. Today the worker that
+  `spawn_staged_install` starts (this same executable with that argument) is refused by the argv classifier as `unknown option`, so no update
+  would ever be staged once the update check calls `spawn_staged_install` (no caller yet).
+- dispatch.rs `rerun`/`child_exit` repeat mixdog_launch::staged_update::reexec_swapped (and its exit_code_of); call reexec_swapped with the
+  `exe` of `SwapOutcome::Swapped(exe)` instead and delete the copy (keep the "forced-cleanup" reason for a signal-ended child).
+- argv.rs: the two `#[allow(dead_code, reason = "... until then only the tests do")]` on `Worktree` and `Options` are stale now that
+  interactive.rs reads them; remove them.

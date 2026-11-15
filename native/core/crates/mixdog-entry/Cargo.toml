@@ -8,7 +8,6 @@ publish.workspace = true
 workspace = true
 
 # The native `mixdog` command: Node's `src/cli.mjs` and `src/app.mjs` (the argv grammar, the help, the refusals, `exec`).
-# `mixdog-tui` and `mixdog-repl` join the dependencies, and `interactive.rs` is filled in, by the switch task (nr-tui-switch).
 [[bin]]
 name = "mixdog"
 path = "src/main.rs"
@@ -21,11 +20,22 @@ mixdog-core = { workspace = true }
 # The process lifecycle and the staged-update swap a start goes through before an interactive run.
 mixdog-launch = { workspace = true }
 mixdog-js = { workspace = true }
+# The two interactive runs: the terminal interface (`mixdog_tui::run::run_tui`) and the `--plain` REPL (`mixdog_repl::run`), with what
+# the REPL's statusline renderer is built from (the footer's host, the style, the disk reads, the runtime rows it asks for).
+mixdog-tui = { workspace = true }
+mixdog-repl = { workspace = true }
+mixdog-tui-style = { workspace = true }
+mixdog-view-model = { workspace = true }
+mixdog-core-session = { workspace = true }
+mixdog-fsio = { workspace = true }
 serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
+# The pseudo-terminals of the interactive tests (tests/node_free.rs, tests/pty_twin.rs) and the screen their output is replayed on.
+portable-pty = { workspace = true }
+mixdog-term = { workspace = true }
 # The exec replay (tests/exec_entry.rs): the binary runs against a stand-in provider that serves TLS under a throwaway
 # certificate the binary is pinned to (`REPLAY_PROVIDER_PIN`, a `test-support` control of the HTTP client).
 httparse = { workspace = true }
