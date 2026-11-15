@@ -348,16 +348,33 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
     }
     let mut data = rgb_of(&frame);
     let (width, height) = (frame.width, frame.height);
-    let mut has_alpha = false;
-    if let Some(alpha_item) = &parsed.alpha_item {
-        let alpha_picture = decoder.decode(alpha_item)?;
-        let alpha = frame_of(&alpha_picture)?;
-        if (alpha.width, alpha.height) != (width, height) {
-            return Err(broken("the alpha plane differs in size from the image"));
+    let alpha = match &parsed.alpha_item {
+        Some(alpha_item) => {
+            let alpha_picture = decoder.decode(alpha_item)?;
+            let plane = frame_of(&alpha_picture)?;
+            let samples: Vec<u8> = (0..plane.width * plane.height).map(|index| to_8_bits(f32::from(plane.luma.samples[index]), plane.depth)).collect();
+            Some((plane.width, plane.height, samples))
         }
-        let mut rgba = Vec::with_capacity(width * height * 4);
-        for (index, pixel) in data.chunks_exact(3).enumerate() {
-            let a = to_8_bits(f32::from(alpha.luma.samples[index]), alpha.depth);
+        None => None,
+    };
+    for colour in &container.colours {
+        if let Colour::Icc(profile) = colour {
+            color::rgb_to_srgb(&mut data, false, profile);
+        }
+    }
+    let (width, height) = (u32::try_from(width).map_err(|_| broken("too wide"))?, u32::try_from(height).map_err(|_| broken("too tall"))?);
+    let mut raster = Raster { width, height, has_alpha: false, data };
+    for transform in &container.transforms {
+        raster = transformed(&raster, *transform);
+    }
+    if let Some((alpha_width, alpha_height, samples)) = alpha {
+        // libheif applies the properties of the primary item to the colour only: the alpha plane (an item of its own,
+        // with none of them) is laid over the transformed colour, scaled by nearest neighbour when the sizes differ.
+        let (out_width, out_height) = (raster.width as usize, raster.height as usize);
+        let mut rgba = Vec::with_capacity(out_width * out_height * 4);
+        for (index, pixel) in raster.data.chunks_exact(3).enumerate() {
+            let (x, y) = (index % out_width, index / out_width);
+            let a = samples[(y * alpha_height / out_height) * alpha_width + x * alpha_width / out_width];
             let straight = |channel: u8| {
                 if parsed.premultiplied_alpha && a != 0 && a != 255 {
                     (u32::from(channel) * 255 / u32::from(a)).min(255) as u8
@@ -367,18 +384,7 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
             };
             rgba.extend_from_slice(&[straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), a]);
         }
-        data = rgba;
-        has_alpha = true;
-    }
-    for colour in &container.colours {
-        if let Colour::Icc(profile) = colour {
-            color::rgb_to_srgb(&mut data, has_alpha, profile);
-        }
-    }
-    let (width, height) = (u32::try_from(width).map_err(|_| broken("too wide"))?, u32::try_from(height).map_err(|_| broken("too tall"))?);
-    let mut raster = Raster { width, height, has_alpha, data };
-    for transform in &container.transforms {
-        raster = transformed(&raster, *transform);
+        raster = Raster { width: raster.width, height: raster.height, has_alpha: true, data: rgba };
     }
     Ok(AvifImage { width: raster.width, height: raster.height, raster })
 }
