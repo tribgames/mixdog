@@ -5419,7 +5419,12 @@ dependencies = [
 name = "mixdog-pdf"
 version = "1.5.0"
 dependencies = [
+ "brotli",
  "flate2",
+ "mixdog-js",
+ "mixdog-pdf-codec",
+ "mixdog-testkit",
+ "serde_json",
  "tracing",
 ]
 

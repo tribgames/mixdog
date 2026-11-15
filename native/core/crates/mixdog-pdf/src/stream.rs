@@ -153,8 +153,34 @@ pub trait StreamFilters: Send + Sync {
 
 /// The decryption of one document (strings and streams per object number and generation).
 pub trait Decryptor: Send + Sync {
+    /// A fresh constructor cache belongs to one createCipherTransform call.
+    fn for_object(&self, _num: i64, _generation: i64) -> Option<Arc<dyn Decryptor>> {
+        None
+    }
+    /// Only version 4/5 transforms inspect the stream Type for EFF selection.
+    fn uses_embedded_filter(&self) -> bool {
+        false
+    }
     /// `cipherTransform.decryptString`.
-    fn decrypt_string(&self, num: i64, generation: i64, data: &[u8]) -> Vec<u8>;
+    fn decrypt_string(
+        &self,
+        num: i64,
+        generation: i64,
+        data: &[u8],
+        xref: Option<&crate::xref::Xref>,
+    ) -> Result<Vec<u8>>;
+
+    /// Select the cipher when the parser creates the stream, without decoding bytes.
+    fn validate_stream(
+        &self,
+        _num: i64,
+        _generation: i64,
+        _crypt_name: Option<&str>,
+        _embedded_file: bool,
+        _xref: Option<&crate::xref::Xref>,
+    ) -> Result<()> {
+        Ok(())
+    }
 
     /// `cipherTransform.createStream(...)` over the whole stream: `crypt_name` is the `/Name` of a `Crypt`
     /// filter, `None` for the document's default stream filter.
@@ -164,6 +190,7 @@ pub trait Decryptor: Send + Sync {
         generation: i64,
         data: &[u8],
         crypt_name: Option<&str>,
+        embedded_file: bool,
     ) -> Result<Vec<u8>>;
 }
 
@@ -207,6 +234,7 @@ pub struct PdfStream {
     cipher: Option<Cipher>,
     /// The cipher applies to the raw bytes before the chain (the stream has no `Crypt` filter).
     decrypt_first: bool,
+    embedded_file: bool,
 }
 
 impl fmt::Debug for PdfStream {
@@ -225,6 +253,7 @@ impl PdfStream {
         chain: Vec<FilterSpec>,
         cipher: Option<Cipher>,
         decrypt_first: bool,
+        embedded_file: bool,
     ) -> Self {
         PdfStream {
             dict,
@@ -234,6 +263,7 @@ impl PdfStream {
             chain,
             cipher,
             decrypt_first,
+            embedded_file,
         }
     }
 
@@ -254,12 +284,19 @@ impl PdfStream {
         guard.check_now()?;
         let max_output = guard.budget().max_bytes;
         let raw = self.raw();
+        if self.chain.is_empty() && !self.decrypt_first {
+            check_limit(raw.len(), max_output)?;
+        }
         let mut bytes = match &self.cipher {
             Some(c) if self.decrypt_first => {
-                c.decryptor.decrypt_stream(c.num, c.generation, raw, None)?
+                c.decryptor
+                    .decrypt_stream(c.num, c.generation, raw, None, self.embedded_file)?
             }
             _ => raw.to_vec(),
         };
+        if self.decrypt_first || self.chain.is_empty() {
+            check_limit(bytes.len(), max_output)?;
+        }
         if self.chain.is_empty() {
             return Ok(bytes);
         }
@@ -280,10 +317,13 @@ impl PdfStream {
                     .and_then(|p| p.get_raw("Name"))
                     .and_then(Obj::as_name)
                     .unwrap_or("Identity");
-                bytes = match c
-                    .decryptor
-                    .decrypt_stream(c.num, c.generation, &bytes, Some(name))
-                {
+                bytes = match c.decryptor.decrypt_stream(
+                    c.num,
+                    c.generation,
+                    &bytes,
+                    Some(name),
+                    self.embedded_file,
+                ) {
                     Ok(bytes) => bytes,
                     Err(e) if e.is_fatal() => return Err(e),
                     Err(e) => {
@@ -291,6 +331,7 @@ impl PdfStream {
                         return Ok(Vec::new());
                     }
                 };
+                check_limit(bytes.len(), max_output)?;
                 continue;
             }
             let length = if i == 0 { Some(raw.len()) } else { None };
@@ -316,7 +357,19 @@ impl PdfStream {
                     return Ok(Vec::new());
                 }
             }
+            check_limit(bytes.len(), max_output)?;
         }
+        check_limit(bytes.len(), max_output)?;
         Ok(bytes)
+    }
+}
+
+fn check_limit(length: usize, limit: usize) -> Result<()> {
+    if length > limit {
+        Err(PdfError::ResourceLimit(format!(
+            "decoded stream longer than {limit} bytes"
+        )))
+    } else {
+        Ok(())
     }
 }

@@ -23,12 +23,16 @@ pub use predictor::PredictorParams;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodecError {
     Format(String),
+    ResourceLimit { limit: usize },
 }
 
 impl fmt::Display for CodecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CodecError::Format(message) => f.write_str(message),
+            CodecError::ResourceLimit { limit } => {
+                write!(f, "decoded stream longer than {limit} bytes")
+            }
         }
     }
 }
@@ -39,7 +43,10 @@ impl std::error::Error for CodecError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Filter {
     Flate(Option<PredictorParams>),
-    Lzw { early_change: i64, predictor: Option<PredictorParams> },
+    Lzw {
+        early_change: i64,
+        predictor: Option<PredictorParams>,
+    },
     Ascii85,
     AsciiHex,
     RunLength,
@@ -62,7 +69,7 @@ impl Filter {
     }
 }
 
-/// Applies `filters` in order. Each stage's output stops at `limit` bytes. As in pdf.js's `makeFilter`, a stage that
+/// Applies `filters` in order. Each stage reports `ResourceLimit` if its output exceeds `limit` bytes. As in pdf.js's `makeFilter`, a stage that
 /// cannot start (a bad flate header, a predictor number nobody defined) gives an empty stream; a predictor row
 /// with an unknown filter byte is an error.
 pub fn decode_chain(data: &[u8], filters: &[Filter], limit: usize) -> Result<Vec<u8>, CodecError> {
@@ -71,22 +78,25 @@ pub fn decode_chain(data: &[u8], filters: &[Filter], limit: usize) -> Result<Vec
         current = match filter {
             Filter::Flate(predictor) => match flate::inflate(&current, limit) {
                 Ok(inflated) => unpredict(inflated, predictor.as_ref(), limit)?,
-                Err(_) => Vec::new(),
+                Err(CodecError::Format(_)) => Vec::new(),
+                Err(error) => return Err(error),
             },
             Filter::Lzw { early_change, predictor } => {
-                unpredict(lzw::decode(&current, *early_change, limit), predictor.as_ref(), limit)?
+                unpredict(lzw::decode(&current, *early_change, limit)?, predictor.as_ref(), limit)?
             }
-            Filter::Ascii85 => ascii85::decode(&current, limit),
-            Filter::AsciiHex => asciihex::decode(&current, limit),
-            Filter::RunLength => runlength::decode(&current, limit),
-            Filter::PassThrough => current,
+            Filter::Ascii85 => ascii85::decode(&current, limit)?,
+            Filter::AsciiHex => asciihex::decode(&current, limit)?,
+            Filter::RunLength => runlength::decode(&current, limit)?,
+            Filter::PassThrough => check_output(current, limit)?,
         };
     }
-    Ok(current)
+    check_output(current, limit)
 }
 
 fn unpredict(decoded: Vec<u8>, params: Option<&PredictorParams>, limit: usize) -> Result<Vec<u8>, CodecError> {
-    let Some(params) = params else { return Ok(decoded) };
+    let Some(params) = params else {
+        return Ok(decoded);
+    };
     if params.predictor <= 1 {
         return Ok(decoded);
     }
@@ -94,4 +104,9 @@ fn unpredict(decoded: Vec<u8>, params: Option<&PredictorParams>, limit: usize) -
         return Ok(Vec::new());
     }
     predictor::decode(&decoded, params, limit)
+}
+
+/// Never return a successful truncated prefix when a caller budget was exceeded.
+pub(crate) fn check_output(bytes: Vec<u8>, limit: usize) -> Result<Vec<u8>, CodecError> {
+    if bytes.len() > limit { Err(CodecError::ResourceLimit { limit }) } else { Ok(bytes) }
 }

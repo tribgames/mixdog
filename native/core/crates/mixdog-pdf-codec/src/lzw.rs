@@ -34,8 +34,12 @@ impl BitReader<'_> {
     }
 }
 
-/// Decodes `input` with the given `EarlyChange` (1 when the stream has none); the output stops at `limit` bytes.
-pub fn decode(input: &[u8], early_change: i64, limit: usize) -> Vec<u8> {
+/// Decodes `input` with the given `EarlyChange` (1 when the stream has none); output exceeding `limit` returns `ResourceLimit`.
+pub fn decode(input: &[u8], early_change: i64, limit: usize) -> Result<Vec<u8>, crate::CodecError> {
+    crate::check_output(decode_prefix(input, early_change, limit.saturating_add(1)), limit)
+}
+
+fn decode_prefix(input: &[u8], early_change: i64, limit: usize) -> Vec<u8> {
     let mut reader = BitReader { data: input, pos: 0, cached: 0, bits: 0, eof: false };
     let mut values = [0u8; DICTIONARY_SIZE];
     let mut lengths = [0u16; DICTIONARY_SIZE];
