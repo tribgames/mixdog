@@ -1010,6 +1010,8 @@ fn required_tables_and_versions_are_checked_in_pdfjs_order() {
     assert!(glyph_error(&font_of("maxp", maxp_table(5), head(), loca())).contains("maxp"));
     assert!(glyph_error(&font_of("head", maxp_table(5), head(), loca())).contains("head"));
     assert!(glyph_error(&font_of("hhea", maxp_table(5), head(), loca())).contains("hhea"));
+    // An `hhea` without an `hmtx`: pdf.js's `sanitizeMetrics` throws reading the missing table.
+    assert!(glyph_error(&font_of("hmtx", maxp_table(5), head(), loca())).contains("of null"));
     // A maxp of an unknown version is accepted by its length (6 or at least 32), refused otherwise.
     let mut odd = maxp_table(5);
     odd[..4].copy_from_slice(&0x0002_0000_u32.to_be_bytes());
