@@ -1,0 +1,73 @@
+# nr-office-pdf-content-ops: what the lead applies (all of it is in files this task does not own)
+
+Not compiled: cargo was not run (the lead compiles the wave). rustfmt parsed every new Rust file; the type check has not
+been done. The recording was produced by running Node (applyPdfBatch over pdf-lib documents) once.
+
+## 1. native/core/crates/mixdog-office-pdf/src/lib.rs
+
+After `pub mod adapter;` (the list the earlier tasks added to) add:
+
+    pub mod batch;
+    pub mod content_ops;
+    pub mod marks;
+    mod flatten;
+
+Optional single-import re-exports for the tool layer, after the existing `pub use` lines:
+
+    pub use batch::{PdfFormView, apply_batch};
+    pub use content_ops::ContentOperations;
+    pub use marks::{MarkBox, Measure, display_point_to_user, display_to_user, report_boxes, target_boxes};
+
+## 2. native/core/Cargo.toml, Cargo.lock, mixdog-office-pdf/Cargo.toml, mixdog-workspace-hack
+
+Nothing: the new modules use mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-pdf, mixdog-raster (SvgFonts), mixdog-rt
+(CancellationToken), tokio (the current-thread runtime `ocr_pages` blocks on, features the crate already enables),
+serde_json; the twin test uses mixdog-testkit and mixdog-office-base (test-support), all already dependencies or
+dev-dependencies of the crate. No new crate and no new workspace edge.
+
+## 3. native/core/fixtures/MANIFEST.json
+
+Index the new set `office-content-ops` (recorder benchmarks/rust-core/recorders/record-office-content-ops.mjs, 1 file,
+golden.json; the set's own MANIFEST.json is at native/core/fixtures/office-content-ops/MANIFEST.json) with the manifest
+tool that built the other entries: `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index`.
+
+## 4. SERVICE_PENDING (compose_flip.rs)
+
+Nothing: this task registers no protocol method, service or tool.
+
+## 5. What the tool layer builds per call
+
+    let content = ContentOperations::new(FontEnv::host(), SvgFonts::from_registry(&lane, &registry), Some(OcrContext::new(..)), cancel);
+    let rows = mixdog_office_pdf::batch::apply_batch(&lane, &note, &path, &operations, &content)?;
+
+* `ContentOperations` is made for one batch (it remembers which pages the batch has already wrapped in `q` ... `Q`, as
+  pdf-lib does once per page object); `apply_batch` runs the content operations and `StructureOperations` through the
+  one dispatcher of the adapter (`adapter::apply_pdf_batch`), so there is no second dispatcher. `ocr` and `cancel` are
+  Node's batch `context` (`{ dataDir, signal }`); without an `OcrContext` an `ocr_pages` operation reports that it has
+  none before it writes anything.
+* The batch is blocking work (a lane job). `ocr_pages` runs the async recognition on a current-thread runtime of its
+  own (as `security::secure_pdf` does with qpdf), so the lane the batch runs on must not be the one `OcrContext.lanes`
+  submits its reads to when that lane has a single slot (`interactive_io`); run the batch on a write lane.
+* `batch::PdfFormView` is the `adapter::FormView` the snapshot and the audit read a form through (the forms module's
+  `describe_fields`, `minimum_field_size`, `rectangles_overlap`); the adapter's wire left it to "the forms module" and
+  nothing had implemented it. It describes the fields on a copy of the document, because reading a form makes one.
+
+## 6. Behaviour that differs from the Node code on purpose (nothing user-visible is lost)
+
+* A mark by `find` measures the saved bytes and the batch continues on the same document value (Node reloaded the
+  bytes because pdf-lib caches every stream it serializes; saving here does not change the document).
+* `preview_fields` leaves the session document as it is (Node reloaded the same bytes).
+* `flatten_form` takes each widget out of its page's annotations (Node removed the appearance reference, which is not
+  in the list, and left the deleted widget's reference dangling).
+
+## 7. Duplicated on purpose (files owned by other tasks)
+
+`content_ops.rs` has its own `page_resources`, `sub_dictionary` and `content_refs` beside the ones in `ocr/layer.rs`
+(private there, not this task's file): when the owner of `ocr/layer.rs` makes them `pub(crate)`, they can be removed
+here. `flatten.rs` reads a field's parent itself for the same reason (`forms::parent_of` is private).
+
+## 8. Tests
+
+tests/twin_content_ops.rs (replays native/core/fixtures/office-content-ops/golden.json, 48 batches; `twin_live_content_ops`
+is #[ignore]) and unit tests in marks.rs, content_ops.rs, flatten.rs and batch.rs. Not recorded: `ocr_pages` (its engine is
+a download on first use).
