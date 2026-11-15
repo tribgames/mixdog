@@ -488,6 +488,9 @@ fn every_private_key_form_node_accepted_parses() {
     let p8 = parse_ec_p256_pem(EC_P8).expect("PKCS#8 EC");
     let sec1 = parse_ec_p256_pem(EC_SEC1).expect("SEC1 EC");
     assert_eq!(p8.verifying_key(), sec1.verifying_key());
+    // `openssl ecparam -genkey` writes the curve parameters before the key; the key block is the one read.
+    let with_parameters = format!("-----BEGIN EC PARAMETERS-----\nBggqhkjOPQMBBw==\n-----END EC PARAMETERS-----\n{EC_SEC1}");
+    assert_eq!(parse_ec_p256_pem(&with_parameters).expect("SEC1 EC after its parameters").verifying_key(), p8.verifying_key());
     let p8 = parse_rsa_pem(RSA_P8).expect("PKCS#8 RSA");
     let p1 = parse_rsa_pem(RSA_P1).expect("PKCS#1 RSA");
     assert_eq!(p8.public().as_ref(), p1.public().as_ref());
@@ -870,4 +873,8 @@ async fn a_relay_without_credentials_ignores_native_push_frames() {
     service.bind("dev-a", &paired, &bind_frame(&json!({})));
     assert!(service.send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
     assert_eq!(service.association_count(APNS_TOKEN), None);
+    // A sender that serves no platform is no sender: the frame is ignored, not refused.
+    let idle = FakePush::new(&[], delivered());
+    assert!(service(&idle).send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
+    assert_eq!(idle.sent(), 0);
 }
