@@ -1,0 +1,112 @@
+{
+  "id": "media_request_frame_and_head_timeout",
+  "description": "a media request reaches the desktop as one media-request frame (range, if-none-match, session label, scheme marker); a desktop that never answers is 504 after 30 s and is told to abort",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimId}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "token",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"desktop-lanes\",\"media\":true}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "path": "/media/0123456789abcdef?variant=download&sid=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&enc=e2ee1&token=${token}",
+      "headers": [
+        [
+          "Range",
+          "bytes=65536-131071"
+        ],
+        [
+          "If-None-Match",
+          "\"etag-1\""
+        ]
+      ],
+      "expect_status": 504,
+      "close_probe_ms": 100,
+      "timeout_ms": 40000
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    }
+  ]
+}

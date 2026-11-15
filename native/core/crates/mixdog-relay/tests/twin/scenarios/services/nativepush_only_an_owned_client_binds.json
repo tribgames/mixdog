@@ -1,0 +1,144 @@
+{
+  "id": "nativepush_only_an_owned_client_binds",
+  "description": "a bind for a client the desktop did not pair, for a platform the relay lacks, or with a token of the wrong shape binds nothing",
+  "fakes": {
+    "nativePush": {
+      "platforms": [
+        "apns"
+      ],
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimId}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "token",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"apns\",\"token\":\"xyz\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":5,\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "coalesced",
+        "frames": [
+          {
+            "kind": "text",
+            "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+          },
+          {
+            "kind": "text",
+            "text": "{\"type\":\"native-push\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+          },
+          {
+            "kind": "text",
+            "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"xyz\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+          }
+        ]
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 3
+    }
+  ]
+}

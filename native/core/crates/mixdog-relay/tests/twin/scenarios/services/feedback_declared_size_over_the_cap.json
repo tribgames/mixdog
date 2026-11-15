@@ -1,0 +1,34 @@
+{
+  "id": "feedback_declared_size_over_the_cap",
+  "description": "a body declared larger than the cap is 413 payload_too_large before it is read and the connection closes",
+  "fakes": {
+    "feedbackSender": {
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Content-Length",
+          "99999999"
+        ]
+      ],
+      "expect_status": 413,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    }
+  ]
+}

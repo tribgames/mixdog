@@ -1,0 +1,248 @@
+{
+  "id": "nativepush_a_desktop_sends_only_through_its_own_binding",
+  "description": "one token bound by two desktops for their own clients: each delivers; the binding of one desktop cannot be used by the other, and revoking one leaves the other",
+  "fakes": {
+    "nativePush": {
+      "platforms": [
+        "apns",
+        "fcm"
+      ],
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimIdA",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimIdA}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimIdA}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenA",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "b",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-2222-4222-8222-000000000002",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-2222-4222-8222-000000000002\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimIdB",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimIdB}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimIdB}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenB",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"cb\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"cb2\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-unbind\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"ca2\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"cb3\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    }
+  ]
+}

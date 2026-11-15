@@ -1,0 +1,32 @@
+{
+  "id": "feedback_corrupt_records_fail_closed",
+  "description": "an unreadable or invalid stored record is reported with its file name and an error code only, and the service then refuses every submission with 503",
+  "files": {
+    "data": {
+      "feedback/11111111-1111-4111-8111-111111111111.json": "{ not json",
+      "feedback/22222222-2222-4222-8222-222222222222.json": "{\"id\":\"33333333-3333-4333-8333-333333333333\",\"hash\":\"x\"}",
+      "feedback/notes.txt": "ignored: not a record file"
+    }
+  },
+  "fakes": {
+    "feedbackSender": {
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"bug\",\"message\":\"  it broke  \"}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    }
+  ]
+}

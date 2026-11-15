@@ -1,0 +1,189 @@
+{
+  "id": "nativepush_bind_send_unbind",
+  "description": "a desktop binds a token to its own paired client and sends through it: the service gets the message and the desktop its result; after an unbind the token is unbound",
+  "fakes": {
+    "nativePush": {
+      "platforms": [
+        "apns",
+        "fcm"
+      ],
+      "answers": [
+        {
+          "ok": true,
+          "status": 200
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimId}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "token",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":true}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\",\"mx\":\"bXg\",\"reason\":\"approval-pending\",\"collapseKey\":\"c2\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-unbind\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c3\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-unbind\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"fcm\",\"token\":\"ffffffffffffffffffffffffffffffffffffffff:APA91b-token_x\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "feedback_records_of_an_earlier_run_are_mailed_on_start",
+  "description": "a stored record without attachments (the shape older relays wrote) loads and is mailed, and a delivered one stays recorded",
+  "files": {
+    "data": {
+      "feedback/11111111-1111-4111-8111-111111111111.json": "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"hash\":\"ef204a4f833666c2842fa5cb2f5215dc28b238ebb719bd3117dcf9f47d30ece4\",\"payload\":{\"kind\":\"bug\",\"message\":\"left behind\",\"replyTo\":\"\"},\"createdAt\":4000000000000,\"attempts\":0,\"nextAttemptAt\":1,\"sentAt\":0}",
+      "feedback/22222222-2222-4222-8222-222222222222.json": "{\"id\":\"22222222-2222-4222-8222-222222222222\",\"hash\":\"x\",\"createdAt\":4000000000000,\"attempts\":0,\"nextAttemptAt\":0,\"sentAt\":4000000000001}"
+    }
+  },
+  "fakes": {
+    "feedbackSender": {
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "http",
+      "label": "the stored id is known",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"bug\",\"message\":\"left behind\"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    }
+  ]
+}
