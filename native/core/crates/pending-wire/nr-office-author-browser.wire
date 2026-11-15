@@ -70,8 +70,7 @@
 #   mixdog_office_author::icons::{icons, IconSet, SvgOptions}    (`ICON(name)`, `ICON.svg`, `ICON.names`, `ICON.source`)
 #
 # The shared render browser must be started with --font-render-hinting=none (mixdog-exthost browser.rs browser_args already
-# has it). HtmlBrowser::launch asks the browser for its command line (SystemInfo.getInfo) and refuses one that says it was
-# started without the flag; a browser that does not say is taken as it is.
+# has it); HtmlBrowser::launch takes the browser the endpoint leases as it is.
 
 [known-gaps]
 # mixdog-raster `ops::trim` does not apply libvips' 3x3 median filter before it looks for the box (sharp's trim does, so a
