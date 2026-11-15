@@ -80,6 +80,11 @@ members = [
     "crates/mixdog-tui-style",
     "crates/mixdog-view-model",
     "crates/mixdog-office-base",
+    "crates/mixdog-office-design",
+    "crates/mixdog-office-quality",
+    "crates/mixdog-ooxml",
+    "crates/mixdog-raster",
+    "crates/mixdog-entry",
     "crates/mixdog-xlsx-formula",
     "crates/mixdog-pdf",
     "crates/mixdog-cli",
@@ -189,6 +194,12 @@ mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
 mixdog-ssh = { path = "crates/mixdog-ssh" }
 mixdog-connections = { path = "crates/mixdog-connections" }
 mixdog-office-base = { path = "crates/mixdog-office-base" }
+mixdog-office-design = { path = "crates/mixdog-office-design" }
+mixdog-office-quality = { path = "crates/mixdog-office-quality" }
+mixdog-ooxml = { path = "crates/mixdog-ooxml" }
+mixdog-raster = { path = "crates/mixdog-raster" }
+mixdog-entry = { path = "crates/mixdog-entry" }
+mixdog-cli = { path = "crates/mixdog-cli" }
 mixdog-xlsx-formula = { path = "crates/mixdog-xlsx-formula" }
 mixdog-pdf = { path = "crates/mixdog-pdf" }
 mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }

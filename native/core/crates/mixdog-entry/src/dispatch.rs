@@ -44,7 +44,7 @@ pub fn run(argv: &[String]) -> i32 {
     }
     let lifecycle = begin_process_lifecycle("tui");
     // Interactive and general sessions keep the staged-update and live-session semantics.
-    let swapped = perform_pending_swap() == SwapOutcome::Swapped;
+    let swapped = matches!(perform_pending_swap(), SwapOutcome::Swapped(_));
     let _live = register_live_session(&format!("pid-{}", std::process::id()));
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
         // After a swap the new program starts again with a clean state; the guard stops a swap and start loop. If it cannot be

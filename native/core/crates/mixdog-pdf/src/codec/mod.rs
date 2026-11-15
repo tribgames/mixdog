@@ -6,6 +6,7 @@
 pub mod arith;
 pub mod ccitt;
 pub mod jbig2;
+pub mod jpx;
 
 use std::fmt;
 

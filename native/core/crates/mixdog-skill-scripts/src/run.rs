@@ -33,7 +33,7 @@ pub fn skill_run(args: Vec<OsString>, user_runtime: UserScriptRuntime) -> ExitCo
     };
     let script = script_path(&target);
     let skills_root = user_runtime.skills_root().unwrap_or_else(|| PathBuf::from("defaults").join("skills"));
-    let code = match shipped_script(&Unlaned, &script, &skills_root).and_then(|shipped| shipped.native) {
+    let code = match shipped_script(&Unlaned, &script, &skills_root).and_then(|shipped| shipped.native).filter(|native| native.runs_here()) {
         Some(native) => emit(&run_native(&Unlaned, native, &entry.args, &utc_today())),
         None => user_runtime.run(&script, &entry.args, carried),
     };

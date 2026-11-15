@@ -110,8 +110,8 @@ pub struct Rect {
 struct CipheredAsStored;
 
 impl Decryptor for CipheredAsStored {
-    fn decrypt_string(&self, _num: i64, _generation: i64, data: &[u8]) -> Vec<u8> {
-        data.to_vec()
+    fn decrypt_string(&self, _num: i64, _generation: i64, data: &[u8], _xref: Option<&Xref>) -> crate::Result<Vec<u8>> {
+        Ok(data.to_vec())
     }
 
     fn decrypt_stream(
@@ -120,6 +120,7 @@ impl Decryptor for CipheredAsStored {
         _generation: i64,
         data: &[u8],
         _crypt_name: Option<&str>,
+        _embedded_file: bool,
     ) -> crate::Result<Vec<u8>> {
         Ok(data.to_vec())
     }

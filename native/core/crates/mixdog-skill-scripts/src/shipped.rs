@@ -116,6 +116,17 @@ pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) 
     SHIPPED.iter().find(|shipped| shipped.sha256 == digest).copied()
 }
 
+impl Native {
+    /// Whether this process can run the script itself: the two scripts that read office files need the office engine, and a
+    /// process without one hands them to the script interpreter like any other script.
+    pub fn runs_here(self) -> bool {
+        match self {
+            Native::SourceExtract | Native::QcPages => installed_office_engine().is_some(),
+            _ => true,
+        }
+    }
+}
+
 /// Runs a native shipped script with its command-line arguments. `today` is the date `inventory` reports. The office
 /// scripts run against this process's office engine ([`crate::source_extract::install_office_engine`]), its working
 /// folder and the `mixdogd` that `MIXDOGD_BIN` names (or the one on the search path).
