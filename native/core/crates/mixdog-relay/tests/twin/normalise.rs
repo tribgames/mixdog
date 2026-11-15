@@ -171,7 +171,7 @@ impl<'a> Normaliser<'a> {
         captured.dedup_by(|a, b| a.1 == b.1);
         let ports: Vec<String> = masks.ports.iter().map(u16::to_string).collect();
         let re_port = (!ports.is_empty())
-            .then(|| Regex::new(&format!(r":(?:{})\b", ports.join("|"))))
+            .then(|| Regex::new(&format!(r#"(^|[^"]):(?:{})\b"#, ports.join("|"))))
             .transpose()
             .map_err(|e| e.to_string())?;
         let regex = |pattern: &str| Regex::new(pattern).map_err(|e| e.to_string());
@@ -454,6 +454,12 @@ mod tests {
         );
         assert_eq!(out[0]["line"], "[relay] http listening on :<port> (renderer: <root>\\renderer)");
         assert_eq!(out[0]["code"], "{\"code\":\"<$pair>\"} 1234567");
+    }
+
+    #[test]
+    fn a_json_number_equal_to_the_port_is_not_masked() {
+        let out = run(masks(), vec![json!({"line": "{\"bytes\":43211} on :43211"})]);
+        assert_eq!(out[0]["line"], "{\"bytes\":43211} on :<port>");
     }
 
     #[test]
