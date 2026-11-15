@@ -237,7 +237,7 @@ pub(crate) fn rasterize(path: &tiny_skia::Path, canvas_width: usize, canvas_heig
 }
 
 /// Adds the signed area of a line to the accumulation buffer (the area to the right of the line, row by row).
-fn add_line(area: &mut [f32], stride: usize, width: usize, height: usize, p0: (f32, f32), p1: (f32, f32)) {
+pub(crate) fn add_line(area: &mut [f32], stride: usize, width: usize, height: usize, p0: (f32, f32), p1: (f32, f32)) {
     if p0.1 == p1.1 {
         return;
     }
