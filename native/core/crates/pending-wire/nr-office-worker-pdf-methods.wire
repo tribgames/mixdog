@@ -1,0 +1,56 @@
+# nr-office-worker-pdf-methods: pdf.render and pdf.ocr in mixdog-exthost-worker (methods/pdf_render.rs, methods/pdf_ocr.rs)
+
+Not compiled: cargo was not run (the lead compiles the wave). Needs the wiring of nr-office-pdf-render-pages and nr-office-pdf-ocr first
+(their `pub use render::...` and `pub use ocr::{OcrContext, recognize_pdf_page_texts, ...}` in mixdog-office-pdf's lib.rs): the worker
+imports `mixdog_office_pdf::{AnalysisError, RenderPagesOptions, render_pdf_pages, OcrContext, recognize_pdf_page_texts}`.
+
+## native/core/crates/mixdog-exthost-worker/src/methods/mod.rs
+
+After `mod pdf;` add (sorted):
+
+    mod pdf_ocr;
+    mod pdf_render;
+
+In `register_document_methods`, after `pdf::register(registry);` add:
+
+    pdf_render::register(registry);
+    pdf_ocr::register(registry);
+
+and in the doc comment of that function name `pdf.render` and `pdf.ocr` among the registered PDF calls.
+
+## native/core/crates/mixdog-exthost-worker/Cargo.toml
+
+[dependencies], keeping the list sorted, add (workspace crates already in the lock; only new edges of mixdog-exthost-worker):
+
+    mixdog-fonts = { workspace = true }
+    mixdog-office-pdf = { workspace = true }
+
+`mixdog-rt` is already a dependency (the code uses `mixdog_rt::exec::{boot, RtConfig, Executors}`, which need no feature) and
+`mixdog-office-base` and `mixdog-fsio` too (the font scan runs on the interactive I/O lane with `mixdog_fsio`'s lane proof). Add the test target after `pdf_twin`:
+
+    [[test]]
+    name = "pdf_render_ocr"
+    path = "tests/pdf_render_ocr.rs"
+    required-features = ["test-support"]
+
+`cargo update --workspace --offline` and `cargo hakari generate` add the two edges to the lock and the hack as needed.
+
+## native/core/crates/mixdog-exthost-worker/src/main_entry.rs
+
+The test `the_names_come_from_the_registry_and_an_extension_adds_to_them` lists the served names: insert `"pdf.ocr"` after
+`"pdf.inspect"` and `"pdf.render"` after `"pdf.ocr"` (sorted: `... "ooxml.text", "pdf.inspect", "pdf.ocr", "pdf.render"`).
+
+## Route and SERVICE_PENDING
+
+`native_methods()` reads the registry, so `pdf.render` and `pdf.ocr` go to the Rust worker through `native_ext_methods()` (compose.rs)
+with no edit there: its filter drops only `image.*` and `document.*`. No protocol method and no SERVICE_PENDING name comes from this
+task. Once this is applied the Node worker is not called for `pdf.*`.
+
+## Behaviour the lead should know
+
+- A worker process has no daemon to hand it lane tokens: the first `pdf.render` or `pdf.ocr` boots `mixdog_rt::exec::boot(RtConfig::detect())`
+  (kept until the process ends) and scans the system fonts once (`mixdog_fonts::discovery::scan`, a job on the interactive I/O lane), both in pdf_render.rs.
+  Nothing else in the worker boots lanes. If a later task makes the worker boot lanes at start, `lanes()` there becomes a read of those tokens.
+- `pdf.ocr` needs the OCR engine pin (`ENGINE_ASSETS` of mixdog-office-pdf's ocr/install.rs, see nr-office-pdf-ocr.wire): until it
+  is filled recognition answers that OCR is not available on this platform, as the library says.
+- Fixtures: none added. The twin test reads `fixtures/office-render-pages/golden.json` (already in the tree).
