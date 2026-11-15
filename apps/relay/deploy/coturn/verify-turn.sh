@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Checks a provisioned coturn ON the VPS (as root):
 #   bash /opt/mixdog-relay/deploy/coturn/verify-turn.sh <public-ipv4>
-# Reads the secret only inside node; the credentials it hands the test client
-# are short-lived ones minted for this run, not the secret.
+# Reads the secret only inside the relay binary; the credentials it hands the
+# test client are short-lived ones minted for this run, not the secret.
 set -Eeuo pipefail
 
 PUBLIC_IP="${1:?usage: verify-turn.sh <public-ipv4>}"
 DEPLOY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RELAY_BIN="$DEPLOY_DIR/../mixdog-relay"
 CONF=/etc/mixdog-coturn/turnserver.conf
 ENV_FILE=/etc/mixdog-relay/turn.env
 # turnutils_uclient has no deadline of its own for a peer that never answers.
@@ -59,7 +60,7 @@ grep -q "ip daddr $PUBLIC_IP .*drop" <<<"$RULES" || fail "the egress policy lack
 grep -q "fib daddr type local udp dport $MIN_PORT-$MAX_PORT accept" <<<"$RULES" || fail "the egress policy lacks the relay-range allowance"
 grep -q 'fib daddr type local.* drop' <<<"$RULES" || fail "the egress policy lacks the local-destination drop"
 # Containment: other services may reserve ports too; this range must be in the set.
-node "$DEPLOY_DIR/coturn/reserved-ports.mjs" covers "$MIN_PORT" "$MAX_PORT" >/dev/null || fail "the relay range is not reserved from ephemeral ports"
+"$RELAY_BIN" reserved-ports covers "$MIN_PORT" "$MAX_PORT" >/dev/null || fail "the relay range is not reserved from ephemeral ports"
 # Is the public address a local one, or mapped to this host by the provider?
 if [[ -n "$(ip -4 -o addr show to "$PUBLIC_IP")" ]]; then
 	SINK_ADDRESS="$PUBLIC_IP"
@@ -72,17 +73,14 @@ FOREIGN="$(ss -H -lunp | awk -v lo="$MIN_PORT" -v hi="$MAX_PORT" '{ n = split($4
 [[ -z "$FOREIGN" ]] || fail "another UDP service listens inside the relay range: $FOREIGN"
 ok "egress policy loaded; relay range reserved; no other UDP listener inside it"
 
-echo "[verify-turn] STUN binding via the public address: $(node "$DEPLOY_DIR/coturn/stun-probe.mjs" "$PUBLIC_IP" "$TURN_PORT")"
+echo "[verify-turn] STUN binding via the public address: $("$RELAY_BIN" stun-probe "$PUBLIC_IP" "$TURN_PORT")"
 
 mint() { # <offset ms from now> <user id>: prints "username credential"; a past offset yields an expired one
 	(
 		set -a
 		. "$ENV_FILE"
 		set +a
-		OFFSET_MS="$1" USER_ID="$2" node --input-type=module -e '
-import { issueTurnCredential } from "'"$DEPLOY_DIR"'/../lib/turn-credentials.mjs";
-const c = issueTurnCredential({ secret: process.env.TURN_AUTH_SECRET, userId: process.env.USER_ID, nowMs: Date.now() + Number(process.env.OFFSET_MS) });
-console.log(c.username, c.credential);'
+		"$RELAY_BIN" turn-credential "$2" "$1"
 	)
 }
 if ! command -v turnutils_uclient >/dev/null; then
@@ -102,7 +100,7 @@ run_uclient() { # <user id> <offset ms> <turnutils_uclient args...>; returns its
 	timeout --foreground "$UCLIENT_DEADLINE_S" turnutils_uclient -u "$user" -w "$pass" -c -n 5 -p "$TURN_PORT" "$@" "$PUBLIC_IP"
 }
 sink_start() { # <name> <address> <port>
-	node "$DEPLOY_DIR/coturn/udp-sink.mjs" "$2" "$3" >"$WORK/$1" &
+	"$RELAY_BIN" udp-sink "$2" "$3" >"$WORK/$1" &
 	SINK_PID=$!
 	until grep -q '^ready' "$WORK/$1"; do
 		kill -0 "$SINK_PID" || fail "the UDP sink on $2:$3 did not start"
