@@ -1315,10 +1315,10 @@ impl Metrics {
 
     /// Hints a glyph with the module of `script`.
     pub fn hint_script(&self, face: &ttf_parser::Face<'_>, glyph: u16, ppem_x: i64, ppem_y: i64, script: Script) -> Option<HintedGlyph> {
-        // The style of a glyph comes from the character the font maps to it: the .notdef glyph (an unmapped character) is Latin.
-        let script = if glyph == 0 { Script::Latin } else { script };
-        // The style of a glyph comes from the character the font maps to it: .notdef (an unmapped character) is Latin.
-        let script = if glyph == 0 { Script::Latin } else { script };
+        // The style of a glyph comes from the character the font maps to it. The .notdef glyph (an unmapped character) is
+        // covered by no script and gets the fallback style, which is the CJK one when the CJK module is built
+        // (`AF_STYLE_FALLBACK` = `AF_STYLE_HANI_DFLT` in afglobal.h, applied in `af_face_globals_compute_style_coverage`).
+        let script = if glyph == 0 { Script::Cjk } else { script };
         let zones = self.zones(face, script);
         let contours = raw_outline(face, glyph)?;
         let truetype = is_truetype_orientation(&contours);
