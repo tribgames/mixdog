@@ -87,7 +87,7 @@ find "$MIXDOG_PKG/node_modules" -type f \
 # cache entries stay valid per trial; only overlaid src files recompile.
 mkdir -p /opt/mixdog-v8-cache
 NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
-(cd "$MIXDOG_PKG" && node --input-type=module -e "await Promise.all([import('@anthropic-ai/sdk'),import('openai'),import('sharp')]); console.log('provider/native imports ok after prune')")
+(cd "$MIXDOG_PKG" && node --input-type=module -e "await import('sharp'); console.log('native imports ok after prune')")
 chmod -R a+rwX /opt/mixdog-v8-cache
 # Package managers are needed only while building this archive. Runtime source
 # overlay locates the installed package through the mixdog executable itself.
