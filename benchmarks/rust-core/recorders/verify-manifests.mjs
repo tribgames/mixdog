@@ -95,7 +95,7 @@ for (const set of SETS) {
   }
   for (const f of walkFiles(dir)) {
     const rel = relative(dir, f).split(sep).join('/');
-    if (basename(f) !== basename(manifestPath) && !listed.has(rel)) {
+    if (rel !== basename(manifestPath) && !listed.has(rel)) {
       console.error(`UNLISTED ${set}/${rel}`);
       bad += 1;
     }
