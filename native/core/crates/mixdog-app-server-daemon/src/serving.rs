@@ -101,10 +101,10 @@ pub struct Serving {
 
 impl Serving {
     /// Starts the stall monitor over `executors` (LR §5.4): it probes RT-W with a posted task and watches every pooled lane for workers stuck past their lease, and
-    /// reports both to the core's `health` / `lane_health` and to `stall.jsonl` beside `daemon.json`. It reports and never acts; dropping it stops the watch.
-    pub fn watch_stalls(&self, executors: Arc<Executors>) -> StallMonitor {
+    /// reports both to the core's `health` / `lane_health` and to `stall.jsonl` beside `daemon.json`. It reports; a runtime that answered nothing for `lifecycle::END_AFTER` ends the process through the lifecycle's stalled-core exit. Dropping it stops the watch.
+    pub fn watch_stalls(&self, executors: Arc<Executors>, description: crate::lifecycle::StallDescription) -> StallMonitor {
         let work = executors.handle(TaskClass::Work);
-        let reporter = StallReporter::new(self.core_port.clone(), self.runtime_root.join(STALL_FILE)).watching_lanes(executors);
+        let reporter = StallReporter::new(self.core_port.clone(), self.runtime_root.join(STALL_FILE)).watching_lanes(executors).describing(description);
         StallMonitor::spawn(StallConfig::default(), tokio_post(work), self.lifecycle.clone(), reporter)
     }
 }

@@ -9,7 +9,6 @@ const EXTRAS = [
   'observeSignIn',
   'invokePcQuotaCapability',
   'readPcQuotaCapabilities',
-  'onHostTerminalRunRequested',
 ];
 
 function makeDeps() {
