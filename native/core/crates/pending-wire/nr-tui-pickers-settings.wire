@@ -49,5 +49,9 @@ None. The crate is already a workspace member and takes no new dependency edge: 
   made from its `result`): no Node voice setup is kept. The row costs one `getVoiceStatus` call beside the snapshot because
   `getSettingsSnapshot` has no voice member; adding `voice: { enabled }` to it (nr-tui-core-gaps, `tui_client_methods.rs`) would make
   Settings one round trip again and the call in `picker.rs::voice_enabled` could then read the snapshot.
+* Node's voice toggle showed the managed runtime's install progress on the hint line (`setProgressHint`). The core shows it
+  only when `voice/toggleVoice` carries the session's `threadId` (`VoiceService::call`: without one there is no hint line), so
+  the `AppCtx::store_call` of the wiring must add the TUI session's `threadId` to `toggleVoice` (as it does for session calls),
+  or the install runs without visible progress.
 * The JavaScript exception paths of Node (`panelFailed` notices for a `formatDuration` or paint that throws) have no Rust
   counterpart: the Rust functions do not fail there.
