@@ -141,10 +141,10 @@ entry_slices!(
     every_entry_answers_as_node_did_slice_15 = 15,
 );
 
-/// `fixtures/tools/media-text/office.json`: the text Node's lowering gave an attached Office file, or `null`.
 /// The attached-file cases are cut into this many slices (a case belongs to the slice its index is congruent to).
 const ATTACHED_SLICES: usize = 5;
 
+/// `fixtures/tools/media-text/office.json`: the text Node's lowering gave an attached Office file, or `null`.
 fn media_cases() -> Vec<Value> {
     serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools/media-text/office.json")).expect("media-text office set")
 }
@@ -176,6 +176,7 @@ fn attached_files_of_slice_lower(slice: usize) {
         matches_recording(name, actual.as_deref(), &want);
     }
     println!("attached slice {slice}: {ran} of {} cases", cases.len());
+    assert_eq!(ran, (0..cases.len()).filter(|index| index % ATTACHED_SLICES == slice).count());
 }
 
 macro_rules! attached_slices {
