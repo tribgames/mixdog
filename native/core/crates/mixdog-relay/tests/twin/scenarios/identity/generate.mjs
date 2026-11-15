@@ -404,7 +404,7 @@ add(
     desktop('dA'),
     sendJson('dA', { type: 'desktop-name', name: 'Secret Host' }),
     sendJson('dA', { type: 'pair-code-request', lease: 'lease-name-01', name: 'Secret Host' }),
-    expectFrames('dA', 1),
+    expectFrames('dA', 1, fromFrame('code', 'code')),
   ];
   for (let n = 0; n < 62; n += 1) steps.push(http(`/pair-code/support?deviceId=${DEV_A}`, { status: n < 60 ? 200 : 429 }));
   add(

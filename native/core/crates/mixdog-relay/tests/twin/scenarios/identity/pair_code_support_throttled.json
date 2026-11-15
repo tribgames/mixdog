@@ -37,7 +37,14 @@
     {
       "do": "expect",
       "conn": "dA",
-      "frames": 1
+      "frames": 1,
+      "capture": [
+        {
+          "var": "code",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
     },
     {
       "do": "http",
