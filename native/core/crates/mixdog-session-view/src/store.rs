@@ -64,6 +64,8 @@ const FIRST_STATE_WAIT: Duration = Duration::from_secs(30);
 const SECTION_WAIT: Duration = Duration::from_secs(15);
 /// Events a slow subscriber may fall behind by; the state itself is always read with `state()`.
 const EVENT_CAPACITY: usize = 256;
+/// The `notice` section's code of a staged update waiting for a restart (the updater's `update-notice` of the Node runtime).
+const UPDATE_READY_CODE: &str = "update-ready";
 
 /// How the session is opened: the options the Node UI gave its `createSession`.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -139,6 +141,8 @@ struct Inner {
     published: Mutex<Arc<Value>>,
     dirty: AtomicBool,
     heard: Mutex<Heard>,
+    /// The `update-ready` notices told, as `key:version` (`runtime-notifications.mjs`): each standing one is told once.
+    update_notices: Mutex<HashSet<String>>,
     oauth_flows: Mutex<Vec<(OAuthKind, String)>>,
     submissions: AtomicU64,
     disposed: AtomicBool,
@@ -227,6 +231,32 @@ impl Inner {
         out
     }
 
+    /// Tells the standing `update-ready` notices of the app feed not yet told, as the Node TUI's notice line words the updater's
+    /// `update-notice`: `mixdog v<version> ready — restart to apply.` (`update ready` without a version). Nothing is told while no one
+    /// listens: the first subscriber hears the standing ones.
+    fn hear_update_notices(&self) {
+        if !self.feed.has_subscribers() {
+            return;
+        }
+        let entries = self.client.store().sections(SectionName::Notice);
+        let mut told = held(&self.update_notices);
+        for entry in entries {
+            if entry.value["code"] != UPDATE_READY_CODE {
+                continue;
+            }
+            let version = match &entry.value["params"]["version"] {
+                Value::Null => String::new(),
+                Value::String(version) => version.clone(),
+                other => other.to_string(),
+            };
+            if !told.insert(format!("{}:{version}", entry.key.unwrap_or_default())) {
+                continue;
+            }
+            let text = if version.is_empty() { "update ready".to_owned() } else { format!("mixdog v{version} ready \u{2014} restart to apply.") };
+            self.notice("info", text);
+        }
+    }
+
     fn on_client_event(&self, event: ClientEvent) {
         match event {
             ClientEvent::Status(status) => {
@@ -274,6 +304,8 @@ async fn pump(inner: Arc<Inner>, mut changes: broadcast::Receiver<StoreChange>, 
                 Ok(StoreChange::Section { section, .. }) => {
                     if section == SectionName::HostShellJobs {
                         inner.mark_dirty();
+                    } else if section == SectionName::Notice {
+                        inner.hear_update_notices();
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => inner.mark_dirty(),
@@ -314,6 +346,7 @@ impl SessionStore {
             published: Mutex::new(Arc::new(json!({}))),
             dirty: AtomicBool::new(false),
             heard: Mutex::new(Heard::default()),
+            update_notices: Mutex::new(HashSet::new()),
             oauth_flows: Mutex::new(Vec::new()),
             submissions: AtomicU64::new(0),
             disposed: AtomicBool::new(false),
@@ -424,7 +457,14 @@ impl SessionStore {
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<StoreEvent> {
-        self.inner.feed.subscribe()
+        let events = self.inner.feed.subscribe();
+        self.inner.hear_update_notices();
+        events
+    }
+
+    /// A notice the UI itself shows (`pushNotice`): told to the subscribers as the store's own notices are.
+    pub fn push_notice(&self, text: &str, level: &str) {
+        self.inner.notice(level, text.to_owned());
     }
 
     /// The protocol request a session action is for the session this store is bound to.
@@ -435,6 +475,9 @@ impl SessionStore {
 
     /// Calls a session action: the router's request, or the target of an action it has no row for (a method, or a published section).
     pub async fn call(&self, action: &str, args: &[Value]) -> Result<Value, StoreError> {
+        if action == "listSessions" {
+            return self.list_sessions(args).await;
+        }
         match self.route(action, args) {
             Ok(resolved) => self.send(resolved).await,
             Err(route_error) => {
@@ -452,6 +495,47 @@ impl SessionStore {
                 }
             }
         }
+    }
+
+    /// `listSessions(options)`: the sessions of every page of `thread/list` with the options' filter, or of the one page
+    /// `options.page` (`{ limit, cursor }`) names.
+    async fn list_sessions(&self, args: &[Value]) -> Result<Value, StoreError> {
+        let thread = self.inner.thread_id();
+        let Some(Target::Method(Resolved { method, params: filter })) = target_of("listSessions", args, thread.as_deref(), false) else {
+            return Err(StoreError::Protocol("listSessions has no request".to_owned()));
+        };
+        let data = |page: &Value| page["data"].as_array().cloned().unwrap_or_default();
+        if let Some(page) = args.first().map(|options| &options["page"]).filter(|page| page.is_object()) {
+            let mut params = filter;
+            for key in ["limit", "cursor"] {
+                if let Some(value) = page.get(key).filter(|value| !value.is_null()) {
+                    params[key] = value.clone();
+                }
+            }
+            return Ok(Value::Array(data(&self.send(Resolved { method, params }).await?)));
+        }
+        let mut sessions = Vec::new();
+        let mut cursor = filter.get("cursor").cloned();
+        loop {
+            let mut params = filter.clone();
+            match &cursor {
+                Some(at) => params["cursor"] = at.clone(),
+                None => {
+                    if let Some(map) = params.as_object_mut() {
+                        map.remove("cursor");
+                    }
+                }
+            }
+            let page = self.send(Resolved { method: method.clone(), params }).await?;
+            sessions.extend(data(&page));
+            let next = page.get("nextCursor").filter(|next| next.as_str().is_some_and(|next| !next.is_empty())).cloned();
+            // A page that names the cursor it was read at again would never end the listing.
+            if next.is_none() || next == cursor {
+                break;
+            }
+            cursor = next;
+        }
+        Ok(Value::Array(sessions))
     }
 
     async fn send(&self, request: Resolved) -> Result<Value, StoreError> {
@@ -537,7 +621,16 @@ impl Drop for SessionStore {
     }
 }
 
-/// The `thread/start` params of the Node `createSession` options.
+/// The folder the session works in: the options' `cwd`, else the folder this process runs in (`options.cwd || process.cwd()`).
+fn project_path(options: &StoreOptions) -> Option<String> {
+    options
+        .cwd
+        .clone()
+        .filter(|cwd| !cwd.is_empty())
+        .or_else(|| std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned()))
+}
+
+/// The `thread/start` params of the Node `createSession` options: the project of the folder the session works in.
 fn start_params(options: &StoreOptions) -> Value {
     let mut draft = serde_json::Map::new();
     if let (Some(provider), Some(model)) = (&options.provider, &options.model) {
@@ -552,8 +645,8 @@ fn start_params(options: &StoreOptions) -> Value {
         session.insert("toolMode".to_owned(), json!(mode));
     }
     let mut params = serde_json::Map::new();
-    params.insert("kind".to_owned(), json!("task"));
-    if let Some(cwd) = options.cwd.as_ref().filter(|cwd| !cwd.is_empty()) {
+    params.insert("kind".to_owned(), json!("project"));
+    if let Some(cwd) = project_path(options) {
         params.insert("projectPath".to_owned(), json!(cwd));
     }
     if !draft.is_empty() {
@@ -588,13 +681,17 @@ mod tests {
         assert_eq!(
             start_params(&options),
             json!({
-                "kind": "task",
+                "kind": "project",
                 "projectPath": "/w",
                 "draft": { "route": { "provider": "anthropic", "model": "m" }, "worktree": { "mode": "default" } },
                 "session": { "toolProfile": "interactive", "toolMode": "readonly" }
             })
         );
-        assert_eq!(start_params(&StoreOptions::default()), json!({ "kind": "task", "session": { "toolProfile": "interactive" } }));
+        let here = std::env::current_dir().expect("a working folder").to_string_lossy().into_owned();
+        assert_eq!(
+            start_params(&StoreOptions::default()),
+            json!({ "kind": "project", "projectPath": here, "session": { "toolProfile": "interactive" } })
+        );
     }
 
     #[test]

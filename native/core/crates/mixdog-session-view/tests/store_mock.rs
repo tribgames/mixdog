@@ -215,7 +215,7 @@ async fn a_session_starts_with_the_options_and_attaches_its_feed() {
     assert_eq!(
         params,
         json!({
-            "kind": "task",
+            "kind": "project",
             "projectPath": "/w",
             "draft": { "route": { "provider": "anthropic", "model": "m" }, "worktree": { "mode": "default" } },
             "session": { "toolProfile": "interactive", "toolMode": "lead" }
@@ -500,4 +500,39 @@ async fn a_sign_in_flow_is_tracked_and_a_pending_one_is_cancelled_when_the_store
     assert_eq!(rig.conn.client_close(), Some(1000));
     // A second disposal is a no-op.
     assert!(rig.store.dispose("again").await);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_staged_update_is_told_once_as_the_notice_of_its_version() {
+    let mut rig = Rig::open_default().await;
+    let mut events = rig.store.subscribe();
+    let ready = json!({ "key": "update-ready", "code": "update-ready", "params": { "version": "1.5.0" } });
+    rig.app_section("notice/updated", "notice", Some("update-ready"), 1, ready.clone()).await;
+    // Another notice code is not this UI's.
+    rig.app_section("notice/updated", "notice", Some("other"), 1, json!({ "key": "other", "code": "other", "params": {} })).await;
+    rig.app_section("notice/updated", "notice", Some("update-ready"), 2, ready).await;
+    let notices: Vec<StoreEvent> = Rig::pending_events(&mut events).into_iter().filter(|event| matches!(event, StoreEvent::Notice { .. })).collect();
+    assert_eq!(notices, vec![StoreEvent::Notice { text: "mixdog v1.5.0 ready \u{2014} restart to apply.".to_owned(), level: "info".to_owned() }]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_session_list_reads_every_page_or_the_one_asked_for() {
+    let rig = Rig::open_default().await;
+    let options = json!({ "limit": 2, "cwd": "/w" });
+    let (listed, pages) = tokio::join!(rig.store.call("listSessions", std::slice::from_ref(&options)), async {
+        let first = request_of(&rig.conn).await;
+        reply(&rig.conn, &first, json!({ "data": [{ "id": "a" }, { "id": "b" }], "nextCursor": "c2" }));
+        let second = request_of(&rig.conn).await;
+        reply(&rig.conn, &second, json!({ "data": [{ "id": "c" }] }));
+        (first, second)
+    });
+    assert_eq!(listed.expect("listed"), json!([{ "id": "a" }, { "id": "b" }, { "id": "c" }]));
+    assert_eq!((pages.0["method"].clone(), pages.0["params"].get("cursor").cloned()), (json!("thread/list"), None));
+    assert_eq!((pages.1["params"]["cursor"].clone(), pages.1["params"]["cwd"].clone()), (json!("c2"), json!("/w")));
+    let (one, request) = rig
+        .answering(json!({ "data": [{ "id": "x" }], "nextCursor": "more" }), rig.store.call("listSessions", &[json!({ "page": { "limit": 1, "cursor": "k" } })]))
+        .await;
+    assert_eq!(one.expect("one page"), json!([{ "id": "x" }]));
+    assert_eq!((request["params"]["limit"].clone(), request["params"]["cursor"].clone()), (json!(1), json!("k")));
+    assert_eq!(rig.conn.queued(), 0);
 }

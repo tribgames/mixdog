@@ -29,4 +29,5 @@ Nothing to remove: this task registers no service and adds no protocol method (e
 
 - mixdog-tui, mixdog-repl: call mixdog_launch::ensure_core, then `SessionStore::connect(StoreOptions { .. })` (or `connect::connect_with(connector, options)` over their own connector); they drive `SessionStore::tick()` once per terminal frame, read `state()`, and take `subscribe()` events (State, Notice, Toast, ConnectionStatus, UiOpenRequest, PromptRestore, SessionLost). They call `dispose(reason)` on exit (it waits at most EXIT_WAIT = 2500 ms and answers whether it finished).
 - The palette stays in the UI process: apply it locally first, then `mirror_theme(id, options)` (setTheme with persist false, failure ignored).
+- A notice of the UI's own (`pushNotice`) goes through `push_notice(text, level)`; `call("listSessions", [options])` answers the sessions of every page (or of `options.page`) as an array, as the Node session view did.
 - tests/store_core.rs (the store against an in-process core) is not written: see the result of nr-tui-sv-store.
