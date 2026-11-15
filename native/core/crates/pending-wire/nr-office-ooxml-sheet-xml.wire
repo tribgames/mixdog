@@ -4,8 +4,8 @@ Four modules of the existing crate mixdog-ooxml (native/core/crates/mixdog-ooxml
 sheet_xml (portable-sheet-xml.mjs), xlsx_cell_values (portable-xlsx-cell-values.mjs) and sheet_parts (portable-sheet-parts.mjs).
 No protocol method, service or SERVICE_PENDING name belongs to it. No new Cargo dependency edge (the modules use mixdog-js,
 mixdog-office-base and serde_json, which the crate already lists; the twin test uses mixdog-fsio, tempfile and
-mixdog-office-base/test-support, also already listed). I could not compile it (no cargo, and the crate is not yet a workspace member
-in my worktree's base).
+mixdog-office-base/test-support, also already listed). Not compiled (no cargo in this wave); the crate is already a workspace
+member, so only the module lines below are needed.
 
 ## native/core/crates/mixdog-ooxml/src/lib.rs
 
@@ -25,8 +25,8 @@ sheet and workbook XML ([`sheet_xml`]), what a cell shows ([`xlsx_cell_values`])
 
 ## native/core/fixtures/MANIFEST.json
 
-In the "sets" list, in sorted position by set name (after the entry of office-quality / before office-package's successors as the
-sort puts "office-sheet-xml"), add:
+In the "sets" list, in sorted position by set name: immediately before the entry whose "set" is "office-stats" (after
+"office-measure" and after any office-p... / office-q... set the wave adds), add:
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-sheet-xml.mjs --tree <tree>",
