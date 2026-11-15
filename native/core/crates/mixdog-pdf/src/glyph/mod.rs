@@ -210,6 +210,34 @@ impl FontRenderer {
         )
     }
 
+    /// A renderer over the `glyf` and `loca` tables of a TrueType program, drawn by glyph id (`units_per_em` zero takes
+    /// `font_matrix`, as [`FontRenderer::create`] does).
+    pub fn from_glyf(
+        glyf: &[u8],
+        loca: &[u8],
+        long_offsets: bool,
+        units_per_em: u16,
+        font_matrix: Option<Matrix>,
+    ) -> Result<Self> {
+        let matrix = if units_per_em != 0 {
+            let unit = 1.0 / f64::from(units_per_em);
+            [unit, 0.0, 0.0, unit, 0.0, 0.0]
+        } else {
+            font_matrix.unwrap_or([0.000488, 0.0, 0.0, 0.000488, 0.0, 0.0])
+        };
+        let font = TrueTypeFont::new(glyf, loca, long_offsets)?;
+        Ok(Self::new(Program::TrueType(font), Vec::new(), matrix))
+    }
+
+    /// The path of glyph `glyph_id` (empty for a glyph without an outline), compiled once.
+    pub fn glyph_path(&mut self, glyph_id: u16) -> Result<Vec<f32>> {
+        if !self.compiled_glyphs.contains_key(&glyph_id) {
+            let compiled = self.compile_glyph(glyph_id);
+            self.compiled_glyphs.insert(glyph_id, compiled);
+        }
+        self.compiled_glyphs[&glyph_id].clone()
+    }
+
     fn new(program: Program, cmap: Vec<CmapRange>, font_matrix: Matrix) -> Self {
         Self {
             program,
