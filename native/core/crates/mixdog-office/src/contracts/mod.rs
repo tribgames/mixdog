@@ -456,6 +456,9 @@ mod tests {
     #[test]
     fn an_operation_a_backend_does_not_run_names_the_backends_that_do() {
         let message = rejected("pdf", "microsoft-office-com", json!({ "op": "add_text" }));
-        assert!(message.contains("Unknown PDF operation") || message.contains("is unsupported by microsoft-office-com"), "{message}");
+        assert_eq!(
+            message,
+            r#"PDF operation "add_text" is unsupported by microsoft-office-com. Supported backend(s): mixdog-pdf. Call office with {"action":"describe","format":"pdf","backend":"microsoft-office-com","operation":"add_text"}."#
+        );
     }
 }
