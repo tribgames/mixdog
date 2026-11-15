@@ -10,6 +10,7 @@ use mixdog_js::JsRegex;
 use mixdog_term::{Decoder, InputEvent};
 
 use super::*;
+use crate::editor::editing::slice16_from;
 
 // One clock per test thread: the tests run in parallel and each moves its own time.
 thread_local! {

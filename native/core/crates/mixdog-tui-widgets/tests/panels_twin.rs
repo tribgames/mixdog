@@ -99,7 +99,7 @@ fn compare_frame(golden: &Value, case: &Value, index: usize, render: &Render<'_>
     let expected = grid_from_ink_frame_with(case["frames"][index].as_str().unwrap(), columns, wide);
     let mut tall = Grid::new(columns, TALL);
     let rows = render(&mut Painter::new(&mut tall));
-    assert_eq!(rows, expected.height, "{context}: rows\nnode:\n{}", (0..expected.height).map(|y| expected.row_text(y)).collect::<Vec<_>>().join("\n"));
+    assert_eq!(rows, expected.height, "{context}: rows\nnode:\n{}\nrust:\n{}", (0..expected.height).map(|y| expected.row_text(y)).collect::<Vec<_>>().join("\n"), (0..rows).map(|y| tall.row_text(y)).collect::<Vec<_>>().join("\n"));
     assert_same_grid(&tall, &expected, context);
     rust_grid(columns, render)
 }

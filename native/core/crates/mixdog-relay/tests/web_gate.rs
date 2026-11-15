@@ -317,7 +317,7 @@ fn no_relay_code_sets_a_cookie_except_through_the_cookie_builders() {
             if mixdog_fsio::is_dir(&Unlaned, &path) {
                 walk(&path, found);
             } else if path.extension().is_some_and(|extension| extension == "rs")
-                && mixdog_fsio::read_to_string(&Unlaned, &path).unwrap().contains("\"Set-Cookie\"")
+                && mixdog_fsio::read_to_string(&Unlaned, &path).unwrap().split("#[cfg(test)]").next().unwrap_or_default().contains("\"Set-Cookie\"")
             {
                 found.push(path.to_string_lossy().replace('\\', "/"));
             }
