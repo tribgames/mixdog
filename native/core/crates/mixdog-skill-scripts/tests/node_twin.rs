@@ -174,6 +174,15 @@ fn parse_args_reads_and_refuses_what_node_does() {
     let mut differences = Vec::new();
     for case in cases("parseArgs") {
         let (options, allow_positionals) = config_of(case["config"].as_str().expect("a config"));
+        // A list holding a `null` is a list Node's own call refuses with a TypeError before it reads anything; Rust's
+        // argument list is a list of strings and cannot hold one, so the refusal is what the recording must hold.
+        if case["args"].as_array().is_some_and(|items| items.iter().any(|item| !item.is_string())) {
+            let message = case["observed"]["message"].as_str().unwrap_or_default();
+            if !message.starts_with("Cannot read properties of") || case["observed"].get("code").is_some() {
+                differences.push(format!("{} {}: a list with a non-string is not a TypeError in the recording", case["config"], case["args"]));
+            }
+            continue;
+        }
         let args = strings(&case["args"]);
         let got = match parse_args(&args, &ParseConfig { options: &options, allow_positionals }) {
             Ok(parsed) => serde_json::json!({

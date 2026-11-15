@@ -247,6 +247,17 @@ fn seed_ledger_file(file: &Path, bytes: usize) {
 }
 
 fn seed_marker(dir: &Path, spec: &Value) {
+    let file = if spec["legacy"].as_bool() == Some(true) {
+        dir.join("process-lifecycle.active.json")
+    } else {
+        dir.join("process-lifecycle.active").join(spec["file"].as_str().unwrap())
+    };
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // A seed of raw text (not a marker at all) names no process.
+    if let Some(raw) = spec["raw"].as_str() {
+        std::fs::write(&file, raw).unwrap();
+        return;
+    }
     let pid = match spec["pid"].as_str().unwrap() {
         "self" => std::process::id(),
         "parent" => PARENT,
@@ -254,16 +265,6 @@ fn seed_marker(dir: &Path, spec: &Value) {
         "legacy" => SINGLE_MARKER_DEAD,
         other => panic!("a seed for {other}"),
     };
-    let file = if spec["legacy"].as_bool() == Some(true) {
-        dir.join("process-lifecycle.active.json")
-    } else {
-        dir.join("process-lifecycle.active").join(spec["file"].as_str().unwrap())
-    };
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    if let Some(raw) = spec["raw"].as_str() {
-        std::fs::write(&file, raw).unwrap();
-        return;
-    }
     let identity = if spec["identity"] == "own" { start_seconds(1, "powershell") } else { start_seconds(1_700_000_000, "powershell") };
     let marker = json!({ "version": 1, "timestamp": "2026-01-01T00:00:00.000Z", "pid": pid, "ppid": 5, "token": spec["token"], "processIdentity": identity });
     std::fs::write(&file, format!("{marker}\n")).unwrap();

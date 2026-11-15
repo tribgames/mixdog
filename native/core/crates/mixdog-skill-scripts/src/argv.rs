@@ -31,12 +31,15 @@ pub fn decode_skill_argv(value: Option<&str>) -> Option<Vec<String>> {
 }
 
 /// `Buffer.from(text, 'base64')`: both alphabets are read, characters outside them (white space among them) are
-/// skipped, a `=` ends the data, and a final group of two or three characters yields one or two bytes.
+/// skipped (a wide character by its low byte), a `=` ends the data, and a final group of two or three characters yields one or two bytes.
 pub fn node_base64(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() / 4 * 3 + 2);
     let mut held: u32 = 0;
     let mut count = 0;
-    for c in text.chars() {
+    // Node reads a two-byte string a unit at a time and keeps the low byte of each: a surrogate pair of an
+    // emoji can read as a `=` and end the data.
+    for unit in text.encode_utf16() {
+        let c = char::from(unit as u8);
         let sextet = match c {
             'A'..='Z' => c as u32 - 'A' as u32,
             'a'..='z' => c as u32 - 'a' as u32 + 26,
