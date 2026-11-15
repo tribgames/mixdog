@@ -102,9 +102,15 @@ pub(crate) fn add_picture(slide: &Com, op: &Value) -> Result<Com> {
         shape.set_member("Height", r4(placed_height))?;
         return Ok(shape);
     }
-    let focus_x = if present(&prop(op, "focusX")) { double(&prop(op, "focusX"))? } else { 0.5 };
-    let focus_y = if present(&prop(op, "focusY")) { double(&prop(op, "focusY"))? } else { 0.5 };
-    let (crop_left, crop_top, crop_right, crop_bottom) = cover_crop(source_width / source_height, wide / high, focus_x, focus_y);
+    // Only the focus of the axis that is cut is read, as the script reads it inside that branch.
+    let (source_ratio, target_ratio) = (source_width / source_height, wide / high);
+    let focus = |name: &str| -> Result<f64> {
+        let given = prop(op, name);
+        if present(&given) { double(&given) } else { Ok(0.5) }
+    };
+    let focus_x = if source_ratio > target_ratio { focus("focusX")? } else { 0.5 };
+    let focus_y = if source_ratio < target_ratio { focus("focusY")? } else { 0.5 };
+    let (crop_left, crop_top, crop_right, crop_bottom) = cover_crop(source_ratio, target_ratio, focus_x, focus_y);
     for (member, crop, extent) in [
         ("CropLeft", crop_left, source_width),
         ("CropTop", crop_top, source_height),

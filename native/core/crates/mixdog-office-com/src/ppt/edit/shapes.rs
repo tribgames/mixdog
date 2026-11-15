@@ -543,9 +543,10 @@ pub(crate) fn z_order(presentation: &Com, op: &Value) -> Result<Value> {
     ]))
 }
 
-/// `[object[]]@($op.shapes | ForEach-Object { [int]$_ })`.
+/// `[object[]]@($op.shapes | ForEach-Object { [int]$_ })`: a `$null` piped to `ForEach-Object` runs it once, so no shapes are
+/// one index 0, as `@($null)` is one item.
 fn shape_indices(op: &Value) -> Result<Vec<i32>> {
-    pipeline(&prop(op, "shapes")).iter().map(int).collect()
+    array_of(&prop(op, "shapes")).iter().map(int).collect()
 }
 
 fn index_array(indices: &[i32]) -> Com {
@@ -654,6 +655,15 @@ mod tests {
         assert_eq!(quiet_ink("nonsense"), "6A7179");
         // A mid grey no step clears: the darkest ink on a light field, white on a dark one.
         assert_eq!(quiet_ink("808080"), "FFFFFF");
+    }
+
+    #[test]
+    fn shape_indexes_are_cast_one_by_one_and_no_shapes_is_one_index_zero() {
+        let op = |text: &str| crate::ps::payload::parse_payload(text).unwrap();
+        assert_eq!(shape_indices(&op("{\"shapes\":[2,\"3\"]}")).unwrap(), vec![2, 3]);
+        assert_eq!(shape_indices(&op("{\"shapes\":4}")).unwrap(), vec![4]);
+        assert_eq!(shape_indices(&op("{}")).unwrap(), vec![0]);
+        assert!(shape_indices(&op("{\"shapes\":[]}")).unwrap().is_empty());
     }
 
     #[test]

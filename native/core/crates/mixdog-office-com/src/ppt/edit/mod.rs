@@ -230,7 +230,8 @@ pub(crate) fn array_of(value: &Value) -> Vec<Value> {
     }
 }
 
-/// `$value | ForEach-Object { ... }`: an array is its items, `$null` is none, anything else is one item.
+/// `$value | Where-Object { $null -ne $_ }` and the like: an array is its items, `$null` is none, anything else is one item.
+/// (A `$null` piped to `ForEach-Object` runs it once: that is [`array_of`].)
 pub(crate) fn pipeline(value: &Value) -> Vec<Value> {
     match value {
         Value::Null => Vec::new(),
