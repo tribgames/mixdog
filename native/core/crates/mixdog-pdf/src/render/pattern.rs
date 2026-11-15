@@ -339,7 +339,7 @@ impl<'a> Painter<'a> {
         // `new DOMMatrix(matrix).translate(offsetX, offsetY).scale(1 / scaleX, 1 / scaleY)`.
         let placed = gstate::transform(&matrix, &[1.0, 0.0, 0.0, 1.0, tile.offset_x, tile.offset_y]);
         let placed = gstate::transform(&placed, &[1.0 / tile.scale_x, 0.0, 0.0, 1.0 / tile.scale_y, 0.0, 0.0]);
-        let mut pattern = PatternStyle::new(&Bitmap::from_canvas(&tile.canvas), Repetition::Repeat);
+        let mut pattern = PatternStyle::smoothed(&Bitmap::from_canvas(&tile.canvas), Repetition::Repeat);
         pattern.set_transform(
             placed[0] as f32,
             placed[1] as f32,
@@ -730,7 +730,7 @@ fn raster_pattern(
     if let Some(maps) = transfer {
         apply_transfer(&mut canvas, maps)?;
     }
-    let mut pattern = PatternStyle::new(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat);
+    let mut pattern = PatternStyle::smoothed(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat);
     pattern.set_transform(
         inverse[0] as f32,
         inverse[1] as f32,

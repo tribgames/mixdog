@@ -1216,7 +1216,7 @@ impl Mesh {
             apply_transfer(&mut canvas, maps)?;
         }
         Ok(MeshCanvas {
-            pattern: PatternStyle::new(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat),
+            pattern: PatternStyle::smoothed(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat),
             offset_x: offset_x - f64::from(BORDER_SIZE) * scale_x,
             offset_y: offset_y - f64::from(BORDER_SIZE) * scale_y,
             scale_x,

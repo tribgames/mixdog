@@ -149,7 +149,7 @@ fn build_paint<'a>(state: &State, style: &'a Style) -> Option<Paint<'a>> {
         Style::Pattern(pattern) => {
             // `repeat-x` and `repeat-y` repeat both ways and are cut to their band by the draw mask.
             let mode = if pattern.repetition == Repetition::NoRepeat { SpreadMode::Pad } else { SpreadMode::Repeat };
-            Pattern::new(Pixmap::as_ref(&pattern.pixmap), mode, state.quality.filter(state.smoothing), state.global_alpha, pattern.transform)
+            Pattern::new(Pixmap::as_ref(&pattern.pixmap), mode, if pattern.cubic && state.smoothing { FilterQuality::Bicubic } else { state.quality.filter(state.smoothing) }, state.global_alpha, pattern.transform)
         }
     };
     Some(paint)
@@ -663,6 +663,12 @@ impl Canvas {
         let Some(source) = image.pixmap().clone_rect(cell) else { return };
         let Some(target) = Rect::from_xywh(target_x, target_y, target_w, target_h) else { return };
         let placement = Transform::from_row(scale_x, 0.0, 0.0, scale_y, target_x + (x0 as f32 - left) * scale_x, target_y + (y0 as f32 - top) * scale_y);
+        if !self.state.smoothing {
+            let origin = (dx - sx * scale_x, dy - sy * scale_y);
+            if self.draw_nearest_aligned(image, (x0, y0, x1, y1), (scale_x, scale_y), origin, (target_x, target_y, target_w, target_h)) {
+                return;
+            }
+        }
         self.draw_with(|pixmap, state| {
             let paint = Paint {
                 shader: Pattern::new(source.as_ref(), SpreadMode::Pad, state.quality.filter(state.smoothing), state.global_alpha, placement),
@@ -672,6 +678,86 @@ impl Canvas {
             };
             pixmap.fill_path(&PathBuilder::from_rect(target), &paint, FillRule::Winding, state.transform, state.clip.as_deref());
         });
+    }
+
+    /// An image drawn without smoothing under a matrix that only scales and moves: every device pixel takes the source
+    /// pixel Skia's nearest sampler names for its centre, and the picture of those pixels is laid on the canvas as it
+    /// is. Skia maps the centre through the inverse of the whole matrix in single precision (`1 / scale`, then
+    /// `centre * inverse - translate * inverse` as one fused multiply-add) and takes the pixel the position is in, a
+    /// position exactly on the border of two pixels being in the earlier one (`ceil - 1`): a bitmap of 8 pixels drawn
+    /// 20 wide gives its first source pixel to the first three device pixels, not two. `false` when the matrix turns or
+    /// skews the image (the sampler of tiny-skia draws it).
+    fn draw_nearest_aligned(
+        &mut self,
+        image: &Bitmap,
+        (x0, y0, x1, y1): (i32, i32, i32, i32),
+        (scale_x, scale_y): (f32, f32),
+        (origin_x, origin_y): (f32, f32),
+        (target_x, target_y, target_w, target_h): (f32, f32, f32, f32),
+    ) -> bool {
+        let ctm = self.state.transform;
+        if ctm.kx != 0.0 || ctm.ky != 0.0 || ctm.sx == 0.0 || ctm.sy == 0.0 {
+            return false;
+        }
+        // The matrix from image pixels to the device, composed in double and stored in single as Skia's `setConcat`.
+        let sx = (f64::from(ctm.sx) * f64::from(scale_x)) as f32;
+        let sy = (f64::from(ctm.sy) * f64::from(scale_y)) as f32;
+        let tx = (f64::from(ctm.sx) * f64::from(origin_x) + f64::from(ctm.tx)) as f32;
+        let ty = (f64::from(ctm.sy) * f64::from(origin_y) + f64::from(ctm.ty)) as f32;
+        if sx == 0.0 || sy == 0.0 || !finite(&[sx, sy, tx, ty]) {
+            return false;
+        }
+        let (inverse_x, inverse_y) = (1.0 / sx, 1.0 / sy);
+        let (shift_x, shift_y) = (-tx * inverse_x, -ty * inverse_y);
+        // The pixels a non-anti-aliased rectangle covers: those whose centre it contains.
+        let corner = |a: f32, b: f32| {
+            let (p, q) = (f64::from(a), f64::from(b));
+            (((p.min(q)) + 0.5).floor() as i64, ((p.max(q)) + 0.5).floor() as i64)
+        };
+        let (left, right) = corner(
+            (f64::from(ctm.sx) * f64::from(target_x) + f64::from(ctm.tx)) as f32,
+            (f64::from(ctm.sx) * f64::from(target_x + target_w) + f64::from(ctm.tx)) as f32,
+        );
+        let (top, bottom) = corner(
+            (f64::from(ctm.sy) * f64::from(target_y) + f64::from(ctm.ty)) as f32,
+            (f64::from(ctm.sy) * f64::from(target_y + target_h) + f64::from(ctm.ty)) as f32,
+        );
+        let (width, height) = (i64::from(self.pixmap.width()), i64::from(self.pixmap.height()));
+        let (left, right, top, bottom) = (left.max(0), right.min(width), top.max(0), bottom.min(height));
+        if right <= left || bottom <= top {
+            return true;
+        }
+        let (columns, rows) = ((right - left) as u32, (bottom - top) as u32);
+        let Some(mut drawn) = Pixmap::new(columns, rows) else { return false };
+        let source = image.pixmap();
+        let source_width = source.width() as usize;
+        let pick = |centre: i64, inverse: f32, shift: f32, low: i32, high: i32| -> usize {
+            let position = (centre as f32 + 0.5).mul_add(inverse, shift);
+            (position.ceil() as i64 - 1).clamp(i64::from(low), i64::from(high) - 1) as usize
+        };
+        let columns_at: Vec<usize> = (left..right).map(|x| pick(x, inverse_x, shift_x, x0, x1)).collect();
+        let pixels = source.data();
+        let target = drawn.data_mut();
+        for (row, y) in (top..bottom).enumerate() {
+            let from = pick(y, inverse_y, shift_y, y0, y1) * source_width;
+            for (column, &x) in columns_at.iter().enumerate() {
+                let at = (from + x) * 4;
+                let to = (row * columns as usize + column) * 4;
+                target[to..to + 4].copy_from_slice(&pixels[at..at + 4]);
+            }
+        }
+        let Some(cover) = Rect::from_xywh(left as f32, top as f32, columns as f32, rows as f32) else { return true };
+        let placement = Transform::from_translate(left as f32, top as f32);
+        self.draw_with(|pixmap, inner| {
+            let paint = Paint {
+                shader: Pattern::new(drawn.as_ref(), SpreadMode::Pad, FilterQuality::Nearest, inner.global_alpha, placement),
+                blend_mode: inner.composite.blend_mode(),
+                anti_alias: false,
+                force_hq_pipeline: false,
+            };
+            pixmap.fill_rect(cover, &paint, Transform::identity(), inner.clip.as_deref());
+        });
+        true
     }
 
     /// `getImageData(x, y, w, h)`: straight RGBA; what lies outside the canvas is transparent black.
@@ -1201,6 +1287,31 @@ mod tests {
         overhang.draw_image_region(&picture, -2.0, 0.0, 4.0, 2.0, 0.0, 0.0, 8.0, 4.0);
         assert_eq!(px(&overhang, 1, 1)[3], 0, "the part of the source outside the image is cut with its destination");
         assert_eq!(px(&overhang, 5, 1), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_pixel_centre_on_the_border_of_two_source_pixels_takes_the_earlier_one() {
+        // 8 pixels drawn 20 wide (2.5 device pixels each): the centre of device pixel 2 is at 2.5, the border of source
+        // pixels 0 and 1, and Skia gives it to pixel 0.
+        let pixels: Vec<u8> = (0..8u8).flat_map(|i| [i * 30, 0, 0, 255]).collect();
+        let strip = Bitmap::from_straight(8, 1, &pixels).unwrap();
+        let mut canvas = canvas(20, 1);
+        canvas.set_image_smoothing_enabled(false);
+        canvas.draw_image_scaled(&strip, 0.0, 0.0, 20.0, 1.0);
+        let reds: Vec<u8> = (0..20).map(|x| px(&canvas, x, 0)[0] / 30).collect();
+        assert_eq!(reds, vec![0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 6, 7, 7]);
+    }
+
+    #[test]
+    fn a_smoothed_tile_is_the_mitchell_filter_of_the_tile_with_its_edge_pixels_repeated() {
+        let mut tile = canvas(4, 1);
+        tile.set_fill_color("#ffffff");
+        tile.fill_rect(1.0, 0.0, 1.0, 1.0);
+        let style = PatternStyle::smoothed(&Bitmap::from_canvas(&tile), Repetition::Repeat);
+        // One white pixel in a row of transparent ones, filtered along x by 1/18, 16/18, 1/18 and then along y (one row:
+        // the edge pixel repeated, so the weights add up to 1).
+        let alphas: Vec<u8> = style.pixmap.data().chunks_exact(4).map(|p| p[3]).collect();
+        assert_eq!(alphas, vec![14, 227, 14, 0]);
     }
 
     #[test]
