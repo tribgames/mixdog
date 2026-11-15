@@ -12,7 +12,7 @@ workspace = true
 # `durability_settled`. For development builds only (build.rs fails a release-profile build with it).
 replay-controls = ["mixdog-app-server/replay-controls", "mixdog-core-session/test-support"]
 # Test hooks: `dev/computer/run` (dev_computer.rs) and, with s4, `test/browserEngine/run`. Registered only when mixdogd starts with MIXDOGD_TEST_HOOKS=1; build.rs fails a release-profile build with it.
-test-hooks = []
+test-hooks = ["mixdog-browser-engine/test-support"]
 
 [dependencies]
 notify = { workspace = true }

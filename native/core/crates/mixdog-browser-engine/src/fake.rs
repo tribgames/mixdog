@@ -8,7 +8,8 @@
 //! sign-in state).
 //!
 //! Transcript rows, one JSON object per line (blank lines are skipped):
-//! - `{"method": "host/browser/...", "params": {..}?, "result": ..}`: the next call, with `params` matched as a subset;
+//! - `{"method": "host/browser/...", "params": {..}?, "result": .., "t": ms?}`: the next call, with `params` matched as a subset
+//!   (`t`: the time the recorded host answered it, which is the engine's clock from then on);
 //! - `{"method": "...", "params": {..}?, "error": {"code": -32011, "message": "", "data": ..}}`: the same, failing;
 //! - `{"push": "events" | "facts" | "userInput", "params": {..}}`: a notification delivered to the sink right before the next
 //!   call's answer.
@@ -30,6 +31,11 @@ use crate::error::HostCallError;
 use crate::port::EngineSink;
 use crate::port::HostWire;
 
+/// The engine's clock while it replays a recording: the time its host answered the call last made (`t` of the row), `0` when no
+/// recording is replayed (the engine reads the clock of the machine). A recording's downloads carry the host's times of the day it was
+/// made, which the clock of the day it is replayed on would put before every page the replay meets.
+pub static REPLAY_NOW_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
 /// The questions the engine asks the host around every command and every turn, which a script that does not mention them leaves
 /// unanswered.
 const HOOKS: [&str; 2] = ["host/browser/signIn", "host/browser/turn"];
@@ -49,15 +55,17 @@ pub struct Expect {
     params: Option<Value>,
     answer: Result<Value, HostCallError>,
     pushes: Vec<Push>,
+    /// When the recording's host answered it (epoch milliseconds): the clock of the engine's replay from then on.
+    at: Option<i64>,
 }
 
 impl Expect {
     pub fn ok(method: &str, result: Value) -> Self {
-        Self { method: method.to_string(), params: None, answer: Ok(result), pushes: Vec::new() }
+        Self { method: method.to_string(), params: None, answer: Ok(result), pushes: Vec::new(), at: None }
     }
 
     pub fn err(method: &str, error: HostCallError) -> Self {
-        Self { method: method.to_string(), params: None, answer: Err(error), pushes: Vec::new() }
+        Self { method: method.to_string(), params: None, answer: Err(error), pushes: Vec::new(), at: None }
     }
 
     /// The call's params must contain this (every key of an object, every element of an array position, equal scalars).
@@ -98,6 +106,8 @@ fn contains(actual: &Value, wanted: &Value) -> bool {
     match (actual, wanted) {
         (Value::Object(actual), Value::Object(wanted)) => wanted.iter().all(|(key, wanted)| actual.get(key).is_some_and(|actual| contains(actual, wanted))),
         (Value::Array(actual), Value::Array(wanted)) => actual.len() == wanted.len() && actual.iter().zip(wanted).all(|(actual, wanted)| contains(actual, wanted)),
+        // A number is the same number whether the engine wrote it as `1.0` or the recording (a host that parsed the wire) as `1`.
+        (Value::Number(actual), Value::Number(wanted)) => actual == wanted || actual.as_f64() == wanted.as_f64(),
         (actual, wanted) => actual == wanted,
     }
 }
@@ -140,7 +150,7 @@ impl FakeHost {
                 }
                 _ => return Err(format!("line {}: a call row has exactly one of result and error", index + 1)),
             };
-            expected.push(Expect { method: method.to_string(), params, answer, pushes: std::mem::take(&mut pushes) });
+            expected.push(Expect { method: method.to_string(), params, answer, pushes: std::mem::take(&mut pushes), at: row.get("t").and_then(Value::as_i64) });
         }
         if !pushes.is_empty() {
             return Err("a push follows the last call".to_string());
@@ -218,6 +228,9 @@ impl HostWire for FakeHost {
                 }
                 None => {
                     let next = state.expected.pop_front().expect("checked above");
+                    if let Some(at) = next.at {
+                        REPLAY_NOW_MS.store(at, std::sync::atomic::Ordering::Relaxed);
+                    }
                     (next.answer, next.pushes)
                 }
             }

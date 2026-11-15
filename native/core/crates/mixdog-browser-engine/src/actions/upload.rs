@@ -118,11 +118,12 @@ pub struct UploadOutcome {
 }
 
 impl UploadOutcome {
-    /// The line the agent reads: the page confirmed the files, or only that they were handed over.
+    /// The line the agent reads when the page did not confirm the files (Node answered the page alone when it did, so a confirmed
+    /// upload adds none): only that they were handed over.
     pub fn summary(&self) -> String {
         let noun = if self.files == 1 { "file" } else { "files" };
         if self.verified {
-            return format!("Uploaded {} {noun}; the page's file input holds them.", self.files);
+            return String::new();
         }
         let seen = match &self.receiver {
             Some(receiver) => format!(" (the receiving element is a <{}>)", receiver.tag),
@@ -382,7 +383,7 @@ mod tests {
         let outcome = run(&host, target(Some("p1-s2-e1")), &[A], &facts_with(None), None).await.expect("uploaded");
         assert_eq!(outcome.route, BrowserUploadRoute::FileInput);
         assert!(outcome.verified);
-        assert_eq!(outcome.summary(), "Uploaded 1 file; the page's file input holds them.");
+        assert_eq!(outcome.summary(), "", "a confirmed upload is answered by the page alone, as Node answered it");
         host.finish().expect("two calls");
     }
 
