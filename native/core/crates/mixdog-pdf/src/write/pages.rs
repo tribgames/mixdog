@@ -412,11 +412,16 @@ impl PdfDocument {
                 repeated.push(*index);
             }
         }
-        let copies = if repeated.is_empty() {
-            Vec::new()
-        } else {
-            self.copy_own_pages(&repeated)?
-        };
+        // `copyPages(document, [index])` once per repeated mention: each copy is a set of objects of its own (one
+        // call would have two copies of a page share their widgets). The source is the document before the copies,
+        // which none of its pages reach.
+        let mut copies = Vec::with_capacity(repeated.len());
+        if !repeated.is_empty() {
+            let source = self.clone();
+            for index in &repeated {
+                copies.extend(self.copy_pages(&source, &[*index])?);
+            }
+        }
         let mut copy_iter = copies.iter();
         let mut seen = HashSet::new();
         let mut wanted = Vec::with_capacity(indexes.len());
