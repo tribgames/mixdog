@@ -9,6 +9,7 @@ import test from 'node:test';
 import { connect } from '../../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts';
 import { createBrowserCommandHost } from '../host/browser-command.ts';
+import { HostRpcError } from '../host/connection.ts';
 import { createProtocolConnection } from './connection.ts';
 import { createHostConnection, HOST_METHOD_NOT_FOUND } from './host-connection.ts';
 
@@ -187,4 +188,152 @@ test('servedMethods lists request and notification handlers sorted; a second req
   host.handleRequest('host/c', async () => null);
   assert.deepEqual(host.servedMethods(), ['host/a', 'host/b', 'host/c']);
   assert.throws(() => host.handleRequest('host/b', async () => null), /already served/);
+});
+
+/** A host connection over a scripted core, with the failures it reports; the handlers are the test's own. */
+async function plainHost() {
+  const net = new MockNetwork();
+  const served = (async () => {
+    const conn = await within(net.accept(), 'the client to connect');
+    await handshake(conn);
+    return conn;
+  })();
+  const connection = createProtocolConnection({
+    open: () =>
+      connect({
+        target: { id: 'core' },
+        connector: net,
+        clientInfo: options.clientInfo,
+        capabilities: options.capabilities,
+        clock: { sleep: () => Promise.resolve() },
+        random: () => options.jitterUnit,
+      }),
+  });
+  await within(connection.start(), 'the connection to open');
+  const conn = await served;
+  const faults = [];
+  const host = createHostConnection(connection, (where, error) => faults.push([where, error.message]));
+  return { net, connection, conn, host, faults };
+}
+
+// The scripted core hands a frame to the client inside `serverSend`, as the socket's message callback does: whatever a host
+// handler throws would leave through it, into the main process as an uncaught exception.
+test('a handler that throws fails its own request, or is reported for a notification; the connection keeps serving', async () => {
+  const { connection, conn, host, faults } = await plainHost();
+  try {
+    host.handleRequest('host/browser/pages/resolve', () => {
+      throw new Error('The in-app browser is not open.');
+    });
+    host.handleRequest('host/browser/page/navigate', async () => {
+      throw new HostRpcError(-32015, 'only http(s) navigation is allowed (got file:)', { reason: 'only http(s) navigation is allowed (got file:)' });
+    });
+    const released = [];
+    host.handleNotification('host/browser/lease/release', (params) => {
+      released.push(params.leaseId);
+      if (params.leaseId === 'l1') throw new Error('The in-app browser is not open.');
+    });
+    host.handleRequest('host/browser/pages/list', async () => ({ pages: [] }));
+    let waiting;
+    host.handleRequest('host/browser/page/eval', (_params, signal) => {
+      waiting = signal;
+      return new Promise(() => {});
+    });
+
+    assert.doesNotThrow(() => conn.serverSend({ id: 'host-1', method: 'host/browser/pages/resolve', params: {} }));
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the failure of a handler that threw before its promise')), {
+      id: 'host-1',
+      error: { code: -32000, message: 'The in-app browser is not open.' },
+    });
+    conn.serverSend({ id: 'host-2', method: 'host/browser/page/navigate', params: {} });
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the refusal')), {
+      id: 'host-2',
+      error: {
+        code: -32015,
+        message: 'only http(s) navigation is allowed (got file:)',
+        data: { reason: 'only http(s) navigation is allowed (got file:)' },
+      },
+    });
+    assert.doesNotThrow(() => conn.serverSend({ method: 'host/browser/lease/release', params: { pageId: 'p1', leaseId: 'l1' } }));
+    await turns();
+    assert.deepEqual(faults, [['notification host/browser/lease/release', 'The in-app browser is not open.']]);
+    // The client library delivers the notifications of a connection one after the other on one promise chain
+    // (protocol-client client.ts onNotification): a throw into it would end the chain, and with it every later notification of
+    // the connection, the `serverRequest/resolved` that ends an abandoned command among them.
+    conn.serverSend({ method: 'host/browser/lease/release', params: { pageId: 'p1', leaseId: 'l2' } });
+    conn.serverSend({ id: 'host-9', method: 'host/browser/page/eval', params: {} });
+    conn.serverSend(resolved('host-9'));
+    await turns();
+    assert.deepEqual(released, ['l1', 'l2'], 'the notification after the failed one is delivered');
+    assert.equal(waiting.aborted, true, 'and the core still ends a command it gave up');
+
+    conn.serverSend({ id: 'host-3', method: 'host/browser/pages/list', params: {} });
+    assert.deepEqual(JSON.parse(await within(conn.nextSent(), 'the next request')), { id: 'host-3', result: { pages: [] } });
+    assert.equal(connection.status, 'ready', 'none of it ended the link');
+  } finally {
+    await connection.close();
+  }
+});
+
+// desktop-host-wiring.ts claims the role at a `ready` that follows a state that was not: its listener is registered after the
+// host connection's, so it sees the link end only if the host connection's listener returns.
+test('a close listener that throws keeps neither the other listeners nor the next claim from the end of the link', async () => {
+  const { net, connection, conn, host, faults } = await plainHost();
+  try {
+    const stopped = [];
+    host.onClose(() => {
+      throw new Error('a module failed to stop');
+    });
+    host.onClose(() => stopped.push('the listener after it'));
+    host.handleRequest('host/browser/pages/list', async () => ({ pages: [] }));
+    let wasReady = true;
+    let claims = 0;
+    connection.onEvent((event) => {
+      if (event.type !== 'status') return;
+      const ready = event.status.state === 'ready';
+      if (ready && !wasReady) claims += 1;
+      wasReady = ready;
+    });
+
+    assert.doesNotThrow(() => conn.serverClose(1006));
+    assert.deepEqual(stopped, ['the listener after it']);
+    assert.equal(wasReady, false, 'the connection listeners after the host connection heard the link end');
+    assert.equal(faults.length >= 1 && faults.every(([where, message]) => where === 'close listener' && message === 'a module failed to stop'), true);
+
+    const next = await within(net.accept(), 'the client to reconnect');
+    await handshake(next, 's2');
+    await turns();
+    assert.equal(claims, 1, 'the role is claimed again on the new link');
+    next.serverSend({ id: 'host-1', method: 'host/browser/pages/list', params: {} });
+    assert.deepEqual(JSON.parse(await within(next.nextSent(), 'a request on the new link')), { id: 'host-1', result: { pages: [] } });
+  } finally {
+    await connection.close();
+  }
+});
+
+test('an answer the link can no longer carry is reported and nothing is thrown', async () => {
+  const faults = [];
+  let listener;
+  const client = {};
+  const host = createHostConnection(
+    {
+      call: async () => null,
+      notify() {},
+      respond() {
+        throw new Error('The core connection is not open.');
+      },
+      sendBinary() {},
+      onEvent: (handler) => void (listener = handler),
+      client: () => client,
+      onReplaced() {},
+    },
+    (where, error) => faults.push([where, error.message])
+  );
+  host.handleRequest('host/browser/pages/list', async () => ({ pages: [] }));
+  listener({ type: 'serverRequest', request: { id: 'host-1', method: 'host/browser/pages/list', params: {} } });
+  listener({ type: 'serverRequest', request: { id: 'host-2', method: 'host/screen/displays', params: {} } });
+  await turns();
+  assert.deepEqual(faults.sort(), [
+    ['answer of host/browser/pages/list', 'The core connection is not open.'],
+    ['answer of host/screen/displays', 'The core connection is not open.'],
+  ]);
 });

@@ -164,7 +164,16 @@ export function createPageFacts(options: PageFactsOptions): PageFactsPublisher {
   }
 
   function attach(guest: WebContents): () => void {
-    const handler = () => changed(guest);
+    // The handler runs inside the guest's own event: what it cannot read or send stays here, so the page's event still
+    // reaches every listener after this one (a throw would also be an uncaught exception of the main process).
+    const handler = () => {
+      try {
+        changed(guest);
+      } catch {
+        // Nothing was sent: the next change sends the facts whatever they are, and every reply carries them.
+        sent.delete(guest);
+      }
+    };
     const emitter = guest as unknown as {
       on(event: string, listener: () => void): unknown;
       removeListener(event: string, listener: () => void): unknown;

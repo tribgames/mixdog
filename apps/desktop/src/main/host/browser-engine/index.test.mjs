@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
+import { BrowserGuestStateStore } from '../../browser/host-state.ts';
 import { createBrowserCommandHost } from '../browser-command.ts';
 import { createBrowserEngine, ENGINE_NOTIFICATION_METHODS, ENGINE_REQUEST_METHODS, serveBrowserEngine } from './index.ts';
 import { createInterceptTable } from './session.ts';
@@ -140,4 +142,65 @@ test('host/browser/command refuses a tool action in engine mode and serves the r
   await assert.rejects(command({ action: 'snapshot', threadId: 't1' }, signal), /engine methods/);
   assert.equal(await command({ action: 'importSources', threadId: 't1' }, signal), 'remote importSources');
   assert.deepEqual(ran, ['snapshot']);
+});
+
+/** A page as the lane follows it: an emitter with the getters the facts read, destroyed when the test says so. */
+function fakeGuest() {
+  let destroyed = false;
+  const guest = Object.assign(new EventEmitter(), {
+    isDestroyed: () => destroyed,
+    getURL: () => '',
+    getTitle: () => '',
+    isLoading: () => false,
+    isLoadingMainFrame: () => false,
+    getZoomFactor: () => 1,
+    destroy() {
+      destroyed = true;
+      guest.emit('destroyed');
+    },
+  });
+  return guest;
+}
+
+// A navigate the URL rules refuse closes the blank tab the command opened a few milliseconds after it was made, while the page's
+// debugger is still coming up (guest-initialize.ts attachDebuggerEagerly). The attach then fails with the page, and its
+// `CDP initialization failed` entry is recorded for a page that is gone: the entry has no page to be numbered for and no reader.
+// Thrown from the flush timer it was an uncaught exception of Electron main, whose error box holds the process until a person
+// closes it: every later host request then waits, and the core drops the claim of a host that answers no ping.
+test('a host console entry recorded for a page that already closed is dropped by the flush, not thrown from its timer', async (t) => {
+  const h = harness();
+  const state = new BrowserGuestStateStore();
+  h.ports.base.state = state;
+  const engine = createBrowserEngine(h.connection, h.ports);
+  engine.engage();
+  const uncaught = [];
+  const onUncaught = (error) => uncaught.push(error);
+  process.on('uncaughtException', onUncaught);
+  t.after(() => process.off('uncaughtException', onUncaught));
+
+  const guest = fakeGuest();
+  state.for(guest);
+  h.bound().guestAppeared(guest);
+  guest.destroy();
+  h.sent.length = 0;
+  state.for(guest).console.recordInternal('CDP initialization failed: browser page is unavailable');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(uncaught, [], 'the flush of a closed page throws nothing');
+  assert.deepEqual(
+    h.sent.filter(([method]) => method === 'host/browser/events'),
+    [],
+    'and sends nothing: no seq is taken for a page that is gone'
+  );
+
+  // A page that is still open keeps its entry: it leaves with the page's next seq.
+  const live = fakeGuest();
+  state.for(live);
+  h.bound().guestAppeared(live);
+  state.for(live).console.recordInternal('child frame unreachable');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const batches = h.sent.filter(([method]) => method === 'host/browser/events');
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0][1].pageId, state.pageId(live));
+  assert.equal(batches[0][1].events[0].method, 'Mixdog.internalConsole');
+  assert.deepEqual(uncaught, []);
 });

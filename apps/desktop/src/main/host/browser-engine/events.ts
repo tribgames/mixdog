@@ -65,7 +65,7 @@ const MAX_STRING_CHARS = 32 * 1024;
 const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 
 export interface EngineEventsOptions {
-  /** The next notification number of the page (shared with its facts). */
+  /** The next notification number of the page (shared with its facts); throws when the page is gone. */
   nextSeq(pageId: string): number;
   /** Masks the secrets known to the page in `text`. */
   redact(pageId: string, text: string): string;
@@ -115,13 +115,26 @@ export function createEngineEvents(connection: HostConnection, options: EngineEv
   const schedule = options.schedule ?? defaultSchedule;
   const now = options.now ?? Date.now;
 
-  function send(pageId: string, events: BrowserEngineEvent[]): void {
-    const params: HostBrowserEventsParams = { pageId, seq: options.nextSeq(pageId), events };
+  /**
+   * One batch of the page; false when the page is gone. A page that closed takes no further `seq` and has no reader, so what
+   * was queued for it after it closed is dropped (the host's own `CDP initialization failed` entry of a page that was
+   * discarded while its debugger was coming up arrives that late). The flush runs from a timer as well as before a reply: it
+   * never throws.
+   */
+  function send(pageId: string, events: BrowserEngineEvent[]): boolean {
+    let seq: number;
+    try {
+      seq = options.nextSeq(pageId);
+    } catch {
+      return false;
+    }
+    const params: HostBrowserEventsParams = { pageId, seq, events };
     try {
       connection.notify(HOST_BROWSER_EVENTS, params);
     } catch {
       // The connection is closing; the next claim starts from a clean slate.
     }
+    return true;
   }
 
   function flush(pageId: string): void {
@@ -133,7 +146,7 @@ export function createEngineEvents(connection: HostConnection, options: EngineEv
     let batchBytes = 0;
     for (const { event, bytes } of queue.events) {
       if (batch.length && batchBytes + bytes > MAX_BATCH_BYTES) {
-        send(pageId, batch);
+        if (!send(pageId, batch)) return;
         batch = [];
         batchBytes = 0;
       }
