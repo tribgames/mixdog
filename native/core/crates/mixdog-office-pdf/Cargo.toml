@@ -1,0 +1,23 @@
+[package]
+name = "mixdog-office-pdf"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The office PDF backend: the layout of a PDF's text with its ruled lines, boxes and links, the tables read from it, the images it paints, its outline and a text search over the layout, on the mixdog-pdf reader"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+mixdog-fsio = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-pdf = { workspace = true }
+mixdog-raster = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+mixdog-office-base = { workspace = true, features = ["test-support"] }
+mixdog-testkit = { workspace = true }
+serde_json = { workspace = true }
