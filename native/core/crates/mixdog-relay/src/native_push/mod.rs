@@ -7,6 +7,7 @@
 mod apns;
 mod bindings;
 mod fcm;
+pub mod frames;
 mod jwt;
 mod keys;
 
