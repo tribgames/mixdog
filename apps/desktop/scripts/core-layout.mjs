@@ -4,7 +4,7 @@
 //
 //   desktop   resources/core/mixdogd + js-runtime.json
 //             resources/runtime.asar.unpacked/node_modules/mixdog/             package root (real files)
-//             resources/runtime.asar.unpacked/node_modules/<closure>/          what the ext host and the skill launchers load
+//             resources/runtime.asar.unpacked/node_modules/<closure>/          what the pptxgenjs authoring script and the skill launchers load
 //             resources/runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/<platform>/<arch>/
 //   remote    payload/js-runtime.json (beside mixdogd once the bundle is unpacked)
 //             payload/js/pkg/node_modules/mixdog/, .../<closure>/, .../onnxruntime-node/bin/napi-v6/<platform>/<arch>/
@@ -30,7 +30,7 @@ export const ORT_PACKAGE = 'onnxruntime-node';
  *  k1-assets slice owns the contents of the shipped directories; this is the one list the packaging checks.
  *  Derived from the core's reads of `<package root>/src` (`resource_root()`, mixdog-store paths.rs):
  *   package.json                  compose_domains/rows.rs `package_version`
- *   src/skill-script-entry.mjs    compose.rs; src/ext-host/worker.mjs  compose.rs, mixdog-cli main.rs
+ *   src/skill-script-entry.mjs    compose.rs, mixdog-cli main.rs (and the office worker's script runtime reads src/runtime/office/authoring/pptx-script-entry.mjs)
  *   src/runtime/channels/data/voice-runtime-manifest.json   compose_flip.rs
  *   src/rules          run_host/rules.rs (shared, routes, lead, agent-mode, agent)
  *   src/output-styles  run_host/rules_lead.rs; compose_domains.rs; compose_mcp.rs
@@ -45,7 +45,7 @@ export const CORE_READS = Object.freeze({
   files: [
     'package.json',
     'src/skill-script-entry.mjs',
-    'src/ext-host/worker.mjs',
+    'src/runtime/office/authoring/pptx-script-entry.mjs',
     'src/runtime/channels/data/voice-runtime-manifest.json',
     'src/defaults/shipped-history.json',
   ],
@@ -234,7 +234,7 @@ function coreTreeProblems({ modulesDir, platform, arch }) {
   for (const file of CORE_READS.files) if (!isFile(join(packageRoot, file))) problems.push(`missing file ${file} in the package root`);
   for (const dir of CORE_READS.dirs) if (!nonEmptyDir(join(packageRoot, dir))) problems.push(`missing or empty ${dir} in the package root`);
 
-  if (isFile(join(packageRoot, 'src', 'ext-host', 'worker.mjs')) && isFile(join(packageRoot, 'src', 'skill-script-entry.mjs'))) {
+  if (isFile(join(packageRoot, 'src', 'runtime', 'office', 'authoring', 'pptx-script-entry.mjs')) && isFile(join(packageRoot, 'src', 'skill-script-entry.mjs'))) {
     const { roots } = deriveRemoteRoots({ packageRootDir: packageRoot });
     const record = join(modulesDir, CLOSURE_RECORD);
     if (isFile(record)) {

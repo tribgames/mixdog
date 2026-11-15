@@ -20,7 +20,7 @@ use mixdog_app_protocol::v2::host::DrainRunning;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_core_api::StatePublisher;
 use mixdog_core_api::state::SectionChange;
-use mixdog_exthost::RoutedExtPool;
+use mixdog_exthost::ExtHostPool;
 use mixdog_protocol::SectionName;
 use tokio_util::sync::CancellationToken;
 
@@ -114,7 +114,7 @@ pub struct CoreWiring {
     /// The app-feed section publisher (`SectionFeedState`).
     pub state: Arc<dyn StatePublisher>,
     pub connections: Arc<ConnectionHub>,
-    pub ext_host: Arc<RoutedExtPool>,
+    pub ext_host: Arc<ExtHostPool>,
     /// The core's runtime, to await the extension host's close from the release thread.
     pub runtime: tokio::runtime::Handle,
     pub cancel: Arc<CancelRegistry>,

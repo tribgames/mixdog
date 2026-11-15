@@ -79,7 +79,7 @@ pub struct Built {
     /// The host media router: the live view binds its streams' targets here.
     pub host_media: Arc<mixdog_app_server::HostMedia>,
     pub server_requests: Arc<dyn mixdog_core_api::ServerRequestSink>,
-    pub ext_host: Arc<mixdog_exthost::RoutedExtPool>,
+    pub ext_host: Arc<mixdog_exthost::ExtHostPool>,
     pub process_manager: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
     /// The concrete manager `process_manager` wraps (`LocalProcessManager` is `Clone`): `ProcessFeeds`, `ProcessService` and `TerminalService` take it by value.
     pub local_processes: mixdog_spawn::LocalProcessManager,

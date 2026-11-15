@@ -183,5 +183,5 @@ test('the committed deletion list holds package paths and none a K1 survivor nee
   const deleted = parseDeletionList(text);
   assert.ok(deleted.size > 2000);
   assert.match(text, /single authority/);
-  for (const kept of [...CORE_READS.files, 'src/ext-host/worker.mjs', 'src/skill-script-entry.mjs']) assert.equal(deleted.has(kept), false, kept);
+  for (const kept of [...CORE_READS.files, 'src/skill-script-entry.mjs']) assert.equal(deleted.has(kept), false, kept);
 });

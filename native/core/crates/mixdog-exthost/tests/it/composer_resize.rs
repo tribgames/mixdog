@@ -95,7 +95,6 @@ async fn the_composer_resize_equals_nodes_resize_image_buffer_under_the_provider
         ExtHostPool::new(ExtHostConfig {
             program: worker_binary(),
             args: Vec::new(),
-            electron: false,
             workers: 1,
             pending_cap: 64,
             spawn_io: mixdog_rt::testing::tokens().spawn_io,

@@ -18,12 +18,12 @@ const SIBLINGS = {
   darwin: ['onnxruntime_binding.node'],
 };
 
-/** A `node_modules` holding the package (the files and directories the core reads, an ext host reaching `alpha`,
+/** A `node_modules` holding the package (the files and directories the core reads, the pptxgenjs authoring entry reaching `alpha`,
  *  which depends on `beta`) and, where the platform has one, the ONNX Runtime directory. */
 export function modulesTree(modules, platform, arch) {
   const mixdog = join(modules, 'mixdog');
   for (const file of CORE_READS.files) put(join(mixdog, file), file.endsWith('.json') ? '{}' : '');
-  put(join(mixdog, 'src/ext-host/worker.mjs'), "import 'alpha';\n");
+  put(join(mixdog, 'src/runtime/office/authoring/pptx-script-entry.mjs'), "import 'alpha';\n");
   put(join(mixdog, 'src/skill-script-entry.mjs'), '');
   for (const dir of CORE_READS.dirs) put(join(mixdog, dir, 'file.md'));
   put(join(modules, 'alpha/package.json'), JSON.stringify({ name: 'alpha', dependencies: { beta: '1' } }));

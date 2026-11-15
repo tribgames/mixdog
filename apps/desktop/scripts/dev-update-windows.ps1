@@ -125,7 +125,7 @@ function Assert-DesktopCoreArtifact {
             'resources\core\mixdog-askpass.exe',
             'resources\core\js-runtime.json',
             'resources\runtime.asar.unpacked\node_modules\mixdog\package.json',
-            'resources\runtime.asar.unpacked\node_modules\mixdog\src\ext-host\worker.mjs'
+            'resources\runtime.asar.unpacked\node_modules\mixdog\src\skill-script-entry.mjs'
         )) {
         $artifact = Join-Path $ArtifactRoot $relative
         if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
@@ -1070,7 +1070,7 @@ function Install-IncrementalBuild {
             # The package root js-runtime.json names: real files beside the core's other modules.
             $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code\node_modules\mixdog'
             $installedPackage = Join-Path $installedResources 'runtime.asar.unpacked\node_modules\mixdog'
-            if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'src\ext-host\worker.mjs') -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'src\skill-script-entry.mjs') -PathType Leaf)) {
                 throw "Prepared runtime package is missing: $runtimeCode"
             }
             if (-not (Test-Path -LiteralPath $installedPackage -PathType Container)) {

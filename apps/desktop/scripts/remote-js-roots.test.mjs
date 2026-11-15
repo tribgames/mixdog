@@ -14,14 +14,14 @@ const write = (root, file, text) => {
 
 test('roots are the packages the entry points reach: static, dynamic, createRequire and worker files', () => {
   const root = makeTempDirSync('roots');
-  write(root, 'src/ext-host/worker.mjs', `import { a } from 'alpha';\nimport fs from 'node:fs';\nimport './methods.mjs';\n`);
-  write(root, 'src/ext-host/methods.mjs', `export const load = () => import('@scope/beta/sub.js');\nconst w = new URL('../runtime/office/w.mjs', import.meta.url);\nimport { h } from '../runtime/shared/helper.mjs';\n`);
+  write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import { a } from 'alpha';\nimport fs from 'node:fs';\nimport './runner.mjs';\n`);
+  write(root, 'src/runtime/office/authoring/runner.mjs', `export const load = () => import('@scope/beta/sub.js');\nconst w = new URL('../w.mjs', import.meta.url);\nimport { h } from '../../shared/helper.mjs';\n`);
   write(root, 'src/runtime/office/w.mjs', `const r = createRequire(import.meta.url);\nr; const t = require('gamma');\n`);
-  // A helper outside the extension host's directories: its packages count, its own imports are not followed.
+  // A helper outside the authoring script's directories: its packages count, its own imports are not followed.
   write(root, 'src/runtime/shared/helper.mjs', `import 'delta';\nimport './barrel.mjs';\n`);
   write(root, 'src/runtime/shared/barrel.mjs', `import 'never-reached';\n`);
-  write(root, 'src/ext-host/unused.mjs', `import 'orphan';\n`);
-  write(root, 'src/ext-host/x.e2e.test.mjs', `import 'test-only';\n`);
+  write(root, 'src/runtime/office/authoring/unused.mjs', `import 'orphan';\n`);
+  write(root, 'src/runtime/office/authoring/x.e2e.test.mjs', `import 'test-only';\n`);
   write(root, 'src/skill-script-entry.mjs', `await import('./runtime/shared/skill.mjs');\n`);
   write(root, 'src/runtime/shared/skill.mjs', `import 'epsilon';\n`);
   const { roots } = deriveRemoteRoots({ packageRootDir: root });
@@ -30,18 +30,18 @@ test('roots are the packages the entry points reach: static, dynamic, createRequ
 
 test('the files an entry reaches are listed: its imports and helpers, not what nothing imports', () => {
   const root = makeTempDirSync('roots-reached');
-  write(root, 'src/ext-host/worker.mjs', `import './methods.mjs';\n`);
-  write(root, 'src/ext-host/methods.mjs', `import { h } from '../runtime/shared/helper.mjs';\nconst w = new URL('../runtime/office/w.mjs', import.meta.url);\n`);
+  write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import './runner.mjs';\n`);
+  write(root, 'src/runtime/office/authoring/runner.mjs', `import { h } from '../../shared/helper.mjs';\nconst w = new URL('../w.mjs', import.meta.url);\n`);
   write(root, 'src/runtime/office/w.mjs', `export {};\n`);
   write(root, 'src/runtime/shared/helper.mjs', `import './barrel.mjs';\n`);
   write(root, 'src/runtime/shared/barrel.mjs', `export {};\n`);
-  write(root, 'src/ext-host/unused.mjs', `export {};\n`);
-  write(root, 'src/ext-host/x.e2e.test.mjs', `export {};\n`);
-  const { reached, files } = deriveRemoteRoots({ packageRootDir: root, entries: ['src/ext-host/worker.mjs'] });
-  // The helper is outside the extension host's directories: reached, but its own imports are not followed.
+  write(root, 'src/runtime/office/authoring/unused.mjs', `export {};\n`);
+  write(root, 'src/runtime/office/authoring/x.e2e.test.mjs', `export {};\n`);
+  const { reached, files } = deriveRemoteRoots({ packageRootDir: root, entries: ['src/runtime/office/authoring/pptx-script-entry.mjs'] });
+  // The helper is outside the authoring script's directories: reached, but its own imports are not followed.
   assert.deepEqual(reached, [
-    'src/ext-host/methods.mjs',
-    'src/ext-host/worker.mjs',
+    'src/runtime/office/authoring/pptx-script-entry.mjs',
+    'src/runtime/office/authoring/runner.mjs',
     'src/runtime/office/w.mjs',
     'src/runtime/shared/helper.mjs',
   ]);
@@ -61,7 +61,7 @@ test('the real package: the 13 roots, nothing that only the agent runtime or the
 
 test('every shipped skill script is an entry: the packages it loads become roots', () => {
   const root = makeTempDirSync('roots-skills');
-  write(root, 'src/ext-host/worker.mjs', `import 'alpha';\n`);
+  write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import 'alpha';\n`);
   write(root, 'src/skill-script-entry.mjs', `export {};\n`);
   write(root, 'src/defaults/skills/deck/scripts/review.mjs', `const { fetch } = await import('undici');\nimport './lib/helper.mjs';\n`);
   write(root, 'src/defaults/skills/deck/scripts/lib/helper.mjs', `import '@scope/sdk';\n`);
@@ -74,7 +74,7 @@ test('every shipped skill script is an entry: the packages it loads become roots
   assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/sdk', 'alpha', 'undici']);
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const real = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()];
-  // yaml reaches the bundle only through a shipped skill script (skill-creator's validator), not the extension host.
+  // yaml reaches the bundle only through a shipped skill script (skill-creator's validator), not the authoring script.
   for (const needed of ['yaml', 'pptxgenjs', 'puppeteer-core']) assert.ok(real.includes(needed), needed);
 });
 

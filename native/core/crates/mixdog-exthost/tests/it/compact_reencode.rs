@@ -22,7 +22,6 @@ async fn a_large_png_is_reencoded_to_nodes_picture_and_note() {
         ExtHostPool::new(ExtHostConfig {
             program: super::composer_resize::worker_binary(),
             args: Vec::new(),
-            electron: false,
             workers: 1,
             pending_cap: 64,
             spawn_io: mixdog_rt::testing::tokens().spawn_io,
