@@ -285,6 +285,9 @@ pub struct ValidationResult {
     pub runtime: ValidatorRuntime,
     pub ok: bool,
     pub errors: Vec<Value>,
+    /// Why the run gave no verdict (it did not start, was aborted, timed out, failed or printed no JSON). Node wrote it after
+    /// `errors` (`{ ...runtime, ok: false, errors: [], reason }`); a runtime that is not available carries its own reason.
+    pub reason: Option<String>,
     pub compatibility_warnings: Option<Vec<Value>>,
     pub omitted_errors: Option<usize>,
     pub raw_valid: Option<bool>,
@@ -294,15 +297,14 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
-    /// `{ ...runtime, ok: false, errors: [], reason }` (the runtime alone when it carries the reason already).
-    fn failed(mut runtime: ValidatorRuntime, reason: Option<String>) -> Self {
-        if reason.is_some() {
-            runtime.reason = reason;
-        }
+    /// `{ ...runtime, ok: false, errors: [], reason }` (`{ ...runtime, ok: false, errors: [] }` when the runtime carries the
+    /// reason already).
+    fn failed(runtime: ValidatorRuntime, reason: Option<String>) -> Self {
         ValidationResult {
             runtime,
             ok: false,
             errors: Vec::new(),
+            reason,
             compatibility_warnings: None,
             omitted_errors: None,
             raw_valid: None,
@@ -317,6 +319,9 @@ impl ValidationResult {
         self.runtime.put(&mut object);
         object.insert("ok".into(), json!(self.ok));
         object.insert("errors".into(), Value::Array(self.errors.clone()));
+        if let Some(reason) = &self.reason {
+            object.insert("reason".into(), json!(reason));
+        }
         if let Some(warnings) = &self.compatibility_warnings {
             object.insert("compatibilityWarnings".into(), Value::Array(warnings.clone()));
         }
@@ -448,6 +453,7 @@ pub fn parse_validator_output(stdout: &str, runtime: ValidatorRuntime, office_ve
         runtime,
         ok,
         errors: classified.errors.into_iter().take(MAX_REPORTED).collect(),
+        reason: None,
         compatibility_warnings: Some(classified.compatibility_warnings.into_iter().take(MAX_REPORTED).collect()),
         omitted_errors: Some(omitted),
         raw_valid: Some(raw_valid),

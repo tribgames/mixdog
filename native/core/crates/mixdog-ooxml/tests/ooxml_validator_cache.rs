@@ -365,11 +365,13 @@ fn the_verdict_is_the_first_of_is_valid_valid_and_ok_and_errors_are_capped() {
 fn unreadable_output_is_reported_with_the_parser_message() {
     let bad = parse_validator_output("{oops", runtime(), "Microsoft365");
     assert!(!bad.ok);
-    let reason = bad.runtime.reason.expect("reason");
+    let reason = bad.reason.clone().expect("reason");
     assert!(reason.starts_with("Invalid OOXML schema validator output: "), "{reason}");
+    let keys: Vec<String> = bad.to_json().as_object().expect("object").keys().cloned().collect();
+    assert_eq!(keys, ["available", "cached", "downloaded", "path", "version", "ok", "errors", "reason"], "Node's key order");
     let null = parse_validator_output("null", runtime(), "Microsoft365");
     assert_eq!(
-        null.runtime.reason.as_deref(),
+        null.reason.as_deref(),
         Some("Invalid OOXML schema validator output: Cannot read properties of null (reading 'isValid')")
     );
 }
