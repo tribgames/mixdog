@@ -160,7 +160,9 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
     };
 
     let mut out = StdoutOut::new();
-    let interactive = std::io::stdin().is_terminal();
+    // readline's `terminal` follows the output: a terminal on both ends is edited in raw mode; with the output piped the
+    // terminal's own line discipline echoes and the lines are read as they come.
+    let interactive = std::io::stdin().is_terminal() && out.is_terminal();
     let (tx, mut rx) = unbounded_channel();
     // Raw mode and the reader thread of a terminal; the lines of a pipe otherwise.
     let raw = if interactive {
@@ -175,7 +177,7 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
     } else {
         None
     };
-    let paste = interactive && out.is_terminal();
+    let paste = interactive;
     let mut reader = if interactive {
         let (sender, receiver) = std::sync::mpsc::channel();
         let reader = spawn_reader(sender);
