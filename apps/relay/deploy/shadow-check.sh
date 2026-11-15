@@ -216,6 +216,13 @@ run_shadow() {
 	fi
 	chown -R "$RELAY_USER:$RELAY_USER" "$SCRATCH/data"
 	info "scratch copy of $data without feedback/: $(find "$SCRATCH/data" -type f | wc -l) files"
+	# The relay user may not traverse the directory the candidate was uploaded to (/root is 0700), and the binary reads
+	# mobile-release.json beside itself: run a copy from the scratch directory, beside the installed tree's file.
+	mkdir -m 0755 "$SCRATCH/bin"
+	install -m 0755 "$binary" "$SCRATCH/bin/mixdog-relay"
+	if [[ -f /opt/mixdog-relay/mobile-release.json ]]; then
+		install -m 0644 /opt/mixdog-relay/mobile-release.json "$SCRATCH/bin/mobile-release.json"
+	fi
 
 	local -a envargs=()
 	local pair name renderer_dir="" cert="" key=""
@@ -241,9 +248,9 @@ run_shadow() {
 	chmod 0711 "$SCRATCH"
 
 	(
-		cd "$(dirname "$binary")"
+		cd "$SCRATCH/bin"
 		exec setpriv --reuid="$RELAY_USER" --regid="$RELAY_USER" --init-groups \
-			env -i "${envargs[@]}" "$binary" >"$log" 2>&1
+			env -i "${envargs[@]}" "$SCRATCH/bin/mixdog-relay" >"$log" 2>&1
 	) &
 	PID=$!
 
