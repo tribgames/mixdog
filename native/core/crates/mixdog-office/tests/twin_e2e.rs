@@ -46,7 +46,7 @@ use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
 use mixdog_ooxml::zipio::Package;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
-use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneTokens, MaintenanceIo};
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken, LaneTokens, MaintenanceIo};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
