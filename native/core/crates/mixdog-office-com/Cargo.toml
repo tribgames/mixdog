@@ -56,6 +56,11 @@ name = "fake-office-host"
 path = "tests/fake_host.rs"
 required-features = ["test-support"]
 
+[[bin]]
+name = "office-com-host-test"
+path = "tests/bin/office_com_host_test.rs"
+required-features = ["test-support"]
+
 [[test]]
 name = "transport"
 path = "tests/transport.rs"
@@ -91,3 +96,7 @@ path = "tests/pswire.rs"
 [[test]]
 name = "registry_source"
 path = "tests/registry_source.rs"
+
+[[test]]
+name = "host_protocol"
+path = "tests/host_protocol.rs"

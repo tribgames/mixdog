@@ -55,6 +55,8 @@ pub struct ItemCtx {
     pub right_message_width: f64,
     /// The rows a plain streaming assistant text is cut to (0: not cut).
     pub streaming_window_rows: usize,
+    /// The current time in epoch milliseconds: a tool card derives its blink and elapsed time from it.
+    pub now_ms: f64,
 }
 
 impl ItemCtx {
@@ -68,6 +70,7 @@ impl ItemCtx {
             right_tone: "info".to_owned(),
             right_message_width: 24.0,
             streaming_window_rows: 0,
+            now_ms: 0.0,
         }
     }
 }
@@ -199,7 +202,7 @@ mod tests {
     use serde_json::json;
 
     fn text(lines: &[Line]) -> Vec<String> {
-        lines.iter().map(|line| mixdog_termtext::strip_ansi(&line.0)).collect()
+        lines.iter().map(|line| mixdog_termtext::strip_ansi(&line.0).into_owned()).collect()
     }
 
     #[test]

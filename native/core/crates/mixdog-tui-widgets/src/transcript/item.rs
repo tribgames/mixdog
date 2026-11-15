@@ -152,7 +152,7 @@ pub(crate) fn draw_item(item: &Value, ctx: &ItemCtx) -> Drawn {
                 object.insert("expanded".to_owned(), Value::Bool(expanded));
                 object.insert("attached".to_owned(), Value::Bool(false));
             }
-            Drawn::Lines(render_tool_card(&card, &CardCtx { columns }))
+            Drawn::Lines(render_tool_card(&card, &CardCtx::new(columns, ctx.now_ms)))
         }
         "notice" => {
             let text = text_of(item.get("text")).unwrap_or_default();
