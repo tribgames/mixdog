@@ -12,18 +12,15 @@
 //!   the write holding the newest token publishes the final route, or rolls the preview back ([`RouteWrites::settle`]).
 //! - A write settles against the session generation it began under: a selection that outlived its session republishes the
 //!   route that is actually selected, and never restores or announces its own session's state.
-//! - A session-only request (an agent child's route) may name just the model, just the tuning, or both. It is completed inside
-//!   the serialized write against the latest selected route ([`complete_session_only_request`]).
+//! - A session-only request (an agent child's route) may name just the model, just the tuning, or both. The core completes it
+//!   inside its own serialized write against the latest selected route (`route/set`, `route_set_service::complete_session_only`
+//!   of mixdog-core-domains), so the request is sent as asked.
 
 use serde_json::{Map, Value};
-
-use crate::slash::notices::truthy;
 
 /// The route fields a request publishes before the runtime write settles.
 pub const ROUTE_PREVIEW_KEYS: [&str; 8] =
     ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
-
-const SESSION_ONLY_KEYS: [&str; 5] = ["provider", "model", "effort", "fast", "autoEffort"];
 
 /// `String(a ?? b ?? '')`.
 fn nullish_text(first: Option<&Value>, second: Option<&Value>) -> String {
@@ -96,46 +93,6 @@ impl RouteRequest {
             only_if_empty: only_if_empty == Some(Value::Bool(true)),
         }
     }
-}
-
-/// What `completeSessionOnlyRequest` answers: the completed request, or that it asks for nothing the selected route does not
-/// already have (and the session itself already runs that model; a fallback hop moves the session, not the selected route).
-#[derive(Clone, Debug, PartialEq)]
-pub struct CompletedRequest {
-    pub request: Map<String, Value>,
-    pub unchanged: bool,
-}
-
-/// `completeSessionOnlyRequest(request, selected)`: completed inside the serialized route write, against the latest selected
-/// route, so a Fast-only change keeps the effort a previous write selected.
-pub fn complete_session_only_request(request: &Map<String, Value>, selected: &Value) -> CompletedRequest {
-    let named = request.get("provider").is_some_and(truthy) || request.get("model").is_some_and(truthy);
-    let mut target = request.clone();
-    if !named {
-        target.insert("provider".to_owned(), selected.get("provider").cloned().unwrap_or(Value::Null));
-        target.insert("model".to_owned(), selected.get("model").cloned().unwrap_or(Value::Null));
-    }
-    let same_model = target.get("provider") == selected.get("provider") && target.get("model") == selected.get("model");
-    if !same_model {
-        return CompletedRequest { request: target, unchanged: false };
-    }
-    let session_on_target = !selected.get("sessionModel").is_some_and(truthy)
-        || (selected.get("sessionProvider") == target.get("provider") && selected.get("sessionModel") == target.get("model"));
-    let selected_fast = selected.get("fast") == Some(&Value::Bool(true));
-    let selected_auto = selected.get("autoEffort") != Some(&Value::Bool(false));
-    let unchanged = session_on_target
-        && request.keys().all(|key| SESSION_ONLY_KEYS.contains(&key.as_str()))
-        && (!request.contains_key("effort") || request.get("effort") == selected.get("effort"))
-        && (!request.contains_key("fast") || request.get("fast") == Some(&Value::Bool(selected_fast)))
-        && (!request.contains_key("autoEffort") || request.get("autoEffort") == Some(&Value::Bool(selected_auto)));
-    let mut completed = Map::new();
-    if selected.get("effort").is_some_and(truthy) {
-        completed.insert("effort".to_owned(), selected["effort"].clone());
-    }
-    completed.insert("fast".to_owned(), Value::Bool(selected_fast));
-    completed.insert("autoEffort".to_owned(), Value::Bool(selected_auto));
-    completed.extend(target);
-    CompletedRequest { request: completed, unchanged }
 }
 
 /// What starting a write asks the store to do.
@@ -305,28 +262,5 @@ mod tests {
         assert!(split.apply_to_current_session && !split.keep_main_model && split.session_only && !split.only_if_empty);
         assert_eq!(Value::Object(split.requested), json!({"model": "m"}));
         assert!(request(json!({})).keep_main_model);
-    }
-
-    #[test]
-    fn a_session_only_request_is_completed_against_the_selected_route() {
-        let selected = json!({"provider": "p", "model": "m", "effort": "high", "fast": false, "autoEffort": true});
-        let fast_only = json!({"fast": true});
-        let done = complete_session_only_request(fast_only.as_object().expect("object"), &selected);
-        assert!(!done.unchanged);
-        assert_eq!(
-            Value::Object(done.request),
-            json!({"effort": "high", "fast": true, "autoEffort": true, "provider": "p", "model": "m"}),
-            "a Fast-only change keeps the effort a previous write selected"
-        );
-        let same = json!({"effort": "high", "fast": false});
-        assert!(complete_session_only_request(same.as_object().expect("object"), &selected).unchanged);
-        // A session running another model (a fallback hop) is not "unchanged".
-        let hopped = json!({"provider": "p", "model": "m", "sessionProvider": "p", "sessionModel": "other"});
-        assert!(!complete_session_only_request(same.as_object().expect("object"), &hopped).unchanged);
-        // Naming another model is never unchanged and keeps the request as asked.
-        let other = json!({"provider": "q", "model": "n"});
-        let moved = complete_session_only_request(other.as_object().expect("object"), &selected);
-        assert!(!moved.unchanged);
-        assert_eq!(Value::Object(moved.request), other);
     }
 }

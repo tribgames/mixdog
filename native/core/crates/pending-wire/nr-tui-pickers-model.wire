@@ -58,7 +58,8 @@ with `persist: true` also writes `ui.theme` through the core's `config/setTheme`
 ## Route writes (nr-tui-sv-store)
 
 `pickers::model::route_write` is the serialized optimistic `setRoute` of routes-write.mjs as a pure state machine
-(`optimistic_route_patch`, `RouteRequest::from_options`, `complete_session_only_request`, `RouteWrites::{begin, settle, finish}`).
+(`optimistic_route_patch`, `RouteRequest::from_options`, `RouteWrites::{begin, settle, finish}`). A session-only request is
+sent as asked: the core's `route/set` completes it against the selected route inside its own serialized write.
 The store's `setRoute` handler (lead route, agent child routes with `sessionOnly`) runs its writes one after another in the order
 `begin` hands out tokens, publishes `WriteBegin::preview` at once, and applies `Settlement` after each write: only the write holding
 the newest token publishes the final route or rolls the preview back, so a late catalog response never rolls back a newer route.
