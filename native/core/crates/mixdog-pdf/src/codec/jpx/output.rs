@@ -287,9 +287,26 @@ impl DecodedImage {
     }
 
     /// `opj_jp2_apply_pclr`: replaces the components by the channels of the component mapping, reading palette
-    /// columns for the mapped ones.
+    /// columns for the mapped ones. Every channel takes the precision and sign of its palette column, a directly used
+    /// one too. A single-component image whose mapping leaves a palette column unused is mapped column by column
+    /// instead, as `opj_jp2_check_color` corrects it ("Component mapping seems wrong").
     fn apply_palette(&mut self, palette: &Palette, map: &[ComponentMap]) -> Result<(), JpxError> {
         let columns = palette.column_depths.len();
+        let corrected: Vec<ComponentMap>;
+        let map = if self.planes.len() == 1
+            && (0..columns).any(|c| !map.iter().take(columns).any(|m| m.palette_column as usize == c))
+        {
+            corrected = (0..columns)
+                .map(|c| ComponentMap {
+                    component: map.get(c).map_or(0, |m| m.component),
+                    mapping_type: 1,
+                    palette_column: c as u8,
+                })
+                .collect();
+            &corrected[..]
+        } else {
+            map
+        };
         let mut out: Vec<Option<Plane>> = vec![None; columns];
         for (i, m) in map.iter().enumerate().take(columns) {
             let source = self
@@ -297,7 +314,8 @@ impl DecodedImage {
                 .get(m.component as usize)
                 .ok_or_else(|| JpxError::new("a component mapping names a component that does not exist"))?;
             if m.mapping_type == 0 {
-                out[i] = Some(source.clone());
+                let depth = palette.column_depths[i];
+                out[i] = Some(Plane { precision: (depth & 0x7f) + 1, signed: depth & 0x80 != 0, ..source.clone() });
                 continue;
             }
             let column = m.palette_column as usize;
@@ -372,7 +390,7 @@ impl DecodedImage {
         }
         let (w, h) = (a.width as usize, a.height as usize);
         let offset = 1i32 << (a.precision - 1);
-        let upb = (1i32 << a.precision) - 1;
+        let upb = ((1i64 << a.precision) - 1) as i32;
         let mut r = vec![0i32; w * h];
         let mut g = vec![0i32; w * h];
         let mut bl = vec![0i32; w * h];
@@ -502,6 +520,16 @@ mod tests {
         assert_eq!(image.planes.len(), 3);
         assert_eq!(image.planes[1].data, [2, 5]);
         assert_eq!(image.planes[2].precision, 8);
+    }
+
+    #[test]
+    fn a_single_component_mapping_without_palette_columns_is_corrected_to_the_palette() {
+        let mut image = DecodedImage { planes: vec![plane(8, false, 2, 1, vec![0, 1])], colour: ColourSpace::Unspecified };
+        let palette = Palette { entries: 2, column_depths: vec![7, 7, 7], values: vec![1, 2, 3, 4, 5, 6] };
+        let map: Vec<ComponentMap> =
+            (0..3).map(|_| ComponentMap { component: 0, mapping_type: 0, palette_column: 0 }).collect();
+        image.apply_palette(&palette, &map).unwrap();
+        assert_eq!((image.planes[0].data.clone(), image.planes[2].data.clone()), (vec![1, 4], vec![3, 6]));
     }
 
     #[test]
