@@ -41,15 +41,18 @@ persist_prompt is private to the actor module and turn_ops.rs is its child (`use
 
 ## the composition (mixdog-app-server-daemon, where TurnActionsService is registered)
 
-Register one more domain service, the same way as TurnActionsService (it serves four exact methods; no op table):
+Register one more domain service, the same way as TurnActionsService (it serves four exact methods; no op table). Its snapshot reads go
+through the LateDomains of compose_domains.rs (`PreDomains.late`, the DomainCalls the setup status readers use, bound once the table is
+built) and the web-search route through the WorkflowConfig (`PreDomains.workflow_config`):
 
-    let web_route = workflow_config_concrete.clone();   // the WorkflowConfig of compose_domains.rs
-    let snapshot_reads = mixdog_core_session::session::tui_client_methods::HandleReads::new(move || web_route.web_search_route());
-    services.push(mixdog_core_session::session::tui_client_methods::TuiClientService::new(snapshot_reads.clone(), <the directory's Arc<dyn ThreadState>, the one ThreadProgressHints is given>));
+    let web_route = pre.workflow_config.clone();
+    let snapshot_reads = mixdog_core_session::session::tui_client_methods::SettingsReads::new(pre.late.clone(), move || web_route.web_search_route());
+    builder.register(mixdog_core_session::session::tui_client_methods::TuiClientService::new(snapshot_reads, <the directory's Arc<dyn ThreadState>, the one ThreadProgressHints is given>));
 
-and once the CoreHandle exists (where the core is built and its late cells are filled): snapshot_reads.bind(core_handle.clone());
-(A read before the bind fails and the snapshot shows null in its place; the settings picker is not reachable before the core is up.)
-Crate edges: none new (core-session already depends on mixdog-core-api, -ports, -base, -js, -tools, -store).
+(`pre` is whatever name the PreDomains has there. A read before LateDomains is bound fails and the snapshot shows null in its place; the
+settings picker is not reachable before the core is up.)
+
+Crate edges: none new (core-session already depends on mixdog-core-agents, -api, -ports, -base, -js, -tools, -store).
 
 ## mixdog-app-server-daemon/src/compose_flip.rs SERVICE_PENDING
 
