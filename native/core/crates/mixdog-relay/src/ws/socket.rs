@@ -148,14 +148,11 @@ impl Holder {
 #[derive(Clone)]
 pub struct Gate {
     tx: Arc<watch::Sender<u8>>,
-    // Keeps the channel open for `send_if_modified` while no task is subscribed.
-    _keep: Arc<watch::Receiver<u8>>,
 }
 
 impl Gate {
     fn new(initial: u8) -> Self {
-        let (tx, rx) = watch::channel(initial);
-        Self { tx: Arc::new(tx), _keep: Arc::new(rx) }
+        Self { tx: Arc::new(watch::Sender::new(initial)) }
     }
 
     fn set(&self, bit: u8, on: bool) {
@@ -474,10 +471,14 @@ async fn run_reader<R: AsyncRead + Unpin>(
     let mut pending = Some(head).filter(|bytes| !bytes.is_empty());
     let mut buffer = vec![0u8; READ_CHUNK];
     let mut peer_ended = false;
+    // The holds that stood when the parser stopped (a close frame or an error): `ws` resumes the socket then
+    // (`receiverOnConclude`, `receiverOnError`), so they no longer stop reading; a hold made afterwards does.
+    let mut lifted = 0u8;
     'read: loop {
         loop {
             let held = *gate.borrow_and_update();
-            if held == 0 {
+            lifted &= held;
+            if held & !lifted == 0 {
                 break;
             }
             tokio::select! {
@@ -522,6 +523,9 @@ async fn run_reader<R: AsyncRead + Unpin>(
                     inner.on_receiver_error(error);
                 }
                 Ok(()) => parsing = !receiver.finished(),
+            }
+            if !parsing {
+                lifted = *inner.gate.tx.borrow();
             }
         }
     }

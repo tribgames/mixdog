@@ -12,7 +12,6 @@
 //
 // Every message is echoed with its own type, except a text message that starts with "cmd:", which the server obeys:
 //   cmd:close:<code>   ws.close(code, 'bye')        cmd:terminate   ws.terminate()        cmd:ping   ws.ping()
-//   cmd:send:<n>       ws.send(n bytes of 'x') and answers the callback with {"ev":"flushed","n":n}
 //
 // The twin harness runs the same script against this file and against the Rust server and compares what the peer
 // received and the events.
@@ -45,9 +44,6 @@ server.on('upgrade', (request, socket, head) => {
         ws.terminate();
       } else if (text === 'cmd:ping') {
         ws.ping();
-      } else if (text.startsWith('cmd:send:')) {
-        const n = Number(text.slice('cmd:send:'.length));
-        ws.send('x'.repeat(n), () => emit({ ev: 'flushed', n }));
       } else {
         ws.send(data, { binary: isBinary });
       }
