@@ -1,7 +1,7 @@
 //! The structural design review QA runs over the whole document, with the per-page roles the render review needs; an unreadable
 //! document degrades to one advisory issue instead of failing QA (`core/office-qa/design-review-stage.mjs`).
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{number_to_string, to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_quality::design_review::{infer_pptx_slide_roles, review_office_design};
@@ -74,7 +74,7 @@ fn page_roles_for(format: &str, plans: &[Value], document: Option<&Value>) -> Va
     json!({})
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `reviewQaDesign(session, args)`.
     pub(crate) async fn review_qa_design(&self, handle: &SessionHandle, args: &Value) -> DesignStage {
         let profile = lock(handle).design.as_ref().and_then(|design| design.get("profile")).filter(|profile| truthy(profile)).map(value_to_string).unwrap_or_default();

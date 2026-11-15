@@ -15,11 +15,9 @@ use std::sync::MutexGuard;
 use std::sync::PoisonError;
 
 use mixdog_fsio::ReadProof;
-use mixdog_rt::InLane;
+use mixdog_fsio::WriteProof;
 use serde_json::Value;
 
-use crate::IoLane;
-use crate::WriteLane;
 use crate::lock::LockError;
 use crate::lock::LockOpts;
 use crate::lock::lock_path;
@@ -190,8 +188,8 @@ fn report_damaged(path: &Path, reason: &str, outcome: &str) {
 /// meanwhile is kept. `keep_without_backup` leaves a damaged file in place when there is no
 /// good copy: for a file other readers treat "missing" as permissive (a deny list), moving it
 /// would fail open. `restore_backup` false never restores `.bak`.
-fn recover<L: WriteLane>(
-    lane: &InLane<L>,
+fn recover<P: WriteProof>(
+    lane: &P,
     path: &Path,
     validate: Option<Validate>,
     opts: &Opts,
@@ -222,7 +220,7 @@ fn recover<L: WriteLane>(
 }
 
 /// What the file holds, touching nothing: the first read of a state file, on a read lane.
-pub fn peek<L: IoLane>(lane: &InLane<L>, path: &Path, validate: Option<Validate>) -> io::Result<Peek> {
+pub fn peek<P: ReadProof>(lane: &P, path: &Path, validate: Option<Validate>) -> io::Result<Peek> {
     Ok(match parse(read_or_null(lane, path)?, validate) {
         Parsed::Absent => Peek::Absent,
         Parsed::Ok { value, .. } => Peek::Value(value),
@@ -235,8 +233,8 @@ pub fn peek<L: IoLane>(lane: &InLane<L>, path: &Path, validate: Option<Validate>
 /// missing, a newer build's, or damaged with no good backup. A damaged file is recovered under
 /// its lock; while another holder keeps the lock for the whole wait the file is left in place.
 /// Other failures, an unreadable file among them, are errors.
-pub fn read_json<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn read_json<P: WriteProof>(
+    lane: &P,
     path: &Path,
     validate: Option<Validate>,
     opts: &Opts,
@@ -257,8 +255,8 @@ pub fn read_json<L: WriteLane>(
 }
 
 /// `writeFileAtomicSync`. Create-only answers [`Published::Exists`] when the target exists.
-pub fn write_file<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn write_file<P: WriteProof>(
+    lane: &P,
     path: &Path,
     data: &[u8],
     opts: &Opts,
@@ -269,8 +267,8 @@ pub fn write_file<L: WriteLane>(
 /// [`write_file`] that names the call that failed, for a caller that words the error as Node
 /// does (`<errno>: <description>, rename '<from>' -> '<to>'`). A lock that stays busy is a
 /// failure at no particular step.
-pub fn write_file_stepped<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn write_file_stepped<P: WriteProof>(
+    lane: &P,
     path: &Path,
     data: &[u8],
     opts: &Opts,
@@ -296,7 +294,7 @@ pub fn json_bytes(value: &Value, opts: &Opts) -> Vec<u8> {
     text.into_bytes()
 }
 
-fn publish_json<L: WriteLane>(lane: &InLane<L>, path: &Path, value: &Value, opts: &Opts) -> io::Result<Published> {
+fn publish_json<P: WriteProof>(lane: &P, path: &Path, value: &Value, opts: &Opts) -> io::Result<Published> {
     // A JSON write's backup takes only a replaced version that still parses.
     let mut opts = opts.clone();
     if opts.backup && opts.backup_accepts.is_none() {
@@ -306,8 +304,8 @@ fn publish_json<L: WriteLane>(lane: &InLane<L>, path: &Path, value: &Value, opts
 }
 
 /// `writeJsonAtomicSync`: `JSON.stringify(value, null, 2)` and a newline.
-pub fn write_json<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn write_json<P: WriteProof>(
+    lane: &P,
     path: &Path,
     value: &Value,
     opts: &Opts,
@@ -322,8 +320,8 @@ pub fn write_json<L: WriteLane>(
 /// silently overwritten, and its last good copy is the mutator's input; a missing one is
 /// `None`), run `mutator`, and write what it returns. `Ok(None)` from the mutator writes
 /// nothing. The answer is the new value, or the value read when nothing was written.
-pub fn update_json<L: WriteLane, E>(
-    lane: &InLane<L>,
+pub fn update_json<P: WriteProof, E>(
+    lane: &P,
     path: &Path,
     mutator: impl FnOnce(Option<Value>) -> Result<Option<Value>, E>,
     opts: &Opts,
@@ -348,13 +346,13 @@ pub fn update_json<L: WriteLane, E>(
 /// (Windows: access denied, sharing and lock violations, exists) on Node's schedule, 25, 50,
 /// 100 ms, then 200 ms, with jitter, at most 24 attempts; a refusal over a read-only target
 /// ends it at once. Sleeps on the lane thread.
-pub fn rename_with_retry<L: WriteLane>(lane: &InLane<L>, src: &Path, dst: &Path) -> io::Result<()> {
+pub fn rename_with_retry<P: WriteProof>(lane: &P, src: &Path, dst: &Path) -> io::Result<()> {
     crate::publish::rename_with_retry(lane, src, dst)
 }
 
 /// `withFileLockSync` over `<file>.lock`.
-pub fn with_lock<L: WriteLane, R>(
-    lane: &InLane<L>,
+pub fn with_lock<P: WriteProof, R>(
+    lane: &P,
     path: &Path,
     opts: &LockOpts,
     body: impl FnOnce() -> R,

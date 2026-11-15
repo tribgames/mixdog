@@ -21,12 +21,12 @@ pub mod run;
 use std::future::Future;
 use std::path::Path;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_design::library::Environment;
 use mixdog_office_pdf::content_ops::ContentOperations;
 use mixdog_office_quality::document_brief::BriefReadings;
-use mixdog_rt::{CancellationToken, InLane};
+use mixdog_rt::CancellationToken;
 use serde_json::Value;
 
 pub use self::prepare::{Prepared, prepare_batch_operations, with_shared_chart_defaults};
@@ -52,21 +52,21 @@ pub trait BatchHost {
 
 /// What a batch runs with: the inspection context (the lane proof, the text measurer, the Office host, the audit), the write note of
 /// the call, the sessions, the environment (the clock) and the machine.
-pub struct BatchContext<'a, L: WriteLane, H, B> {
-    pub inspect: &'a InspectContext<'a, L, H>,
+pub struct BatchContext<'a, P: WriteProof, H, B> {
+    pub inspect: &'a InspectContext<'a, P, H>,
     pub note: &'a dyn WriteNote,
     pub registry: &'a Registry,
     pub env: &'a Environment,
     pub host: &'a B,
 }
 
-impl<'a, L: WriteLane, H, B> BatchContext<'a, L, H, B> {
-    pub(crate) fn lane(&self) -> &InLane<L> {
+impl<'a, P: WriteProof, H, B> BatchContext<'a, P, H, B> {
+    pub(crate) fn lane(&self) -> &P {
         self.inspect.snapshot.proof
     }
 
     /// The context the transaction calls run with.
-    pub fn transactions(&self) -> TransactionContext<'_, L, H> {
+    pub fn transactions(&self) -> TransactionContext<'_, P, H> {
         TransactionContext { snapshot: &self.inspect.snapshot, note: self.note, registry: self.registry, env: self.env }
     }
 }

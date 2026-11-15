@@ -14,8 +14,7 @@ use mixdog_js::{
     js_object_keys, js_to_lowercase, js_trim, json_number, json_stringify, string_to_number, to_number, to_number_of, utf16_len, value_to_string,
 };
 use mixdog_office_base::values::{clamp_of, clone, plain_object, sha256, truthy};
-use mixdog_rt::InLane;
-use mixdog_statefile::WriteLane;
+use mixdog_fsio::WriteProof;
 use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde_json::{Map, Value, json};
 use url::Url;
@@ -578,8 +577,8 @@ fn temporary_name() -> String {
 /// `materializePack(envelope, verified, paths, fetch)`: every template of the pack is downloaded, checked for size and
 /// sha256 and written, with the envelope, into a staging folder that then replaces `packs/<id>/<version>`. A failure
 /// leaves the previous copy in place. Answers the folder.
-pub fn materialize_pack<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn materialize_pack<P: WriteProof>(
+    lane: &P,
     verified: &Verified,
     paths: &LibraryPaths,
     fetch: &dyn Fetch,
@@ -596,7 +595,7 @@ pub fn materialize_pack<L: WriteLane>(
     built.map(|()| target)
 }
 
-fn stage_pack<L: WriteLane>(lane: &InLane<L>, verified: &Verified, staging: &Path, target: &Path, fetch: &dyn Fetch) -> Result<(), String> {
+fn stage_pack<P: WriteProof>(lane: &P, verified: &Verified, staging: &Path, target: &Path, fetch: &dyn Fetch) -> Result<(), String> {
     let io = |error: std::io::Error| error.to_string();
     for template in verified.pack.get("templates").and_then(Value::as_array).into_iter().flatten() {
         let id = text(prop(template, "id"));
@@ -644,8 +643,8 @@ fn stage_pack<L: WriteLane>(lane: &InLane<L>, verified: &Verified, staging: &Pat
 
 /// `loadCachedPack(paths, config, id, version)`: the pack cached under `packs/<id>/<version>`, its signature checked
 /// again against the trusted keys and every template file checked for size and sha256. `Ok(None)` when nothing is cached.
-pub fn load_cached_pack<L: WriteLane>(
-    lane: &InLane<L>,
+pub fn load_cached_pack<P: WriteProof>(
+    lane: &P,
     paths: &LibraryPaths,
     config: &LibraryConfig,
     id: Option<&Value>,

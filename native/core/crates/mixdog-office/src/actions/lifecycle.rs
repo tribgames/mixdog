@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::js_to_lowercase;
 use mixdog_office_base::values::truthy;
 use mixdog_rt::CancellationToken;
@@ -21,7 +21,7 @@ use crate::session::open::SessionCloser;
 use crate::session::registry::lock;
 use crate::transactions::TransactionError;
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `save(session)`.
     pub async fn save(&self, handle: &SessionHandle) -> Result<Value, TransactionError> {
         Ok(save_session(self.host(), handle).await?)

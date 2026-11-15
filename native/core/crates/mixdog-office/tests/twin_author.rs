@@ -412,7 +412,7 @@ fn a_cancelled_fallback_preserves_the_target_and_does_not_consume_the_staged_dec
     put(&target, "old deck");
     put(&staging, "new deck");
     let signal = CancellationToken::new();
-    let _ = signal.cancel("test");
+    signal.cancel();
     let error = run(land_staged_deck(&Fake::new(), &staging, &target, Some(&signal))).expect_err("cancelled");
     assert!(error.is_abort());
     assert_eq!(get(&target), "old deck");
@@ -457,7 +457,7 @@ fn a_cancelled_document_swap_stops_instead_of_entering_replacement_recovery() {
     let signal = CancellationToken::new();
     let raised = signal.clone();
     let error = run(swap_authored_document(&handle, Path::new("unused-staging.pptx"), Some(&signal), "now", |_| async move {
-        let _ = raised.cancel("test");
+        raised.cancel();
         json!({ "ok": true, "appPid": 202 })
     }))
     .expect_err("cancelled");
@@ -531,7 +531,7 @@ fn a_cancellation_is_an_abort_whatever_raised_it() {
     let signal = CancellationToken::new();
     assert!(throw_if_authoring_cancelled(Some(&signal), None).is_ok());
     assert!(throw_if_authoring_cancelled(None, Some(&json!({ "cancelled": true, "error": "stopped" }))).is_err_and(|error| error.message() == "stopped"));
-    let _ = signal.cancel("test");
+    signal.cancel();
     assert!(throw_if_authoring_cancelled(Some(&signal), None).is_err_and(|error| error.message() == "Office authoring was cancelled"));
 }
 
@@ -814,7 +814,7 @@ fn every_swap_equals_the_recording() {
         let handle = swap_session();
         let signal = CancellationToken::new();
         if case["input"]["abortBefore"] == json!(true) {
-            let _ = signal.cancel("test");
+            signal.cancel();
         }
         let abort_during = case["input"]["abortDuring"] == json!(true);
         let answer = case["input"]["answer"].clone();
@@ -824,7 +824,7 @@ fn every_swap_equals_the_recording() {
             let raise = signal.clone();
             async move {
                 if abort_during {
-                    let _ = raise.cancel("test");
+                    raise.cancel();
                 }
                 answer
             }
@@ -882,7 +882,7 @@ fn landing_a_staged_deck_equals_the_recording() {
         put(&staging, "new deck");
         let signal = CancellationToken::new();
         if case["input"]["cancelled"] == json!(true) {
-            let _ = signal.cancel("test");
+            signal.cancel();
         }
         let outcome = run(land_staged_deck(&Fake::new(), &staging, &target, Some(&signal)));
         let produced = json!({

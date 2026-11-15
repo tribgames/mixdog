@@ -247,7 +247,8 @@ impl Scrub {
     /// The text of the recording put back as a file of this run: `<dir>` and `<tmp>` named, the checkpoint's random part given, the
     /// transactions numbered as the seed numbers them.
     fn restore(&self, recorded: &str) -> String {
-        let forward = |path: &Path| path.display().to_string().replace('\\', "/");
+        // `os.tmpdir()` has no trailing separator; Windows' `GetTempPath`, which `temp_dir` answers, has one.
+        let forward = |path: &Path| path.display().to_string().replace('\\', "/").trim_end_matches('/').to_owned();
         let mut out = recorded.replace("<dir>", &forward(&self.dir)).replace("<tmp>", &forward(&std::env::temp_dir())).replace("<uuid>", SEEDED_UUID);
         for number in 1..=16 {
             out = out.replace(&format!("<tx {number}>"), &seeded_id(number));

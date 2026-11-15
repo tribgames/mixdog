@@ -189,8 +189,8 @@ impl Fetch for FakeFetch {
 /// What `indexOfficeTemplates` writes when no template directory holds a template.
 struct EmptyIndexer;
 
-impl<L: mixdog_fsio::WriteLane> TemplateIndexer<L> for EmptyIndexer {
-    fn index(&self, lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
+impl<P: mixdog_fsio::WriteProof> TemplateIndexer<P> for EmptyIndexer {
+    fn index(&self, lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
         let paths = library_paths(env, data_dir);
         mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| error.to_string())?;
         let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
@@ -215,7 +215,7 @@ impl<L: mixdog_fsio::WriteLane> TemplateIndexer<L> for EmptyIndexer {
 
 // ---- the pure cases --------------------------------------------------------------------------------------------------
 
-fn replay_pure<L: mixdog_fsio::WriteLane>(lane: &InLane<L>, world: &World, pure: &Value) {
+fn replay_pure<P: mixdog_fsio::WriteProof>(lane: &P, world: &World, pure: &Value) {
     for case in pure["safeId"].as_array().expect("safeId") {
         let actual = attempt(&world.root, safe_id(Some(&case["input"]), "pack id").map(Value::String));
         check(&format!("safeId {}", case["input"]), &recorded(case), &actual);
@@ -284,7 +284,7 @@ fn remove_tree<P: WriteProof>(proof: &P, path: &Path) {
     let _ = mixdog_fsio::remove_dir_all(proof, path);
 }
 
-fn replay_config<L: mixdog_fsio::WriteLane>(lane: &InLane<L>, world: &World, case: &Value) {
+fn replay_config<P: mixdog_fsio::WriteProof>(lane: &P, world: &World, case: &Value) {
     let input = &case["input"];
     let root = &world.root;
     for relative in ["cfg", "cfg2"] {
@@ -382,7 +382,7 @@ fn config_of(world: &World, step: &Value) -> Option<Value> {
     step.get("config").map(|config| world.root.unscrub(config))
 }
 
-fn replay_script<L: mixdog_fsio::WriteLane>(lane: &InLane<L>, world: &World, script: &[Value]) {
+fn replay_script<P: mixdog_fsio::WriteProof>(lane: &P, world: &World, script: &[Value]) {
     let fetch = FakeFetch::default();
     let cx = Context { lane, env: &world.env, fetch: &fetch, indexer: &EmptyIndexer };
     let root = &world.root;

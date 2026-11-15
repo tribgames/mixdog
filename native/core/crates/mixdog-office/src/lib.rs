@@ -8,6 +8,8 @@
 //! that rides on every mutating action.
 //! [`render`] draws a session's document: the export to a PDF, the page images,
 //! the review token, the whole-result cache and the page-by-page reuse of a deck.
+//! [`author`] creates and authors a document, [`batch`] and [`transactions`] apply a batch of operations and keep its undo,
+//! [`actions`] is `qa`, `finalize`, `save` and `close`; [`dispatch`] answers one call of the tool; [`engine`] is the entry point a process calls.
 
 pub mod bounded;
 pub mod capabilities;
@@ -22,3 +24,9 @@ pub mod snapshot;
 pub mod inline_audit;
 pub mod inspect;
 pub mod render;
+pub mod author;
+pub mod batch;
+pub mod transactions;
+pub mod actions;
+pub mod dispatch;
+pub mod engine;

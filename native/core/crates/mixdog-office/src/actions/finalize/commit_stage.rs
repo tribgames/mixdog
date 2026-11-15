@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_design::composition::summarize_office_compositions;
@@ -29,7 +29,7 @@ pub struct Closing {
     pub composition_history_warning: String,
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `saveForFinalize(session, args, reviewed)`.
     pub(crate) async fn save_for_finalize(&self, handle: &SessionHandle, args: &Value, reviewed: Option<&Value>) -> Result<Value, String> {
         let fixes = reviewed.and_then(|reviewed| reviewed.get("fixesApplied")).filter(|fixes| truthy(fixes)).map_or(0.0, |fixes| to_number_of(Some(fixes)));

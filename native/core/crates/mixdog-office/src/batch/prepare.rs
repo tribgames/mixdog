@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, js_trim, json_number, math, to_number, value_to_string};
 use mixdog_office_base::column_alignments::figure_column_alignments;
 use mixdog_office_base::column_widths::natural_column_widths;
@@ -23,7 +23,6 @@ use mixdog_ooxml::opc::{PIXELS_TO_POINTS, image_pixel_size};
 use mixdog_ooxml::snapshot::snapshot_portable_ooxml;
 use mixdog_ooxml::text_metrics::{FontSpec, TextMeasurer};
 use mixdog_ooxml::xlsx_contract::{expand_filled_formulas, quote_unquoted_sheet_references, validate_xlsx_operations};
-use mixdog_rt::InLane;
 use mixdog_xlsx_formula::translate_shared_formula;
 use serde_json::{Map, Value, json};
 
@@ -486,7 +485,7 @@ fn chart_description(block: &Value) -> String {
 /// and a report's figure had come in as a hand-made picture with no names or values on it. `add_chart` turns into `add_image` of
 /// that picture before either backend sees it, so both place the same one. The pictures are written into a scratch folder the
 /// batch removes once it is done.
-async fn with_document_charts<L: WriteLane, H, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, format: &str, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<Vec<Value>, String> {
+async fn with_document_charts<P: WriteProof, H, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, format: &str, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<Vec<Value>, String> {
     if format != "docx" || !operations.iter().any(|operation| op_of(operation) == "add_chart") {
         return Ok(operations);
     }
@@ -528,7 +527,7 @@ async fn with_document_charts<L: WriteLane, H, B: BatchHost>(cx: &BatchContext<'
 /// quote and closing pages arrived on the deck's light paper, their white words unreadable, where the portable import keeps them.
 /// Each slide imported at a known place takes its source's background again, resolved through its layout and master as the
 /// snapshot reads it.
-fn with_imported_slide_backgrounds<L: WriteLane, H, B>(cx: &BatchContext<'_, L, H, B>, operations: Vec<Value>) -> Result<Vec<Value>, String> {
+fn with_imported_slide_backgrounds<P: WriteProof, H, B>(cx: &BatchContext<'_, P, H, B>, operations: Vec<Value>) -> Result<Vec<Value>, String> {
     let snapshot = &cx.inspect.snapshot;
     let mut sources: Vec<(String, Vec<Value>)> = Vec::new();
     let mut out = Vec::with_capacity(operations.len());
@@ -603,7 +602,7 @@ impl Facts {
 /// `prepareBatchOperations(session, args)`: the design-expanded, cwd-localised, contract-checked operation list and the design plan
 /// it came from. The session takes the merged design request, the design in force and, for a Word document or workbook written to a
 /// brief, that brief.
-pub async fn prepare_batch_operations<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, handle: &SessionHandle, args: &Value) -> Result<Prepared, String> {
+pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Prepared, String> {
     let facts = Facts::of(handle);
     let design_request = merge_office_design_request(facts.design_request.as_ref(), args.get("design"));
     let mut requested: Vec<Value> = args.get("operations").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -659,9 +658,9 @@ pub async fn prepare_batch_operations<L: WriteLane, H: ComHost, B: BatchHost>(cx
 
 /// The rest of the preparation, after the contract: template pages, imported backgrounds, Word charts, filled formulas, the sheet
 /// contract and the shared defaults.
-async fn finish_operations<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<(Vec<Value>, Vec<Value>), String> {
+async fn finish_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<(Vec<Value>, Vec<Value>), String> {
     let snapshot = &cx.inspect.snapshot;
-    let proof: &InLane<L> = snapshot.proof;
+    let proof: &P = snapshot.proof;
     // A template page is chosen and filled before any backend sees the batch: it arrives as the import of that one page and the writes
     // into its own slots, which both backends already perform.
     let mut template_data: Vec<Value> = Vec::new();

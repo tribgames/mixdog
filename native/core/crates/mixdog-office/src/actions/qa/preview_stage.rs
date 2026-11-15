@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{to_number, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_quality::visual_diff::compare_rendered_pages;
@@ -72,7 +72,7 @@ pub(crate) fn list(value: Option<&Value>) -> Vec<Value> {
     value.and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `renderTransactionBaseline(session, args, cwd, currentOutput)`: the pages of the document as the transaction found it.
     async fn render_transaction_baseline(&self, handle: &SessionHandle, args: &Value, cwd: &Path, current_output: &str) -> Result<Value, String> {
         let transaction = lock(handle).state.transaction().cloned();

@@ -8,12 +8,11 @@ use mixdog_ooxml::zipio::Package;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use mixdog_fsio::{ReadProof, WriteLane};
+use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::nodepath::normalize_host;
 use mixdog_js::{js_to_lowercase, js_trim, json_number, locale_compare, number_to_string, string_to_number, to_number, to_number_of};
 use mixdog_office_base::values::truthy;
 use mixdog_ooxml::xml::{compiled, xml_attribute as raw_attribute, xml_decode};
-use mixdog_rt::InLane;
 use serde_json::{Map, Value, json};
 
 use crate::discipline::signed_visual_type;
@@ -296,7 +295,7 @@ fn write_selected_slide(zip: &mut Package, part: &SlideParts, target: usize, con
 /// `createPptxSlideSelection(sourcePath, slides, outputPath)`: a new deck holding the chosen slides (1-based, in the
 /// order given, a slide may repeat) with their notes, written to `output`. A package that fails to be written leaves no
 /// file behind.
-pub fn create_pptx_slide_selection<L: WriteLane>(lane: &InLane<L>, source: &str, slides: &Value, output: &str) -> Result<Value, String> {
+pub fn create_pptx_slide_selection<P: WriteProof>(lane: &P, source: &str, slides: &Value, output: &str) -> Result<Value, String> {
     let selected: Vec<f64> = slides.as_array().map(|items| items.iter().map(to_number).collect()).unwrap_or_default();
     if selected.is_empty() || selected.iter().any(|slide| !slide.is_finite() || slide.fract() != 0.0 || *slide < 1.0) {
         return Err("PPTX slide selection requires positive integer slide numbers".to_owned());
@@ -336,7 +335,7 @@ pub fn create_pptx_slide_selection<L: WriteLane>(lane: &InLane<L>, source: &str,
 }
 
 /// A package that fails to serialize leaves no half-written file behind.
-fn write_package<L: WriteLane>(lane: &InLane<L>, zip: &Package, output: &str) -> Result<(), String> {
+fn write_package<P: WriteProof>(lane: &P, zip: &Package, output: &str) -> Result<(), String> {
     let path = Path::new(output);
     if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         mixdog_fsio::create_dir_all(lane, parent).map_err(|error| fs_message(&error, "mkdir", parent))?;

@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_office_author::source_drift::HtmlSource;
 use mixdog_rt::CancellationToken;
 use serde_json::{Value, json};
@@ -26,7 +26,7 @@ use crate::transactions::{
 /// Verbs that never write the session's document.
 const READ_ACTIONS: [&str; 8] = ["describe", "begin", "diff", "snapshot", "get", "query", "issues", "validate"];
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `diffTransaction(session)`: what the document looks like now against the transaction's checkpoint.
     async fn diff_transaction(&self, handle: &SessionHandle) -> Result<Value, TransactionError> {
         if lock(handle).state.transaction().is_none() {

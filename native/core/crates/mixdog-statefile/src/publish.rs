@@ -13,10 +13,7 @@ use std::time::Duration;
 use mixdog_fsio::ReadProof;
 use mixdog_fsio::Unlaned;
 use mixdog_fsio::WriteProof;
-use mixdog_rt::InLane;
 
-use crate::IoLane;
-use crate::WriteLane;
 use crate::access::Access;
 use crate::access::create_new;
 use crate::access::sync_dir;
@@ -193,8 +190,8 @@ fn fsync_refused(error: &io::Error, directory: bool) -> bool {
     }
 }
 
-fn write_durable<L: WriteLane>(
-    lane: &InLane<L>,
+fn write_durable<P: WriteProof>(
+    lane: &P,
     tmp: &Path,
     data: &[u8],
     opts: &Opts,
@@ -213,7 +210,7 @@ fn write_durable<L: WriteLane>(
     Ok(())
 }
 
-fn fsync_dir<L: WriteLane>(lane: &InLane<L>, dir: &Path) -> io::Result<()> {
+fn fsync_dir<P: WriteProof>(lane: &P, dir: &Path) -> io::Result<()> {
     record("open-dir", &[]);
     let synced = sync_dir(lane, dir).inspect(|()| record("fsync-dir", &[]));
     match synced {
@@ -320,7 +317,7 @@ pub fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
 
 /// `appendFileSync(path, bytes)`: the file is created when missing, after its directory (a
 /// failure to make the directory is left to the open to report).
-pub fn append_file<L: WriteLane>(lane: &InLane<L>, path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn append_file<P: WriteProof>(lane: &P, path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         let _ = mixdog_fsio::create_dir_all(lane, parent);
     }
@@ -329,30 +326,30 @@ pub fn append_file<L: WriteLane>(lane: &InLane<L>, path: &Path, bytes: &[u8]) ->
 
 /// `statSync(path)`: the metadata of what `path` resolves to, every error (`NotFound` included)
 /// reported as it is.
-pub fn metadata<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Metadata> {
+pub fn metadata<P: ReadProof>(lane: &P, path: &Path) -> io::Result<Metadata> {
     mixdog_fsio::metadata(lane, path)
 }
 
 /// `lstatSync(path)`: the metadata of the entry itself, a link not followed.
-pub fn symlink_metadata<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Metadata> {
+pub fn symlink_metadata<P: ReadProof>(lane: &P, path: &Path) -> io::Result<Metadata> {
     mixdog_fsio::symlink_metadata(lane, path)
 }
 
 /// `rmSync(path, { recursive: true })`: the directory and what it holds; a missing path is an
 /// error.
-pub fn remove_dir_all<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+pub fn remove_dir_all<P: WriteProof>(lane: &P, path: &Path) -> io::Result<()> {
     mixdog_fsio::remove_dir_all(lane, path)
 }
 
 /// `unlinkSync(path)`: a missing file is an error.
-pub fn remove_file<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+pub fn remove_file<P: WriteProof>(lane: &P, path: &Path) -> io::Result<()> {
     mixdog_fsio::remove_file(lane, path)
 }
 
 /// `chmodSync(path, ...)` as far as the read-only attribute goes: the file's permissions with
 /// read-only set or cleared (Windows' attribute; on Unix, the write bits). A missing file is an
 /// error.
-pub fn set_readonly<L: WriteLane>(lane: &InLane<L>, path: &Path, readonly: bool) -> io::Result<()> {
+pub fn set_readonly<P: WriteProof>(lane: &P, path: &Path, readonly: bool) -> io::Result<()> {
     let mut permissions = mixdog_fsio::metadata(lane, path)?.permissions();
     permissions.set_readonly(readonly);
     mixdog_fsio::set_permissions(lane, path, permissions)
@@ -369,7 +366,7 @@ pub(crate) fn backup_path(path: &Path) -> PathBuf {
 }
 
 /// `keepBackupSync`: the version being replaced, if it is worth keeping.
-fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> Result<(), PublishFailure> {
+fn keep_backup<P: WriteProof>(lane: &P, path: &Path, opts: &Opts) -> Result<(), PublishFailure> {
     let previous = match read_or_null(lane, path) {
         Ok(Some(previous)) => previous,
         Ok(None) => return Ok(()),
@@ -390,8 +387,8 @@ fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> Resu
 }
 
 /// `publishFileSync`.
-pub(crate) fn publish<L: WriteLane>(
-    lane: &InLane<L>,
+pub(crate) fn publish<P: WriteProof>(
+    lane: &P,
     path: &Path,
     data: &[u8],
     opts: &Opts,
@@ -431,12 +428,12 @@ pub(crate) fn publish<L: WriteLane>(
 }
 
 /// `readdirSync(path)`: the names in a directory, in the order the OS lists them.
-pub fn list_dir<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Vec<String>> {
+pub fn list_dir<P: ReadProof>(lane: &P, path: &Path) -> io::Result<Vec<String>> {
     mixdog_fsio::read_dir(lane, path)?.map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned())).collect()
 }
 
 /// `readSync` of up to `len` bytes starting at `offset`; shorter when the file ends first.
-pub fn read_range<L: IoLane>(lane: &InLane<L>, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+pub fn read_range<P: ReadProof>(lane: &P, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
     use std::io::Read;
     use std::io::Seek;
     use std::io::SeekFrom;
