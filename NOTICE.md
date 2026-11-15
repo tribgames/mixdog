@@ -323,3 +323,10 @@ classification and thinking rendering, tool schema normalization and
 tool-argument repair.
 
 Full license text: `LICENSES/oh-my-pi-MIT.txt`
+
+
+## Cairo pen geometry (LGPL-2.1 or MPL-1.1)
+
+`native/core/crates/mixdog-raster/src/svg/cairo_pen.rs` translates the stroke pen-collapse and major-axis calculations from Cairo 1.18.6 (`cairo-compositor.c`, `cairo-pen.c`, `cairo-matrix.c`). Copyright 2002 University of Southern California, 2008 Chris Wilson, and 2011 Intel Corporation. The original notices and the choice of LGPL version 2.1 or MPL version 1.1 are retained in that file. Full license texts are distributed in `LICENSES/cairo/` and beside the crate.
+
+Mixdog modifications, 2026-11-16: translated the relevant calculations into Rust and connected them to SVG stroke rendering. The covered source, its notices, and modifications are included in Mixdog's source distribution at the same release tag, under the path above: <https://github.com/tribgames/mixdog>. This file retains its stated license terms; the surrounding Mixdog code remains under its own licenses.
