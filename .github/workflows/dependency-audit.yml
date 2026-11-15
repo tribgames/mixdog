@@ -1,9 +1,14 @@
 name: dependency-audit
 
 # Fails on high or critical advisories in the lockfiles (issue #159). The root
-# audit covers production dependencies only, since those ship in runtime.asar;
-# the desktop audit includes its dev dependencies, which build the installer.
-# npm audit reads package-lock.json, so no install is needed.
+# audit covers production dependencies only, since those are what npm installs
+# for the terminal product and what ships in runtime.asar; the relay and mobile
+# audits are production-only too (their dev dependencies build nothing that
+# ships); the desktop audit includes its dev dependencies, which build the
+# installer. npm audit reads package-lock.json, so no install is needed. The
+# Rust job audits every Cargo.lock in the tree against the RustSec database:
+# cargo audit fails on any vulnerability (unmaintained and yanked notices are
+# warnings), which is the stricter gate for the code that ships as mixdogd.
 on:
   pull_request:
     paths:
@@ -11,6 +16,11 @@ on:
       - package-lock.json
       - apps/desktop/package.json
       - apps/desktop/package-lock.json
+      - apps/relay/package.json
+      - apps/relay/package-lock.json
+      - apps/mobile/package.json
+      - apps/mobile/package-lock.json
+      - "**/Cargo.lock"
       - .github/workflows/dependency-audit.yml
   push:
     branches: [main]
@@ -19,6 +29,11 @@ on:
       - package-lock.json
       - apps/desktop/package.json
       - apps/desktop/package-lock.json
+      - apps/relay/package.json
+      - apps/relay/package-lock.json
+      - apps/mobile/package.json
+      - apps/mobile/package-lock.json
+      - "**/Cargo.lock"
       - .github/workflows/dependency-audit.yml
   schedule:
     - cron: "17 5 * * 1"
@@ -46,6 +61,12 @@ jobs:
           - name: desktop
             directory: apps/desktop
             flags: ""
+          - name: relay
+            directory: apps/relay
+            flags: --omit=dev
+          - name: mobile
+            directory: apps/mobile
+            flags: --omit=dev
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -56,3 +77,38 @@ jobs:
       - name: npm audit (high and critical)
         working-directory: ${{ matrix.directory }}
         run: npm audit ${{ matrix.flags }} --audit-level=high
+
+  # Every tracked Cargo.lock, so a new crate is audited without touching this
+  # file. No toolchain build of the workspace: only cargo-audit is installed
+  # (compiled once, then restored from the cache by its version).
+  cargo:
+    name: audit-cargo
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_AUDIT_VERSION: "0.21.2"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Restore cargo-audit
+        id: tool
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}
+      - name: Install cargo-audit
+        if: steps.tool.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked
+      - name: cargo audit (every Cargo.lock)
+        run: |
+          status=0
+          fetch=""
+          while IFS= read -r lock; do
+            echo "::group::cargo audit $lock"
+            cargo audit --file "$lock" $fetch || status=1
+            echo "::endgroup::"
+            # The advisory database is fetched once, by the first lockfile.
+            fetch="--no-fetch"
+          done < <(git ls-files '*Cargo.lock')
+          exit "$status"

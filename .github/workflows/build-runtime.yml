@@ -1,5 +1,5 @@
 # Build PG 16.4 + pgvector 0.8.2 runtime tarballs per supported OS.
-# Triggers: workflow_dispatch (default tag runtime-v0.4.1) or push tag runtime-v*.
+# Triggers: workflow_dispatch or workflow_call from Deploy (default tag runtime-v0.4.1).
 # Linux job runs in ubuntu:20.04 container so produced binaries link against
 # glibc 2.31 — works on every distro from Ubuntu 20.04 / Debian 11 forward.
 # Output: per-OS tarballs + manifest uploaded to the release.
@@ -24,6 +24,15 @@ on:
         required: false
         type: boolean
         default: false
+    outputs:
+      # The tag the builds were published under (the gate may move a shipped
+      # tag to the next patch tag) and whether anything was built.
+      tag:
+        description: "Tag the runtime tarballs were published under"
+        value: ${{ jobs.gate.outputs.tag }}
+      has_builds:
+        description: "true when at least one platform was built"
+        value: ${{ jobs.gate.outputs.has_builds }}
   workflow_dispatch:
     inputs:
       tag:
