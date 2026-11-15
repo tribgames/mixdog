@@ -421,6 +421,11 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     command.args(case["argv"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap())).current_dir(sandbox.path().join("work")).env_clear();
     apply_env(&mut command, case, &root);
     command.env("REPLAY_PROVIDER_PIN", addr.to_string()).env("REPLAY_PROVIDER_PIN_CERT", &cert_path);
+    // A process that was told to ignore Ctrl+C hands that on to what it starts, and a run started by a runner that ignores it
+    // (a test runner under a shell with no console of its own) would never see the interrupt: the child starts with Ctrl+C
+    // handled as a console starts it.
+    // SAFETY: a plain console API call on this process.
+    unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 0) };
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).creation_flags(CREATE_NO_WINDOW).spawn().unwrap();
     drop(child.stdin.take());
     let pid = child.id();
