@@ -21,6 +21,13 @@ async fn replay(golden: &Value) {
     let data = scratch();
     let mut config = OfficeComConfig::new(data.clone(), mixdog_rt::testing::tokens());
     config.drain_grace = Duration::from_secs(15);
+    // `detect` is served by the Rust host, which is the daemon binary (`mixdogd office-com-host`): next to the test
+    // binaries' `deps` directory, or where `MIXDOG_TEST_MIXDOGD` says.
+    config.rust_host_program = std::env::var_os("MIXDOG_TEST_MIXDOGD").map(PathBuf::from).unwrap_or_else(|| {
+        let exe = std::env::current_exe().expect("the test binary's path");
+        exe.parent().and_then(std::path::Path::parent).expect("the target directory").join("mixdogd.exe")
+    });
+    assert!(config.rust_host_program.exists(), "build mixdogd first (cargo build -p mixdog-cli) or name it in MIXDOG_TEST_MIXDOGD: {}", config.rust_host_program.display());
     let office = OfficeCom::new(config);
     let cases = golden["cases"].as_array().expect("cases");
     assert!(!cases.is_empty());
