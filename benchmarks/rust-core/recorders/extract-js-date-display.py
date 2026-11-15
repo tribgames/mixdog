@@ -1,7 +1,8 @@
 """Extract pinned ICU resources without loading a native ICU or running Node.
 
 Resource format: ICU 77.1 common/uresdata.h, uresdata.cpp, uresbund.cpp.
-The generator reads only the official Node data archive and writes owned data.
+The generator reads only the official Node data archive, reduced by reduce-icu-data.py to the items read here (the full
+archive's sha256 is FULL_ARCHIVE_SHA256, its URL is FULL_ARCHIVE_URL), and writes owned data.
 Unicode/ICU license is retained with that archive.
 """
 import bz2
@@ -15,8 +16,10 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 REFERENCE = ROOT / "native/core/fixtures/js-date-string/reference"
-ARCHIVE = REFERENCE / "icudt77l.dat.bz2"
-PINNED = "488a0a666ba33dace736d0788a8973729c8d83f3f4966d0fed1be7ad162d4729"
+ARCHIVE = REFERENCE / "icudt77l.used.dat.bz2"
+PINNED = "130c51a654802f71117cbf02c9093192a108874b1f1c77d8b3597d1863814681"
+FULL_ARCHIVE_SHA256 = "488a0a666ba33dace736d0788a8973729c8d83f3f4966d0fed1be7ad162d4729"
+FULL_ARCHIVE_URL = "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2"
 
 def u16(b, at): return struct.unpack_from("<H", b, at)[0]
 def u32(b, at): return struct.unpack_from("<I", b, at)[0]
@@ -205,7 +208,7 @@ def generate():
     dest=ROOT/'native/core/crates/mixdog-js/src/date_string/data';dest.mkdir(parents=True,exist_ok=True)
     compressed=gzip.compress(raw,mtime=0)
     (dest/'icu77-date-names.json.gz').write_bytes(compressed)
-    manifest={'archiveUrl':'https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2','archiveSha256':PINNED,'icu':'77.1','cldr':'47.0','tz':'2025b','zoneLocales':len(locales),'numberLocales':len(numbers),'zones':len(zones),'uncompressedBytes':len(raw),'compressedBytes':len(compressed),'dataSha256':hashlib.sha256(compressed).hexdigest()}
+    manifest={'archiveUrl':FULL_ARCHIVE_URL,'archiveSha256':FULL_ARCHIVE_SHA256,'readArchive':'icudt77l.used.dat.bz2','readArchiveSha256':PINNED,'readArchiveMadeBy':'reduce-icu-data.py','icu':'77.1','cldr':'47.0','tz':'2025b','zoneLocales':len(locales),'numberLocales':len(numbers),'zones':len(zones),'uncompressedBytes':len(raw),'compressedBytes':len(compressed),'dataSha256':hashlib.sha256(compressed).hexdigest()}
     # ICU's locale-ID and BCP47 conversion tables, not sys-locale UI preferences.
     uloc=re.sub(r'/\*[\s\S]*?\*/|//[^\n]*','',(REFERENCE/'uloc.cpp').read_text(encoding='utf8'))
     ultag=re.sub(r'/\*[\s\S]*?\*/|//[^\n]*','',(REFERENCE/'uloc_tag.cpp').read_text(encoding='utf8'))
