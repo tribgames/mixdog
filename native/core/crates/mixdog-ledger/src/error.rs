@@ -41,4 +41,19 @@ pub enum LedgerError {
     /// Stored rows contradict each other (a route read without the day it belongs to).
     #[error("the usage ledger is inconsistent: {0}")]
     Inconsistent(&'static str),
+    /// The history the earlier daemon left could not be read or imported.
+    #[error("{0}")]
+    History(String),
+    /// One import failure shared unchanged by all readers waiting for that import.
+    #[error(transparent)]
+    SharedHistory(std::sync::Arc<LedgerError>),
+}
+
+impl LedgerError {
+    /// The original typed failure, before sharing it with concurrent history readers.
+    pub fn unshared(&self) -> &Self {
+        let mut error = self;
+        while let Self::SharedHistory(shared) = error { error = shared; }
+        error
+    }
 }
