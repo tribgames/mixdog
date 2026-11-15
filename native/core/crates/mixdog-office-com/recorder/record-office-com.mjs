@@ -402,7 +402,7 @@ async function runScenario(scenario, run) {
 
 /** The Windows PowerShell version and the Office build of this machine (null when not found). */
 function probeEnvironment() {
-  const script = "$PSVersionTable.PSVersion.ToString(); (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue).VersionToReport";
+  const script = String.raw`$PSVersionTable.PSVersion.ToString(); (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue).VersionToReport`;
   const result = spawnSync(POWERSHELL, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
   const [version, build] = String(result.stdout ?? '').split(/\r?\n/).map((line) => line.trim());
   return { powershell: version || null, office: build ? { build } : null };
