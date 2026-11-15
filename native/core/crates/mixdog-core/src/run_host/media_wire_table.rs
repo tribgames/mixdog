@@ -5,6 +5,11 @@
 //! resolver and the host's media layer (`MediaLowering`) in its config, and a provider whose request body is built by
 //! the family's real codec from the request the loop hands it (`WireCodec::encode`, which every adapter's `attempt`
 //! runs). The managed local model's row runs the text-only route.
+//!
+//! The Messages wire's images are fitted by the real Rust extension-host worker (`ext_worker_dev`), while the table's image
+//! bytes are what Node's sharp (libvips, libjpeg) made. A string of the body that is the base64 of an image on both sides is
+//! therefore compared under the rules of `mixdog-imaging`'s twin (`tests/node_twin.rs`), see [`image_difference`]: the
+//! neighbouring fields (media type, dimensions in the text, the token-gate's choice of format) stay exact.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -310,8 +315,78 @@ fn pin_uuids(frame: &mut [u8], conversation: &str) {
     }
 }
 
+/// The Rust worker these tests start: `ext_worker_dev` of `mixdog-exthost-worker` (built with its feature `test-support`,
+/// e.g. `cargo build -p mixdog-exthost-worker --features test-support --bin ext_worker_dev`). Cargo names a binary only to
+/// the tests of its own package, so it is found next to this test binary's `deps` directory.
+fn worker_binary() -> std::path::PathBuf {
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let dir = exe.parent().and_then(std::path::Path::parent).expect("the target directory");
+    let worker = dir.join(format!("ext_worker_dev{}", std::env::consts::EXE_SUFFIX));
+    assert!(worker.is_file(), "the Rust worker is not built: {}", worker.display());
+    worker
+}
+
+/// The mean of every cell of a 32x32 grid over RGBA pixels, rounded.
+fn thumbnail(rgba: &[u8], width: u32, height: u32) -> Vec<f64> {
+    const CELLS: usize = 32;
+    let (w, h) = (width as usize, height as usize);
+    let mut out = vec![0f64; CELLS * CELLS * 4];
+    for cy in 0..CELLS {
+        let (y0, y1) = (cy * h / CELLS, h.min(((cy + 1) * h / CELLS).max(cy * h / CELLS + 1)));
+        for cx in 0..CELLS {
+            let (x0, x1) = (cx * w / CELLS, w.min(((cx + 1) * w / CELLS).max(cx * w / CELLS + 1)));
+            let mut sums = [0f64; 4];
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    for (channel, sum) in sums.iter_mut().enumerate() {
+                        *sum += f64::from(rgba[(y * w + x) * 4 + channel]);
+                    }
+                }
+            }
+            let count = ((y1 - y0) * (x1 - x0)) as f64;
+            for (channel, sum) in sums.iter().enumerate() {
+                out[(cy * CELLS + cx) * 4 + channel] = (sum / count).round();
+            }
+        }
+    }
+    out
+}
+
+/// `None` when the two strings are not both the base64 of a decodable image; otherwise how the core's picture differs from
+/// sharp's (`None` inside: it does not). The rules are the twin's: the same decoded size, 32x32 thumbnails within PSNR 38 dB
+/// and a mean difference of 2.0, and a JPEG's size within 15 percent (or 200 bytes) of sharp's.
+fn image_difference(core: &str, node: &str) -> Option<Option<String>> {
+    use mixdog_imaging::{DECODE_PIXEL_LIMIT, decode};
+    let engine = base64::engine::general_purpose::STANDARD;
+    let (ours, theirs) = (engine.decode(core).ok()?, engine.decode(node).ok()?);
+    let (a, b) = (decode(&ours, DECODE_PIXEL_LIMIT).ok()?, decode(&theirs, DECODE_PIXEL_LIMIT).ok()?);
+    if (a.width, a.height) != (b.width, b.height) {
+        return Some(Some(format!("the image is {}x{}, sharp's {}x{}", a.width, a.height, b.width, b.height)));
+    }
+    let (x, y) = (thumbnail(&a.raster.to_rgba(), a.width, a.height), thumbnail(&b.raster.to_rgba(), b.width, b.height));
+    let (mut squares, mut absolute) = (0f64, 0f64);
+    for (p, q) in x.iter().zip(&y) {
+        squares += (p - q) * (p - q);
+        absolute += (p - q).abs();
+    }
+    let mse = squares / x.len() as f64;
+    let psnr = if mse == 0.0 { f64::INFINITY } else { 10.0 * (255.0f64 * 255.0 / mse).log10() };
+    let mad = absolute / x.len() as f64;
+    if psnr < 38.0 || mad > 2.0 {
+        return Some(Some(format!("the pixels differ (PSNR {psnr:.1} dB, mean difference {mad:.2})")));
+    }
+    if theirs.starts_with(&[0xFF, 0xD8]) && (ours.len() as f64 - theirs.len() as f64).abs() > (theirs.len() as f64 * 0.15).max(200.0) {
+        return Some(Some(format!("the JPEG is {} bytes, sharp's {}", ours.len(), theirs.len())));
+    }
+    Some(None)
+}
+
 fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
     match (core, node) {
+        (Value::String(x), Value::String(y)) if x != y => match image_difference(x, y) {
+            Some(difference) => difference.map(|d| format!("{at}: {d}")),
+            None => Some(format!("{at}: core {core} node {node}")),
+        },
         (Value::Object(x), Value::Object(y)) => x.keys().chain(y.keys()).find_map(|k| match (x.get(k), y.get(k)) {
             (Some(p), Some(q)) => first_difference(p, q, format!("{at}/{k}")),
             (p, q) => Some(format!("{at}/{k}: core {p:?} node {q:?}")),
@@ -330,13 +405,12 @@ async fn every_row_of_nodes_media_table_replays_equal() {
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
     let rows = table["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 177, "12 provider rows × 10 attachment kinds, 10 image kinds on 5 Messages providers, 2 on one, and 5 tool-image kinds on one");
-    // The Messages wire's images are fitted by the extension host's `sharp`: Node's own `resizeImageBuffer`, run by the real worker.
+    // The Messages wire's images are fitted by the extension host: `resizeImageBuffer`'s port, run by the real Rust worker.
     let tokens = mixdog_rt::testing::tokens();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
     let pool = Arc::new(
         mixdog_exthost::ExtHostPool::new(mixdog_exthost::ExtHostConfig {
-            program: "node".into(),
-            args: vec![root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+            program: worker_binary(),
+            args: Vec::new(),
             electron: false,
             workers: 1,
             pending_cap: 64,
