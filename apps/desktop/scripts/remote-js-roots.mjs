@@ -15,6 +15,10 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 const FIXED_ENTRIES = Object.freeze(['src/runtime/office/authoring/pptx-script-entry.mjs', 'src/skill-script-entry.mjs']);
 const SKILLS_DIR = 'src/defaults/skills';
+// The packages an authored script may require are data in the contract, not imports: the runner hands them out with
+// createRequire, so no import names them and the walk reads them from the contract's `require` list.
+const SCRIPT_CONTRACT = 'src/runtime/office/authoring/pptx-script-contract.mjs';
+const CONTRACT_REQUIRE = /\brequire:\s*\[([^\]]*)\]/;
 
 /** The fixed entries plus every shipped skill script (`src/defaults/skills/<skill>/scripts/**.mjs`, tests
  *  aside): the skill entry loads whichever script it is given, and these run in the full runtime, so each
@@ -53,6 +57,12 @@ export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(pa
   const visited = new Set();
   const note = (file) => {
     const source = readFileSync(file, 'utf8');
+    const contracted = relative(file) === SCRIPT_CONTRACT ? [...(CONTRACT_REQUIRE.exec(source)?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]) : [];
+    for (const specifier of contracted) {
+      const bare = specifier.replace(/^node:/, '');
+      if (BUILTINS.has(bare) || BUILTINS.has(bare.split('/')[0]) || !PACKAGE_NAME.test(packageName(specifier))) continue;
+      roots.set(packageName(specifier), [...(roots.get(packageName(specifier)) ?? []), relative(file)]);
+    }
     for (const match of source.matchAll(BARE)) {
       const specifier = match[2] ?? match[4] ?? match[6];
       const bare = specifier.replace(/^node:/, '');

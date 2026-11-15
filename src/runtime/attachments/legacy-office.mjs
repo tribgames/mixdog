@@ -1,7 +1,8 @@
 // Legacy Office (.doc / .xls / .ppt, OLE compound) attachments. Text
 // extraction reads OOXML packages only, so a legacy file is saved as its
-// package by LibreOffice (convertLegacyOffice, the conversion `office open`
-// uses) in a private scratch folder, never beside the user's file.
+// package by LibreOffice in a private scratch folder, never beside the user's file.
+// The conversion itself is the caller's `convert` (the product runs it in Rust, mixdog-ooxml
+// soffice; the Node office engine that once supplied a default is gone).
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
@@ -59,11 +60,6 @@ export function ooxmlLabelPackage(mimeType, filename) {
   return PACKAGE_BY_OOXML_MIME[mime] || PACKAGE_BY_OOXML_EXTENSION[extension] || '';
 }
 
-async function defaultConvert(path, output, options) {
-  const { convertLegacyOffice } = await import('../office/portable/portable-soffice.mjs');
-  return convertLegacyOffice(path, output, options);
-}
-
 /**
  * Saves the legacy Office `buffer` as the OOXML package `kind` and returns the
  * package bytes and its file name. The scratch folder is always removed, once
@@ -77,7 +73,7 @@ export async function convertLegacyOfficeBuffer(
   buffer,
   filename,
   kind,
-  { signal = null, convert = defaultConvert, remove = undefined, log = undefined, retryMs = undefined } = {}
+  { signal = null, convert, remove = undefined, log = undefined, retryMs = undefined } = {}
 ) {
   signal?.throwIfAborted();
   if (!isLegacyOfficeBuffer(buffer)) {

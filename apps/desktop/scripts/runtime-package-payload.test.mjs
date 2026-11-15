@@ -10,38 +10,26 @@ import { copyRuntimePackagePayload } from './runtime-package-payload.mjs';
 async function fixture(context) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-runtime-payload-'));
   context.after(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, 'src', 'runtime', 'office', 'design', 'library', 'templates'), { recursive: true });
+  await mkdir(join(root, 'src'), { recursive: true });
   await writeFile(join(root, 'package.json'), '{"name":"mixdog"}');
   await writeFile(join(root, 'src', 'entry.mjs'), 'export const ready = true;');
-  await writeFile(join(root, 'src', 'runtime', 'office', 'design', 'library', 'templates', 'keep.pptx'), 'template');
-  await writeFile(
-    join(root, 'src', 'runtime', 'office', 'design', 'library', 'templates', 'drop.mixdog-edit.pptx'),
-    'edit'
-  );
   return {
     root,
     manifest: {
       files: [
         { path: 'package.json' },
         { path: 'src/entry.mjs' },
-        { path: 'src/runtime/office/design/library/templates/keep.pptx' },
-        { path: 'src/runtime/office/design/library/templates/drop.mixdog-edit.pptx' },
       ],
     },
   };
 }
 
-test('runtime payload copies published files and drops editor-only Office artifacts', async (context) => {
+test('runtime payload copies the published files', async (context) => {
   const { root, manifest } = await fixture(context);
   const destination = join(root, 'payload');
   await copyRuntimePackagePayload({ rootDir: root, manifest, destination });
 
   assert.equal(await readFile(join(destination, 'src', 'entry.mjs'), 'utf8'), 'export const ready = true;');
-  await access(join(destination, 'src', 'runtime', 'office', 'design', 'library', 'templates', 'keep.pptx'));
-  await assert.rejects(
-    access(join(destination, 'src', 'runtime', 'office', 'design', 'library', 'templates', 'drop.mixdog-edit.pptx')),
-    { code: 'ENOENT' }
-  );
 });
 
 test('FastDirect replaces stale runtime files and emits the new dependency identity', async (context) => {

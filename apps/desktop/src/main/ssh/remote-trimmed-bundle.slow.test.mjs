@@ -32,10 +32,10 @@ test('the pptxgenjs authoring entry and the skill scripts pass on the trimmed bu
   const node = process.platform === 'win32' ? process.execPath : join(payloadDir, 'js', 'node');
 
   // What was left out stays out, and what the entry points reach is there.
-  for (const gone of ['openai', '@img/sharp-wasm32', '@img/sharp-linuxmusl-x64', '@napi-rs/canvas-linux-x64-musl']) {
+  for (const gone of ['openai', '@img/sharp-wasm32', '@img/sharp-linuxmusl-x64', '@napi-rs/canvas-linux-x64-musl', 'pdf-lib', 'pdfjs-dist', 'puppeteer-core', 'jsdom']) {
     assert.equal(existsSync(join(modules, gone)), false, `${gone} should not ship`);
   }
-  for (const root of ['pptxgenjs', 'sharp', 'jsdom', 'pdf-lib', 'pdfjs-dist', 'puppeteer-core', '@napi-rs/canvas']) {
+  for (const root of ['pptxgenjs', 'sharp', 'jszip', 'yaml', '@napi-rs/canvas']) {
     assert.ok(existsSync(join(modules, root, 'package.json')), `${root} should ship`);
   }
 
