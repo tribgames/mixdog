@@ -1,0 +1,111 @@
+{
+  "id": "feedback_across_runtimes",
+  "description": "a delivered and a pending feedback record (both with attachments) written by one runtime are read by the other: the same hashes answer duplicates and conflicts, and the pending one is mailed again with the same bytes",
+  "knobs": {
+    "feedbackOptions": {
+      "baseDelayMs": 5000
+    }
+  },
+  "fakes": {
+    "feedbackSender": {
+      "answers": [
+        {},
+        {
+          "throw": "mail refused",
+          "code": "ECONNECTION"
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000b\",\"kind\":\"bug\",\"message\":\"Sent before the switch\",\"replyTo\":\"user@example.com\",\"attachments\":[{\"name\":\"shot.jpg\",\"mimeType\":\"image/jpeg\",\"data\":\"/9j/4AECAwQFBgcI\"}]}",
+      "expect_status": 202
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000a\",\"kind\":\"suggestion\",\"message\":\"Pending across the switch\",\"attachments\":[{\"name\":\"screen.png\",\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoBAgME\"}]}",
+      "expect_status": 202
+    },
+    {
+      "do": "wait",
+      "ms": 500
+    },
+    {
+      "do": "crossover"
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000a\",\"kind\":\"suggestion\",\"message\":\"Pending across the switch\",\"attachments\":[{\"name\":\"screen.png\",\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoBAgME\"}]}",
+      "expect_status": 202
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000a\",\"kind\":\"suggestion\",\"message\":\"A different message under the same id\",\"attachments\":[{\"name\":\"screen.png\",\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoBAgME\"}]}",
+      "expect_status": 409
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000b\",\"kind\":\"bug\",\"message\":\"Sent before the switch\",\"replyTo\":\"user@example.com\",\"attachments\":[{\"name\":\"shot.jpg\",\"mimeType\":\"image/jpeg\",\"data\":\"/9j/4AECAwQFBgcI\"}]}",
+      "expect_status": 202
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-00000000000b\",\"kind\":\"bug\",\"message\":\"Sent before the switch\",\"replyTo\":\"user@example.com\",\"attachments\":[{\"name\":\"shot.jpg\",\"mimeType\":\"image/jpeg\",\"data\":\"/9j/4AkJCQkJCQkJ\"}]}",
+      "expect_status": 409
+    },
+    {
+      "do": "wait",
+      "ms": 7000
+    }
+  ]
+}
