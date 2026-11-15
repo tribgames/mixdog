@@ -36,7 +36,7 @@
     "rust": "store::trust_on_first_use_refuses_a_guessable_id_and_a_wrong_secret"
   },
   {
-    "node": "apps/relay/security.test.mjs::registrableDeviceId and authenticateLeg id and secret checks",
+    "node": "apps/relay/security.test.mjs::trust-on-first-use refuses to bind a guessable device id",
     "rust": "store::registrable_ids_are_uuids_or_long_hex_and_the_leg_checks_count_utf16_units"
   },
   {

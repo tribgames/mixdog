@@ -80,7 +80,7 @@
     "rust": "tool_coturn::a_xor_mapped_address_must_be_the_complete_8_byte_ipv4_form"
   },
   {
-    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::the retransmission schedule is the RFC 8489 ¡×6.2.1 one",
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::the retransmission schedule is the RFC 8489 Â§6.2.1 one",
     "rust": "tool_coturn::the_retransmission_schedule_is_the_rfc_8489_6_2_1_one"
   },
   {
