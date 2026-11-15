@@ -414,7 +414,6 @@ fn every_powerpoint_scenario_through_the_transport_equals_the_powershell_host_an
     assert!(rust_time <= shell_time, "the Rust host's requests took {rust_time:?}, the PowerShell host's {shell_time:?}");
 }
 
-
 // ---------------------------------------------------------------------------------------------------------------------
 // The paths of the extension host.
 
