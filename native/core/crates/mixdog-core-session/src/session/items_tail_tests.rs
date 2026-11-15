@@ -286,23 +286,44 @@ async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: L
         }
         cases.push((ThreadId::from(format!("n{n}").as_str()), json!({ "limit": 200, "sortDirection": "asc" })));
     }
-    let mut newest = 0;
-    for (id, mut shape) in cases {
-        shape["threadId"] = json!(id);
-        let want = whole(&stores[0].1, tokens, &id, &shape).await;
-        for (path, store) in stores {
-            let (got, widest) = tailed(store, tokens, &id, &shape).await;
-            let what = format!("{label}/{path}: {shape}");
-            if shape == json!({ "threadId": "big", "limit": 1 }) {
-                newest = widest;
+    use futures::StreamExt;
+    // The cases are independent (each reads only), so they run together (their jobs spread over the lanes' threads) and every
+    // failing one is named, instead of the run stopping at the first.
+    let total = cases.len();
+    let outcomes: Vec<Result<Option<usize>, String>> = futures::stream::iter(cases)
+        .map(|(id, mut shape)| async move {
+            shape["threadId"] = json!(id);
+            let want = whole(&stores[0].1, tokens, &id, &shape).await;
+            let mut newest = None;
+            for (path, store) in stores {
+                let (got, widest) = tailed(store, tokens, &id, &shape).await;
+                let what = format!("{label}/{path}: {shape}");
+                if shape == json!({ "threadId": "big", "limit": 1 }) {
+                    newest = Some(widest);
+                }
+                match (&want, got) {
+                    (Ok(Reply::Value(want)), Ok(Reply::Value(got))) if &got != want => return Err(format!("{what}
+  left: {got}
+ right: {want}")),
+                    (Ok(Reply::Value(_)), Ok(Reply::Value(_))) => {}
+                    (Err(want), Err(got)) if format!("{got:?}") != format!("{want:?}") => return Err(format!("{what}
+  left: {got:?}
+ right: {want:?}")),
+                    (Err(_), Err(_)) => {}
+                    (want, got) => return Err(format!("{what}: {got:?} against {want:?}")),
+                }
             }
-            match (&want, got) {
-                (Ok(Reply::Value(want)), Ok(Reply::Value(got))) => assert_eq!(&got, want, "{what}"),
-                (Err(want), Err(got)) => assert_eq!(format!("{got:?}"), format!("{want:?}"), "{what}"),
-                (want, got) => panic!("{what}: {got:?} against {want:?}"),
-            }
-        }
-    }
+            Ok(newest)
+        })
+        .buffer_unordered(16)
+        .collect()
+        .await;
+    eprintln!("{label}: {total} cases compared");
+    let failed: Vec<&String> = outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).collect();
+    assert!(failed.is_empty(), "{} of {total} cases differ:
+{}", failed.len(), failed.iter().map(|f| f.as_str()).collect::<Vec<_>>().join("
+"));
+    let newest = outcomes.iter().find_map(|outcome| outcome.as_ref().ok().copied().flatten()).expect("the newest row's case ran");
     // The newest row's page reads the first tail only, not the 700 rows.
     assert_eq!(newest, 128, "{label}");
 }

@@ -23,7 +23,7 @@ pub(crate) struct ReplayPg {
     _pg: TestPg,
 }
 
-/// A fresh cluster with the memory schema.
+/// A database of its own (in the cluster the tests of a run share) with the memory schema.
 pub(crate) async fn memory_db() -> ReplayPg {
     assert!(
         std::env::var_os("MIXDOG_PG_RUNTIME").is_some(),
@@ -31,6 +31,18 @@ pub(crate) async fn memory_db() -> ReplayPg {
     );
     // No real-time bound of its own: how long a start takes depends on the load of the machine, and the runner's limit ends a hang.
     let pg = TestPg::start().await;
+    let db = memory_schema(&pg).await;
+    ReplayPg { db, _pg: pg }
+}
+
+/// A cluster of its own with the memory schema: for a replay that reads the cluster's log (`observed`), which a shared cluster
+/// fills with the statements of every test running beside it.
+pub(crate) async fn memory_db_own() -> ReplayPg {
+    assert!(
+        std::env::var_os("MIXDOG_PG_RUNTIME").is_some(),
+        "MIXDOG_PG_RUNTIME is unset: it names the bundled PostgreSQL runtime the database replays start"
+    );
+    let pg = TestPg::start_own().await;
     let db = memory_schema(&pg).await;
     ReplayPg { db, _pg: pg }
 }
