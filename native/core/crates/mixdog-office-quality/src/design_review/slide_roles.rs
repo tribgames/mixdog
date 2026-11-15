@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn three_drawn_shapes_covering_a_quarter_make_a_diagram_and_roles_list_by_index() {
-        let node = |left: f64| json!({ "type": "p:sp", "geometry": "ellipse", "left": left, "top": 150, "width": 160, "height": 160 });
+        let node = |left: f64| json!({ "type": "p:sp", "geometry": "ellipse", "left": left, "top": 150, "width": 160, "height": 220 });
         let diagram = json!({ "index": 2, "shapes": [node(60.0), node(300.0), node(540.0)] });
         assert!(is_pptx_diagram_slide(&diagram, DEFAULT_SLIDE));
         let statement = json!({ "index": 10, "shapes": [text_shape("One claim", 48.0, 60.0, 200.0, 700.0, 120.0)] });

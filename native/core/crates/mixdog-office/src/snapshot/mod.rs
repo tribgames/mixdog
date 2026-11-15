@@ -212,8 +212,9 @@ async fn read_protected_sheet_validations<P: WriteProof, H: ComHost>(cx: &Snapsh
     .await?;
     for (at, list) in rules {
         if let Some(Value::Object(sheet)) = document.get_mut("sheets").and_then(|sheets| sheets.get_mut(at)) {
-            sheet.insert("validationCount".to_owned(), Value::from(list.len()));
+            let count = list.len();
             sheet.insert("validations".to_owned(), Value::Array(list));
+            sheet.insert("validationCount".to_owned(), Value::from(count));
         }
     }
     Ok(())
