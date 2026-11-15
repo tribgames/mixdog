@@ -551,7 +551,7 @@ fn hex4(digits: &[u8]) -> Option<u32> {
 
 /// A recorded string may hold half of a surrogate pair (Node cuts a string by UTF-16 unit): JSON text writes that as a lone
 /// `\ud83d`, which a Rust string cannot hold. Each lone half is read as U+FFFD, which is also what the recorder's SHA-256 over
-/// UTF-8 saw. A value holding U+FFFD is therefore a recording of something a Rust string cannot be, and is not compared.
+/// UTF-8 saw. Such a value is still compared exactly, as the U+FFFD it was read as.
 fn read_lone_surrogates(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
