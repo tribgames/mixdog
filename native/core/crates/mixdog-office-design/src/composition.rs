@@ -461,7 +461,8 @@ fn select_candidate(candidates: Vec<Candidate>, usage: &CompositionUsage, select
 
 /// `resolvedPptxKind`: the slide kind an operation is laid out as.
 fn resolved_pptx_kind(operation: &Value, topology: &Topology) -> String {
-    let requested = normalized_text(Some(&Value::String(first_text(&[prop(operation, "kind"), Some(&json!("content"))]))));
+    // `String(operation.kind || 'content').toLowerCase()`: lowercased, not trimmed.
+    let requested = js_to_lowercase(&first_text(&[prop(operation, "kind"), Some(&json!("content"))]));
     if requested != "content" || prop(operation, "layoutId").is_some_and(truthy) {
         return requested;
     }
