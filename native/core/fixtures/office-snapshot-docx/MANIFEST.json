@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-snapshot-docx.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 601472,
+      "path": "golden.json",
+      "sha256": "4c05d69c329d7b5daa46db32979c4bb6bb5ace8026ac383547859b18e4838cdc"
+    }
+  ],
+  "product": {
+    "appsSha256": "64622acc6aa465c2e6e642a343bce0955d09c4635c9fe27d1ef7d68781cd1ee7",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5103,
+    "refComparison": {
+      "closestCommit": "95f9075a8b8aec411225882d4d976c82b6189087",
+      "commitFilesMissingFromTree": 4385,
+      "exact": false,
+      "filesDifferingFromCommit": 4256
+    },
+    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-snapshot-docx.mjs",
+  "set": "office-snapshot-docx",
+  "totalBytes": 601472
+}
