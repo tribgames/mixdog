@@ -92,6 +92,10 @@ fn shaper_scaled_fixed(units: i32, size: f32, units_per_em: u16) -> i64 {
 /// The advance of a shaped glyph: the font's own advance as FreeType scales it plus what the shaper added to it (kerning),
 /// which HarfBuzz scales on its own; the sum is exact in 16.16.
 fn advance_of(face: &ttf_parser::Face<'_>, glyph: &shape::Glyph, size: f32, units_per_em: u16) -> f32 {
+    // The shaper sets a zeroed advance (a mark) to zero itself: it is not the font's advance minus its scaled self.
+    if glyph.x_advance == 0 {
+        return 0.0;
+    }
     let own = face.glyph_hor_advance(ttf_parser::GlyphId(glyph.glyph_id)).map_or(glyph.x_advance, i32::from);
     let adjustment = glyph.x_advance - own;
     (scaled_fixed(own, size, units_per_em) + shaper_scaled_fixed(adjustment, size, units_per_em)) as f32 / 65536.0
