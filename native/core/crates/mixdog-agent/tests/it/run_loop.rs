@@ -890,6 +890,25 @@ async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_
     }
 }
 
+/// A result whose meta is a tool meta (a `code`) is the message's `toolMeta` and the stored row's: the visualize owner
+/// reaches the chat card. Other metas are not, and none of it is wire text.
+#[tokio::test]
+async fn a_tool_results_tool_meta_rides_its_message_and_its_stored_row() {
+    let owner = json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": "sess_lead1x" });
+    for (meta, want) in [(owner.clone(), Some(owner.clone())), (json!({ "uiDiff": "d" }), None), (json!({ "code": "" }), None)] {
+        let h = Harness::new(vec![
+            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let out = finish(h.run(config(), vec![Arc::new(WithMeta(meta.clone()))], vec![AgentMessage::user("go")])).await;
+        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
+        assert_eq!(result.tool_meta, want, "{meta}");
+        assert_eq!(result.text(), "body");
+        assert_eq!(mixdog_agent::message_row::row_of(result).get("toolMeta").cloned(), want, "{meta}");
+        assert!(out.transcript.iter().filter(|m| m.tool_call_id() != Some("c1")).all(|m| m.tool_meta.is_none()));
+    }
+}
+
 /// A loading tool (named `name`) that answers `text`, as `Skill` answers with a native tool-search payload.
 struct Loader(ToolSpec, String);
 #[async_trait]
