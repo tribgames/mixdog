@@ -5,7 +5,7 @@
 //! the port and the scratch directory of each run; times (epoch milliseconds or seconds, and ISO dates, within 400
 //! days of the run start), shown as a delta from the run start and compared with a tolerance; ES256 JWTs, whose
 //! signature is verified against the scenario's keys and whose claims other than `exp`, `iat` and `nbf` stay in the
-//! text; the encrypted body of a web push request (its length stays). A hexadecimal run that is the SHA-256 of a
+//! text; the P-256 key material of the VAPID file the relay generates in its data directory; the encrypted body of a web push request (its length stays). A hexadecimal run that is the SHA-256 of a
 //! placed file or of an answer body (an ETag, an index digest) is not random and stays as it is.
 //!
 //! Not masked: header names and their order, every byte of a body, close codes and reasons.
@@ -136,6 +136,20 @@ fn mask_date_headers(headers: Value) -> Value {
     )
 }
 
+/// The data directory file the relay writes its own VAPID key pair to on first start: the key material is random by nature
+/// (the public key and the `x`, `y` and `d` of the private JWK), the rest of the file (version, key type, curve, layout) stays.
+fn mask_generated_vapid_file(file: Value) -> Value {
+    static KEY: OnceLock<Regex> = OnceLock::new();
+    let re = KEY.get_or_init(|| {
+        Regex::new(r#"("(?:publicKey|x|y|d)":\s*")(?:[A-Za-z0-9_-]{43}|[A-Za-z0-9_-]{87})(")"#).expect("pattern")
+    });
+    let Value::Object(mut map) = file else { return file };
+    if let Some(Value::String(text)) = map.get_mut("text") {
+        *text = re.replace_all(text, "${1}<p256 key>${2}").into_owned();
+    }
+    Value::Object(map)
+}
+
 fn is_encrypted_push(map: &Map<String, Value>) -> bool {
     map.get("headers").and_then(Value::as_object).is_some_and(|headers| {
         headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("content-encoding") && v.as_str() == Some("aes128gcm"))
@@ -184,6 +198,7 @@ impl<'a> Normaliser<'a> {
                 for (key, item) in map {
                     let item = match key.as_str() {
                         "headers" => mask_date_headers(item),
+                        "webpush-vapid.json" => mask_generated_vapid_file(item),
                         "bodyBase64" if encrypted => {
                             let bytes = item
                                 .as_str()

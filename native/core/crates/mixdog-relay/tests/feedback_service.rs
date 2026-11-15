@@ -713,7 +713,7 @@ fn the_attachment_validator_refuses_what_it_refuses_in_node() {
         json!([with(ok.clone(), "data", json!(not_image))]),
         json!([with(ok.clone(), "mimeType", json!("image/jpeg"))]),
         json!([with(ok.clone(), "mimeType", json!("image/webp"))]),
-        json!([with(ok.clone(), "data", json!(STANDARD.encode(image("png", 4, 0))))]),
+        json!([with(ok.clone(), "data", json!(STANDARD.encode(&image("png", 8, 0)[..4])))]),
         json!([ok.clone(), ok.clone(), ok.clone(), ok.clone()]),
         json!([attach("big.png", "png", MAX_BYTES + 1, 0)]),
         json!([with(ok.clone(), "data", json!(STANDARD.encode(image("png", 14, 0)).trim_end_matches('=')))]),

@@ -288,7 +288,7 @@ async fn exchange(handler: &Arc<StaticHandler>, case: &Value, method: &str) -> A
     let (mut client, server) = tokio::io::duplex(64 * 1024);
     let served = tokio::spawn(serve_connection(
         server,
-        ConnInfo { remote_address: None, encrypted: false },
+        ConnInfo { remote_address: None, encrypted: case.get("encrypted").and_then(Value::as_bool).unwrap_or(false) },
         handler.clone() as Arc<dyn Handler>,
         Limits::default(),
         Arc::new(Lifecycle::default()),

@@ -7,7 +7,7 @@
 //! `buffered_amount` is what the queue still holds. The reader reads one chunk at a time, only while no holder gates
 //! it, hands the chunk to the tap and then to the frame parser, and turns what the parser finds into events.
 
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -217,6 +217,11 @@ struct Inner {
     out: mpsc::UnboundedSender<Out>,
     destroy: watch::Sender<bool>,
     events: mpsc::UnboundedSender<WsEvent>,
+    /// The events handed to the owner, and how many of them it has finished with (it asks for the next one only when the
+    /// handling of the last is over). `ws` calls its listeners inside the parser, so whatever they send is written before the
+    /// parser reaches the next frame; the reader waits for the owner at the frames that start the close, to keep that order.
+    sent: AtomicU64,
+    handled: watch::Sender<u64>,
     core: Mutex<Core>,
     tap: Mutex<Option<Box<dyn RawTap>>>,
     close_timeout: Duration,
@@ -335,19 +340,35 @@ impl Inner {
         Ok(())
     }
 
+    fn emit(&self, event: WsEvent) {
+        if self.events.send(event).is_ok() {
+            self.sent.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Wait until the owner has finished with every event emitted so far (or is gone, or the socket is destroyed).
+    async fn owner_caught_up(&self, destroyed: &mut watch::Receiver<bool>) {
+        let target = self.sent.load(Ordering::SeqCst);
+        let mut handled = self.handled.subscribe();
+        tokio::select! {
+            _ = handled.wait_for(|done| *done >= target) => {}
+            () = wait_true(destroyed) => {}
+        }
+    }
+
     fn on_event(self: &Arc<Self>, event: ReceiverEvent) {
         match event {
             ReceiverEvent::Message { data, binary } => {
-                let _ = self.events.send(WsEvent::Message { data, is_binary: binary });
+                self.emit(WsEvent::Message { data, is_binary: binary });
             }
             ReceiverEvent::Ping(data) => {
                 if self.auto_pong {
                     self.send_frame(OP_PONG, data.clone(), None);
                 }
-                let _ = self.events.send(WsEvent::Ping(data));
+                self.emit(WsEvent::Ping(data));
             }
             ReceiverEvent::Pong(data) => {
-                let _ = self.events.send(WsEvent::Pong(data));
+                self.emit(WsEvent::Pong(data));
             }
             ReceiverEvent::Conclude { code, reason } => {
                 {
@@ -364,7 +385,7 @@ impl Inner {
     fn on_receiver_error(self: &Arc<Self>, error: ReceiverError) {
         lock(&self.core).errored = true;
         let _ = self.close(Some(error.status_code), &[]);
-        let _ = self.events.send(WsEvent::Error(error));
+        self.emit(WsEvent::Error(error));
     }
 
     /// What follows the end of the read side: `socketOnEnd` when the peer finished it, then `socketOnClose`.
@@ -515,11 +536,22 @@ async fn run_reader<R: AsyncRead + Unpin>(
             let mut found = Vec::new();
             let outcome = receiver.feed(chunk, &mut found);
             for event in found {
+                // The frames the reader itself answers (the pong, the close) come after whatever the owner sent from the
+                // handling of the events before them.
+                let answers = match &event {
+                    ReceiverEvent::Conclude { .. } => true,
+                    ReceiverEvent::Ping(_) => inner.auto_pong,
+                    _ => false,
+                };
+                if answers {
+                    inner.owner_caught_up(&mut destroyed).await;
+                }
                 inner.on_event(event);
             }
             match outcome {
                 Err(error) => {
                     parsing = false;
+                    inner.owner_caught_up(&mut destroyed).await;
                     inner.on_receiver_error(error);
                 }
                 Ok(()) => parsing = !receiver.finished(),
@@ -561,6 +593,8 @@ pub(super) fn spawn<S: Transport>(
         out,
         destroy,
         events,
+        sent: AtomicU64::new(0),
+        handled: watch::Sender::new(0),
         core: Mutex::new(Core::default()),
         tap: Mutex::new(None),
         close_timeout: config.close_timeout,
@@ -568,7 +602,7 @@ pub(super) fn spawn<S: Transport>(
     });
     tokio::spawn(run_writer(write, queue, Arc::clone(&inner), done_tx));
     tokio::spawn(run_reader(read, head, Arc::clone(&inner), config.max_payload, done_rx, on_close));
-    let events = WsEvents { rx: event_rx, inner: Arc::clone(&inner), finished: false };
+    let events = WsEvents { rx: event_rx, inner: Arc::clone(&inner), finished: false, taken: 0 };
     (WebSocket { inner }, events)
 }
 
@@ -577,6 +611,8 @@ pub struct WsEvents {
     rx: mpsc::UnboundedReceiver<WsEvent>,
     inner: Arc<Inner>,
     finished: bool,
+    /// The events returned so far.
+    taken: u64,
 }
 
 impl WsEvents {
@@ -586,7 +622,12 @@ impl WsEvents {
             return None;
         }
         self.inner.begin();
+        // Asking again means the handling of the last event is over.
+        self.inner.handled.send_replace(self.taken);
         let event = self.rx.recv().await;
+        if event.is_some() {
+            self.taken += 1;
+        }
         if matches!(event, Some(WsEvent::Close { .. }) | None) {
             self.finished = true;
         }
@@ -596,6 +637,7 @@ impl WsEvents {
 
 impl Drop for WsEvents {
     fn drop(&mut self) {
+        self.inner.handled.send_replace(u64::MAX);
         self.inner.begin();
     }
 }

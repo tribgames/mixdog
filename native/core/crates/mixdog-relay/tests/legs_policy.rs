@@ -142,11 +142,11 @@ fn envelope_byte_vectors_recorded_from_node() {
 
 #[test]
 fn text_flagged_frames_decode_as_text_and_old_frames_stay_bytes() {
-    let text_frame = envelope::encode_frame("abcdefgh", b"hi", false, true).unwrap();
+    let text_frame = envelope::encode_frame("abcdef01", b"hi", false, true).unwrap();
     let text = envelope::decode_frame(&text_frame).unwrap();
     assert!(text.text && !text.droppable);
     assert_eq!(text.data, b"hi");
-    let both_frame = envelope::encode_frame("abcdefgh", &[], true, true).unwrap();
+    let both_frame = envelope::encode_frame("abcdef01", &[], true, true).unwrap();
     let both = envelope::decode_frame(&both_frame).unwrap();
     assert!(both.text && both.droppable);
     assert!(both.data.is_empty());
@@ -606,7 +606,7 @@ fn only_a_whole_json_object_with_a_routing_id_string_is_attributed() {
     // A frame with whitespace around the object is still the router's frame.
     assert_eq!(policy::routed_client_id(format!(" \n{{\"clientId\":\"{ID}\"}}\t").as_bytes()).as_deref(), Some(ID));
     // Escaped characters inside the id spell the same id.
-    assert_eq!(policy::routed_client_id(br#"{"clientId":"abc\u0064efgh"}"#).as_deref(), Some("abcdefgh"));
+    assert_eq!(policy::routed_client_id(br#"{"clientId":"abc\u0064ef01"}"#).as_deref(), Some("abcdef01"));
 }
 
 #[test]
