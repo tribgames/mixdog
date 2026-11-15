@@ -340,10 +340,11 @@ fn the_sockets_line_lists_the_largest_and_sums_the_rest() {
     assert!(text.contains(" +2 more=1B loop-p50="), "{text}");
 }
 
-// ---- the stubs ----
+// ---- the operator tools ----
 
 #[test]
-fn the_operator_tools_are_stubs_that_exit_2() {
+fn the_verifier_with_no_origin_fails_with_exit_1_as_node_does() {
+    // verify-release.mjs: new URL("") throws "Invalid URL", the catch prints "[deploy] verification failed" and exits 1.
     let code = format!("{:?}", tools::verify_release::main(&[]));
-    assert_eq!(code, format!("{:?}", std::process::ExitCode::from(2)));
+    assert_eq!(code, format!("{:?}", std::process::ExitCode::from(1)));
 }

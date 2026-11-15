@@ -816,7 +816,11 @@ async fn stalled_until_released(
     let (_read, mut write) = client.into_split();
     let big = frame_masked(0x82, &vec![7u8; BIG_FRAME_BYTES], Some([0; 4]));
     let writer = tokio::spawn(async move {
-        write.write_all(&big).await.expect("write the frame");
+        // In pieces: Winsock takes one huge non-blocking write whole whatever the peer does with it, so only a stream of
+        // modest writes feels the receive window that a server which does not read closes.
+        for piece in big.chunks(64 * 1024) {
+            write.write_all(piece).await.expect("write the frame");
+        }
         write
     });
     sleep(Duration::from_millis(600)).await;
