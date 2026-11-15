@@ -1,0 +1,40 @@
+# nr-tui-sv-reducer: the card of an approval request reaches a typed client.
+#
+# The core states Node's card of an approval on the wire (mixdog-core-session actor.rs: `params["card"] = room_approval::tool_approval(..)`
+# with the row-shaped `card.id`), and the client fold (mixdog-session-view state.rs `approval_card`, ported from session-state.ts
+# `approvalCard`) shows that card as `toolApproval`. The typed params structs of v2/approval.rs have no `card` member, so a request
+# deserialized into `ServerRequest` (what `ProtocolClient::pending_server_requests` returns) loses it and the card falls back to the
+# request's own fields, which is not the card the core sent. The fix is one optional member on each params struct that carries it.
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# none
+
+[type_edits]
+# src/v2/approval.rs: add to `ToolApprovalRequestParams` after `request`, and the same member to `UserInputRequestParams` after `questions`
+# (the core builds both through the same `request_params` and then sets `params["card"]`; add it to PermissionsRequestParams,
+# BrowserApprovalRequestParams and ComputerApprovalRequestParams too if the core's `request_params` serves them the card):
+
+    /// Node's card of the request as the core states it (`state.toolApproval`), with the row-shaped `id` the card shows. A client
+    /// that shows the card shows this object whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<JsonValue>,
+
+# Then regenerate schema/*.json (the params schemas gain an optional `card`), as for any type edit.
+
+[remove]
+# none
+
+[window]
+# none
