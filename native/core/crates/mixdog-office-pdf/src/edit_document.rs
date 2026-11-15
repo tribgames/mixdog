@@ -35,10 +35,46 @@ fn load_options(ignore_encryption: bool) -> LoadOptions {
     }
 }
 
+/// pdf-lib's refusal of a file with no `%PDF-` anywhere (`MissingPDFHeaderError`): the parser tries the keyword at every offset
+/// and steps one byte, and its line and column count every byte it reads, a failed try included (a rewind moves the offset only),
+/// so each newline is counted twice and a `%` run adds what the failed tries read.
+fn missing_header_message(bytes: &[u8]) -> Option<String> {
+    const HEADER: &[u8] = b"%PDF-";
+    if bytes.windows(HEADER.len()).any(|window| window == HEADER) {
+        return None;
+    }
+    let (mut line, mut column, mut offset) = (0usize, 0usize, 0usize);
+    let mut read = |offset: &mut usize| {
+        let byte = bytes[*offset];
+        *offset += 1;
+        if byte == 10 {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+        byte
+    };
+    while offset < bytes.len() {
+        let start = offset;
+        for expected in HEADER {
+            if offset >= bytes.len() || read(&mut offset) != *expected {
+                break;
+            }
+        }
+        offset = start;
+        read(&mut offset);
+    }
+    Some(format!("Failed to parse PDF document (line:{line} col:{column} offset={offset}): No PDF header found"))
+}
+
 /// `loadPdf(buffer, { allowEncrypted })`: an encrypted file is refused with the way to an unencrypted copy; reading
 /// the page count and the page sizes of one still works, so an inspection may opt in and gets the structure with the
 /// strings and streams left ciphered.
 pub fn load_pdf(bytes: &[u8], allow_encrypted: bool) -> Result<PdfDocument, AnalysisError> {
+    if let Some(message) = missing_header_message(bytes) {
+        return Err(AnalysisError::plain(message));
+    }
     match PdfDocument::load(bytes.to_vec(), &load_options(false)) {
         Ok(document) => Ok(document),
         Err(WriteError::Encrypted) if allow_encrypted => {

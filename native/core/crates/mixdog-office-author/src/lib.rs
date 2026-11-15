@@ -6,6 +6,10 @@
 //! `measure_docx` read from the browser becomes WordprocessingML written block by block on the portable writer) and
 //! `docx_html_runner` the Word HTML runner (`authoring/docx-html-runner.mjs`: measure, photograph the captures, print the same HTML
 //! as the review reference, build, keep `<document>.mixdog-source.html` and the page images of the print).
+//! `xlsx_build` is the Excel HTML builder (`authoring/xlsx-html-build.mjs`: the sheets `measure_xlsx` read from the browser become a
+//! workbook on a column grid cut at the browser's box edges, written through the workbook batch of mixdog-ooxml) and `xlsx_html_runner`
+//! the Excel HTML runner (`authoring/xlsx-html-runner.mjs`: measure, photograph the pictures and each section, build, keep
+//! `<workbook>.mixdog-source.html` and the sheet pictures).
 
 pub mod brief;
 pub mod contact_sheet;
@@ -27,3 +31,5 @@ pub mod pptx_build;
 pub mod pptx_html_runner;
 pub mod docx_build;
 pub mod docx_html_runner;
+pub mod xlsx_build;
+pub mod xlsx_html_runner;
