@@ -105,7 +105,9 @@ fn harness(items: usize, completed: bool, force: bool, answers: Vec<(&str, Resul
 
 fn project_panel(app: &AppState) -> Option<(bool, bool)> {
     match app.surface.picker() {
-        Some(AppPicker::Ext(panel)) if panel.kind == "project" => Some((panel.loading, panel.initial_pending)),
+        // The loading frame of the project list is the one with no rows and the loading description (`picker-state.mjs` sets
+        // no `loading` flag on it: only the create flow's panel does).
+        Some(AppPicker::Ext(panel)) if panel.kind == "project" => Some((panel.items.is_empty() && panel.description.starts_with("Loading projects"), panel.initial_pending)),
         _ => None,
     }
 }
@@ -282,8 +284,11 @@ fn a_continuation_names_its_target_and_the_app_claims_a_picker_surface_on_reques
     assert!(h.app.owns_surface(claim));
     let opened = SlashHost::open(&mut h.app, Opener::Theme, json!({}));
     assert!(opened.is_ok());
-    // Nothing was on screen, so painting the first picker is not a handover: the claim taken before it still holds.
-    assert!(h.app.owns_surface(claim));
+    // The picker opens by clearing the context panel (`surface.claim().context(null)`), which supersedes the epoch as in
+    // `panel-surface.mjs`: the claim taken before the open is stale, the picker's own claim is the live one.
+    assert!(!h.app.owns_surface(claim));
+    let live = h.app.claim_surface(SurfaceKind::Picker);
+    assert!(h.app.owns_surface(live));
     assert!(h.app.surface.picker().is_some());
 }
 
