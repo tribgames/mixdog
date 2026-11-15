@@ -324,6 +324,22 @@ pub enum SkipReason {
     DesktopActive,
 }
 
+impl SkipReason {
+    /// The reason as the desktop's diagnostics log names it (`suppressed`, `reason`): a session the window shows is
+    /// `foreground-visible`.
+    pub fn diagnostic(self) -> &'static str {
+        match self {
+            Self::QuietHours => "quiet-hours",
+            Self::Muted => "muted",
+            Self::Scope => "scope",
+            Self::Event => "event",
+            Self::AutomaticRuns => "automatic-runs",
+            Self::Foreground => "foreground-visible",
+            Self::DesktopActive => "desktop-active",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
     Notify,

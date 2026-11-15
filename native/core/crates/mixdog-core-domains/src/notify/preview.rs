@@ -110,4 +110,24 @@ mod tests {
         let short_sentence = format!("Short one. {}", "word ".repeat(60));
         assert!(preview(&short_sentence).ends_with('…'));
     }
+
+    /// `desktop-turn-notifier.test.mjs` "notification text removes Markdown syntax without damaging paths, links or Unicode".
+    #[test]
+    fn paths_links_unicode_and_unpaired_hangul_strong_read_as_plain_text() {
+        assert_eq!(
+            preview("# 완료\n\n**굵게**와 *강조*, `src/a_b.ts`\n- [결과](https://example.com)\n> 확인"),
+            "완료 굵게와 강조, src/a_b.ts 결과 확인"
+        );
+        assert_eq!(preview("![설명](image.png)\n\n```ts\nconst x = 1;\n```"), "설명");
+        assert_eq!(preview("결과입니다.\n\n| 이름 | 값 |\n|---|---|\n| a | 1 |"), "결과입니다.");
+        assert_eq!(
+            preview("**VPS(폰에서 여는 웹앱):**는 바로 바뀝니다. **`v1.0.6`**로 올라갔습니다."),
+            "VPS(폰에서 여는 웹앱):는 바로 바뀝니다. v1.0.6로 올라갔습니다."
+        );
+        let sentence = "작업을 마쳤고 변경 사항을 모두 확인했습니다. 테스트도 통과했고 커밋 준비가 끝났습니다. 배포는 요청하실 때 바로 진행하겠습니다.";
+        assert_eq!(preview(&format!("{sentence} {}", "추가 설명이 계속 이어집니다 ".repeat(10))), sentence);
+        assert_eq!(preview("a_b_c & <https://example.com>"), "a_b_c & https://example.com");
+        assert_eq!(preview(&"😀".repeat(161)), format!("{}…", "😀".repeat(159)));
+        assert_eq!(preview(&format!("**{}**", "a".repeat(161))), format!("{}…", "a".repeat(159)));
+    }
 }

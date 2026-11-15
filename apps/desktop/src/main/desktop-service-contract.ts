@@ -24,7 +24,16 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import type { DesktopNotice } from '../shared/desktop-notice';
-import type { SessionFinalAnswer } from './session-final-answer';
+
+/** The recorded answer of a turn (`thread/finalAnswer/read`). */
+export interface SessionFinalAnswer {
+  id: string | number;
+  at: number;
+  status: 'done' | 'failed' | 'cancelled';
+  text: string;
+  /** The turn answered with a reaction on the user's message alone: done, with no text. */
+  reacted?: boolean;
+}
 
 export interface DesktopService {
   subscribe(listener: (snapshot: SessionSnapshot) => void): () => void;

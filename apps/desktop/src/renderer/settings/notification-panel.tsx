@@ -272,7 +272,9 @@ function TestNotificationRow({ api, deviceId }: { api: NotificationsApi; deviceI
     void Promise.resolve(api.sendTestNotification?.(deviceId))
       .then((result) =>
         setMessage(
-          result?.message || (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.'))
+          result?.message === 'This computer does not support notifications.'
+              ? t('This computer does not support notifications.')
+              : result?.message || (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.'))
         )
       )
       .catch(() => setMessage(t('Could not send the test notification.')))
