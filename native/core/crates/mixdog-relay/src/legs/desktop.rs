@@ -178,7 +178,7 @@ impl Hub {
                 publish_capabilities(conn, max_frame_bytes, &offer);
                 // The browser subscriptions this PC may deliver to, after the capabilities that say how.
                 for frame in &connect_frames {
-                    send_json(&conn.socket, frame);
+                    send_json(&*conn.socket, frame);
                 }
                 // Existing browser legs survive a transient desktop redial: replaying client-open makes the replacement desktop build
                 // fresh E2EE channels for those same sockets without waiting for backgrounded tabs to reconnect.
@@ -333,7 +333,7 @@ impl DesktopHandle {
     /// tell the user the credential is gone while it still authenticates after a restart.
     async fn revoke_device(&self) {
         if !self.hub.store().revoke(&self.device_id).await {
-            send_json(&self.socket, &json!({ "type": "device-revoked", "ok": false }));
+            send_json(&*self.socket, &json!({ "type": "device-revoked", "ok": false }));
             return;
         }
         self.hub.dispatch().device_revoked(&self.device_id);
@@ -387,7 +387,7 @@ impl DesktopHandle {
                 Value::Object(row)
             })
             .collect();
-        send_json(&self.socket, &json!({ "type": "clients-list", "requestId": request_id, "clients": listed }));
+        send_json(&*self.socket, &json!({ "type": "clients-list", "requestId": request_id, "clients": listed }));
     }
 
     /// `revokeClient`. Only a credential that is actually gone closes its browser: a failed persist leaves the pairing valid, and
@@ -420,7 +420,7 @@ impl DesktopHandle {
                 phone.close(REVOKED, PAIRING_REVOKED_REASON.as_bytes());
             }
         }
-        send_json(&self.socket, &json!({ "type": "client-revoked", "requestId": request_id, "ok": removed }));
+        send_json(&*self.socket, &json!({ "type": "client-revoked", "requestId": request_id, "ok": removed }));
     }
 
     /// `declareLanes`: the capability announcement, sent before the leg does anything else. It is ONE bit per lane, not a version
