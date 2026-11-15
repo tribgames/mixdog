@@ -169,7 +169,17 @@ fn main() -> ExitCode {
             ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
         }
         Command::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
-        Command::ExtWorker => mixdog_exthost_worker::ext_worker_main(),
+        Command::ExtWorker => {
+            // A pptxgenjs authoring script runs on the script interpreter of the install; without one that route says so.
+            if let Ok(js) = mixdog_app_server_daemon::js_runtime::resolve_current() {
+                mixdog_office::author::script_runtime::install(mixdog_office::author::script_runtime::ScriptRuntime {
+                    program: js.program,
+                    package_root: js.package_root,
+                    electron: js.electron,
+                });
+            }
+            mixdog_exthost_worker::ext_worker_main()
+        }
         Command::SkillRun { args } => {
             // A script that is not shipped runs on the install's script interpreter.
             let runtime = match mixdog_app_server_daemon::js_runtime::resolve_current() {

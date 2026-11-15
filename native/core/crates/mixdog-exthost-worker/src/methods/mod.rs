@@ -4,7 +4,9 @@ pub mod document;
 mod document_engine;
 mod image;
 mod media_office;
+mod office_browser;
 mod office_journal;
+mod office_run;
 mod ooxml;
 mod pdf;
 mod pdf_ocr;
@@ -27,6 +29,7 @@ pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
     office_journal::register(registry);
+    office_run::register(registry);
     image::register(registry);
     pdf::register(registry);
     pdf_render::register(registry);

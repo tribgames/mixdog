@@ -37,7 +37,7 @@ pub(crate) type ExitHook = Box<dyn Fn() -> BoxFuture<()> + Send + Sync>;
 #[derive(Default)]
 pub struct Registry {
     handlers: BTreeMap<String, Handler>,
-    on_exit: Option<ExitHook>,
+    on_exit: Vec<ExitHook>,
 }
 
 impl Registry {
@@ -95,13 +95,14 @@ impl Registry {
     }
 
     /// Runs when the worker leaves (a bye, the end of the pipe, a protocol error), and is awaited before the process exits: the
-    /// place for a handler's state to give back what it owns (the office applications of its sessions).
+    /// place for a handler's state to give back what it owns (the office applications of its sessions). The hooks run in the
+    /// order they were added.
     pub fn on_exit<F, Fut>(&mut self, hook: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.on_exit = Some(Box::new(move || -> BoxFuture<()> { Box::pin(hook()) }));
+        self.on_exit.push(Box::new(move || -> BoxFuture<()> { Box::pin(hook()) }));
     }
 
     /// The names served, sorted.
@@ -114,7 +115,7 @@ impl Registry {
     }
 
     pub(crate) async fn run_exit_hook(&self) {
-        if let Some(hook) = &self.on_exit {
+        for hook in &self.on_exit {
             hook().await;
         }
     }

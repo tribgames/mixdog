@@ -49,8 +49,8 @@ use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
-use mixdog_rt::MaintenanceIo;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::OnceCell;
@@ -176,7 +176,7 @@ impl Platform for WorkerPlatform {
         &HttpsFetch
     }
 
-    fn indexer(&self) -> &dyn TemplateIndexer<MaintenanceIo> {
+    fn indexer(&self) -> &dyn TemplateIndexer<Unlaned> {
         &OfficeTemplateIndexer
     }
 

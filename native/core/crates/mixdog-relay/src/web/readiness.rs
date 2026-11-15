@@ -317,7 +317,7 @@ impl Readiness {
     /// `JSON.stringify(body)`.
     pub fn body_json(&self) -> String {
         match self {
-            Self::Ready(body) => serde_json::to_string(body).unwrap_or_default(),
+            Self::Ready(body) => serde_json::to_value(body).map(|value| crate::js::wire(&value)).unwrap_or_default(),
             Self::NotReady => r#"{"status":"not-ready"}"#.to_owned(),
         }
     }

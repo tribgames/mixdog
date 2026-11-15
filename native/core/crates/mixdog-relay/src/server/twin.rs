@@ -434,7 +434,7 @@ async fn host(knobs: Value, tokens: LaneTokens) -> ExitCode {
 /// The entry of `relay_twin_host`: the one JSON argument is the knob object.
 pub fn main() -> ExitCode {
     let argument = std::env::args().nth(1).unwrap_or_else(|| "{}".to_owned());
-    let knobs = match serde_json::from_str::<Value>(&argument) {
+    let knobs = match crate::js::parse(&argument) {
         Ok(knobs) => knobs,
         Err(error) => {
             eprintln!("[relay-host] {error}");
