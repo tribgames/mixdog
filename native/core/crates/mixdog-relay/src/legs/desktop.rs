@@ -19,9 +19,9 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 
-use futures::stream::{FuturesUnordered, StreamExt as _};
+use futures::stream::StreamExt as _;
 
-use super::dispatch::{CapabilityOffer, LegCall, Later};
+use super::dispatch::{CapabilityOffer, HandlerFuture, Later, LegCall};
 use super::envelope;
 use super::hub::{
     Conn, Entry, Hub, HubState, IngressInstall, Liveness, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone,
@@ -563,8 +563,10 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
         Box::new(move |kind| IngressLeg::install(&pool, &socket, kind, limits))
     };
     let handle = hub.attach_desktop(&device_id, Arc::new(ws), Some(install));
-    // Work the handlers deferred runs when no frame is ready, as a promise of Node's runs after the frames of the read.
-    let mut later = FuturesUnordered::new();
+    // Work the handlers deferred starts when no frame is ready, as a promise of Node's runs after the frames of the read. Once
+    // started it goes on by itself (a task of its own), as a promise goes on with its I/O whatever frames arrive after: a push
+    // send is not held back by a busy leg.
+    let mut later: Vec<HandlerFuture> = Vec::new();
     handle.later().drive();
     loop {
         tokio::select! {
@@ -582,10 +584,15 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
                     WsEvent::Close { .. } => break,
                 }
             }
-            Some(()) = later.next(), if !later.is_empty() => {}
+            // No frame is ready: what the frames read so far deferred starts now, in the order it was deferred.
+            () = std::future::ready(()), if !later.is_empty() => {
+                for work in later.drain(..) {
+                    mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);
+                }
+            }
         }
     }
-    // What was started goes on after the leg: the answer is written to a socket that may be gone, as in Node.
+    // What was deferred and not started goes on after the leg: the answer is written to a socket that may be gone, as in Node.
     later.extend(handle.later().release());
     for work in later {
         mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);

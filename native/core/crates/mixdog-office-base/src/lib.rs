@@ -7,6 +7,7 @@
 pub mod a1;
 pub mod asar_path;
 pub mod bounded_read;
+pub mod clock;
 pub mod column_alignments;
 pub mod column_widths;
 pub mod data_dir;

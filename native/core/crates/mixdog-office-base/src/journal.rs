@@ -9,7 +9,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::time::date_parse;
@@ -34,7 +34,7 @@ fn journal_path(id: &str, data_dir: &Path) -> io::Result<PathBuf> {
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64() * 1000.0)
+    crate::clock::now_ms()
 }
 
 fn state_error(error: StateError) -> io::Error {

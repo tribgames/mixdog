@@ -7,7 +7,6 @@
 //! the package is in memory.
 
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_fsio::ReadProof;
 use mixdog_js::time::{Tz, local_fields_in, local_offset_ms};
@@ -786,7 +785,7 @@ pub fn revision_attributes_at(id: u64, author: &str, now_ms: f64) -> String {
 
 /// `revisionAttributes(id, author)` now.
 pub fn revision_attributes(id: u64, author: &str) -> String {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64);
+    let now = mixdog_office_base::clock::now_ms();
     revision_attributes_at(id, author, now)
 }
 

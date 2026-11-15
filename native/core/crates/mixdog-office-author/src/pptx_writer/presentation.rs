@@ -3,7 +3,6 @@
 //! the slides with their relationships and notes, the master, the notes master and the media, created in the order
 //! pptxgenjs's `exportPresentation` creates them.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_ooxml::zipio::Package;
 
@@ -356,7 +355,7 @@ impl Presentation {
 
 /// `new Date().toISOString().replace(/\.\d\d\dZ/, 'Z')`: the present moment in UTC, to the second.
 fn iso_now() -> String {
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let seconds = (mixdog_office_base::clock::now_ms() / 1000.0).floor() as u64;
     let days = i64::try_from(seconds / 86_400).unwrap_or(0);
     let of_day = seconds % 86_400;
     let z = days + 719_468;
