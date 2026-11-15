@@ -173,7 +173,7 @@ impl Platform for World {
         &NoNetwork
     }
 
-    fn indexer(&self) -> &dyn TemplateIndexer<MaintenanceIo> {
+    fn indexer(&self) -> &dyn TemplateIndexer<mixdog_fsio::Unlaned> {
         &OfficeTemplateIndexer
     }
 

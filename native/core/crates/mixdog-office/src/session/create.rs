@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_trim, value_to_string};
 use mixdog_office_base::formats::{
     FORMATS, document_file_kind, document_format, is_tabular_format, normalize_office_format,
@@ -245,8 +245,8 @@ fn spread_object(into: &mut Map<String, Value>, value: Option<&Value>) {
 /// `releaseOverwrittenSession(target, overwrite)`: overwriting a document replaces it. A session this runtime still holds on the
 /// old file is closed first, never left registered beside the new one (PDF) or handed back in place of the document the caller
 /// asked to write. A session on a document the user has open is theirs, so the overwrite is refused instead.
-pub async fn release_overwritten_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
-    env: &SessionEnv<'_, L, H>,
+pub async fn release_overwritten_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
+    env: &SessionEnv<'_, P, H>,
     closer: &C,
     target: &str,
     overwrite: bool,
@@ -295,8 +295,8 @@ fn assert_create_target_available(
 }
 
 /// `registerCreatedSession(creation, fields)`: registers the session record of a document this create call produced.
-fn register_created<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+fn register_created<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     creation: &Creation,
     id: Option<String>,
     mode: Mode,
@@ -324,15 +324,15 @@ fn register_created<L: WriteLane, H: OfficeHost>(
     env.registry.register(env.design, session)
 }
 
-fn make_parent<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+fn make_parent<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     target: &str,
 ) -> Result<(), String> {
     mixdog_fsio::create_dir_all(env.design.lane, dirname(target)).map_err(|error| error.to_string())
 }
 
-fn create_pdf_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
-    env: &SessionEnv<'_, L, H>,
+fn create_pdf_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
+    env: &SessionEnv<'_, P, H>,
     tools: &CreateTools<'_, C>,
     creation: &Creation,
     args: &Value,
@@ -418,8 +418,8 @@ fn create_pdf_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
 
 /// `registerHtmlPdfSession(args, dataDir, target, { targetExisted, receipt })`: a PDF the author action printed from HTML is
 /// already on disk; its session is registered as a created PDF's is, so it goes through the same render, review, and finalize.
-pub fn register_html_pdf_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+pub fn register_html_pdf_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     args: &Value,
     target: &str,
     target_existed: bool,
@@ -448,8 +448,8 @@ pub fn register_html_pdf_session<L: WriteLane, H: OfficeHost>(
     ))
 }
 
-fn create_tabular_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+fn create_tabular_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     creation: &Creation,
 ) -> Result<SessionHandle, String> {
     make_parent(env, &creation.target)?;
@@ -465,8 +465,8 @@ fn create_tabular_session<L: WriteLane, H: OfficeHost>(
     ))
 }
 
-fn create_portable_ooxml_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+fn create_portable_ooxml_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     creation: &Creation,
 ) -> Result<SessionHandle, String> {
     if !portable_create_supported(&creation.file_kind) {
@@ -499,8 +499,8 @@ fn create_portable_ooxml_session<L: WriteLane, H: OfficeHost>(
     ))
 }
 
-async fn create_microsoft_office_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+async fn create_microsoft_office_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     creation: &Creation,
     args: &Value,
     mode: Mode,
@@ -538,8 +538,8 @@ async fn create_microsoft_office_session<L: WriteLane, H: OfficeHost>(
 }
 
 /// `createSession(args, cwd, dataDir)`.
-pub async fn create_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
-    env: &SessionEnv<'_, L, H>,
+pub async fn create_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
+    env: &SessionEnv<'_, P, H>,
     tools: &CreateTools<'_, C>,
     args: &Value,
 ) -> Result<Created, String> {
@@ -640,8 +640,8 @@ pub async fn create_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
 /// `createAuthoredSession(args, cwd, dataDir, target)`: a deck written by an authoring script already exists on disk; the session
 /// owns that file in place so render, critique, and finalize treat it like a created deliverable while the design gates know a
 /// script, not the composer, decided the layout.
-pub async fn create_authored_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+pub async fn create_authored_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     args: &Value,
     target: &str,
 ) -> Result<SessionHandle, String> {

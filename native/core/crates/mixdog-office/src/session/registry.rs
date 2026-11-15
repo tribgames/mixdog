@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use indexmap::IndexMap;
 use mixdog_office_design::library::{Context, Environment};
-use mixdog_statefile::WriteLane;
+use mixdog_fsio::WriteProof;
 
 use super::Session;
 use super::design::persist_session_binding;
@@ -54,14 +54,14 @@ impl Registry {
 
     /// `registerOfficeSession(session)`: the session's design binding is persisted (a failure is said on the session's
     /// library and design, not raised) and the session is published.
-    pub fn register<L: WriteLane>(&self, cx: &Context<'_, L>, session: Session) -> SessionHandle {
+    pub fn register<P: WriteProof>(&self, cx: &Context<'_, P>, session: Session) -> SessionHandle {
         let handle = Arc::new(Mutex::new(session));
         self.register_handle(cx, &handle);
         handle
     }
 
     /// [`Registry::register`] for a session that is already shared.
-    pub fn register_handle<L: WriteLane>(&self, cx: &Context<'_, L>, handle: &SessionHandle) {
+    pub fn register_handle<P: WriteProof>(&self, cx: &Context<'_, P>, handle: &SessionHandle) {
         persist_session_binding(cx, &mut lock(handle));
         self.index(cx.env, handle);
     }

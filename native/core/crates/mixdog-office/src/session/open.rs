@@ -25,7 +25,6 @@ use mixdog_rt::CancellationToken;
 use serde_json::{Map, Value};
 use std::sync::LazyLock;
 
-use mixdog_fsio::WriteLane;
 
 use super::design::{DesignContext, resolve_office_design_context};
 use super::mode::{OfficeHost, select_mode};
@@ -63,8 +62,8 @@ impl<P: WriteProof> LegacyConverter for SofficeConverter<'_, P> {
 
 /// What open, create and attach run with: the design library, the write note of the call, the registry, the Office host and
 /// the legacy converter, the Office data directory, the call's folder and its cancellation.
-pub struct SessionEnv<'a, L: WriteLane, H: OfficeHost> {
-    pub design: &'a Context<'a, L>,
+pub struct SessionEnv<'a, P: WriteProof, H: OfficeHost> {
+    pub design: &'a Context<'a, P>,
     pub note: &'a dyn WriteNote,
     pub registry: &'a Registry,
     pub host: &'a H,
@@ -172,8 +171,8 @@ pub(crate) struct Record {
 }
 
 /// `buildOfficeSessionRecord({...})`: the session record, not yet registered.
-pub(crate) fn build_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+pub(crate) fn build_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     record: Record,
 ) -> Session {
     let mut session = Session::new(SessionInit {
@@ -232,8 +231,8 @@ pub(crate) async fn attach_microsoft_office<H: OfficeHost>(
 /// `packageSource(path, signal)`: a legacy binary file is saved once as its package beside the original, and that package is
 /// what the session reads and edits. An earlier conversion or a file of the same name is never overwritten: the caller is sent
 /// to it instead. Answers the file to open and the legacy file it came from (empty when there was none).
-fn package_source<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+fn package_source<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     path: &str,
 ) -> Result<(String, String), String> {
     let kind = legacy_package_kind(path);
@@ -252,8 +251,8 @@ fn package_source<L: WriteLane, H: OfficeHost>(
 }
 
 /// `openSession(args, cwd, dataDir, { readOnly })`.
-pub async fn open_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+pub async fn open_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     args: &Value,
     read_only: bool,
 ) -> Result<OpenedSession, String> {
@@ -337,8 +336,8 @@ pub struct ResolvedSession {
 
 /// `resolveSession(args, cwd, dataDir, { readOnly })`: the session an action names by id, or the one opened implicitly from
 /// its path.
-pub async fn resolve_session<L: WriteLane, H: OfficeHost>(
-    env: &SessionEnv<'_, L, H>,
+pub async fn resolve_session<P: WriteProof, H: OfficeHost>(
+    env: &SessionEnv<'_, P, H>,
     args: &Value,
     read_only: bool,
 ) -> Result<ResolvedSession, String> {

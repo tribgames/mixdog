@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, js_trim, value_to_string};
 use mixdog_office_base::formats::document_file_kind;
 use mixdog_office_base::journal::{list_office_journals_at, read_office_journal};
@@ -55,8 +55,8 @@ fn journal_summary(record: &Value) -> Value {
 }
 
 /// `pendingOfficeTransactions(dataDir)`: the journals on disk (the ones older than 30 days are removed first), newest first.
-pub fn pending_office_transactions<L: WriteLane, H>(cx: &TransactionContext<'_, L, H>, data_dir: &Path) -> Result<Vec<Value>, String> {
-    let records = list_office_journals_at(cx.lane(), data_dir, true, (cx.env.now_ms)()).map_err(|error| error.to_string())?;
+pub fn pending_office_transactions<P: WriteProof, H>(cx: &TransactionContext<'_, P, H>, data_dir: &Path) -> Result<Vec<Value>, String> {
+    let records = list_office_journals_at(cx.lane(), data_dir, true, cx.env.now()).map_err(|error| error.to_string())?;
     Ok(records.iter().map(journal_summary).collect())
 }
 
@@ -117,7 +117,7 @@ const RECOVER_NEEDS_ID: &str = "recover finishes an interrupted Office transacti
 /// `recoverOfficeTransaction(args, dataDir)`: `args.transaction` is the id and `args.strategy` one of `commit`, `rollback`,
 /// `discard`. A live Office document that is no longer open is answered, not failed: a commit finalizes the journal without
 /// touching the disk, a rollback says to reopen the document.
-pub async fn recover_office_transaction<L: WriteLane, H: ComHost + OfficeHost>(cx: &TransactionContext<'_, L, H>, args: &Value, data_dir: &Path) -> Result<Value, TransactionError> {
+pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(cx: &TransactionContext<'_, P, H>, args: &Value, data_dir: &Path) -> Result<Value, TransactionError> {
     let id = js_trim(&text_of(args.get("transaction"))).to_owned();
     if id.is_empty() {
         return Err(RECOVER_NEEDS_ID.into());

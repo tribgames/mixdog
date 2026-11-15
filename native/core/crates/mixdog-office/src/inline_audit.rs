@@ -7,7 +7,7 @@
 
 use std::sync::LazyLock;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{JsRegex, json_number, locale_compare, number_to_string, to_number, value_to_string};
 use mixdog_office_base::formats::is_ooxml_format;
 use mixdog_office_base::values::truthy;
@@ -265,8 +265,8 @@ pub fn record_inline_audit_round(session: &mut Session, mut audit: Value) -> Val
 /// landed is never failed by its audit: an inspection error is reported as unavailable so the author falls back to `qa`. `None`
 /// for a format with no package to measure. `exclude` lists the finding codes that do not apply to what the reader receives (a
 /// PDF the browser printed is not held to PowerPoint's text metrics).
-pub async fn inline_office_audit<L: WriteLane, H: ComHost>(
-    cx: &InspectContext<'_, L, H>,
+pub async fn inline_office_audit<P: WriteProof, H: ComHost>(
+    cx: &InspectContext<'_, P, H>,
     handle: &SessionHandle,
     operations: &[Value],
     exclude: &[String],

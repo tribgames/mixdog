@@ -18,7 +18,7 @@ pub mod qa;
 use std::future::Future;
 use std::path::Path;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_com::{CloseOptions, OfficeCom};
 use mixdog_office_design::library::{Context, Environment, iso_string};
@@ -56,19 +56,19 @@ pub trait Host: OfficeHost + ComHost + ComSessions {}
 impl<T: OfficeHost + ComHost + ComSessions> Host for T {}
 
 /// What one call of the Office tool runs with.
-pub struct Machine<'a, L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> {
+pub struct Machine<'a, P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> {
     /// The sessions, the render, the inspection and the Office host of the call, and the author action's own machine.
-    pub author: &'a SystemAuthor<'a, L, H, C, R>,
+    pub author: &'a SystemAuthor<'a, P, H, C, R>,
     /// The batch (and, through it, the transactions) of the call.
-    pub batch: &'a BatchContext<'a, L, H, B>,
+    pub batch: &'a BatchContext<'a, P, H, B>,
     /// What a create writes a PDF with.
     pub tools: &'a CreateTools<'a, C>,
     /// What a deck's design review reads of the authoring side.
     pub reads: &'a dyn AuthorReads,
 }
 
-impl<'a, L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'a, L, H, C, R, B> {
-    pub(crate) fn inspect(&self) -> &'a InspectContext<'a, L, H> {
+impl<'a, P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'a, P, H, C, R, B> {
+    pub(crate) fn inspect(&self) -> &'a InspectContext<'a, P, H> {
         self.author.inspect
     }
 
@@ -80,7 +80,7 @@ impl<'a, L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost>
         self.author.env.registry
     }
 
-    pub(crate) fn design(&self) -> &'a Context<'a, L> {
+    pub(crate) fn design(&self) -> &'a Context<'a, P> {
         self.author.env.design
     }
 

@@ -261,7 +261,7 @@ impl Platform for LivePlatform {
         &NoNetwork
     }
 
-    fn indexer(&self) -> &dyn TemplateIndexer<MaintenanceIo> {
+    fn indexer(&self) -> &dyn TemplateIndexer<Unlaned> {
         &OfficeTemplateIndexer
     }
 

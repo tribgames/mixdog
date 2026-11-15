@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_core_api::domain::ext::BrowserEndpoint;
 use mixdog_fonts::registry::Registry as FontRegistry;
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::value_to_string;
 use mixdog_office_author::html_browser::{AuthorLanes, RunError};
 use mixdog_office_author::pdf_print::{PrintOptions, frame_canvas, print_html_pdf};
@@ -102,11 +102,11 @@ where
 }
 
 /// The author host of a process.
-pub struct SystemAuthor<'a, L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> {
+pub struct SystemAuthor<'a, P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> {
     /// What open and create run with (the design library, the registry, the Office host, the data directory).
-    pub env: SessionEnv<'a, L, H>,
+    pub env: SessionEnv<'a, P, H>,
     /// What the inline audit and the snapshots run with.
-    pub inspect: &'a InspectContext<'a, L, H>,
+    pub inspect: &'a InspectContext<'a, P, H>,
     /// Draws the documents.
     pub render: &'a R,
     /// The finalize stage's close of a Microsoft Office session.
@@ -123,9 +123,9 @@ pub struct SystemAuthor<'a, L: WriteLane, H: OfficeHost + ComHost, C: SessionClo
     pub deliveries: Mutex<HashMap<String, DeliveredReceipt>>,
 }
 
-impl<L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> SystemAuthor<'_, L, H, C, R> {
+impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> SystemAuthor<'_, P, H, C, R> {
     /// The environment of a call: the same engine with the call's own cancellation.
-    fn session_env<'e>(&'e self, signal: Option<&'e CancellationToken>) -> SessionEnv<'e, L, H> {
+    fn session_env<'e>(&'e self, signal: Option<&'e CancellationToken>) -> SessionEnv<'e, P, H> {
         SessionEnv {
             design: self.env.design,
             note: self.env.note,
@@ -139,7 +139,7 @@ impl<L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> S
     }
 }
 
-impl<L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> StageHost for SystemAuthor<'_, L, H, C, R> {
+impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> StageHost for SystemAuthor<'_, P, H, C, R> {
     async fn exists(&self, path: &Path) -> bool {
         let path = path.to_path_buf();
         lane_job(self.lanes.interactive_io, move |lane| mixdog_fsio::exists(lane, &path).unwrap_or(false)).await.unwrap_or(false)
@@ -196,7 +196,7 @@ impl<L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> S
     }
 }
 
-impl<L: WriteLane, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> AuthorHost for SystemAuthor<'_, L, H, C, R> {
+impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> AuthorHost for SystemAuthor<'_, P, H, C, R> {
     fn note_write(&self, path: &Path) {
         self.note.note_write(path);
     }
