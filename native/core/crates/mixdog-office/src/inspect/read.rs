@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{JsRegex, js_to_lowercase, js_trim, json_number, to_number};
 use mixdog_office_base::data_dir::resolve_path;
 use mixdog_office_base::values::truthy;
@@ -29,7 +29,7 @@ pub fn csv_cell(text: &str) -> String {
 
 /// `get`: the element at `args.target`. A container (a sheet, a slide, a table) is read with its own contents, because asking
 /// for the element and getting one of its twelve cells back under `truncated: true` answers a question the caller did not ask.
-pub async fn get_office_element<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
+pub async fn get_office_element<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
     let facts = Facts::of(handle);
     let target = js_trim(&text_arg(args, "target")).to_owned();
     if target.is_empty() {
@@ -106,8 +106,8 @@ fn item_for_caller(item: Value) -> Value {
     Value::Object(kept)
 }
 
-fn layout_of<L: WriteLane, H>(
-    cx: &InspectContext<'_, L, H>,
+fn layout_of<P: WriteProof, H>(
+    cx: &InspectContext<'_, P, H>,
     facts: &Facts,
     pages: Option<Vec<f64>>,
     max_items: usize,
@@ -117,7 +117,7 @@ fn layout_of<L: WriteLane, H>(
     extract_pdf_text_layout(cx.lane(), PdfSource::Path(Path::new(&facts.target)), &options).map_err(|error| error.message)
 }
 
-fn query_pdf_layout<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
+fn query_pdf_layout<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
     let needle = js_trim(&text_arg(args, "query")).to_owned();
     let searching = !needle.is_empty();
     let layout = layout_of(cx, facts, pages_of(args), if searching { 20_000 } else { count_arg(args, "limit", 10_000.0) }, !searching)?;
@@ -141,7 +141,7 @@ fn query_pdf_layout<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Fact
 }
 
 /// The folder a query writes its files to, made.
-fn output_directory<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, args: &Value, cwd: &Path) -> Result<Option<PathBuf>, String> {
+fn output_directory<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, args: &Value, cwd: &Path) -> Result<Option<PathBuf>, String> {
     let output = text_arg(args, "output");
     if output.is_empty() {
         return Ok(None);
@@ -151,7 +151,7 @@ fn output_directory<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, args: &Value
     Ok(Some(directory))
 }
 
-fn query_pdf_tables<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value, cwd: &Path, note: &dyn WriteNote) -> Result<Value, String> {
+fn query_pdf_tables<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value, cwd: &Path, note: &dyn WriteNote) -> Result<Value, String> {
     let layout = layout_of(cx, facts, pages_of(args), count_arg(args, "limit", 10_000.0), true)?;
     let inferred = infer_pdf_tables(&layout);
     let mut tables = inferred.to_json();
@@ -188,7 +188,7 @@ fn query_pdf_tables<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Fact
     Ok(Value::Object(answer))
 }
 
-fn query_pdf_images<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value, cwd: &Path, note: &dyn WriteNote) -> Result<Value, String> {
+fn query_pdf_images<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value, cwd: &Path, note: &dyn WriteNote) -> Result<Value, String> {
     let options = ImageOptions { pages: pages_of(args), cancel: Some(cx.check(facts)) };
     let extraction = extract_pdf_images(cx.lane(), PdfSource::Path(Path::new(&facts.target)), &options).map_err(|error| error.message)?;
     let mut extracted = extraction.to_json();
@@ -222,8 +222,8 @@ fn query_pdf_images<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Fact
 
 /// `query`: a text query over the document, or one of the PDF queries (`pdf-layout`, `pdf-tables`, `pdf-images`). `cwd` is the
 /// folder an `output` is resolved against; every file written is reported to `note` first.
-pub async fn query_office_document<L: WriteLane, H: ComHost>(
-    cx: &InspectContext<'_, L, H>,
+pub async fn query_office_document<P: WriteProof, H: ComHost>(
+    cx: &InspectContext<'_, P, H>,
     handle: &SessionHandle,
     args: &Value,
     cwd: &Path,

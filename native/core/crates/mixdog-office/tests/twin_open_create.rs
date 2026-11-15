@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::task::Poll;
 
-use mixdog_fsio::{ReadProof, WriteLane};
+use mixdog_fsio::ReadProof;
 use mixdog_js::{JsRegex, json_stringify};
 use mixdog_office::session::create::{
     CreateTools, create_authored_session, create_session, register_html_pdf_session,
@@ -91,10 +91,10 @@ impl Fetch for NoNetwork {
 /// What `indexOfficeTemplates` writes when no template directory holds a template.
 struct EmptyIndexer;
 
-impl<L: WriteLane> TemplateIndexer<L> for EmptyIndexer {
+impl<P: mixdog_fsio::WriteProof> TemplateIndexer<P> for EmptyIndexer {
     fn index(
         &self,
-        lane: &InLane<L>,
+        lane: &P,
         env: &Environment,
         data_dir: &Path,
         config: &LibraryConfig,
@@ -540,7 +540,7 @@ fn unhex(text: &str) -> Vec<u8> {
 
 // ---- the replay ------------------------------------------------------------------------------------------------------------
 
-fn replay<L: WriteLane>(lane: &InLane<L>, world: &World, script: &[Value]) {
+fn replay<P: mixdog_fsio::WriteProof>(lane: &P, world: &World, script: &[Value]) {
     let indexer = EmptyIndexer;
     let cx = Context {
         lane,

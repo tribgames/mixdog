@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_office_base::formats::is_ooxml_format;
 use mixdog_office_base::ids::office_session_id;
 use mixdog_office_base::values::truthy;
@@ -37,7 +37,7 @@ fn holds(value: &Value, key: &str) -> bool {
 }
 
 /// The Office host's own read of the document; none off the Microsoft Office backend.
-async fn native_validation<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value) -> Result<Option<Value>, String> {
+async fn native_validation<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value) -> Result<Option<Value>, String> {
     if !facts.is_microsoft_office() {
         return Ok(None);
     }
@@ -61,7 +61,7 @@ async fn native_validation<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, 
     Ok(Some(response.get("value").cloned().unwrap_or(Value::Null)))
 }
 
-fn package_validation<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
+fn package_validation<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value) -> Result<Value, String> {
     let path = Path::new(&facts.target);
     match facts.format.as_str() {
         "pdf" => validate_pdf(cx.lane(), path).map_err(|error| error.message),
@@ -84,7 +84,7 @@ fn package_validation<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Fa
 
 /// OOXML schema validation; the Office host holds its file open, so the validator reads a copy. A validator that cannot run is
 /// an answer (`available: false` with the reason), not a failure of the call.
-fn schema_validation<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Facts, args: &Value) -> Option<Value> {
+fn schema_validation<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Facts, args: &Value) -> Option<Value> {
     if !is_ooxml_format(&facts.format) {
         return None;
     }
@@ -112,8 +112,8 @@ fn schema_validation<L: WriteLane, H>(cx: &InspectContext<'_, L, H>, facts: &Fac
     Some(outcome.unwrap_or_else(|reason| json!({ "available": false, "ok": false, "errors": [], "reason": reason })))
 }
 
-async fn assertion_validation<L: WriteLane, H: ComHost>(
-    cx: &InspectContext<'_, L, H>,
+async fn assertion_validation<P: WriteProof, H: ComHost>(
+    cx: &InspectContext<'_, P, H>,
     handle: &SessionHandle,
     facts: &Facts,
     args: &Value,
@@ -130,7 +130,7 @@ async fn assertion_validation<L: WriteLane, H: ComHost>(
 /// when each check that ran holds: the package, the schema (unless it is off, or needs a download the call refused), the
 /// assertions, the host's validation (and a saved document, outside a background session), the post-save gate and, where
 /// LibreOffice is there, the reopen.
-pub async fn validate<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
+pub async fn validate<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
     let facts = Facts::of(handle);
     let native = native_validation(cx, &facts, args).await?;
     let package = package_validation(cx, &facts, args)?;

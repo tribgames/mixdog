@@ -22,12 +22,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::Poll;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{json_number, to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_ooxml::ooxml_validator::Environment;
 use mixdog_ooxml::soffice::Soffice;
-use mixdog_rt::{CancellationToken, InLane};
+use mixdog_rt::CancellationToken;
 use serde_json::{Map, Value};
 
 use crate::session::registry::lock;
@@ -45,8 +45,8 @@ const REVIEW_SNAPSHOT_SESSIONS: usize = 16;
 /// What an inspection runs with: the snapshot context (the lane proof, the text measurer, the form vocabulary and the Office
 /// host), the LibreOffice driver, the environment the schema validator is looked up in, the review reads kept per session and
 /// the call's abort flag.
-pub struct InspectContext<'a, L: WriteLane, H> {
-    pub snapshot: SnapshotContext<'a, InLane<L>, H>,
+pub struct InspectContext<'a, P: WriteProof, H> {
+    pub snapshot: SnapshotContext<'a, P, H>,
     pub soffice: &'a Soffice,
     pub validator: &'a Environment,
     pub reviews: &'a ReviewSnapshots,
@@ -55,8 +55,8 @@ pub struct InspectContext<'a, L: WriteLane, H> {
     pub abort: Option<Arc<AtomicBool>>,
 }
 
-impl<L: WriteLane, H> InspectContext<'_, L, H> {
-    pub(crate) fn lane(&self) -> &InLane<L> {
+impl<P: WriteProof, H> InspectContext<'_, P, H> {
+    pub(crate) fn lane(&self) -> &P {
         self.snapshot.proof
     }
 
@@ -228,7 +228,7 @@ pub(crate) async fn both<A: Future, B: Future>(first: A, second: B) -> (A::Outpu
 }
 
 /// `reviewSnapshot(session, args)`: the whole document with its styles, at most 100 items a page, once per document version.
-pub async fn review_snapshot<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
+pub async fn review_snapshot<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, args: &Value) -> Result<Value, String> {
     let (id, version) = {
         let session = lock(handle);
         (session.id.clone(), session.snapshot_version)

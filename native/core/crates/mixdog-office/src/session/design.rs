@@ -11,7 +11,7 @@ use mixdog_office_base::values::{plain_object, truthy};
 use mixdog_office_design::design_system::resolve_office_design;
 use mixdog_office_design::library::{Context, ResolveRequest, persist_office_design_binding, resolve_office_design_library};
 use mixdog_office_design::native_design::{native_office_design, uses_native_office_design};
-use mixdog_statefile::WriteLane;
+use mixdog_fsio::WriteProof;
 use serde_json::{Map, Value, json};
 
 use super::{DesignState, Session};
@@ -41,8 +41,8 @@ impl DesignContext {
 /// `design` argument; for an existing document with none, a request to keep the document's own design, reviewed for a
 /// deck), and the design it resolves to. Native documents stay native: no library is bound for them. Any other design
 /// binds the library once, here.
-pub fn resolve_office_design_context<L: WriteLane>(
-    cx: &Context<'_, L>,
+pub fn resolve_office_design_context<P: WriteProof>(
+    cx: &Context<'_, P>,
     data_dir: &Path,
     args: &Value,
     target: &str,
@@ -82,8 +82,8 @@ pub struct EnsureOptions {
 /// `ensureOfficeSessionDesign(session, args, dataDir, options)`: binds the session design exactly once per call.
 /// Open and create merge a preset; later calls may upgrade the library and keep a native document native instead of
 /// applying a profile it never asked for.
-pub fn ensure_office_session_design<L: WriteLane>(
-    cx: &Context<'_, L>,
+pub fn ensure_office_session_design<P: WriteProof>(
+    cx: &Context<'_, P>,
     data_dir: &Path,
     session: &mut Session,
     args: &Value,
@@ -170,7 +170,7 @@ pub fn merge_office_design_request(current: Option<&Value>, next: Option<&Value>
 
 /// The persistence half of `registerOfficeSession`: the binding of the session's library is written; a failure is not
 /// fatal, it is said on the library and on the design that names it.
-pub fn persist_session_binding<L: WriteLane>(cx: &Context<'_, L>, session: &mut Session) {
+pub fn persist_session_binding<P: WriteProof>(cx: &Context<'_, P>, session: &mut Session) {
     let binding = session.design_library.as_ref().and_then(|library| library.get("binding")).cloned().unwrap_or(Value::Null);
     let Err(message) = persist_office_design_binding(cx.lane, cx.env, &session.data_dir, &session.target, &binding) else { return };
     let warning = Value::String(format!("Office design binding could not be persisted: {message}"));

@@ -19,7 +19,7 @@ pub mod recover;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{json_stringify, value_to_string};
 use mixdog_office_base::envelope::{CONFLICT_MESSAGE, OfficeConflictError};
 use mixdog_office_base::ids::office_transaction_id;
@@ -27,7 +27,7 @@ use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_design::library::{Environment, iso_string};
 use mixdog_ooxml::fingerprint::document_fingerprint;
-use mixdog_rt::{CancellationToken, InLane};
+use mixdog_rt::CancellationToken;
 use serde_json::{Map, Value, json};
 
 use self::documents::{diff, document_snapshot_fingerprint, operation_change_kind, operation_document_paths};
@@ -70,15 +70,15 @@ impl From<&str> for TransactionError {
 
 /// What a transaction call runs with: the snapshot context (the lane proof, the text measurer, the form vocabulary and the
 /// Office host), the write note of the call, the sessions and the environment (the clock).
-pub struct TransactionContext<'a, L: WriteLane, H> {
-    pub snapshot: &'a SnapshotContext<'a, InLane<L>, H>,
+pub struct TransactionContext<'a, P: WriteProof, H> {
+    pub snapshot: &'a SnapshotContext<'a, P, H>,
     pub note: &'a dyn WriteNote,
     pub registry: &'a Registry,
     pub env: &'a Environment,
 }
 
-impl<L: WriteLane, H> TransactionContext<'_, L, H> {
-    pub(crate) fn lane(&self) -> &InLane<L> {
+impl<P: WriteProof, H> TransactionContext<'_, P, H> {
+    pub(crate) fn lane(&self) -> &P {
         self.snapshot.proof
     }
 
@@ -156,7 +156,7 @@ fn transaction_checkpoint_path(facts: &Facts) -> PathBuf {
 }
 
 /// `rm(path, { force: true })`: a failure is not reported.
-pub(crate) fn remove_quietly<L: WriteLane>(lane: &InLane<L>, path: &str) {
+pub(crate) fn remove_quietly<P: WriteProof>(lane: &P, path: &str) {
     if !path.is_empty() {
         let _ = mixdog_fsio::remove_file(lane, path);
     }
@@ -168,7 +168,7 @@ fn host_error(answer: &Value, fallback: String) -> String {
 
 /// `captureSessionState(session, checkpoint)`: the document read and fingerprinted. With a `checkpoint` path the document is also
 /// copied (a portable one) or saved (an Office workbook or deck) there first, so the fingerprint is the checkpoint's.
-pub async fn capture_session_state<L: WriteLane, H: ComHost>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle, checkpoint: &str) -> Result<CapturedState, String> {
+pub async fn capture_session_state<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle, checkpoint: &str) -> Result<CapturedState, String> {
     let facts = Facts::of(handle);
     let lane = cx.lane();
     if facts.microsoft_office {
@@ -336,7 +336,7 @@ fn journal_record(handle: &SessionHandle, now: String, phase: Option<&str>) -> O
 
 /// `persistOfficeTransaction(session)`: the journal record written. `phase` names the phase the record carries when it is not
 /// the transaction's own (the batch marks `applying`).
-pub fn persist_office_transaction<L: WriteLane, H>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle, phase: Option<&str>) -> Result<(), String> {
+pub fn persist_office_transaction<P: WriteProof, H>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle, phase: Option<&str>) -> Result<(), String> {
     let Some(record) = journal_record(handle, cx.now(), phase) else { return Ok(()) };
     let data_dir = lock(handle).data_dir.clone();
     let path = mixdog_office_base::journal::write_office_journal(cx.lane(), &record, &data_dir).map_err(|error| error.to_string())?;
@@ -346,7 +346,7 @@ pub fn persist_office_transaction<L: WriteLane, H>(cx: &TransactionContext<'_, L
 
 /// `clearOfficeTransactionArtifacts(session, transaction)`: the journal, the checkpoint and the baseline PDF removed; a file that
 /// cannot be removed is left.
-pub(crate) fn clear_transaction_artifacts<L: WriteLane>(lane: &InLane<L>, data_dir: &Path, id: &str, checkpoint: &str, baseline_pdf: &str) {
+pub(crate) fn clear_transaction_artifacts<P: WriteProof>(lane: &P, data_dir: &Path, id: &str, checkpoint: &str, baseline_pdf: &str) {
     let _ = mixdog_office_base::journal::remove_office_journal(lane, id, data_dir);
     remove_quietly(lane, checkpoint);
     remove_quietly(lane, baseline_pdf);
@@ -354,7 +354,7 @@ pub(crate) fn clear_transaction_artifacts<L: WriteLane>(lane: &InLane<L>, data_d
 
 /// `assertTransactionUnchanged(session)`: the document is read again; it must be the one the last operation left. Answers the
 /// read, or `None` when no transaction is open.
-pub async fn assert_transaction_unchanged<L: WriteLane, H: ComHost>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle) -> Result<Option<CapturedState>, TransactionError> {
+pub async fn assert_transaction_unchanged<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle) -> Result<Option<CapturedState>, TransactionError> {
     let Some(transaction) = transaction_of(handle) else { return Ok(None) };
     let current = capture_session_state(cx, handle, "").await?;
     if json!(current.fingerprint) != transaction.expected_fingerprint {
@@ -390,7 +390,7 @@ fn result_head(handle: &SessionHandle) -> Map<String, Value> {
 
 /// `beginTransaction(session)`: the checkpoint, the fingerprint and the full read of the document, a baseline PDF of a Word
 /// document open in the user's own window, and the journal record written before anything mutates.
-pub async fn begin_transaction<L: WriteLane, H: ComHost>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
+pub async fn begin_transaction<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
     if let Some(open) = transaction_of(handle) {
         return Err(TransactionError::Failed(format!("Office transaction already active: {}", open.id)));
     }
@@ -435,7 +435,7 @@ pub async fn begin_transaction<L: WriteLane, H: ComHost>(cx: &TransactionContext
 
 /// `commitTransaction(session)`: the document must be the one the last operation left; the journal says `committing` before the
 /// transaction is closed and its artifacts removed.
-pub async fn commit_transaction<L: WriteLane, H: ComHost>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
+pub async fn commit_transaction<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
     let Some(opened) = transaction_of(handle) else { return Err("No active Office transaction to commit".into()) };
     let current = assert_transaction_unchanged(cx, handle).await?.ok_or("No active Office transaction to commit")?;
     let document_diff = transaction_document_diff(&opened, &current.document);
@@ -461,7 +461,7 @@ pub async fn commit_transaction<L: WriteLane, H: ComHost>(cx: &TransactionContex
 
 /// `rollbackTransaction(session)`: the checkpoint restored (a copy for a portable document, Office's own undo for a live one),
 /// read again and held to the document it was: a difference that remains fails the call with the diff in its message.
-pub async fn rollback_transaction<L: WriteLane, H: ComHost>(cx: &TransactionContext<'_, L, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
+pub async fn rollback_transaction<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle) -> Result<Value, TransactionError> {
     let Some(opened) = transaction_of(handle) else { return Err("No active Office transaction to roll back".into()) };
     let current = assert_transaction_unchanged(cx, handle).await?.ok_or("No active Office transaction to roll back")?;
     let mut transaction = opened;

@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, slice_utf16, to_number, utf16_len, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_design::templates::inspect::create_pptx_slide_selection;
@@ -92,7 +92,7 @@ impl Facts {
 }
 
 /// `microsoftOfficeCall(session, target, request, timeoutMs)`: `{ session, format, mode, path }` and the request's own fields.
-async fn microsoft_call<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, target: &str, request: Vec<(&str, Value)>, timeout: Duration) -> Value {
+async fn microsoft_call<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, target: &str, request: Vec<(&str, Value)>, timeout: Duration) -> Value {
     let mut payload = Map::new();
     payload.insert("session".to_owned(), json!(facts.id));
     payload.insert("format".to_owned(), json!(facts.format));
@@ -187,7 +187,7 @@ fn unique_dashed() -> String {
 }
 
 /// Stages what the batch falls back to.
-async fn stage_batch_backup<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<(), String> {
+async fn stage_batch_backup<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<(), String> {
     if !plan.replacement_source.is_empty() {
         let first = &operations[0];
         create_pptx_slide_selection(cx.lane(), &text_of(first.get("path")), first.get("slides").unwrap_or(&Value::Null), &plan.replacement_source)?;
@@ -207,7 +207,7 @@ async fn stage_batch_backup<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L
 }
 
 /// Puts the target back from the backup after a failed batch (a failure of the restore itself is left unsaid).
-async fn restore_batch_target<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, target: &str, plan: &SafetyPlan) {
+async fn restore_batch_target<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, target: &str, plan: &SafetyPlan) {
     if plan.backup.is_empty() {
         return;
     }
@@ -221,7 +221,7 @@ async fn restore_batch_target<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_,
 }
 
 /// `microsoftBatch(session, args, target, operations)`: the batch on the Office host.
-async fn microsoft_batch<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value]) -> Result<Value, String> {
+async fn microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value]) -> Result<Value, String> {
     let shaped = with_provenance_citations(with_shared_chart_defaults(&facts.format, operations))?;
     let request = vec![
         ("action", json!("batch")),
@@ -248,7 +248,7 @@ fn results_list(value: Option<&Value>) -> Vec<Value> {
 
 /// `runMicrosoftBatch`: the batch on the Office host. An empty new deck first takes the imported presentation as its source, then the
 /// remaining operations.
-async fn run_microsoft_batch<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
+async fn run_microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
     let isolation = facts.background_isolation.clone();
     if !plan.empty_deck_replacement {
         let result = microsoft_batch(cx, facts, args, target, operations).await?;
@@ -284,7 +284,7 @@ async fn run_microsoft_batch<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, 
 
 /// Runs the operations on the session's backend and returns the raw results with what the Office host reports about the save and its
 /// undo units.
-async fn run_batch_backend<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
+async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
     if facts.microsoft_office() {
         return run_microsoft_batch(cx, facts, args, target, operations, plan).await;
     }
@@ -358,7 +358,7 @@ fn assert_batch_changed(facts: &Facts, args: &Value, no_change: &[Value]) -> Res
 }
 
 /// Records the applied batch on the open transaction; a journal that could not be written is reported, not fatal.
-async fn record_applied_transaction<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, handle: &SessionHandle, format: &str, operations: &[Value], results: &[Value], undo_units: u64) -> Result<Value, String> {
+async fn record_applied_transaction<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, format: &str, operations: &[Value], results: &[Value], undo_units: u64) -> Result<Value, String> {
     let transactions = cx.transactions();
     let current = capture_session_state(&transactions, handle, "").await?;
     update_transaction(handle, |transaction| {
@@ -464,7 +464,7 @@ fn remember_autofit_ranges(handle: &SessionHandle, operations: &[Value]) {
 
 /// Marks the open transaction as applying and journals that; a journal that cannot be written leaves the transaction active and stops the
 /// batch. Answers whether a transaction is open.
-async fn mark_transaction_applying<L: WriteLane, H: ComHost, B>(cx: &BatchContext<'_, L, H, B>, handle: &SessionHandle) -> Result<bool, TransactionError> {
+async fn mark_transaction_applying<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle) -> Result<bool, TransactionError> {
     if lock(handle).state.transaction().is_none() {
         return Ok(false);
     }
@@ -485,7 +485,7 @@ struct Applied<'a> {
 }
 
 /// `commitBatch`: records the applied batch on the session and builds the batch result.
-async fn commit_batch<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, handle: &SessionHandle, facts: &Facts, args: &Value, applied: Applied<'_>) -> Result<Value, String> {
+async fn commit_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, facts: &Facts, args: &Value, applied: Applied<'_>) -> Result<Value, String> {
     let Applied { trust, prepared, operations, has_transaction, target, outcome } = applied;
     let results = normalize_batch_results(&outcome.results);
     let no_change = unchanged_results(operations, &results);
@@ -541,7 +541,7 @@ async fn commit_batch<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<
 }
 
 /// `applyBatch(session, args)`: the batch of `args.operations` applied to the session's document, all together or not at all.
-pub async fn apply_batch<L: WriteLane, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, L, H, B>, handle: &SessionHandle, args: &Value) -> Result<Value, TransactionError> {
+pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Value, TransactionError> {
     let trust = trust_for_mutation(&cx.inspect.snapshot, handle).await?;
     assert_office_mutation_allowed(Some(&trust), args.get("acknowledgeUntrustedContent") == Some(&Value::Bool(true)))?;
     let prepared = prepare_batch_operations(cx, handle, args).await?;

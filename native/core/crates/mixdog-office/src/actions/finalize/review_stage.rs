@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::to_number;
 use mixdog_office_base::values::truthy;
 use mixdog_office_quality::design_review::critique::{pptx_visual_review_acknowledged, review_pptx_visual_critique};
@@ -135,7 +135,7 @@ fn apply_document_acceptance(handle: &SessionHandle, args: &Value, review: &mut 
     Some(visual)
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `reviewForFinalize(session, args, cwd, { timedStep, failOn, authored })`.
     pub(crate) async fn review_for_finalize(&self, handle: &SessionHandle, args: &Value, cwd: &str, metrics: &mut StepMetrics, fail_on: &str, authored: bool) -> Result<ReviewStage, TransactionError> {
         let reviewed = if args.get("review") == Some(&Value::Bool(false)) {

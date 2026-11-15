@@ -5750,6 +5750,7 @@ name = "mixdog-office"
 version = "1.5.0"
 dependencies = [
  "indexmap",
+ "mixdog-core-api",
  "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
@@ -5765,6 +5766,7 @@ dependencies = [
  "mixdog-rt",
  "mixdog-statefile",
  "mixdog-workspace-hack",
+ "mixdog-xlsx-formula",
  "serde",
  "serde_json",
  "sha2 0.10.9",

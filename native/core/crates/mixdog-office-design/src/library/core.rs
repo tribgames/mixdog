@@ -14,8 +14,8 @@ use mixdog_fsio::ReadProof;
 use mixdog_js::{js_to_lowercase, js_trim, json_parse, json_stringify, to_number_of, value_to_string};
 use mixdog_office_base::data_dir::resolve_path;
 use mixdog_office_base::values::{plain_object, sha256, stable_value, truthy};
-use mixdog_rt::InLane;
-use mixdog_statefile::{Opts, WriteLane};
+use mixdog_fsio::WriteProof;
+use mixdog_statefile::Opts;
 use serde_json::{Map, Value};
 
 use crate::{prop, text};
@@ -256,7 +256,7 @@ pub fn read_json<P: ReadProof>(proof: &P, path: &Path, fallback: Value) -> Value
 }
 
 /// `writeJsonAtomic(path, value)`: durable atomic replace; the replaced version stays as `<file>.bak`.
-pub fn write_json_atomic<L: WriteLane>(lane: &InLane<L>, path: &Path, value: &Value) -> Result<(), String> {
+pub fn write_json_atomic<P: WriteProof>(lane: &P, path: &Path, value: &Value) -> Result<(), String> {
     let opts = Opts { backup: true, ..Opts::default() };
     mixdog_statefile::write_json(lane, path, value, &opts).map(|_| ()).map_err(|error| error.to_string())
 }

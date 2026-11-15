@@ -13,7 +13,7 @@ pub mod sessionless;
 
 use std::time::Instant;
 
-use mixdog_fsio::WriteLane;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, value_to_string};
 use mixdog_office_base::envelope::{ToolImage, tool_result};
 use mixdog_office_base::values::truthy;
@@ -49,7 +49,7 @@ pub(crate) fn take_images(value: &mut Value) -> Vec<ToolImage> {
         .collect()
 }
 
-impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, L, H, C, R, B> {
+impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `toolResult(finalizeOfficeResult(value, { action, session, startedAt }), false, images)`.
     pub(crate) fn tool_result(&self, value: Value, action: &str, handle: Option<&SessionHandle>, started: Instant, images: &[ToolImage]) -> Value {
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;

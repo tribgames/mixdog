@@ -650,6 +650,15 @@
       "totalBytes": 2688
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-dispatch.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-dispatch/MANIFEST.json",
+      "manifestSha256": "a175095536119465bc864f6ce365d13eb47ced741fc0909ace6f5f8f18c0c3d3",
+      "recorder": "benchmarks/rust-core/recorders/record-office-dispatch.mjs",
+      "set": "office-dispatch",
+      "totalBytes": 1633893
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-engine.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-engine/MANIFEST.json",
