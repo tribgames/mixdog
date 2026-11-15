@@ -249,6 +249,19 @@ fn l2_spinner_frame(now: f64) -> &'static str {
 }
 
 impl StatuslineRenderer {
+    /// The route section of the process: Node keeps it in a module, so it outlives any footer built over it and a SESS spend counts
+    /// from the first call that saw the route. A renderer that replaces another one takes it over with `adopt_route_section`.
+    pub fn route_section(&self) -> RouteSection {
+        self.inner.reads.lock().map(|reads| reads.route_section.clone()).unwrap_or_default()
+    }
+
+    /// Sets the route section (see `route_section`).
+    pub fn adopt_route_section(&self, section: RouteSection) {
+        if let Ok(mut reads) = self.inner.reads.lock() {
+            reads.route_section = section;
+        }
+    }
+
     pub fn new(deps: RendererDeps) -> Self {
         let source = Arc::new(DataDirSegments::new(Arc::clone(&deps.io), &deps.paths.data_dir));
         let segments = StatuslineSegments::new(source, Arc::clone(&deps.background), Arc::clone(&deps.clock));

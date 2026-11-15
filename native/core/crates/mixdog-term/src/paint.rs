@@ -98,10 +98,25 @@ impl<'g> Painter<'g> {
     /// Draws `text` with its top-left cell at `(x, y)`, fitted to `max_width` cells in `mode`, one line per row. `base`
     /// is the style the text starts in; escapes in the text change it. Returns the rows the text took.
     pub fn text(&mut self, x: i32, y: i32, text: &str, base: Style, max_width: usize, mode: TextWrap) -> u16 {
-        let fitted = wrap_text(text, max_width, mode);
+        // Ink fits a text only when its widest line is wider than the box (`render-node-to-output.js`): a text that fits is
+        // written as it is, a carriage return before a line break included.
+        let fits = text.split('\n').map(display_width).max().unwrap_or(0) <= max_width;
+        let fitted = if fits { text.to_owned() } else { wrap_text(text, max_width, mode) };
         let mut rows = 0u16;
         for (offset, line) in fitted.split('\n').enumerate() {
-            self.line(x, y + offset as i32, line, base);
+            let at_y = y + offset as i32;
+            match line.strip_suffix('\r').filter(|_| fits) {
+                // chalk closes its styles before a `\r\n` and opens them again after it, so the carriage return is drawn
+                // outside the text's own style (the box's background stays).
+                Some(head) => {
+                    let advanced = self.line(x, at_y, head, base);
+                    let outside = Style { bg: base.bg, ..Style::default() };
+                    self.glyph(x + advanced as i32, at_y, "\r", 1, outside, 0);
+                }
+                None => {
+                    self.line(x, at_y, line, base);
+                }
+            }
             rows = rows.saturating_add(1);
         }
         rows

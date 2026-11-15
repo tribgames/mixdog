@@ -138,8 +138,10 @@ pub enum Handler {
 /// A picker panel (the record `own.paint` took).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExtPanel {
-    /// `_kind`, empty when the panel has none.
+    /// `_kind` (the identity of the panel), empty when the panel has none.
     pub kind: String,
+    /// `kind` (what the layout reserves room for: the project banner), empty when the panel has none.
+    pub layout_kind: String,
     pub title: String,
     pub description: String,
     pub items: Vec<ExtItem>,
@@ -162,6 +164,7 @@ impl ExtPanel {
     pub fn new(title: &str, description: &str, items: Vec<ExtItem>, handler: Handler) -> Self {
         Self {
             kind: String::new(),
+            layout_kind: String::new(),
             title: title.to_owned(),
             description: description.to_owned(),
             items,
@@ -180,6 +183,11 @@ impl ExtPanel {
 
     pub fn with_kind(mut self, kind: &str) -> Self {
         self.kind = kind.to_owned();
+        self
+    }
+
+    pub fn with_layout_kind(mut self, kind: &str) -> Self {
+        self.layout_kind = kind.to_owned();
         self
     }
 

@@ -192,6 +192,8 @@ async fn boot(connected: bool) -> Rig {
     let leg = Arc::new(Leg::default());
     let desktop = hub.attach_desktop(DEVICE, leg.clone(), None);
     if !connected {
+        // A socket reads as closed by the time its close event fires.
+        leg.closed.store(true, Ordering::SeqCst);
         desktop.closed();
     }
     let server = Server::start(0, None, Arc::new(Routes(pairing)), Limits::default()).await.unwrap();
@@ -248,7 +250,22 @@ async fn call(addr: SocketAddr, method: &str, target: &str, headers: &[(&str, St
     let text = String::from_utf8_lossy(&raw).into_owned();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
     let status = head.split(' ').nth(1).and_then(|code| code.parse().ok()).unwrap_or(0);
-    Reply { status, head: head.to_owned(), body: body.to_owned() }
+    let chunked = head.lines().any(|line| line.eq_ignore_ascii_case("Transfer-Encoding: chunked"));
+    Reply { status, head: head.to_owned(), body: if chunked { dechunk(body) } else { body.to_owned() } }
+}
+
+fn dechunk(raw: &str) -> String {
+    let mut out = String::new();
+    let mut rest = raw;
+    while let Some((size, tail)) = rest.split_once("\r\n") {
+        let Ok(size) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16) else { break };
+        if size == 0 || tail.len() < size {
+            break;
+        }
+        out.push_str(&tail[..size]);
+        rest = tail[size..].strip_prefix("\r\n").unwrap_or("");
+    }
+    out
 }
 
 async fn post_json(rig: &Rig, target: &str, headers: &[(&str, String)], body: &Value) -> Reply {
@@ -558,6 +575,7 @@ async fn presence_and_support_report_known_desktops_only() {
     assert_eq!((support.status, support.json()), (200, json!({ "online": true, "pairV2": false })));
     let unknown = call(rig.addr, "GET", &format!("/pair-code/support?deviceId={ghost}"), &[], b"").await;
     assert_eq!((unknown.status, unknown.json()), (404, json!({ "status": "unknown" })));
+    rig.leg.closed.store(true, Ordering::SeqCst);
     rig.desktop.closed();
     let offline = call(rig.addr, "GET", &format!("/pair-code/support?deviceId={DEVICE}"), &[], b"").await;
     assert_eq!(offline.json()["online"], json!(false));

@@ -408,7 +408,7 @@ impl SlashHost for Fake {
 
     fn arm_transcript_follow(&mut self) {}
 
-    fn store_submit(&mut self, _method: &str, _content: &PromptContent, _options: &SubmitOptions) -> Result<Value, String> {
+    fn store_submit(&mut self, _method: &str, _content: &PromptContent, _options: Option<&SubmitOptions>) -> Result<Value, String> {
         Ok(Value::Null)
     }
 }
@@ -741,7 +741,7 @@ fn arrows_on_output_style_workflow_and_theme_cycle_with_wrap_around() {
     assert_eq!(host.calls("setOutputStyle"), vec![json!(["default"])]);
     assert_eq!(host.calls("setWorkflow"), vec![json!(["review"])]);
     assert_eq!(host.calls("setTheme"), vec![json!(["dawn", {"persist": true}])]);
-    assert_eq!(host.messages(), ["Output style set to default.", "Workflow saved \u{b7} new sessions", "Theme set to Dawn"]);
+    assert_eq!(host.messages(), ["Output style set to Default.", "Workflow saved \u{b7} new sessions", "Theme set to Dawn"]);
 }
 
 #[test]

@@ -21,7 +21,9 @@ store method the Node code called, through `AppCtx::store_call`.
   already is: `paint(claim, panel)` is `own.paint(panel)` (a guarded write that re-arms the claim, `None` clears and keeps the
   flow), `close_claim` is `own.close()` (ownership is gone for good), `clear_context` is `own.context(null)` (supersedes, claim
   re-armed). `SurfaceClaim.epoch` is the token. The picker panel type of the surface wraps `ExtPanel` (it implements
-  `PanelValue` and `IndexModePanel`); `ExtPanel::to_props(columns)` is its `PickerProps`, `ExtPanel::adjustable()` is whether
+  `PanelValue` and `IndexModePanel`); the shell layout's `PickerLayout.kind` (Node's `picker?.kind === 'project'`, which keeps
+  the banner and the height reserved) is `ExtPanel::layout_kind`, not `ExtPanel::kind` (`_kind`, the panel identity: the
+  folder-dialog overlay has a layout kind `project` and no `_kind`); `ExtPanel::to_props(columns)` is its `PickerProps`, `ExtPanel::adjustable()` is whether
   Left/Right toggle, `ExtPanel::items[..].marker_tone` maps to `theme.success` / `theme.inactive`.
 * Keys on a painted `ExtPanel` go to `Extensions::select(host, panel, row)` (Enter), `adjust` (Left/Right: the MCP and Skills
   toggles), `key` (a character key: `c` and `r` of the project list) and `cancel` (Esc). One `Extensions` lives for the life of

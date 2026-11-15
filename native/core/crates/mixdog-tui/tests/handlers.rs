@@ -367,7 +367,7 @@ impl SlashHost for H {
         self.f.arm_transcript_follow()
     }
 
-    fn store_submit(&mut self, method: &str, content: &PromptContent, options: &SubmitOptions) -> Result<Value, String> {
+    fn store_submit(&mut self, method: &str, content: &PromptContent, options: Option<&SubmitOptions>) -> Result<Value, String> {
         self.f.store_submit(method, content, options)
     }
 }
