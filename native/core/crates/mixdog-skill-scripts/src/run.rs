@@ -108,4 +108,37 @@ mod tests {
         let path = script_path("no-such-dir-xyz/missing.mjs");
         assert!(path.is_absolute() && path.ends_with("missing.mjs"));
     }
+
+    #[test]
+    fn a_builtin_plaintext_extract_runs_without_an_office_engine_or_script_interpreter() {
+        assert!(crate::source_extract::installed_office_engine().is_none());
+        let dir = tempfile::tempdir().expect("isolated folder");
+        // A copied/exported built-in is recognized by content even when the unavailable
+        // interpreter cannot name its install's skills root. No current-directory change.
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../src/defaults/skills/pptx/scripts/source-extract.mjs");
+        let script = dir.path().join("copied-extract.mjs");
+        mixdog_testkit::write(&script, mixdog_testkit::read(source));
+        let input = dir.path().join("source.txt");
+        mixdog_testkit::write(&input, "A supplied fact that needs no Office engine.\n");
+        let code = skill_run(
+            vec![script.into_os_string(), input.into_os_string()],
+            UserScriptRuntime::Unavailable { reason: "test interpreter is unavailable".into() },
+        );
+        assert_eq!(code, ExitCode::SUCCESS, "the native text path must not fall through to the unavailable interpreter");
+    }
+
+    #[test]
+    fn an_unrecognized_user_script_still_reports_the_unavailable_interpreter() {
+        let dir = tempfile::tempdir().expect("isolated folder");
+        let script = dir.path().join("user-script.mjs");
+        mixdog_testkit::write(&script, "console.log('a user-owned script');\n");
+        assert!(shipped_script(&Unlaned, &script, &dir.path().join("skills")).is_none());
+        let code = skill_run(
+            vec![script.into_os_string()],
+            UserScriptRuntime::Unavailable { reason: "test interpreter is unavailable".into() },
+        );
+        assert_eq!(code, ExitCode::from(1));
+    }
+
 }
