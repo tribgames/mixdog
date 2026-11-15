@@ -738,6 +738,10 @@ pub struct JsRuntime {
     pub core_program: PathBuf,
     /// The script interpreter version as the install metadata states it; the doctor never runs the interpreter to ask.
     pub node_version: Option<String>,
+    /// Compiled for tests only: both halves of the extension host are the script worker and no method is routed to the Rust
+    /// worker, so a test that scripts the worker (a frozen clock, a recorded subject) is answered by the script worker.
+    #[cfg(test)]
+    pub script_hosts: bool,
 }
 
 pub struct ComposeConfig {
@@ -776,6 +780,8 @@ fn process_env() -> mixdog_core::run_host::run_seams::EnvReader {
 pub struct ExtHostConfigs {
     pub native: ExtHostConfig,
     pub node: ExtHostConfig,
+    /// The methods the Rust worker answers.
+    pub native_methods: Vec<&'static str>,
 }
 
 /// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole
@@ -786,7 +792,7 @@ pub fn native_ext_methods() -> Vec<&'static str> {
 
 /// The one constructor of the routing pool: the core and the migration (`boot`, `mixdogd migrate`) use it.
 pub fn ext_host_pool(configs: ExtHostConfigs) -> Result<RoutedExtPool, ExtHostError> {
-    RoutedExtPool::new(configs.native, configs.node, native_ext_methods())
+    RoutedExtPool::new(configs.native, configs.node, configs.native_methods)
 }
 
 /// The extension host of this install: the core's, and the migration's office extractor (`boot`) start the same workers.
@@ -800,8 +806,12 @@ pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneToke
         spawn_io: tokens.spawn_io,
         render_browser: RenderBrowserConfig { command: None, profile_root: data_dir.join("render-browser"), no_sandbox: false },
     };
+    #[cfg(test)]
+    if js.script_hosts {
+        return ExtHostConfigs { native: node.clone(), node, native_methods: Vec::new() };
+    }
     let native = ExtHostConfig { program: js.core_program.clone(), args: vec!["ext-worker".into()], electron: false, ..node.clone() };
-    ExtHostConfigs { native, node }
+    ExtHostConfigs { native, node, native_methods: native_ext_methods() }
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {

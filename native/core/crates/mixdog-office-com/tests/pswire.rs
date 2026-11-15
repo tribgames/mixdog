@@ -253,7 +253,7 @@ fn run_text(op: &str, args: &[String]) -> Result<Value, String> {
 
 /// The corpus' own time zone against this machine's: the UTC text of a date depends on it.
 fn corpus_time_zone() -> String {
-    let manifest: Json = serde_json::from_str(manifest_text()).expect("manifest");
+    let manifest: Json = parse_unbounded(manifest_text()).expect("manifest");
     manifest["timeZone"].as_str().expect("time zone").to_string()
 }
 
@@ -389,8 +389,16 @@ fn check_entry(entry: &Json, same_zone: bool, problems: &mut Vec<String>) {
     }
 }
 
+fn parse_unbounded(text: &str) -> Result<Json, serde_json::Error> {
+    let mut de = serde_json::Deserializer::from_str(text);
+    de.disable_recursion_limit();
+    let value = serde::Deserialize::deserialize(&mut de)?;
+    de.end()?;
+    Ok(value)
+}
+
 fn check_corpus(corpus: &str, same_zone: bool) -> Vec<String> {
-    let entries: Json = serde_json::from_str(corpus).expect("corpus");
+    let entries: Json = parse_unbounded(corpus).expect("corpus");
     let mut problems = Vec::new();
     let list = entries.as_array().expect("entries");
     assert!(!list.is_empty());
@@ -409,7 +417,7 @@ fn report(problems: &[String]) -> String {
 
 #[test]
 fn manifest_describes_the_corpus() {
-    let manifest: Json = serde_json::from_str(manifest_text()).expect("manifest");
+    let manifest: Json = parse_unbounded(manifest_text()).expect("manifest");
     assert!(manifest["powershell"].as_str().expect("version").starts_with("5.1."), "recorded with Windows PowerShell 5.1");
     assert!(!manifest["culture"].as_str().expect("culture").is_empty());
     // The line endings of a checkout may differ; the recorder wrote LF.
@@ -417,7 +425,7 @@ fn manifest_describes_the_corpus() {
     let digest = Sha256::digest(normalised.as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     assert_eq!(manifest["corpusSha256"].as_str().expect("sha256"), hex, "corpus.json is the recorded file");
-    let entries: Json = serde_json::from_str(corpus()).expect("corpus");
+    let entries: Json = parse_unbounded(corpus()).expect("corpus");
     assert_eq!(manifest["entries"].as_u64().expect("entries") as usize, entries.as_array().expect("entries").len());
 }
 

@@ -39,6 +39,9 @@ windows = { workspace = true, features = [
 [dev-dependencies]
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
+# The recorded corpus nests deeper than the parser's default limit of 128 (Node's JSON.parse has none).
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
