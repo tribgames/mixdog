@@ -51,10 +51,10 @@ fn cell_text(value: Option<&CellValue>) -> String {
     }
 }
 
-/// `Number(cell)`: a missing cell is NaN, an empty text 0.
+/// `Number(cell)`: a missing cell (null in Node) and an empty text are 0.
 fn cell_number(value: Option<&CellValue>) -> f64 {
     match value {
-        None => f64::NAN,
+        None => 0.0,
         Some(CellValue::Text(text)) => string_to_number(text),
         Some(CellValue::Number(number)) => *number,
         Some(CellValue::Bool(flag)) => f64::from(u8::from(*flag)),
@@ -304,6 +304,7 @@ pub fn refresh_chart_caches(zip: &mut Package) -> Result<(), String> {
                     continue;
                 }
                 let number = match value {
+                    None => f64::NAN,
                     Some(CellValue::Text(text)) if text.is_empty() => f64::NAN,
                     other => cell_number(other.as_ref()),
                 };

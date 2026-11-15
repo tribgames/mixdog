@@ -46,6 +46,15 @@ fn registry(golden: &Value) -> Registry {
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         }
     }
+    // The recording was made on Windows: Calibri, which a workbook without styles is measured in and which is not a fixture
+    // face, was set in the system's own face. The same file is registered here.
+    let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")).map(std::path::PathBuf::from).expect("the Windows directory");
+    for (alias, files) in [("Calibri", ["calibri.ttf"].as_slice())] {
+        for file in files {
+            let path = root.join("Fonts").join(file);
+            registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("the recording used the system {alias}, which is not readable here ({}): {error}", path.display()));
+        }
+    }
     registry
 }
 
