@@ -1,0 +1,311 @@
+{
+  "id": "web_push_across_runtimes",
+  "description": "the VAPID identity, the capable PC and a browser subscription written by one runtime are served by the other: the same key, the same subscription frame, a send signed with the same key, and a retired subscription dropped from the file",
+  "knobs": {
+    "handshakeStallMs": 600000,
+    "livenessProbeMs": 600000
+  },
+  "files": {
+    "data": {
+      "webpush-vapid.json": "{\n  \"version\": 1,\n  \"publicKey\": \"BCBqrxCyNJjq0iR22sVWo1AhezxArf02gQ_ukSIxbcFRu-F_39hlQvJP0Swd94RA-te4K8L_IPknz52Sbv2naxI\",\n  \"privateKeyJwk\": {\n    \"kty\": \"EC\",\n    \"x\": \"IGqvELI0mOrSJHbaxVajUCF7PECt_TaBD-6RIjFtwVE\",\n    \"y\": \"u-F_39hlQvJP0Swd94RA-te4K8L_IPknz52Sbv2naxI\",\n    \"crv\": \"P-256\",\n    \"d\": \"VT8Fx6NzbqW2Q0HcmNKWk64gz8vcA0ICgpUtWigFU2I\"\n  }\n}"
+    }
+  },
+  "keys": {
+    "vapid_public": [
+      "BCBqrxCyNJjq0iR22sVWo1AhezxArf02gQ_ukSIxbcFRu-F_39hlQvJP0Swd94RA-te4K8L_IPknz52Sbv2naxI"
+    ]
+  },
+  "fakes": {
+    "webPushFetch": {
+      "answers": [
+        {
+          "status": 201
+        },
+        {
+          "status": 410
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "secret-for-desktop-one-0001"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"set-client-token\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1\",\"name\":\"Pixel 9\",\"platform\":\"Android\",\"browser\":\"Chrome\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenP1",
+          "from": "body_json",
+          "path": "token"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "path": "/webpush/key",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{}",
+      "expect_status": 200
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-ready\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\"}",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}}",
+      "expect_status": 200
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}}",
+      "expect_status": 200
+    },
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "crossover"
+    },
+    {
+      "do": "http",
+      "path": "/webpush/key",
+      "expect_status": 200
+    },
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "secret-for-desktop-one-0001"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\"}",
+      "expect_status": 200
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\",\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1\",\"payload\":\"AAECAwQFBgcICQoLDA0ODw\",\"ttl\":60,\"urgency\":\"normal\",\"topic\":\"msg1\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\",\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1\",\"payload\":\"AAECAwQFBgcICQoLDA0ODw\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\"}",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/unregister",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenP1}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/twin-endpoint-1\"}",
+      "expect_status": 200
+    }
+  ]
+}
