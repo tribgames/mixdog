@@ -18,6 +18,7 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt", "process", "io-util", "macros", "sync", "time"] }
 tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+zip = { workspace = true }
 
 [target."cfg(windows)".dependencies]
 # src/ps/collate.rs (CompareStringEx: Sort-Object and -eq on strings), src/ps/datetime.rs (ToUniversalTime with the dynamic time zone).
@@ -123,3 +124,11 @@ path = "tests/session_live.rs"
 
 [target."cfg(windows)".dev-dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[[test]]
+name = "actions"
+path = "tests/actions.rs"
+
+[[test]]
+name = "actions_live"
+path = "tests/actions_live.rs"

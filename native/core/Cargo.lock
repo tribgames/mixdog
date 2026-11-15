@@ -5810,6 +5810,7 @@ dependencies = [
  "tokio-util",
  "windows",
  "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]
@@ -5863,14 +5864,20 @@ name = "mixdog-office-pdf"
 version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
+ "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
+ "mixdog-ooxml",
  "mixdog-pdf",
  "mixdog-raster",
+ "mixdog-rt",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -5882,6 +5889,8 @@ dependencies = [
  "mixdog-js",
  "mixdog-office-author",
  "mixdog-office-base",
+ "mixdog-office-design",
+ "mixdog-office-pdf",
  "mixdog-ooxml",
  "mixdog-raster",
  "mixdog-workspace-hack",
@@ -5902,6 +5911,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-ooxml-text",
+ "mixdog-raster",
  "mixdog-rt",
  "mixdog-statefile",
  "mixdog-workspace-hack",
@@ -5914,6 +5924,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "windows-sys 0.61.2",
  "zip",
 ]
 
@@ -6088,6 +6099,26 @@ dependencies = [
  "url",
  "uuid",
  "webrtc",
+]
+
+[[package]]
+name = "mixdog-repl"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "mixdog-js",
+ "mixdog-launch",
+ "mixdog-markdown-ansi",
+ "mixdog-rt",
+ "mixdog-session-view",
+ "mixdog-term",
+ "mixdog-termtext",
+ "mixdog-tui",
+ "mixdog-tui-style",
+ "mixdog-view-model",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
