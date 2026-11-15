@@ -4,6 +4,7 @@ mod image;
 mod media_office;
 mod office_journal;
 mod ooxml;
+mod pdf;
 
 use base64::Engine as _;
 use base64::alphabet;
@@ -15,13 +16,14 @@ use serde_json::Value;
 use crate::error::CodedError;
 use crate::registry::Registry;
 
-/// Registers the document methods: `ooxml.text`, `media.officeText`, and the image calls. The office,
-/// pdf and syntax families register themselves as their tasks land.
+/// Registers the document methods: `ooxml.text`, `media.officeText`, the image calls and the PDF calls (`pdf.inspect`,
+/// `media.pdfText`, `media.pdfCounts`). The office and syntax families register themselves as their tasks land.
 pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
     office_journal::register(registry);
     image::register(registry);
+    pdf::register(registry);
 }
 
 /// The error a call with a malformed parameter answers.
