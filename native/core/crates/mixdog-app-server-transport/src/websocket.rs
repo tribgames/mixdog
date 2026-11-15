@@ -25,6 +25,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
+use tokio_tungstenite::tungstenite::handshake::server::Callback;
 use tokio_tungstenite::tungstenite::handshake::server::ErrorResponse;
 use tokio_tungstenite::tungstenite::handshake::server::Request;
 use tokio_tungstenite::tungstenite::handshake::server::Response;
@@ -260,9 +261,7 @@ async fn upgrade(
     if let Err(error) = stream.set_nodelay(true) {
         tracing::debug!(%error, "set_nodelay failed");
     }
-    let screen = |request: &Request, response: Response| {
-        screen_upgrade(context, &pending, request, response)
-    };
+    let screen = UpgradeScreen { context, pending: &pending };
     let upgraded = tokio::select! {
         () = pending.abandoned() => return None,
         result = tokio_tungstenite::accept_hdr_async_with_config(
@@ -283,78 +282,82 @@ async fn upgrade(
     }
 }
 
-/// The upgrade rules of P §4.1, in order: path, `Origin`, Bearer token, connection limit, then the narrowing headers.
-fn screen_upgrade(
-    context: &Context,
-    pending: &Pending,
-    request: &Request,
-    response: Response,
-) -> Result<Response, ErrorResponse> {
-    if request.uri().path() != "/rpc" {
-        return Err(refusal(StatusCode::NOT_FOUND, "notFound"));
-    }
-    if request.headers().contains_key(header::ORIGIN) {
-        return Err(refusal(StatusCode::FORBIDDEN, "originRefused"));
-    }
-    let authorized = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| context.auth.accepts(value));
-    if !authorized {
-        return Err(refusal(StatusCode::UNAUTHORIZED, "unauthorized"));
-    }
-    if pending.over_limit() {
-        return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit"));
-    }
-    // A window names itself on either listener. It is judged before the relay header: a socket
-    // is one phone or one window, never both, and a bad value is refused, not ignored.
-    let window = match single_header(request, WINDOW_HEADER) {
-        Ok(value) => value,
-        Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow")),
-    };
-    let role = match single_header(request, WINDOW_ROLE_HEADER) {
-        Ok(value) => value,
-        Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
-    };
-    if let Some(window) = window {
-        if !is_window_token(window) {
-            return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow"));
+/// The callback owns no connection state; tungstenite fixes its response/error types.
+struct UpgradeScreen<'a> {
+    context: &'a Context,
+    pending: &'a Pending,
+}
+
+impl Callback for UpgradeScreen<'_> {
+    /// The upgrade rules of P §4.1, in order: path, Origin, Bearer token, connection limit, then narrowing.
+    fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+        let Self { context, pending } = self;
+        if request.uri().path() != "/rpc" {
+            return Err(refusal(StatusCode::NOT_FOUND, "notFound"));
         }
-        let role = match role {
-            None | Some("main") => WindowRole::Main,
-            Some(role) => match role.strip_prefix("server:").filter(|id| is_window_token(id)) {
-                Some(id) => WindowRole::Server {
-                    connection_id: id.to_owned(),
-                },
-                None => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
-            },
+        if request.headers().contains_key(header::ORIGIN) {
+            return Err(refusal(StatusCode::FORBIDDEN, "originRefused"));
+        }
+        let authorized = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| context.auth.accepts(value));
+        if !authorized {
+            return Err(refusal(StatusCode::UNAUTHORIZED, "unauthorized"));
+        }
+        if pending.over_limit() {
+            return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit"));
+        }
+        // A window names itself on either listener. It is judged before the relay header: a socket
+        // is one phone or one window, never both, and a bad value is refused, not ignored.
+        let window = match single_header(request, WINDOW_HEADER) {
+            Ok(value) => value,
+            Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow")),
         };
-        if request.headers().contains_key(RELAY_PEER_HEADER) {
-            return Err(refusal(StatusCode::BAD_REQUEST, "conflictingNarrowing"));
+        let role = match single_header(request, WINDOW_ROLE_HEADER) {
+            Ok(value) => value,
+            Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+        };
+        if let Some(window) = window {
+            if !is_window_token(window) {
+                return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow"));
+            }
+            let role = match role {
+                None | Some("main") => WindowRole::Main,
+                Some(role) => match role.strip_prefix("server:").filter(|id| is_window_token(id)) {
+                    Some(id) => WindowRole::Server {
+                        connection_id: id.to_owned(),
+                    },
+                    None => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+                },
+            };
+            if request.headers().contains_key(RELAY_PEER_HEADER) {
+                return Err(refusal(StatusCode::BAD_REQUEST, "conflictingNarrowing"));
+            }
+            pending.narrow_to_window(window.to_owned(), role);
+            return Ok(response);
         }
-        pending.narrow_to_window(window.to_owned(), role);
-        return Ok(response);
-    }
-    if role.is_some() {
-        return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"));
-    }
-    // Only the SSH listener is where a bridge brings phones; on the loopback listener the
-    // header means nothing. A header that is present but not a single routing id is refused,
-    // not ignored: ignoring it would leave the phone with the tunnel's wider rights.
-    if context.origin == ConnectionOrigin::SshTunnel {
-        let mut values = request.headers().get_all(RELAY_PEER_HEADER).iter();
-        if let Some(value) = values.next() {
-            let peer = value.to_str().ok().filter(|peer| is_routing_id(peer));
-            match (peer, values.next()) {
-                (Some(peer), None) => {
-                    pending.narrow_to_relay(peer.to_owned());
+        if role.is_some() {
+            return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"));
+        }
+        // Only the SSH listener is where a bridge brings phones; on the loopback listener the
+        // header means nothing. A header that is present but not a single routing id is refused,
+        // not ignored: ignoring it would leave the phone with the tunnel's wider rights.
+        if context.origin == ConnectionOrigin::SshTunnel {
+            let mut values = request.headers().get_all(RELAY_PEER_HEADER).iter();
+            if let Some(value) = values.next() {
+                let peer = value.to_str().ok().filter(|peer| is_routing_id(peer));
+                match (peer, values.next()) {
+                    (Some(peer), None) => {
+                        pending.narrow_to_relay(peer.to_owned());
+                    }
+                    _ => return Err(refusal(StatusCode::BAD_REQUEST, "invalidRelayPeer")),
                 }
-                _ => return Err(refusal(StatusCode::BAD_REQUEST, "invalidRelayPeer")),
             }
         }
+        Ok(response)
     }
-    Ok(response)
 }
 
 fn refusal(status: StatusCode, reason: &str) -> ErrorResponse {

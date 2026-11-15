@@ -1297,7 +1297,7 @@ impl Lane for WriterLane {
             if revoked {
                 // The frame is lost, so the lane must recover through a snapshot.
                 state.lag(self.serial);
-                self.shared.sync_lag_flag(&state);
+                self.shared.sync_lag_flag(state);
             }
             wake || revoked
         };
