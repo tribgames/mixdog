@@ -1,9 +1,9 @@
-//! Microsoft Office through COM: the transport to the PowerShell hosts that implement the operations.
+//! Microsoft Office through COM: the transport to the host that implements the operations.
 //!
-//! The scripts in `assets/` are the COM implementation and stay PowerShell. This crate embeds them, writes them under
-//! the data directory, starts a host per call (one-shot) or per session (long-lived, one JSON line per request), and
-//! keeps the guarantees the hosts depend on: a cancel or a timeout never kills a host, it only closes the host's stdin
-//! so the host's own `finally` closes its document and quits the application it owns; a cleanup that did not finish is
+//! The host is the service binary itself, started as `<program> office-com-host` for one call (one-shot) or `<program>
+//! office-com-host --session` for a session (long-lived, one JSON line per request). This crate starts a host per call or per
+//! session and keeps the guarantees the hosts depend on: a cancel or a timeout never kills a host, it only closes the host's
+//! stdin so the host's own cleanup closes its document and quits the application it owns; a cleanup that did not finish is
 //! reported pending, not forced; and every live session host gets that same EOF when [`OfficeCom::shutdown`] runs.
 //!
 //! Answers are the hosts' JSON, as `serde_json::Value`, with the transport's own failures in the same shape.
@@ -27,10 +27,9 @@ pub mod excel;
 pub mod ppt;
 pub mod word;
 mod oneshot;
-mod route;
-mod scripts;
 mod session;
 
+#[cfg(any(test, feature = "test-support"))]
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -71,21 +70,19 @@ pub const CLOSE_TIMEOUT: Duration = Duration::from_millis(15_000);
 
 const UNSUPPORTED: &str = "Microsoft Office COM is available on Windows only";
 
-/// Where the transport keeps its scripts and which lanes it runs on.
+/// Where the transport keeps what hosts record and which lanes it runs on.
 #[derive(Clone)]
 pub struct OfficeComConfig {
-    /// The scripts are written under `<data_dir>/office/com/<digest>/`.
+    /// The hosts keep their record of the application they started under `<data_dir>/office/com-hosts/`.
     pub data_dir: PathBuf,
     pub tokens: LaneTokens,
     /// The wait for a host that was asked to end ([`DRAIN_GRACE`]).
     pub drain_grace: Duration,
-    /// The program the formats on the Rust host list are started on (as `<program> office-com-host`): the service
-    /// binary. The composer sets it, since the process composing the transport is not always that binary.
+    /// The program every host is started on (as `<program> office-com-host`): the service binary. The composer sets it,
+    /// since the process composing the transport is not always that binary.
     pub rust_host_program: PathBuf,
     #[cfg(any(test, feature = "test-support"))]
     host_command: Option<HostCommand>,
-    #[cfg(any(test, feature = "test-support"))]
-    rust_host_formats: Option<Vec<String>>,
 }
 
 impl OfficeComConfig {
@@ -97,25 +94,15 @@ impl OfficeComConfig {
             rust_host_program: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mixdogd")),
             #[cfg(any(test, feature = "test-support"))]
             host_command: None,
-            #[cfg(any(test, feature = "test-support"))]
-            rust_host_formats: None,
         }
     }
 
-    /// Hosts are started as `program args... <script path>` instead of through Windows PowerShell, and the transport is
-    /// available on every platform: for a stand-in host that speaks the line protocol.
+    /// Hosts are started as `program args... office-com-host [--session] --data-dir <dir>` on this program instead of the
+    /// service binary, and the transport is available on every platform: for a stand-in host that speaks the line protocol.
     #[cfg(any(test, feature = "test-support"))]
     #[must_use]
     pub fn with_host_command(mut self, program: PathBuf, args: Vec<OsString>) -> Self {
         self.host_command = Some((program, args));
-        self
-    }
-
-    /// The formats served by the Rust host, in place of the compiled list.
-    #[cfg(any(test, feature = "test-support"))]
-    #[must_use]
-    pub fn with_rust_host_formats(mut self, formats: &[&str]) -> Self {
-        self.rust_host_formats = Some(formats.iter().map(|format| (*format).to_owned()).collect());
         self
     }
 }
@@ -199,8 +186,21 @@ fn failed(value: &Value) -> bool {
     value.get("ok") != Some(&Value::Bool(true))
 }
 
+/// Earlier builds extracted their host scripts under `<data_dir>/office/com/`: the directory is removed (best effort, a
+/// failure is ignored), so no script of them stays on the machine. The records of the hosts live under `office/com-hosts/`,
+/// a sibling that is not touched.
+fn remove_extracted_scripts(tokens: LaneTokens, data_dir: &std::path::Path) {
+    let directory = data_dir.join("office").join("com");
+    if let Ok(job) = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| mixdog_fsio::remove_dir_all(lane, &directory)) {
+        mixdog_rt::spawn("office.script-cleanup", mixdog_rt::TaskClass::Work, async move {
+            let _ = job.await;
+        });
+    }
+}
+
 impl OfficeCom {
     pub fn new(config: OfficeComConfig) -> Self {
+        remove_extracted_scripts(config.tokens, &config.data_dir);
         let sweeper = Sweeper::new(config.tokens, config.data_dir.clone());
         // Office left behind by a host that died before its cleanup (in an earlier run, or while nothing was watching).
         sweeper.request();
@@ -215,8 +215,7 @@ impl OfficeCom {
     /// Which Office applications are installed and running, for docx, xlsx and pptx (one-shot, 20 s). `path` also tells
     /// whether that document is open in its application.
     pub async fn detect(&self, format: &str, path: &str) -> OfficeReply {
-        // Off Windows there is no COM to probe, and starting powershell.exe would only report a spawn failure as if
-        // Office were broken.
+        // Off Windows there is no COM to probe, and starting a host would only report a failure as if Office were broken.
         if !self.supported() {
             return OfficeReply::plain(unsupported());
         }
@@ -256,7 +255,7 @@ impl OfficeCom {
         if !sessions.reserve(&session_id) {
             return json!({"ok": false, "error": format!("Microsoft Office session already exists: {session_id}")});
         }
-        let running = match self.inner.start(true, payload.get("format").and_then(Value::as_str)).await {
+        let running = match self.inner.start(true).await {
             Ok(running) => running,
             Err(error) => {
                 sessions.release(&session_id);
@@ -366,50 +365,12 @@ impl Inner {
         cfg!(windows)
     }
 
-    /// Whether the Rust host serves `format`.
-    fn rust_serves(&self, format: Option<&str>) -> bool {
-        #[cfg(any(test, feature = "test-support"))]
-        if let Some(formats) = &self.config.rust_host_formats {
-            return route::serves(formats.iter().map(String::as_str), format);
-        }
-        route::serves(route::RUST_HOST_FORMATS.iter().copied(), format)
-    }
-
-    /// The program and leading arguments a PowerShell host is started with; the script path follows.
-    fn powershell_command(&self) -> HostCommand {
-        #[cfg(any(test, feature = "test-support"))]
-        if let Some(command) = &self.config.host_command {
-            return command.clone();
-        }
-        let program = match std::env::var_os("SystemRoot") {
-            Some(root) => PathBuf::from(root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe"),
-            None => PathBuf::from("powershell.exe"),
-        };
-        let args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-File"];
-        (program, args.iter().map(OsString::from).collect())
-    }
-
-    /// Starts a host for a call or a session on `format`: the Rust host when it serves the format, otherwise
-    /// PowerShell on the embedded script (written first, the bytes already there verified).
-    async fn start(&self, session: bool, format: Option<&str>) -> Result<Running, String> {
+    /// Starts a host for a call or a session: the host program, `office-com-host` (with `--session` for a session) and the
+    /// data directory the host keeps its record of the application under.
+    async fn start(&self, session: bool) -> Result<Running, String> {
         let rt = Handle::current();
         let tokens = self.config.tokens;
-        let (program, args) = if self.rust_serves(format) {
-            (self.config.rust_host_program.clone(), route::rust_host_args(session, &self.config.data_dir))
-        } else {
-            let script = if session { scripts::SESSION_HOST_SCRIPT } else { scripts::HOST_SCRIPT };
-            let data_dir = self.config.data_dir.clone();
-            let dir = tokens
-                .maintenance_io
-                .submit(&CancellationToken::new(), move |lane| scripts::ensure(lane, &data_dir))
-                .map_err(|full| full.to_string())?
-                .await
-                .map_err(|dropped| dropped.to_string())?
-                .map_err(|error| format!("Microsoft Office host scripts could not be written: {error}"))?;
-            let (program, mut args) = self.powershell_command();
-            args.push(dir.join(script).into_os_string());
-            (program, args)
-        };
+        let (program, args) = self.host_command(session);
         tokens
             .spawn_io
             .submit(&CancellationToken::new(), move |_lane| session::spawn_host(&program, &args, &rt))
@@ -419,8 +380,21 @@ impl Inner {
             .map_err(|error| error.to_string())
     }
 
+    /// The program and arguments of a host.
+    fn host_command(&self, session: bool) -> HostCommand {
+        let mut args = Vec::new();
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some((program, leading)) = &self.config.host_command {
+            args.extend(leading.iter().cloned());
+            args.extend(session::host_args(session, &self.config.data_dir));
+            return (program.clone(), args);
+        }
+        args.extend(session::host_args(session, &self.config.data_dir));
+        (self.config.rust_host_program.clone(), args)
+    }
+
     async fn call_once(&self, payload: &Value, options: &CallOptions) -> OfficeReply {
-        match self.start(false, route::one_shot_format(payload)).await {
+        match self.start(false).await {
             Ok(running) => {
                 let client = oneshot::attach(running, self.config.drain_grace, self.sweeper.clone());
                 oneshot::call_once(client, payload, options.timeout, &options.cancel).await
