@@ -548,6 +548,8 @@ pub struct ProxyProviderInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "result", rename_all = "camelCase")]
+// The inline enum footprint is bounded; variable-size fields keep their owned storage.
+#[allow(clippy::large_enum_variant, reason = "Keep the public proxy reply DTO by value; boxing Failed would add an allocation and change the canonical reply constructors")]
 pub enum ProxyAnswer {
     /// `Send` finished; its events came ahead of it.
     #[serde(rename_all = "camelCase")]

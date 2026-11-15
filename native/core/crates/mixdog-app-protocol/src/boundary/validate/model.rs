@@ -126,15 +126,15 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     allowed_keys(object, &MODEL_SELECTION_KEYS, path, "model selection")?;
     let at = |name: &str| join(path, name);
     boolean(object.get("onlyIfEmpty"), &at("onlyIfEmpty"), "selection.onlyIfEmpty must be a boolean.")?;
-    if let Some(tokens) = object.get("contextTokens") {
-        if !safe_integer(tokens).is_some_and(|number| number >= 1.0) {
-            return refuse(&at("contextTokens"), "selection.contextTokens must be a positive integer.");
-        }
+    if let Some(tokens) = object.get("contextTokens")
+        && !safe_integer(tokens).is_some_and(|number| number >= 1.0)
+    {
+        return refuse(&at("contextTokens"), "selection.contextTokens must be a positive integer.");
     }
-    if let Some(effort) = object.get("effort") {
-        if !effort.is_string() {
-            return refuse(&at("effort"), "selection.effort must be a string.");
-        }
+    if let Some(effort) = object.get("effort")
+        && !effort.is_string()
+    {
+        return refuse(&at("effort"), "selection.effort must be a string.");
     }
     boolean(object.get("fast"), &at("fast"), "selection.fast must be a boolean.")?;
     boolean(object.get("autoEffort"), &at("autoEffort"), "selection.autoEffort must be a boolean.")?;
@@ -149,13 +149,13 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     // A number is accepted as the runtime takes it (`normalizeContextPercent` snaps it to a 10% step from 10 to 100):
     // the phone sends any number here (fixtures/clients-accepted.json), so the desktop's range and step rule
     // would refuse what they send today.
-    if let Some(percent) = object.get("contextPercent") {
-        if !percent.is_number() {
-            return refuse(
-                &at("contextPercent"),
-                "selection.contextPercent must be a 10-point percentage from 10 to 100.",
-            );
-        }
+    if let Some(percent) = object.get("contextPercent")
+        && !percent.is_number()
+    {
+        return refuse(
+            &at("contextPercent"),
+            "selection.contextPercent must be a 10-point percentage from 10 to 100.",
+        );
     }
     if let Some(fallbacks) = object.get("fallbacks") {
         let entries = match fallbacks.as_array() {
@@ -212,33 +212,33 @@ fn decision(params: Option<&Value>) -> Checked {
         return refuse(path, "decision is invalid.");
     }
     allowed_keys(object, &TOOL_APPROVAL_KEYS, path, "decision")?;
-    if let Some(reason) = object.get("reason") {
-        if !reason.as_str().is_some_and(|text| utf16_len(text) <= 4_096) {
-            return refuse(&at("reason"), "decision.reason is invalid.");
-        }
+    if let Some(reason) = object.get("reason")
+        && !reason.as_str().is_some_and(|text| utf16_len(text) <= 4_096)
+    {
+        return refuse(&at("reason"), "decision.reason is invalid.");
     }
     if let Some(answers) = object.get("answers") {
         question_answers(answers, &at("answers"))?;
     }
-    if let Some(reply) = object.get("reply") {
-        if !reply.as_str().is_some_and(|text| utf16_len(js_trim(text)) <= 4_000) {
-            return refuse(&at("reply"), "decision.reply is invalid.");
-        }
+    if let Some(reply) = object.get("reply")
+        && !reply.as_str().is_some_and(|text| utf16_len(js_trim(text)) <= 4_000)
+    {
+        return refuse(&at("reply"), "decision.reply is invalid.");
     }
-    if let Some(response) = object.get("response") {
-        if !response.as_str().is_some_and(|text| TOOL_APPROVAL_RESPONSES.contains(&text)) {
-            return refuse(&at("response"), "decision.response is invalid.");
-        }
+    if let Some(response) = object.get("response")
+        && !response.as_str().is_some_and(|text| TOOL_APPROVAL_RESPONSES.contains(&text))
+    {
+        return refuse(&at("response"), "decision.response is invalid.");
     }
-    if let Some(remember) = object.get("remember") {
-        if !remember.as_str().is_some_and(|text| TOOL_APPROVAL_REMEMBER.contains(&text)) {
-            return refuse(&at("remember"), "decision.remember is invalid.");
-        }
+    if let Some(remember) = object.get("remember")
+        && !remember.as_str().is_some_and(|text| TOOL_APPROVAL_REMEMBER.contains(&text))
+    {
+        return refuse(&at("remember"), "decision.remember is invalid.");
     }
-    if let Some(scope) = object.get("scope") {
-        if !scope.as_str().is_some_and(|text| utf16_len(text) <= 200) {
-            return refuse(&at("scope"), "decision.scope is invalid.");
-        }
+    if let Some(scope) = object.get("scope")
+        && !scope.as_str().is_some_and(|text| utf16_len(text) <= 200)
+    {
+        return refuse(&at("scope"), "decision.scope is invalid.");
     }
     if let Some(edited) = object.get("editedArgs") {
         let valid = edited.as_object().is_some_and(|map| {
@@ -272,10 +272,10 @@ fn question_answers(value: &Value, path: &str) -> Checked {
         if !labels_valid {
             return refuse(&join(&entry_path, "selected"), INVALID);
         }
-        if let Some(text) = object.get("text") {
-            if !text.as_str().is_some_and(|text| utf16_len(text) <= 4_000) {
-                return refuse(&join(&entry_path, "text"), INVALID);
-            }
+        if let Some(text) = object.get("text")
+            && !text.as_str().is_some_and(|text| utf16_len(text) <= 4_000)
+        {
+            return refuse(&join(&entry_path, "text"), INVALID);
         }
     }
     Ok(())
