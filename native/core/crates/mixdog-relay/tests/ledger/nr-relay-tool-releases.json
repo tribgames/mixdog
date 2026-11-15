@@ -1,0 +1,6 @@
+[
+  {"node": "apps/relay/deploy/renderer-releases.test.mjs::the first deploy adopts the installed renderer as legacy and adds the new one beside it", "rust": "tool_renderer_releases::the_first_deploy_adopts_the_installed_renderer_as_legacy_and_adds_the_new_one_beside_it"},
+  {"node": "apps/relay/deploy/renderer-releases.test.mjs::garbage collection applies the retention rule and spares the installed tree it was linked from", "rust": "tool_renderer_releases::garbage_collection_applies_the_retention_rule_and_spares_the_installed_tree_it_was_linked_from"},
+  {"node": "apps/relay/deploy/renderer-releases.test.mjs::unregistered leftovers from an interrupted run are collected, and bad input is refused", "rust": "tool_renderer_releases::unregistered_leftovers_from_an_interrupted_run_are_collected_and_bad_input_is_refused"},
+  {"node": "apps/relay/deploy/renderer-releases.test.mjs::the CLI reads reporting devices from devices.json and prints one JSON result", "rust": "tool_renderer_releases::the_cli_reads_reporting_devices_from_devices_json_and_prints_one_json_result"}
+]
