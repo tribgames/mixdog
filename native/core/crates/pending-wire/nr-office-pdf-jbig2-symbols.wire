@@ -20,3 +20,16 @@ For the lead when merging:
   codec/jbig2/mod.rs (the module lines, the segment results of dictionaries, patterns and tables, the dispatch of the
   segment types 0, 4, 6, 7, 16, 20, 22, 23 and 53, and `finish_region`).
   The generic twin (tests/twin_jbig2_generic.rs, 630 recorded cases) still passes with these edits (run outside cargo, see the result).
+
+Review addition (the fixture index):
+
+- native/core/fixtures/office-jbig2-symbols/MANIFEST.json as committed was written by the recorder's own code: it has no
+  `product`, `fileCount` or `totalBytes`, so benchmarks/rust-core/recorders/verify-manifests.mjs (which reads
+  `manifest.product.srcTree` of every set directory it finds) stops with a TypeError on it. The recorder now writes the
+  manifest through lib/common.mjs `writeSetManifest` with `productIdentity` and `recorderProvenance`, as
+  record-office-jbig2.mjs does. Re-record once in the full checkout
+  (`node native/core/crates/mixdog-pdf/tests/record_jbig2_symbols.mjs --tree <Node product tree with node_modules>`,
+  or `cargo test -p mixdog-pdf --test twin_jbig2_symbols -- --ignored`); cases.txt must come out unchanged
+  (sha256 4a29a6ff12ba7ed735315cbd7a6788be853e6aac5a96c841c3e25c314c44505c). Then run verify-manifests.mjs, which writes
+  the index entry of native/core/fixtures/MANIFEST.json (set "office-jbig2-symbols", between "office-jbig2" and
+  "office-journal", fileCount 1, totalBytes 1323078, manifestSha256 of the re-written MANIFEST.json).
