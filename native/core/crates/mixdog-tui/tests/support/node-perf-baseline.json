@@ -1,0 +1,17 @@
+{
+  "about": "The numbers of the Node terminal UI on the baseline machine that perf_pty.rs must not be worse than. A number is null until it is recorded; perf_pty.rs fails on a null and prints what it measured.",
+  "source": {
+    "launcher": "scripts/tui-perf-run.ps1 (MIXDOG_TUI_PERF, MIXDOG_TUI_LOOP_PROBE probes; output in tui-perf.log)",
+    "transcriptFrameBench": "scripts/tui-runtime-load-bench.mjs (frame_time.p95_ms; its own gate is the checked-in baseline p95 times 1.5, then the 16.67 ms floor)"
+  },
+  "machine": null,
+  "recordedAt": null,
+  "firstFrameMs": null,
+  "keystrokeToFrameMs": null,
+  "streamCharsPerSecond": null,
+  "definitions": {
+    "firstFrameMs": "median over three starts against a running core: from the start of the process to the first frame that shows the prompt box (the core's own start is not in it: the first start of the run only starts the core)",
+    "keystrokeToFrameMs": "median over 40 keystrokes typed one at a time into an empty prompt: from the write of the byte to the chunk of output that shows the character in the prompt",
+    "streamCharsPerSecond": "from the Enter that submits a prompt to the frame that shows the last line of a 600-line streamed answer, the answer's characters divided by that time"
+  }
+}
