@@ -22,10 +22,16 @@ mixdog-fsio = { workspace = true }
 mixdog-core-session = { workspace = true }
 mixdog-core-config = { workspace = true }
 mixdog-statefile = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 unicode-segmentation = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[dev-dependencies]
+portable-pty = { workspace = true }
+vte = { workspace = true }
+tempfile = { workspace = true }
+mixdog-cli = { workspace = true }
+mixdog-core = { workspace = true }
