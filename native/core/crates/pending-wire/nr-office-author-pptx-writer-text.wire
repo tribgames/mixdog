@@ -1,0 +1,44 @@
+# nr-office-author-pptx-writer-text: integration fragment
+
+Text boxes (addText) and tables (addTable) for the pptx writer of mixdog-office-author (module pptx_writer: text.rs and
+table.rs), equal to pptxgenjs 4.0.1 part by part. No protocol method, service, SERVICE_PENDING name, Cargo dependency edge
+or workspace member belongs to it: every crate it uses (mixdog-js, base64, serde_json, mixdog-office-base with feature
+test-support) is already a dependency of mixdog-office-author.
+
+## Files outside the owned list that this task had to change
+
+The writer's objects, relationships and exports are held by files of nr-office-author-pptx-writer-package; adding text
+and tables needed small edits there (a text box and a table are slide objects, a hyperlink in text takes the slide's next
+relationship id, and the counts of "Shape n" / "Text n" names include both kinds):
+
+- src/pptx_writer/slide.rs: SlideObject::Text and SlideObject::Table, Slide::add_text, Slide::add_table,
+  Slide::add_hyperlink_rel (add_shape uses it too), the two arms in csld_xml. The chart task of the same wave adds its own
+  variant and arm beside them.
+- src/pptx_writer/shapes.rs: line_xml, adjustments_xml, location_attributes, shape_shadow_xml, link_click_xml (its rid is
+  any Display) and Shadow::corrected are pub(crate): the text box writes the same p:sp frame as a shape.
+- src/pptx_writer/mod.rs: "mod table;", "mod text;" and the re-exports of the new option types.
+
+## benchmarks/rust-core/recorders/record-office-pptx-writer-text.mjs and native/core/fixtures/office-pptx-writer-text/
+
+New recorder and its golden (18 cases, 61 blobs). Both are added with git add --sparse in the worktree.
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, after the entry of office-pptx-writer (keep the list sorted by set name), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-pptx-writer-text.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-pptx-writer-text/MANIFEST.json",
+      "manifestSha256": "12752600d2ca6f573e88958f6b04ce6955fc3efa8c6bb8b3a03f4d7c4cbd0f5d",
+      "recorder": "benchmarks/rust-core/recorders/record-office-pptx-writer-text.mjs",
+      "set": "office-pptx-writer-text",
+      "totalBytes": 526074
+    }
+
+## Not compiled by cargo
+
+Written without cargo. The sources (shapes, text, table, slide, presentation, media, theme, mod) and the twin test were
+compiled and run with rustc against stand-ins for the external crates in a scratch folder: 39 unit tests, both pptx writer
+twin tests (all 18 recorded text and table cases and the 31 earlier cases) pass there. The first cargo build and
+cargo test -p mixdog-office-author --test twin_pptx_writer_text is the real check.
