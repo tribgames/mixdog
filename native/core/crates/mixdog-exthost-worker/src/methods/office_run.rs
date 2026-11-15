@@ -99,7 +99,7 @@ impl BriefReadings for AuthoringBriefs {
 
 /// The machine of a batch: the PDF operation set, a Word chart drawn into a PDF and its first page rasterised three pixels a
 /// point, and the brief readings.
-struct Machine {
+pub(super) struct Machine {
     lanes: LaneTokens,
     fonts: Arc<FontRegistry>,
     font_env: FontEnv,
@@ -129,7 +129,7 @@ impl BatchHost for Machine {
 }
 
 /// What this process supplies to the engine.
-struct WorkerPlatform {
+pub(super) struct WorkerPlatform {
     lanes: LaneTokens,
     office: OfficeCom,
     fonts: Arc<FontRegistry>,
@@ -190,8 +190,8 @@ impl Platform for WorkerPlatform {
 }
 
 /// The engine of this process and the browser endpoint its platform leases through.
-struct Office {
-    engine: Arc<Engine<WorkerPlatform>>,
+pub(super) struct Office {
+    pub(super) engine: Arc<Engine<WorkerPlatform>>,
     browser: Arc<CallBrowser>,
 }
 
@@ -199,7 +199,7 @@ static OFFICE: OnceCell<Office> = OnceCell::const_new();
 
 /// The engine of this process, made on the first call (the system's fonts are scanned once, and the Office transport keeps its
 /// scripts under the Office data folder), so a worker that is only asked about a PDF starts as fast as before.
-async fn office(cancel: &CancellationToken) -> Result<&'static Office, CodedError> {
+pub(super) async fn office(cancel: &CancellationToken) -> Result<&'static Office, CodedError> {
     OFFICE
         .get_or_try_init(|| async {
             let lanes = lanes()?;

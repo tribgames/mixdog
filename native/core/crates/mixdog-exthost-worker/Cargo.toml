@@ -66,6 +66,7 @@ mixdog-ooxml = { workspace = true }
 mixdog-ooxml-text = { workspace = true }
 mixdog-pdf = { workspace = true }
 mixdog-rt = { workspace = true }
+mixdog-skill-scripts = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
