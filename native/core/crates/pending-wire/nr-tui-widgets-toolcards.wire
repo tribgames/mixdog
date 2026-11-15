@@ -1,0 +1,29 @@
+# nr-tui-widgets-toolcards: the tool execution cards of mixdog-tui-widgets
+
+Nothing to apply to a hot file: the crate's Cargo.toml already names every crate the cards use (mixdog-js,
+mixdog-markdown-ansi, mixdog-term, mixdog-termtext, mixdog-tui-style, mixdog-view-model, serde_json), so no workspace
+member, workspace dependency, Cargo.lock edge or protocol row is needed.
+
+## What the wave must know
+
+* Entry point for the transcript tasks: `mixdog_tui_widgets::tool_cards::render_tool_card(&props, &CardCtx)` returns the
+  card's lines (its length is its exact height; a card that is not `attached` starts with one blank row). `props` are the
+  props `ToolExecution.jsx` took (name, args, result, rawResult, uiDiff, isError, errorCount, callErrorCount,
+  exitErrorCount, expanded, attached, count, completedCount, startedAt, completedAt, aggregate, categories,
+  doneCategories, headerFinalized, deferredDisplayReady). `CardCtx { columns, now_ms, max_render_lines }` carries what the
+  JSX read from the terminal, `Date.now()` and the environment; `CardCtx::new(columns, now_ms)` reads the row cap from
+  MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES (then MIXDOG_TUI_EXPANDED_MAX_ROWS), decision D8.
+* The pending card is animated by the owner: re-render it every `tool_cards::TOOL_ANIM_TICK_MS` (500 ms) while
+  `pending`, passing the new `now_ms`; the card owns no timer.
+* The expanded-body functions are public for the row estimate: `tool_cards::output_format::{format_expanded_result,
+  wrap_expanded_result_lines, resolve_max_render_lines}`.
+
+## Verify
+
+`cargo test --offline -p mixdog-tui-widgets` runs the unit tests and `tests/tool_cards_twin.rs`.
+The recording is checked with the recorder of this task, not the generic one (record-ink-frames.mjs has no entry for
+ToolExecution and its clock cannot be fixed):
+
+    node native/core/crates/mixdog-tui-widgets/tests/recorders/record-tool-cards.mjs --tree C:/Project/mixdog --cases native/core/crates/mixdog-tui-widgets/tests/cases/tool_cards.json --check native/core/crates/mixdog-tui-widgets/tests/goldens/tool_cards.json
+
+`tests/cases/tool_cards.json` is written by `node tests/recorders/gen-tool-cards-cases.mjs`.
