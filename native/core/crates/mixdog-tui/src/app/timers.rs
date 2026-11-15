@@ -4,7 +4,7 @@
 //! [`AppState::on_timers`]; [`AppState::background_pending`] says there is work to run right now ([`AppState::run_background`]),
 //! one item per call so a frame is painted between two of them (they are blocking store calls).
 
-use mixdog_session_view::store::{OAUTH_FLOW_TTL, StoreEvent};
+use mixdog_session_view::store::{OAUTH_FLOW_TTL, OAUTH_POLL, StoreEvent};
 use serde_json::{Value, json};
 
 use super::AppState;
@@ -18,8 +18,10 @@ use crate::pickers::settings::picker::run_live_refresh;
 use crate::slash::host::Tone;
 use crate::slash::notices::truthy;
 
-/// How often a sign-in flow's status is read while it is pending (`OAUTH_POLL` of the store).
-const OAUTH_POLL_MS: u64 = 1500;
+/// How often a sign-in flow's status is read while it is pending: the store's [`OAUTH_POLL`], in milliseconds.
+fn oauth_poll_ms() -> u64 {
+    u64::try_from(OAUTH_POLL.as_millis()).unwrap_or(u64::MAX)
+}
 
 /// A provider sign-in the user finishes in a browser: its status is read until it settles or expires.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,7 +35,7 @@ impl OAuthWatch {
     /// A watch of the provider flow `flow_id` started at `now_ms`.
     pub fn provider(flow_id: &str, now_ms: u64) -> Self {
         let ttl = u64::try_from(OAUTH_FLOW_TTL.as_millis()).unwrap_or(u64::MAX);
-        Self { flow_id: flow_id.to_owned(), due_ms: now_ms + OAUTH_POLL_MS, expires_ms: now_ms.saturating_add(ttl) }
+        Self { flow_id: flow_id.to_owned(), due_ms: now_ms + oauth_poll_ms(), expires_ms: now_ms.saturating_add(ttl) }
     }
 }
 
@@ -104,7 +106,7 @@ impl AppState {
             let pending = matches!(&status, Ok(value) if value.get("state").and_then(Value::as_str) == Some("pending"));
             let expired = now >= watch.expires_ms;
             if pending && !expired {
-                self.oauth_watches[index].due_ms = now + OAUTH_POLL_MS;
+                self.oauth_watches[index].due_ms = now + oauth_poll_ms();
                 continue;
             }
             self.oauth_watches.remove(index);
