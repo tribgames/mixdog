@@ -19,7 +19,7 @@ import type { BrowserTargetSpec } from './target-resolve';
 import type { BrowserConsoleLedger } from './console';
 import type { DismissedBrowserDialog, PendingBrowserDialog } from './dialog-report';
 import type { BrowserDragData } from './input';
-import type { BrowserNetworkLedger } from './network';
+import type { BrowserNetworkLedger, InflightRequestTypes } from './network';
 import type { ActiveBrowserPerformanceTrace } from './performance';
 import type { PageActor, WindowOpenGesture } from './popup-focus';
 import type { VisualGrounding } from './ref-points';
@@ -348,6 +348,9 @@ export interface BrowserDiagnostics {
    *  documents: a navigation is refused before the next document begins. */
   refusedRequests: Map<string, string>;
   network: BrowserNetworkLedger;
+  /** Engine lane only: the type of each request in flight, for the intercept
+   *  rule of a paused one (the request ledger itself is the core's there). */
+  requestTypes: InflightRequestTypes;
   cdpSessions: Map<string, CdpTargetSession>;
   /** Execution contexts (`session:id`) running Chromium's own bundled
    *  components, such as the PDF viewer. Whatever they log is not page content. */

@@ -487,6 +487,7 @@ export function createBrowserHost(
         tabs: shown.tabs,
         taskLifecycle,
         signIn: agent.signIn,
+        drivePage: agent.drivePage,
         emulation: emulationOwner,
         traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
         processMemoryMb: (guest) => {

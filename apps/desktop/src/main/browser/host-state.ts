@@ -18,7 +18,7 @@ import type {
   GuestStateListener,
   OptionalKeys,
 } from './host-types';
-import { BrowserNetworkLedger } from './network';
+import { BrowserNetworkLedger, InflightRequestTypes } from './network';
 import { redactBrowserKnownSecrets, redactBrowserText } from './redaction';
 
 /** The console ledger of a guest: the browser's own faults also reach the observer. */
@@ -101,6 +101,7 @@ export class BrowserGuestStateStore {
       reportedNetworkFailures: new Set(),
       refusedRequests: new Map(),
       network: new BrowserNetworkLedger(),
+      requestTypes: new InflightRequestTypes(),
       cdpSessions: new Map(),
       browserComponentContexts: new Set(),
       consoleReplay: { seen: new Map(), floor: new Map() },

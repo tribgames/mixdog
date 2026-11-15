@@ -116,9 +116,13 @@ function answerInterceptedRequest(
   if (!pausedRequestId) return;
   // Fetch-domain pauses can classify fetch() as XHR. Match the same
   // Network-domain identity used by the request report, without conflating
-  // real XMLHttpRequests with fetch requests or crossing target sessions.
+  // real XMLHttpRequests with fetch requests or crossing target sessions. The
+  // identity is in the host's own ledger, or, while the core holds the ledger
+  // (the engine lane), in the types the router kept of the requests in flight.
+  const networkId = String(params.networkId || '');
   const resourceType =
-    diagnostics.network.inflightResourceType(String(params.networkId || ''), sessionId) ??
+    diagnostics.network.inflightResourceType(networkId, sessionId) ??
+    diagnostics.requestTypes.get(networkId, sessionId) ??
     String(params.resourceType || '');
   const rule = host.matchInterceptRule(guest, requestUrl, resourceType);
   // A pause carrying a status is already past the request stage, where

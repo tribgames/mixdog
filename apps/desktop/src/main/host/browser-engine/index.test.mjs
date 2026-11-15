@@ -204,3 +204,26 @@ test('a host console entry recorded for a page that already closed is dropped by
   assert.equal(batches[0][1].events[0].method, 'Mixdog.internalConsole');
   assert.deepEqual(uncaught, []);
 });
+
+test('a command of the core drives the page it leases through the host, and lets go with the lease', () => {
+  const h = harness();
+  const guest = { pageId: 'p1', isDestroyed: () => false, once: () => {}, on: () => {}, off: () => {}, removeListener: () => {} };
+  h.guests.push(guest);
+  const log = [];
+  h.ports.drivePage = (driven) => {
+    log.push(['drive', driven]);
+    return () => log.push(['release', driven]);
+  };
+  createBrowserEngine(h.connection, h.ports);
+  const { leases } = h.bound();
+  const lease = leases.acquire('p1', 'c1', 5_000);
+  assert.deepEqual(log, [['drive', guest]], 'the host is told an agent command works on the page');
+  leases.release('p1', lease);
+  assert.deepEqual(log, [
+    ['drive', guest],
+    ['release', guest],
+  ]);
+  // A page that is gone is not leased, and nothing is driven for it.
+  assert.throws(() => leases.acquire('p9', 'c2', 5_000));
+  assert.equal(log.length, 2);
+});
