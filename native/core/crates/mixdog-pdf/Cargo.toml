@@ -17,9 +17,13 @@ url = { workspace = true }
 flate2 = { workspace = true }
 mixdog-pdf-codec = { workspace = true }
 tracing = { workspace = true }
+mixdog-office-base = { workspace = true }
+mixdog-raster = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 mixdog-fsio = { workspace = true }
 mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }

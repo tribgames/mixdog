@@ -201,7 +201,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 /// `Path.GetFullPath`: a drive or UNC path is resolved by text (`.` and `..` segments, repeated separators, `/` to `\`),
 /// anything else is made absolute against the current directory.
-fn full_path(value: &str) -> Option<String> {
+pub(crate) fn full_path(value: &str) -> Option<String> {
     if value.contains('\0') {
         return None;
     }

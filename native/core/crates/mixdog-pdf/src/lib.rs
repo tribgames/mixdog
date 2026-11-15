@@ -30,6 +30,8 @@ pub mod oplist;
 pub mod outline_read;
 pub mod embed;
 pub mod image;
+pub mod author;
+pub mod render;
 
 pub use error::{Budget, CancelCheck, Guard, INCORRECT_PASSWORD, NEED_PASSWORD, PdfError, Result};
 pub use lexer::{CommandArgs, KnownCommands, Lexer};

@@ -13,6 +13,7 @@
 //! The template index writer is a later port (`nr-office-design-templates`); with no template directory it writes an
 //! index of nothing, which `EmptyIndexer` writes too.
 
+use mixdog_rt::LaneToken;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

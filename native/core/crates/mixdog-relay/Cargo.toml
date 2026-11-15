@@ -107,3 +107,18 @@ mixdog-testkit = { workspace = true }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util", "process"] }
+
+[[test]]
+name = "legs_phone"
+path = "tests/legs_phone.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "media_proxy"
+path = "tests/media_proxy.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "push_ice_frames"
+path = "tests/push_ice_frames.rs"
+required-features = ["test-support"]

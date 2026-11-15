@@ -27,6 +27,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-ooxml = { workspace = true }
 mixdog-fonts = { workspace = true }
 tempfile = { workspace = true }
+mixdog-pdf = { workspace = true }
 
 [dev-dependencies]
 # The twin tests (`tests/twin_brief.rs`, `tests/twin_measure_deck.rs`) locate the Node source, load their recording and compare through the base crate's `twin` helpers.

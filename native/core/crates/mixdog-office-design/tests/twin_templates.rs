@@ -11,6 +11,7 @@
 //! is what the recording took from the Node reader (the snapshot reader is another module). Re-recording is
 //! `twin_live_templates` (ignored: it runs Node).
 
+use mixdog_rt::LaneToken;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
