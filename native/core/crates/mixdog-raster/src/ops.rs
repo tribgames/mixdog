@@ -944,7 +944,6 @@ mod tests {
         let image = Image::from_raw(10, 8, 4, &bytes).unwrap();
         let cut = trim(&image, 0.0).unwrap();
         assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 2, 6, 4));
-        // A 3 x 3 block of paint keeps its whole box.
         // A lone pixel does not survive the 3x3 median of find_trim; a 3x3 block does, whole.
         let mut bytes = vec![0u8; 8 * 6 * 4];
         for y in 2..5 {
