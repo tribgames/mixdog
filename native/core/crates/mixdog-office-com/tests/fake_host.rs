@@ -15,6 +15,9 @@
 //! - `on_eof`: `{delay_ms, stderr, exit_code}`, kept until EOF: how the host ends when its stdin closes;
 //! - `exit_code` (one-shot): the exit code;
 //! - `print` (one-shot): this text is the whole stdout instead of the answer.
+//!
+//! The Rust host's command line (`office-com-host`, with `--session` for a session host) is served too, and the
+//! arguments it was started with are reported as `argv` in a one-shot answer and in an `open_session` answer.
 
 use std::io::BufRead;
 use std::io::Read;
@@ -43,6 +46,10 @@ fn complain(text: &str) {
     let _ = err.flush();
 }
 
+fn argv() -> Vec<String> {
+    std::env::args().skip(1).collect()
+}
+
 fn fake_u64(payload: &Value, key: &str) -> u64 {
     payload["fake"][key].as_u64().unwrap_or(0)
 }
@@ -63,7 +70,7 @@ fn one_shot() {
         }
         None => {
             println!("some noise before the answer");
-            say(&json!({"ok": true, "backend": "microsoft-office-com", "echo": payload}));
+            say(&json!({"ok": true, "backend": "microsoft-office-com", "echo": payload, "argv": argv()}));
         }
     }
     let code = payload["fake"]["exit_code"].as_i64().unwrap_or(0);
@@ -103,6 +110,7 @@ fn session() {
             Some("open_session") => json!({
                 "requestId": request_id, "ok": true, "session": session,
                 "ownership": "owned", "ownsApplication": true, "appPid": 101, "lifecycle": "initializing",
+                "argv": argv(),
             }),
             Some("close_session") if rpc_gone => json!({
                 "requestId": request_id, "ok": false, "session": session,
@@ -124,7 +132,7 @@ fn session() {
 
 fn main() {
     let script = std::env::args().next_back().unwrap_or_default();
-    if script.ends_with("office-com-session-host.ps1") {
+    if script.ends_with("office-com-session-host.ps1") || script == "--session" {
         session();
     } else {
         one_shot();
