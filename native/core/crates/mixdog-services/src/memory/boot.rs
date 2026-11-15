@@ -419,6 +419,8 @@ impl MemoryStack {
             // The 60 s cycle tick starts unless this is a secondary process or the host left the
             // cycles out (`MIXDOG_MEMORY_DISABLE_CYCLES`); the tick itself re-reads `cycles_enabled`
             // (the recap switch), so recap can be turned on later.
+            let cycle_config = cycles.as_ref().map(|cycles| cycles.config.clone());
+            let projects_root = watch.as_ref().map(|watch| watch.projects_root.clone());
             let cycles = match cycles {
                 Some(cycles) if !flags.secondary => Some(CycleScheduler::new(SchedulerDeps {
                     db: memory_db.clone(),
@@ -432,6 +434,14 @@ impl MemoryStack {
                 })),
                 _ => None,
             };
+            memory.attach_maintenance(crate::memory::service::maintenance::Maintenance::new(
+                cycles.clone().zip(cycle_config),
+                embed_flush.clone(),
+                transcripts.clone(),
+                projects_root,
+                maintenance,
+                lane,
+            ));
             Self {
                 me: me.clone(),
                 data_dir,

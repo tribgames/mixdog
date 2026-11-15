@@ -6007,5 +6007,7 @@
   "Zoom options": "확대/축소 옵션",
   "Zoom out": "축소",
   "Zoom Out": "축소",
-  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소"
+  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "메모리 검색 모델을 처음으로 내려받는 중입니다. 몇 분 걸릴 수 있습니다.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "메모리 데이터베이스를 처음으로 내려받는 중입니다. 몇 분 걸릴 수 있습니다."
 }

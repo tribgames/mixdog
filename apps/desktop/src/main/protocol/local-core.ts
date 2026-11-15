@@ -79,7 +79,9 @@ export function coreEnvironment(packaged: boolean, resourcesPath: string, userDa
   return { ...inherited, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData };
 }
 
-async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcPort: number | null; blocked: unknown; pid: number | null }> {
+export async function readCoreState(
+  runtimeRoot: string
+): Promise<{ state: string; rpcPort: number | null; blocked: unknown; pid: number | null; controlPort: number | null; token: string | null }> {
   let text: string;
   try {
     text = await readFile(join(runtimeRoot, 'daemon.json'), 'utf8');
@@ -89,7 +91,11 @@ async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcP
     }
     throw error;
   }
-  const discovery = JSON.parse(text) as { pid?: unknown; core?: { state?: unknown; rpc?: { port?: unknown }; blocked?: unknown } };
+  const discovery = JSON.parse(text) as {
+    pid?: unknown;
+    core?: { state?: unknown; rpc?: { port?: unknown }; control?: { port?: unknown }; blocked?: unknown };
+    endpoints?: { session?: { token?: unknown } };
+  };
   const core = discovery.core;
   return {
     state: String(core?.state ?? 'unknown'),
@@ -97,6 +103,9 @@ async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcP
     blocked: core?.blocked ?? null,
     // Whose file this is: a core this app started and saw end is not waited for when the file still names it.
     pid: Number.isInteger(discovery.pid) ? (discovery.pid as number) : null,
+    // What a liveness ask of the core needs: its control listener and the session token (watchCore).
+    controlPort: Number.isInteger(core?.control?.port) ? (core?.control?.port as number) : null,
+    token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
   };
 }
 

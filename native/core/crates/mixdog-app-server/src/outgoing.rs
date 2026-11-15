@@ -241,6 +241,22 @@ impl Outgoing {
         self.connection(id)?.session().map(|session| session.client.version.clone())
     }
 
+    /// The connections live on the app feed, each with whether it is a paired phone (origin relay) and whether it is
+    /// a desktop window (a non-relay desktop view, not the desktop host connection).
+    pub fn app_feed_audience(&self) -> Vec<(ConnectionId, bool, bool)> {
+        let app = FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID);
+        self.all_connections()
+            .iter()
+            .filter(|conn| conn.is_live_on(&app))
+            .filter_map(|conn| {
+                let session = conn.session()?;
+                let relay = session.origin == mixdog_protocol::Origin::Relay;
+                let window = session.view && session.client.kind == mixdog_protocol::ConnectionKind::Desktop && !relay;
+                Some((conn.id, relay, window))
+            })
+            .collect()
+    }
+
     pub(crate) fn desktop_attached_on(&self, app_feed: &FeedId) -> bool {
         self.all_connections().iter().any(|conn| conn.is_desktop_on(app_feed))
     }

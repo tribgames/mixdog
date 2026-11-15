@@ -68,6 +68,7 @@ pub mod control;
 pub mod crash_record;
 pub mod stale_temps;
 pub mod daemon_log;
+pub mod telemetry;
 pub mod desktop_defaults;
 pub mod discovery;
 pub mod domain_seams;

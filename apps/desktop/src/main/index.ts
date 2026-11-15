@@ -107,7 +107,8 @@ import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host
 import { showRemoteScreenIndicator } from './remote-screen/screen-indicator';
 import { openCore } from './protocol/open-core';
 import type { WsEndpoint } from './protocol/ws-connector';
-import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, resolveLocalCore } from './protocol/local-core';
+import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, readCoreState, requestCoreStop, resolveLocalCore } from './protocol/local-core';
+import { watchCore } from '../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
@@ -125,6 +126,7 @@ import { readDisplays } from './computer/host/display-reads';
 import { assertPublicComputerRequest } from './computer/host/request-policy';
 import type { ComputerCommand } from './computer/shared/types';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
+import { createBridgeServer as createComputerBridge } from './computer/bridge/bridge-server';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
@@ -514,6 +516,12 @@ const connectionDependencies: DesktopConnectionDependencies = {
             environmentReady: () => loginShellEnvironmentReady,
             onLaunched: (child) => {
               localCoreProcess = child;
+              // A core of this app that stops answering is ended, and the next dial starts a replacement.
+              coreWatcher ??= watchCore({
+                readDiscovery: () => readCoreState(resolveRuntimeRoot()),
+                ownedPid: () => localCoreProcess?.pid ?? null,
+                log: (line: string) => console.error(line),
+              });
             },
           })
         : async () => {
@@ -879,9 +887,16 @@ function applyComputerControlSetting(enabled: boolean): void {
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
+  applyComputerBridge();
   // GNOME window control comes from Mixdog's own shell extension: the core keeps it in place and enabled exactly while
   // Computer Use is on (s3-15).
   computerHost?.setBridgeEnabled(computerControlEnabled);
+}
+let computerBridge: ReturnType<typeof createComputerBridge> | null = null;
+function applyComputerBridge(): void {
+  if (!computerBridge) return;
+  if (computerControlEnabled) computerBridge.startBridge();
+  else void computerBridge.stopBridge().catch((error: unknown) => diagnostics?.write('computer-bridge-stop-failed', { error: String(error) }));
 }
 // Observation only: the bridge keeps serving reads while every input action is
 // refused by the host, so a running agent turn is narrowed the moment it flips.
@@ -956,6 +971,17 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
 // updater reports (DS §12). The computer pill follows the core's `computer` section.
 const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
+// The loopback computer bridge (other tools on this PC reach Computer Use through it): every command goes to the core's
+// computer/bridge/run, a dropped caller or a stop to computer/bridge/abort, so the bridge and the agent tool share the
+// core's helper pool, foreground lane and user-control hold. It listens only while Computer Use is on.
+computerBridge = createComputerBridge({
+  dataDirectory: bridgeDiscoveryDirectory,
+  isBridgeWanted: () => computerControlEnabled,
+  isDisposed: () => quitApproved || quitAfterDispose,
+  diagnose: (event, data) => diagnostics?.write(event, data),
+  callCore: (method, params) => localProtocol.call(method, params),
+});
+applyComputerBridge();
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
 if (bundledNativeToolKinds.length > 0) {
   void localProtocol
@@ -1494,6 +1520,7 @@ function disposeDesktopResources(): Promise<void> {
 
 /** The core process this app started (none while it runs on one it found). */
 let localCoreProcess: CoreProcess | null = null;
+let coreWatcher: { stop(): void } | null = null;
 
 // Windows vanish the moment a quit begins; detach, daemon stop and the
 // PostgreSQL behind it finish in this still-running main process afterwards.
@@ -1506,6 +1533,7 @@ const quitSequence = createDesktopQuitSequence({
     // The core this app started is asked to stop now that the app has left it (its own no-client grace is longer than
     // this quit waits), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once.
     const deadline = Date.now() + DESKTOP_DAEMON_STOP_TIMEOUT_MS;
+    coreWatcher?.stop();
     await requestCoreStop({
       child: localCoreProcess,
       bin: coreBinaryPath(app.isPackaged, process.resourcesPath),

@@ -73,6 +73,14 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
         ),
         tone: 'warn',
       };
+    case 'memory-runtime-preparing':
+      return {
+        text:
+          notice.params.stage === 'embedding'
+            ? t('Downloading the memory search model for the first time. This can take a few minutes.')
+            : t('Downloading the memory database for the first time. This can take a few minutes.'),
+        tone: 'info',
+      };
   }
 }
 

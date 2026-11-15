@@ -6007,5 +6007,7 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "メモリ検索モデルを初めてダウンロードしています。数分かかることがあります。",
+  "Downloading the memory database for the first time. This can take a few minutes.": "メモリデータベースを初めてダウンロードしています。数分かかることがあります。"
 }

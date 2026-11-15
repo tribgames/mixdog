@@ -896,6 +896,9 @@ pub struct HostVisualizeCommandParams {
     pub action: VisualizeAction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<JsonValue>,
+    /// An `open`'s tool call id; the desktop keeps it with the tab it reveals so the turn's end names opens whose tab is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

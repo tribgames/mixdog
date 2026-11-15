@@ -6205,5 +6205,7 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "Модель поиска по памяти загружается впервые. Это может занять несколько минут.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "База данных памяти загружается впервые. Это может занять несколько минут."
 }

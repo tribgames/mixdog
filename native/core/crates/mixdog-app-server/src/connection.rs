@@ -194,7 +194,7 @@ impl Connection {
         lock(&self.subs).as_mut().and_then(|subs| subs.remove(feed))
     }
 
-    fn is_live_on(&self, feed: &FeedId) -> bool {
+    pub(crate) fn is_live_on(&self, feed: &FeedId) -> bool {
         lock(&self.subs)
             .as_ref()
             .and_then(|subs| subs.get(feed))

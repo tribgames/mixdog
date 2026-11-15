@@ -1763,7 +1763,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             terminal.tabs().clone(),
             Arc::new(mixdog_tools::desktop::reveal::RevealingTerminalHost::new(
                 Arc::new(mixdog_core_session::session::terminal_host::DirectoryCwds::new(late.clone())),
-                Arc::new(mixdog_core_session::session::terminal_host::AppFeedOpen::new(pre.state.app.clone(), b.presence.clone())),
+                Arc::new(mixdog_core_session::session::terminal_host::AudienceReveal::new(Arc::new(OutgoingAudience(b.outgoing.clone())), b.notifier.clone())),
                 pending_waits.clone(),
             )),
         )),
@@ -3862,6 +3862,19 @@ pub struct CatalogBuiltinSkills(pub Arc<mixdog_mcp::skill_catalog::SkillCatalog>
 impl mixdog_core_session::session::BuiltinSkills for CatalogBuiltinSkills {
     fn names(&self) -> Option<std::collections::HashSet<String>> {
         self.0.cached().map(|skills| skills.iter().filter(|skill| skill.source == mixdog_mcp::skills::SkillSource::Builtin).map(|skill| skill.name.trim().to_lowercase()).collect())
+    }
+}
+
+/// The connection table as the terminal reveal's audience on the app feed.
+struct OutgoingAudience(Arc<mixdog_app_server::Outgoing>);
+
+impl mixdog_core_session::session::terminal_host::AppFeedAudience for OutgoingAudience {
+    fn audience(&self) -> Vec<mixdog_core_session::session::terminal_host::Audience> {
+        self.0
+            .app_feed_audience()
+            .into_iter()
+            .map(|(id, relay, window)| mixdog_core_session::session::terminal_host::Audience { id, relay, window })
+            .collect()
     }
 }
 

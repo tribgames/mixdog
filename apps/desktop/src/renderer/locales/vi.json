@@ -6007,5 +6007,7 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "Đang tải mô hình tìm kiếm bộ nhớ lần đầu. Việc này có thể mất vài phút.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "Đang tải cơ sở dữ liệu bộ nhớ lần đầu. Việc này có thể mất vài phút."
 }
