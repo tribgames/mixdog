@@ -1,8 +1,8 @@
 # t19-relay-twins: what the lead applies (hot files)
 
 ## Cargo.lock
-native/core/Cargo.lock, [[package]] name = "mixdog-remote": add "mixdog-relay" to its dependencies between "mixdog-protocol" and "mixdog-rt"
-(mixdog-remote/Cargo.toml already carries the dev-dependency; regenerate with cargo update --workspace --offline).
+native/core/Cargo.lock, [[package]] name = "mixdog-remote": already lists "mixdog-relay" between "mixdog-protocol" and "mixdog-rt" (nothing to do; --locked builds pass)
+(mixdog-remote/Cargo.toml carries the dev-dependency).
 
 ## native/core/Cargo.toml, mixdog-workspace-hack, compose*.rs, main.rs, protocol tables
 No change. compose_flip.rs SERVICE_PENDING: no name added or removed.
