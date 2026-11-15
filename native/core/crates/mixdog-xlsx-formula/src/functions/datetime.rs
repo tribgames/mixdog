@@ -45,6 +45,7 @@ fn date(v: &V) -> Result<f64, E> {
         _ => unreachable!(),
     }
 }
+#[allow(clippy::too_many_arguments, reason = "mirrors JavaScript Date fields and constructor versus setter year behavior")]
 fn make(y: f64, m: f64, d: f64, h: f64, min: f64, s: f64, ms: f64, constructor: bool) -> f64 {
     if [y, m, d, h, min, s, ms].iter().any(|x| !x.is_finite()) {
         return f64::NAN;
@@ -224,18 +225,18 @@ fn yfrac(start: f64, end: f64, basis: &V) -> V {
     V::Number(n)
 }
 fn weekend(v: &V, mask: bool) -> Result<Vec<u32>, E> {
-    if mask {
-        if let V::Text(s) = v {
-            if s.len() == 7 && s.bytes().all(|c| matches!(c, b'0' | b'1' | b'|')) {
+    if mask
+        && let V::Text(s) = v
+            && s.len() == 7 && s.bytes().all(|c| matches!(c, b'0' | b'1' | b'|')) {
                 return Ok(s
                     .bytes()
                     .enumerate()
                     .filter_map(|(i, c)| (c == b'1').then_some(((i + 1) % 7) as u32))
                     .collect());
             }
-        }
-    }
-    let key = to_js_string(v);
+    let Ok(key) = String::from_utf16(&to_js_utf16(v)) else {
+        return Err(E::Value);
+    };
     let n = if matches!(v, V::Undefined) {
         1
     } else {
@@ -259,15 +260,20 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             return err(E::Value);
         };
         let t = make(y, m - 1.0, d, 0.0, 0.0, 0.0, 0.0, true);
-        return if local_fields(t).map(|f| f.year < 0).unwrap_or(t.is_finite() && t < 0.0) {
+        return if local_fields(t)
+            .map(|f| f.year < 0)
+            .unwrap_or(t.is_finite() && t < 0.0)
+        {
             err(E::Num)
         } else {
             Ok(V::Date(t))
         };
     }
     if name == "DATEVALUE" {
-        let V::Text(s) = x else { return err(E::Value) };
-        let t = mixdog_js::time::date_parse(&s);
+        let Some(units) = x.text_units() else {
+            return err(E::Value);
+        };
+        let t = mixdog_js::time::date_parse_utf16(&units);
         return if t.is_nan() {
             err(E::Value)
         } else {
@@ -293,6 +299,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     }
     // DATEDIF does not perform the other date functions' error checks.
     if name == "DATEDIF" {
+        // A raw unit cannot equal an ASCII DATEDIF keyword, but date conversion
+        // still happens before the source's unknown-unit switch returns undefined.
+        let z = if matches!(z, V::Utf16(_)) { V::Text(String::new()) } else { z };
         let V::Text(unit) = z else {
             return Err(Failure::thrown(if matches!(z, V::Null) {
                 "Cannot read properties of null (reading 'toUpperCase')"
@@ -306,6 +315,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             date(&x).map_err(|_| Failure::thrown("start_date.getFullYear is not a function"))?;
         let end =
             date(&y).map_err(|_| Failure::thrown("end_date.getFullYear is not a function"))?;
+        if unit.is_empty() { return Ok(V::Undefined); }
         let (Some(s), Some(e)) = (local_fields(start), local_fields(end)) else {
             return Ok(V::Number(f64::NAN));
         };
@@ -412,8 +422,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     }
     if name == "WEEKDAY" || name == "WEEKNUM" {
         let ret = default(a, 1, V::Number(1.0));
-        let key = to_js_string(&ret);
-        let n = key.parse::<u32>().ok().filter(|n| n.to_string() == key);
+        let key = String::from_utf16(&to_js_utf16(&ret)).ok();
+        let n = key
+            .as_ref()
+            .and_then(|key| key.parse::<u32>().ok().filter(|n| n.to_string() == *key));
         let Some(f) = local_fields(start) else {
             return Ok(if name == "WEEKDAY" {
                 V::Undefined

@@ -6,6 +6,8 @@
 //! with the fdlibm algorithms (`base/ieee754.cc`); these are the same algorithms. `sqrt` is
 //! correctly rounded in both. `Math.hypot` is V8's scaled Kahan sum, not the C library's.
 
+#![allow(clippy::excessive_precision, reason = "decimal constants are preserved verbatim from the pinned V8 fdlibm source")]
+
 mod inverse;
 mod reduction;
 mod trig;
@@ -328,6 +330,7 @@ pub fn ln_1p(x: f64) -> f64 {
 }
 
 /// `Math.expm1`.
+#[allow(clippy::needless_late_init, reason = "retain the audited fdlibm branch structure and operation order")]
 pub fn exp_m1(x: f64) -> f64 {
     const O_THRESHOLD: f64 = 7.097_827_128_933_839_730_96e+02;
     const Q1: f64 = -3.333_333_333_333_313_164_28e-02;
@@ -427,6 +430,7 @@ pub fn exp_m1(x: f64) -> f64 {
 }
 
 /// `Math.pow` and the `**` operator.
+#[allow(clippy::needless_late_init, reason = "retain the audited fdlibm branch structure and operation order")]
 pub fn pow(x: f64, y: f64) -> f64 {
     const BP: [f64; 2] = [1.0, 1.5];
     const DP_H: [f64; 2] = [0.0, 5.849_624_872_207_641_601_56e-01];
@@ -843,7 +847,7 @@ mod tests {
         assert_eq!(random_from_bits(0xfff).to_bits(), 0);
         assert_eq!(random_from_bits(0x1000), 1.0 / 4_503_599_627_370_496.0);
         assert_eq!(random_from_bits(u64::MAX).to_bits(), 0x3fef_ffff_ffff_fffe);
-        for mantissa in [1_u64, 0x1234_5678, 0x8000_0000_0000, 0xffff_ffff_fffff] {
+        for mantissa in [1_u64, 0x1234_5678, 0x8000_0000_0000, 0x000f_ffff_ffff_ffff] {
             let bits = mantissa << 12;
             assert_eq!(random_from_bits(bits), random_from_bits(bits | 0xfff));
             assert_eq!(

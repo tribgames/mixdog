@@ -5,8 +5,8 @@
 //! Some original inputs do not terminate. Product evaluation must stay in the
 //! externally cancellable owned ext-worker process, never on a daemon thread.
 use crate::coerce::{
-    compare_utf16, flatten, is_defined, is_truthy, parse_date, parse_date_array, parse_number,
-    parse_number_array, to_js_number, to_js_string,
+    flatten, is_defined, is_truthy, parse_date, parse_date_array, parse_number,
+    parse_number_array, to_js_number, to_js_utf16,
 };
 use crate::registry::{Table, library};
 use crate::value::{ErrorValue as E, Failure, Value as V};
@@ -71,15 +71,17 @@ fn internal(name: &str, a: &[V]) -> Result<f64, Failure> {
 // concatenate an Error's primitive string rather than returning numeric NaN.
 fn addition_primitive(value: V) -> V {
     match value {
-        V::Array(_) | V::Date(_) | V::Error(_) => V::Text(to_js_string(&value)),
+        V::Array(_) | V::Date(_) | V::Error(_) => V::from_utf16(to_js_utf16(&value)),
         other => other,
     }
 }
 fn add_values(left: V, right: V) -> V {
     let left = addition_primitive(left);
     let right = addition_primitive(right);
-    if matches!(left, V::Text(_)) || matches!(right, V::Text(_)) {
-        V::Text(to_js_string(&left) + &to_js_string(&right))
+    if left.is_text() || right.is_text() {
+        let mut units = to_js_utf16(&left);
+        units.extend(to_js_utf16(&right));
+        V::from_utf16(units)
     } else {
         V::Number(m::add(to_js_number(&left), to_js_number(&right)))
     }
@@ -93,20 +95,20 @@ fn calendar(name: &str, a: &[V]) -> Result<f64, Failure> {
 }
 fn primitive(v: &V) -> V {
     match v {
-        V::Array(_) | V::Error(_) => V::Text(to_js_string(v)),
+        V::Array(_) | V::Error(_) => V::from_utf16(to_js_utf16(v)),
         V::Date(t) => V::Number(*t),
         _ => v.clone(),
     }
 }
 fn less(a: &V, b: &V) -> bool {
     match (primitive(a), primitive(b)) {
-        (V::Text(a), V::Text(b)) => compare_utf16(&a, &b).is_lt(),
+        (a, b) if a.is_text() && b.is_text() => a.text_units().unwrap() < b.text_units().unwrap(),
         (a, b) => to_js_number(&a) < to_js_number(&b),
     }
 }
 fn less_equal(a: &V, b: &V) -> bool {
     match (primitive(a), primitive(b)) {
-        (V::Text(a), V::Text(b)) => !compare_utf16(&a, &b).is_gt(),
+        (a, b) if a.is_text() && b.is_text() => a.text_units().unwrap() <= b.text_units().unwrap(),
         (a, b) => to_js_number(&a) <= to_js_number(&b),
     }
 }
@@ -127,7 +129,8 @@ fn ensure_date(v: &V) -> f64 {
     match v {
         V::Date(t) => *t,
         V::Text(s) => date_parse(s),
-        V::Array(_) | V::Error(_) => date_parse(&to_js_string(v)),
+        V::Utf16(units) => mixdog_js::time::date_parse_utf16(units),
+        V::Array(_) | V::Error(_) => mixdog_js::time::date_parse_utf16(&to_js_utf16(v)),
         _ => {
             let t = to_js_number(v);
             if t.is_finite() && t.abs() <= 8.64e15 {

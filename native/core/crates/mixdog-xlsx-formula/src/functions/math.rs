@@ -21,8 +21,9 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 */
 use crate::coerce::{
     apply_criteria, array_values_to_numbers, flatten, is_truthy, meets_criteria, parse_float,
-    parse_number, parse_number_array, to_js_number, to_js_string,
+    parse_number, parse_number_array, to_js_number,
 };
+use crate::coerce::{parse_float_utf16, parse_int_utf16, to_js_utf16};
 use crate::{ErrorValue as E, Failure, Table, Value};
 use mixdog_js::{math as j, number_to_string, string_to_number};
 use std::cell::Cell;
@@ -492,7 +493,7 @@ pub fn decimal(a: &[Value]) -> Result<Value, Failure> {
     if r == 0.0 {
         return err(E::Num);
     }
-    nan_num(mixdog_js::parse_int_radix(&to_js_string(&text), r))
+    nan_num(parse_int_utf16(&to_js_utf16(&text), r))
 }
 pub fn arabic(a: &[Value]) -> Result<Value, Failure> {
     let v = arg(a, 0);
@@ -502,7 +503,9 @@ pub fn arabic(a: &[Value]) -> Result<Value, Failure> {
     if let Value::Error(e) = v {
         return err(e);
     }
-    let text = to_js_string(&v);
+    let Ok(text) = String::from_utf16(&to_js_utf16(&v)) else {
+        return err(E::Value);
+    };
     let pattern = mixdog_js::JsRegex::new_static(
         r"^M*(?:D?C{0,3}|C[MD])(?:L?X{0,3}|X[CL])(?:V?I{0,3}|I[XV])$",
         "",
@@ -510,7 +513,7 @@ pub fn arabic(a: &[Value]) -> Result<Value, Failure> {
     if !pattern.is_match(&text) {
         return err(E::Value);
     }
-    if !matches!(v, Value::Text(_)) {
+    if !v.is_text() {
         return Err(Failure::thrown("text.replace is not a function"));
     }
     let values = |b: u8| match b {
@@ -657,6 +660,12 @@ pub fn sum(a: &[Value]) -> Result<Value, Failure> {
         match items.next() {
             Some(Value::Error(e)) => return err(*e),
             Some(Value::Number(n)) => *total += n,
+            Some(Value::Utf16(units)) => {
+                let n = parse_float_utf16(units);
+                if !n.is_nan() {
+                    *total += n;
+                }
+            }
             Some(Value::Text(s)) => {
                 let n = parse_float(s);
                 if !n.is_nan() {
@@ -678,15 +687,15 @@ pub fn sum(a: &[Value]) -> Result<Value, Failure> {
 }
 fn primitive(v: Value) -> Value {
     match v {
-        Value::Array(_) | Value::Date(_) | Value::Error(_) => Value::Text(to_js_string(&v)),
+        Value::Array(_) | Value::Date(_) | Value::Error(_) => Value::from_utf16(to_js_utf16(&v)),
         _ => v,
     }
 }
 fn add(a: Value, b: Value) -> Value {
     let a = primitive(a);
     let b = primitive(b);
-    if matches!(a, Value::Text(_)) || matches!(b, Value::Text(_)) {
-        Value::Text(format!("{}{}", to_js_string(&a), to_js_string(&b)))
+    if a.is_text() || b.is_text() {
+        Value::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat())
     } else {
         Value::Number(to_js_number(&a) + to_js_number(&b))
     }
@@ -740,6 +749,7 @@ fn length(v: &Value) -> Result<Option<usize>, Failure> {
         )),
         Value::Array(v) => Ok(Some(v.len())),
         Value::Text(s) => Ok(Some(s.encode_utf16().count())),
+        Value::Utf16(units) => Ok(Some(units.len())),
         _ => Ok(None),
     }
 }
@@ -752,9 +762,11 @@ fn index(v: &Value, i: usize) -> Result<Value, Failure> {
             "Cannot read properties of undefined (reading '{i}')"
         ))),
         Value::Array(v) => Ok(arg(v, i)),
-        Value::Text(s) => Ok(s.encode_utf16().nth(i).map_or(Value::Undefined, |c| {
-            Value::text(String::from_utf16_lossy(&[c]))
-        })),
+        v if v.is_text() => Ok(v
+            .text_units()
+            .unwrap()
+            .get(i)
+            .map_or(Value::Undefined, |c| Value::from_utf16(vec![*c]))),
         _ => Ok(Value::Undefined),
     }
 }
@@ -852,6 +864,18 @@ pub fn seriessum(a: &[Value]) -> Result<Value, Failure> {
             Ok(v) => Value::Array(v),
             Err(_) => return err(E::Value),
         },
+        Value::Utf16(units) if !units.is_empty() => {
+            let last = Value::from_utf16(vec![*units.last().unwrap()]);
+            if matches!(parse_number(&last), Value::Error(_)) {
+                return err(E::Value);
+            }
+            let index = units.len() - 1;
+            // Failure::Thrown is the final UTF-8 exception boundary, not an intermediate value.
+            let text = String::from_utf16_lossy(&units);
+            return Err(Failure::thrown(format!(
+                "Cannot assign to read only property '{index}' of string '{text}'"
+            )));
+        }
         Value::Text(s) if !s.is_empty() => {
             let i = s.encode_utf16().count() - 1;
             let c = index(&Value::Text(s.clone()), i)?;
@@ -879,7 +903,7 @@ pub fn munit(a: &[Value]) -> Result<Value, Failure> {
     if a.len() > 1 {
         return err(E::Na);
     }
-    let n = mixdog_js::parse_int_radix(&to_js_string(&arg(a, 0)), 0.0);
+    let n = parse_int_utf16(&to_js_utf16(&arg(a, 0)), 0.0);
     if n.is_nan() || n <= 0.0 {
         return err(E::Value);
     }

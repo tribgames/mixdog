@@ -274,7 +274,7 @@ impl Scanner {
             let value = r.read_unsigned_numeral();
             return Tok::Number { value, len: (r.i - start) as i32 };
         }
-        for symbol in [b':', b'-', b'+', b'.', b')'] {
+        for symbol in *b":-+.)" {
             if r.skip(symbol) {
                 return Tok::Symbol(symbol);
             }
