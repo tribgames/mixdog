@@ -382,7 +382,8 @@ struct Stamp<'a> {
     size: f64,
     opacity: f64,
     angle: f64,
-    color: [f64; 3],
+    /// `stamp.color`, read as a colour where `drawText` reads it (after the run is measured, before its opacity).
+    color: Option<&'a Value>,
     x: Option<f64>,
     y: Option<f64>,
 }
@@ -493,6 +494,7 @@ impl ContentOperations {
             display_y -= lift * cos(angle);
         }
         let (x, y) = display_point_to_user(spin, width, height, display_x, display_y);
+        let color = colour_of(stamp.color, "")?;
         assert_opacity(stamp.opacity)?;
         let state = ink.state(rng, stamp.opacity, None);
         let lines = text_lines(text)
@@ -500,7 +502,7 @@ impl ContentOperations {
             .map(|line| stamp.font.encode_text(line).map_err(embed_error))
             .collect::<Result<Vec<_>, _>>()?;
         let size = if stamp.size.is_nan() || stamp.size == 0.0 { DEFAULT_FONT_SIZE } else { stamp.size };
-        ink.draw_text(&lines, font_name, size, stamp.color, (stamp.angle + spin as f64) * PI / 180.0, x, y, Some(&state));
+        ink.draw_text(&lines, font_name, size, color, (stamp.angle + spin as f64) * PI / 180.0, x, y, Some(&state));
         Ok(())
     }
 
@@ -535,7 +537,7 @@ impl ContentOperations {
             size: number_or(operation, "size", if watermark { 48.0 } else { 12.0 }),
             opacity: number_or(operation, "opacity", if watermark { 0.25 } else { 1.0 }),
             angle: number_or(operation, "rotation", if watermark { 45.0 } else { 0.0 }),
-            color: colour_of(operation.get("color"), "")?,
+            color: operation.get("color"),
             x: optional_number(operation, "x"),
             y: optional_number(operation, "y"),
         };
@@ -785,8 +787,9 @@ impl ContentOperations {
         }
         if !clipped.is_empty() {
             let messages: Vec<String> = clipped.iter().map(|entry| value_to_string(&entry["message"])).collect();
-            row.insert("warning".to_owned(), json!(format!("{} value(s) do not fit their field box: {}", clipped.len(), messages.join(" "))));
+            let warning = format!("{} value(s) do not fit their field box: {}", clipped.len(), messages.join(" "));
             row.insert("clipped".to_owned(), Value::Array(clipped));
+            row.insert("warning".to_owned(), json!(warning));
         }
         Ok(Value::Object(row))
     }
