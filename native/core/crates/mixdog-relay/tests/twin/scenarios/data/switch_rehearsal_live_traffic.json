@@ -1,0 +1,493 @@
+{
+  "id": "switch_rehearsal_live_traffic",
+  "description": "the runtime is switched in the middle of live traffic (a desktop leg, a live phone, a phone parked behind a gone desktop, a pending claim, a live pairing code): afterwards the desktops redial, the phones reconnect with their credentials, the claim answers unknown and is requested again, and the code is published again, as after a restart of the same runtime",
+  "knobs": {
+    "handshakeStallMs": 600000,
+    "livenessProbeMs": 600000
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d1",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "secret-for-desktop-one-0001"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "d1",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"set-client-token\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}"
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "d2",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-dddd-4ddd-8ddd-ddddddddddd2",
+        "secret-for-desktop-two-0002"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d2",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "d2",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"set-client-token\",\"token\":\"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1\",\"name\":\"Phone one\",\"platform\":\"Android\",\"browser\":\"Chrome\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenP1",
+          "from": "body_json",
+          "path": "token"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2\",\"name\":\"Phone two\",\"platform\":\"iOS\",\"browser\":\"Safari\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenP2",
+          "from": "body_json",
+          "path": "token"
+        }
+      ]
+    },
+    {
+      "do": "ws_open",
+      "conn": "p1",
+      "path": "/ws?token=${tokenP1}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "relayClient1",
+          "from": "frame_json",
+          "path": "clientId"
+        }
+      ]
+    },
+    {
+      "do": "ws_open",
+      "conn": "p2",
+      "path": "/ws?token=${tokenP2}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d2",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "relayClient2",
+          "from": "frame_json",
+          "path": "clientId"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "p1",
+      "frame": {
+        "kind": "text",
+        "text": "hello from phone one"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d1",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"frame\",\"clientId\":\"${relayClient1}\",\"data\":\"hello back\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p1",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "p1",
+      "frame": {
+        "kind": "text",
+        "text": "{\"ping\":1}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p1",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"deviceId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1\",\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3\",\"publicKey\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"name\":\"Tablet\",\"platform\":\"iPadOS\",\"browser\":\"Safari\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d1",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"lease-rehearsal-01\",\"name\":\"Studio PC\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "pairCode",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "d2",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d2",
+      "frames": 0,
+      "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "p2",
+      "frames": 1
+    },
+    {
+      "do": "crossover"
+    },
+    {
+      "do": "ws_open",
+      "conn": "d1",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "secret-for-desktop-one-0001"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/pair-code/resolve",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"code\":\"${pairCode}\"}",
+      "expect_status": 404
+    },
+    {
+      "do": "ws_open",
+      "conn": "p1b",
+      "path": "/ws?token=${tokenP1}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "p1b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"ping\":1}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p1b",
+      "frames": 1
+    },
+    {
+      "do": "ws_open",
+      "conn": "p2b",
+      "path": "/ws?token=${tokenP2}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "p2b",
+      "frames": 0,
+      "close": true,
+      "close_code": 4002
+    },
+    {
+      "do": "ws_open",
+      "conn": "d2b",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-dddd-4ddd-8ddd-ddddddddddd2",
+        "secret-for-desktop-two-0002"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d2b",
+      "frames": 2
+    },
+    {
+      "do": "ws_open",
+      "conn": "p2c",
+      "path": "/ws?token=${tokenP2}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d2b",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"deviceId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1\",\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3\",\"publicKey\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"name\":\"Tablet\",\"platform\":\"iPadOS\",\"browser\":\"Safari\",\"retry\":true}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId2",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d1",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"lease-rehearsal-01\",\"name\":\"Studio PC\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "pairCode2",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/pair-code/resolve",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"code\":\"${pairCode2}\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "ticket",
+          "from": "body_json",
+          "path": "ticket"
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"deviceId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1\",\"clientId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4\",\"publicKey\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"name\":\"Tablet\",\"platform\":\"iPadOS\",\"browser\":\"Safari\",\"ticket\":\"${ticket}\"}",
+      "expect_status": 202
+    },
+    {
+      "do": "expect",
+      "conn": "d1",
+      "frames": 1
+    }
+  ]
+}

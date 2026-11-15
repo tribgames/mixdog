@@ -1,0 +1,92 @@
+{
+  "id": "feedback_records_placed",
+  "description": "feedback records placed in the Node layout (a legacy pending one without attachments, a delivered one, a stray file) load, the pending one is mailed at start, duplicates and conflicts use the stored hashes, and the rewritten record is read by the other runtime",
+  "fakes": {
+    "feedbackSender": {
+      "answers": [
+        {}
+      ]
+    }
+  },
+  "files": {
+    "data": {
+      "feedback/f0000000-0000-4000-8000-0000000000c1.json": "{\"id\":\"f0000000-0000-4000-8000-0000000000c1\",\"hash\":\"84d099760cba2eb42bce1f2cf2986c2e0b5e5a6ccb6b4eaf9f7f62693b765e00\",\"payload\":{\"kind\":\"bug\",\"message\":\"Placed pending report\",\"replyTo\":\"\"},\"createdAt\":1600000000000,\"attempts\":2,\"nextAttemptAt\":1600000000000,\"sentAt\":0}",
+      "feedback/f0000000-0000-4000-8000-0000000000c2.json": "{\"id\":\"f0000000-0000-4000-8000-0000000000c2\",\"hash\":\"9ba620d072cb3ce35760f93693c72bec43b2efcda28c36706abd506a44d44cbb\",\"createdAt\":1600000000000,\"attempts\":0,\"nextAttemptAt\":1600000000000,\"sentAt\":1600000001000}",
+      "feedback/notes.txt": "not a record\n"
+    }
+  },
+  "steps": [
+    {
+      "do": "wait",
+      "ms": 600
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-0000000000c1\",\"kind\":\"bug\",\"message\":\"Placed pending report\"}",
+      "expect_status": 202
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-0000000000c1\",\"kind\":\"bug\",\"message\":\"Placed pending report, edited\"}",
+      "expect_status": 409
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-0000000000c2\",\"kind\":\"suggestion\",\"message\":\"Placed delivered note\",\"replyTo\":\"user@example.com\"}",
+      "expect_status": 202
+    },
+    {
+      "do": "crossover"
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-0000000000c1\",\"kind\":\"bug\",\"message\":\"Placed pending report\"}",
+      "expect_status": 202
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"f0000000-0000-4000-8000-0000000000c2\",\"kind\":\"suggestion\",\"message\":\"Placed delivered note\",\"replyTo\":\"someone@example.com\"}",
+      "expect_status": 409
+    }
+  ]
+}
