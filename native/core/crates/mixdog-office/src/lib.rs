@@ -4,3 +4,6 @@
 //! aliases and the tool definition) with typed lookups over it.
 
 pub mod capabilities;
+
+/// The CSV/TSV backend: parsing, edits, snapshots and validation.
+pub mod tabular;

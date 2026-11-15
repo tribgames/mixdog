@@ -704,6 +704,15 @@
       "totalBytes": 1407546
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-tabular.mjs --tree <tree>",
+      "fileCount": 1,
+      "recorder": "benchmarks/rust-core/recorders/record-office-tabular.mjs",
+      "set": "office-tabular",
+      "totalBytes": 117291,
+      "manifest": "office-tabular/MANIFEST.json",
+      "manifestSha256": "1e290ce2eb4d908c67201e944eaf3558776f91dcac38ea09b33bd3a7538367dd"
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-text-date.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-text-date/MANIFEST.json",
