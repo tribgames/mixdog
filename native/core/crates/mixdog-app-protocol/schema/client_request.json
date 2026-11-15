@@ -16119,7 +16119,7 @@
       "type": "object"
     },
     {
-      "description": "Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read; a row that cannot be read is null.",
+      "description": "Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read (including `voice: { enabled }`); a row that cannot be read is null.",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"

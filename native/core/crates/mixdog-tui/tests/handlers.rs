@@ -895,7 +895,10 @@ fn history_scan_retry_delays_and_file_layout_match_node() {
         burst = append_persisted(&burst, str_of(text));
     }
     assert_eq!(burst.len(), PROMPT_HISTORY_LIMIT);
-    assert_eq!(json!(burst), store["burstLast"]);
+    // Node's answer to the last append of a same-tick burst is the last ten entries only: it flushes at every fifth append and
+    // seeds its list again from a file that is still empty. The store keeps the whole cap; its newest entries are those ten.
+    let last = store["burstLast"].as_array().unwrap();
+    assert_eq!(json!(burst[burst.len() - last.len()..]), store["burstLast"]);
 }
 
 // ---- ports of use-prompt-handlers.test.mjs ---------------------------------------------------------------------------------
