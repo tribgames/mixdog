@@ -49,6 +49,8 @@ use super::computer_command::text;
 use super::computer_command::validate;
 use super::computer_policy;
 use super::computer_recovery::lead_code;
+use super::computer_recovery::recapture_window;
+use super::computer_recovery::refusal_with_capture;
 use super::computer_recovery::tool_error_recovery;
 use super::computer_screen::Screen;
 
@@ -69,10 +71,6 @@ const BRIDGE_UNAVAILABLE_MESSAGE: &str = "computer use is unavailable; open the 
 /// The host commands `computerActionHas(name, 'replaySafe')` names: a call that ends without a reply may be asked again.
 const REPLAY_SAFE: [&str; 11] =
     ["list_windows", "clipboard_read", "wait", "list_apps", "list_installed_apps", "list_history", "capture", "zoom", "verify", "diagnose", "wait_for_user"];
-/// `COMPUTER_OBSERVATION_ACTIONS`: the tool actions that only read.
-const OBSERVATION_ACTIONS: [&str; 5] = ["list", "diagnose", "capture", "verify", "wait_for_user"];
-/// The refusals that happen before any input is dispatched and end in "capture the exact window again".
-const RECAPTURE_CODES: [&str; 2] = ["stale_target", "stale_frame"];
 
 /// The stored image bytes of a digest the host named in its reply (`imageBlob`), supplied by the core's blob store: the one
 /// reading the display captures use.
@@ -244,30 +242,16 @@ impl DesktopHostBackend {
         reported(format!("Error: computer command aborted; {cleanup}{partial}"))
     }
 
-    /// A refusal of the host: for a stale target the exact window is captured again and returned with it (`refusalWithRecapture`),
-    /// any other is the host's text with its code.
-    async fn refused(&self, message: String, request: &ComputerRequest, cancel: &CancellationToken) -> ComputerError {
-        let action = request.action.wire_name();
-        let window = request.input.get("window_id").filter(|id| truthy(id)).map(value_to_string);
-        if let Some(window) = window
-            && !OBSERVATION_ACTIONS.contains(&action)
-            && RECAPTURE_CODES.contains(&lead_code(&message).as_str())
-        {
+    /// A refusal of the host: for a stale target the exact window is captured again and returned with it (`refusalWithRecapture`:
+    /// the refusal text, the capture's text and its image), any other is the host's text with its code.
+    async fn refused(&self, message: String, request: &ComputerRequest, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        if let Some(window) = recapture_window(request.action.wire_name(), &request.input, &message) {
             let capture = ComputerRequest { action: mixdog_core_api::domain::computer::ComputerAction::Capture, input: json!({ "window_id": window.clone() }) };
             if let Ok(parts) = self.run(capture, cancel.clone()).await {
-                let mut out = format!(
-                    "Error: {message}\nRecovery: no input was sent; window {window} was captured again below. Act only on its fresh refs, OCR marks, or frame_id."
-                );
-                for part in parts {
-                    if let ToolPart::Text(text) = part {
-                        out.push('\n');
-                        out.push_str(&text);
-                    }
-                }
-                return reported(out);
+                return Ok(refusal_with_capture(&message, &window, parts));
             }
         }
-        host_error(&message)
+        Err(host_error(&message))
     }
 
     /// A read-only command of a pending wait (`pendingWorkReader`); `Err` is a connection that is lost or a reply that is refused.
@@ -834,7 +818,7 @@ impl ComputerBackend for DesktopHostBackend {
         let posted = posted?;
         let action = request.action.wire_name();
         match posted {
-            Posted::Refused(message) => Err(self.refused(message, &request, &cancel).await),
+            Posted::Refused(message) => self.refused(message, &request, &cancel).await,
             Posted::Reply(reply) => {
                 let reply = if is_pending(&reply.text) { self.settle_pending(reply, &command, &cancel).await? } else { reply };
                 tool_result(reply, action, &request.input)
@@ -1015,14 +999,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_stale_target_is_captured_again_with_the_refusal() {
-        let host = FakeHost::new(vec![Answer::Reply(json!({ "ok": false, "error": "stale_target: moved" })), ok("fresh")]);
+    async fn a_stale_target_is_captured_again_with_the_refusal_and_its_image() {
+        let fresh = Answer::Reply(json!({ "ok": true, "text": "fresh", "imageBlob": { "digest": "d1", "byteLength": 3, "mimeType": "image/png" } }));
+        let host = FakeHost::new(vec![Answer::Reply(json!({ "ok": false, "error": "stale_target: moved" })), fresh]);
+        let act = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
+        let parts = backend(&host).run(act, CancellationToken::new()).await.unwrap();
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        let ToolPart::Text(refusal) = &parts[0] else { panic!("the refusal first") };
+        assert!(refusal.starts_with("Error: stale_target: moved\nRecovery: no input was sent; window hwnd:0x2 was captured again below."));
+        assert_eq!(parts[1], ToolPart::Text("fresh".into()));
+        assert_eq!(parts[2], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(vec![1, 2, 3]), width: None, height: None });
+        assert_eq!(host.commands()[1]["command"]["action"], "capture");
+    }
+
+    #[tokio::test]
+    async fn a_failed_recapture_leaves_the_stale_refusal_as_the_hosts_text() {
+        let host = FakeHost::new(vec![
+            Answer::Reply(json!({ "ok": false, "error": "stale_target: moved" })),
+            Answer::Reply(json!({ "ok": false, "error": "window_target_not_found: hwnd:0x2 is closed" })),
+        ]);
         let act = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
         let (code, message) = failure(backend(&host).run(act, CancellationToken::new()).await.unwrap_err());
-        assert_eq!(code, REPORTED_CODE);
-        assert!(message.starts_with("Error: stale_target: moved\nRecovery: no input was sent; window hwnd:0x2 was captured again below."));
-        assert!(message.ends_with("\nfresh"));
-        assert_eq!(host.commands()[1]["command"]["action"], "capture");
+        assert_eq!((code.as_str(), message.as_str()), ("stale_target", "stale_target: moved"));
+        assert_eq!(host.commands().len(), 2);
     }
 
     #[tokio::test]
