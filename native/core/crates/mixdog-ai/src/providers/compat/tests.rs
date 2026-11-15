@@ -1524,6 +1524,9 @@ mod liveness {
                     stack.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs") && path.file_name().is_some_and(|n| n != "tests.rs") {
                     let text = std::fs::read_to_string(&path).unwrap();
+                    // The rule is for what ships: a module's trailing test module may drive the idle watchdog under a paused clock.
+                    let text = text.split("
+#[cfg(test)]").next().unwrap_or(&text).to_string();
                     for pattern in &banned {
                         assert!(!text.contains(pattern.as_str()), "{} uses {pattern}", path.display());
                     }

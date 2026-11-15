@@ -166,7 +166,7 @@ async fn concurrent_import_waiters_share_failure_without_retry_and_later_call_re
 async fn rejected_history_write_settles_its_accepted_mark() {
     let rig=rig(Vec::new());
     let mut row=row_record(&json!({"kind":"usage_raw","ts":5,"provider":"p","model":"m","input_tokens":1,"output_tokens":1})).unwrap();
-    row.ts=0;
+    row.day="not-a-day".to_owned();
     let pending=rig.ledger.writer.import_history(super::super::HistoryWrite {
         records:vec![row],legacy_days:Vec::new(),through:None,receipt:None,previously_inserted:0,
     });

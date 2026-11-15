@@ -2,7 +2,7 @@
 //! knew the directory) is told the profile later.
 //!
 //! - `migrate/profile/status` reports the generation the profile move is at and the profile the core has recorded.
-//! - `migrate/profile/adopt` names the profile directory and runs generation 2 of the profile move
+//! - `migrate/profile/adopt` names the profile directory and runs the supplement pass of the profile move
 //!   ([`supplement::run`]: the saved SSH hosts, port forwards, paired PCs and server windows move to `<D>/desktop/`).
 //!   It never runs the first pass's late profile pass.
 //!
