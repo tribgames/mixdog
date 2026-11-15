@@ -15,12 +15,17 @@ use crate::slash::notices::{truthy, value_text};
 /// `mcpScript` and `mcpServerName`.
 fn mcp_names(plugin: &Value) -> Vec<String> {
     if let Some(servers) = plugin.get("mcpServers").and_then(Value::as_array) {
-        return servers.iter().map(|server| js_text(server, "name")).collect();
+        return servers.iter().map(|server| server.get("name").map_or_else(String::new, join_text)).collect();
     }
     match plugin.get("mcpServerName") {
         Some(name) if truthy(name) => vec![value_text(name)],
         _ => Vec::new(),
     }
+}
+
+/// An element as `Array.prototype.join` writes it: null and undefined are empty.
+fn join_text(value: &Value) -> String {
+    if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) }
 }
 
 fn has_mcp(plugin: &Value) -> bool {
@@ -104,7 +109,7 @@ fn plugin_info_notice(plugin: &Value) -> String {
     let version = plugin.get("version").filter(|version| truthy(version)).map_or_else(String::new, |version| format!(" {}", value_text(version)));
     let source_url = plugin.get("sourceUrl").filter(|url| truthy(url)).map_or_else(String::new, |url| format!(" / {}", value_text(url)));
     let scope = match plugin.get("scope").and_then(Value::as_array) {
-        Some(scope) if !scope.is_empty() => scope.iter().map(mixdog_js::value_to_string).collect::<Vec<_>>().join(", "),
+        Some(scope) if !scope.is_empty() => scope.iter().map(join_text).collect::<Vec<_>>().join(", "),
         _ => "all projects".to_owned(),
     };
     let warning = plugin.get("warning").filter(|warning| truthy(warning)).map_or_else(String::new, |warning| format!("warning: {}", value_text(warning)));
