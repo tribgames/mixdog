@@ -86,12 +86,16 @@ fn file_names(dir: &Path) -> Vec<String> {
     names
 }
 
-/// Each recorded image against the answered entry: the geometry and pages, the chunk that follows and the byte count.
+/// Each recorded image against the answered entry: the geometry and pages, and its bytes, which follow in `images` order (a
+/// chunk carries at most 64 KiB, so an image may span several).
 fn check_images(name: &str, answered: &Value, recorded: &Value, chunks: &[Vec<u8>]) {
     let images = answered["images"].as_array().expect("images");
     let expected = recorded["images"].as_array().expect("recorded images");
     assert_eq!(images.len(), expected.len(), "{name}: image count");
-    assert_eq!(chunks.len(), images.len(), "{name}: one chunk per image");
+    let sent = chunks.concat();
+    let counted: u64 = images.iter().map(|entry| entry["bytes"].as_u64().expect("bytes")).sum();
+    assert_eq!(sent.len() as u64, counted, "{name}: the chunks are the images' bytes, nothing else");
+    let mut offset = 0;
     for (at, (entry, golden)) in images.iter().zip(expected).enumerate() {
         for key in ["page", "pages", "width", "height", "mimeType"] {
             assert_eq!(entry.get(key), golden.get(key), "{name}: image {at} {key}");
@@ -99,8 +103,9 @@ fn check_images(name: &str, answered: &Value, recorded: &Value, chunks: &[Vec<u8
         let file = Path::new(entry["path"].as_str().expect("path")).file_name().expect("file name").to_string_lossy().into_owned();
         assert_eq!(Some(file.as_str()), golden["file"].as_str(), "{name}: image {at} file");
         assert!(entry.get("data").is_none(), "{name}: image {at} carries bytes, not data");
-        assert_eq!(entry["bytes"].as_u64(), Some(chunks[at].len() as u64), "{name}: image {at} byte count");
-        assert_eq!(chunks[at][..4], PNG_MAGIC, "{name}: image {at} is a PNG");
+        let bytes = entry["bytes"].as_u64().expect("bytes") as usize;
+        assert_eq!(sent[offset..offset + 4], PNG_MAGIC, "{name}: image {at}'s bytes start where the one before ends, a PNG");
+        offset += bytes;
         if let Some(sheet) = golden.get("pageImages").and_then(Value::as_array) {
             let pages = entry["pageImages"].as_array().expect("pageImages");
             assert_eq!(pages.len(), sheet.len(), "{name}: thumbnails of image {at}");
