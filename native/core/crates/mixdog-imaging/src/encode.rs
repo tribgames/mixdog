@@ -112,11 +112,12 @@ fn quantize_to_palette(rgba: &mut [u8]) {
         }
         best
     };
-    let mut boxes: Vec<Vec<(u32, u64)>> = vec![colours.clone()];
+    // Each box carries its widest channel range, worked out once when the box is made.
+    let mut boxes: Vec<(Vec<(u32, u64)>, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
     while boxes.len() < budget {
-        let split = boxes.iter().enumerate().filter(|(_, boxed)| boxed.len() > 1).map(|(at, boxed)| (at, range_of(boxed))).max_by_key(|&(_, (range, _))| range);
+        let split = boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
         let Some((at, (_, shift))) = split else { break };
-        let mut boxed = boxes.swap_remove(at);
+        let (mut boxed, _) = boxes.swap_remove(at);
         boxed.sort_unstable_by_key(|&(key, _)| channel(key, shift));
         let total: u64 = boxed.iter().map(|&(_, count)| count).sum();
         let mut seen = 0;
@@ -129,12 +130,13 @@ fn quantize_to_palette(rgba: &mut [u8]) {
             }
         }
         let upper = boxed.split_off(cut);
-        boxes.push(boxed);
-        boxes.push(upper);
+        let (lower_range, upper_range) = (range_of(&boxed), range_of(&upper));
+        boxes.push((boxed, lower_range));
+        boxes.push((upper, upper_range));
     }
     let palette: Vec<[i32; 3]> = boxes
         .iter()
-        .map(|boxed| {
+        .map(|(boxed, _)| {
             let total: u64 = boxed.iter().map(|&(_, count)| count).sum();
             let mean = |shift: u32| ((boxed.iter().map(|&(key, count)| u64::from(channel(key, shift)) * count).sum::<u64>() + total / 2) / total) as i32;
             [mean(16), mean(8), mean(0)]
