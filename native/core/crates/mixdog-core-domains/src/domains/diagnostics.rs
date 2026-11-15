@@ -254,6 +254,9 @@ fn node_engine_support(version: &str, range: Option<&str>) -> Option<bool> {
 }
 
 fn report_node(node: &Value) -> Option<Verdict> {
+    if node.get("version").is_none_or(Value::is_null) {
+        return verdict(Level::Warn, "Node.js script runtime version unavailable");
+    }
     let version = js_text(node.get("version"));
     let engines = node.get("engines").and_then(Value::as_str);
     match node_engine_support(&version, engines) {
