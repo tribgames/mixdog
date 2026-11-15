@@ -47,3 +47,13 @@ in this task): the twin test `tests/format_twin.rs` is what compares this crate'
 - `mixdog_markdown_ansi::format::{format_token, format_block, Context, styles, ExtraColorizers, highlight_code_line,
   highlight_code_block_to_lines, colorize_diff_line, looks_like_unified_diff, lang_family, pad_aligned}`: what `tool-output-format.mjs`
   and the table's `padAligned` consumers read from `format-token.mjs`. `pad_aligned` (`padAligned`) is in the same module.
+
+## Left for nr-tui-md-stream (render.rs is this task's file; the functions it needs are that task's)
+
+`lexMarkdown(content, { trimPartialFences: true })` of `render-ansi.mjs` is not complete in `render::lex_markdown`: its
+`trim_partial_fences` branch lexes the text fresh (not cached) but does not yet (1) take the open-fence fast path
+(`findOpenFenceStart(text)`: lex only the text before the open fence and push a `TokenKind::Code` token built from the raw
+fence text with `lang` = the fence's language, `text` = everything after the fence line's newline (empty without one),
+`raw` = the fence onward, `plain = Some(true)`) or (2) call `trimPartialClosingFences(tokens)` on the result. Both functions
+are `stream-fence.mjs`, which nr-tui-md-stream ports into `stream.rs`; the formatter already renders a `plain` code token
+through the flat streaming body path. The lead applies this two-call change to `lex_markdown` with that task's functions.
