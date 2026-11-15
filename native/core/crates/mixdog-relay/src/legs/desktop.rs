@@ -19,7 +19,9 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 
-use super::dispatch::{CapabilityOffer, LegCall};
+use futures::stream::{FuturesUnordered, StreamExt as _};
+
+use super::dispatch::{CapabilityOffer, LegCall, Later};
 use super::envelope;
 use super::hub::{
     Conn, Entry, Hub, HubState, IngressInstall, Liveness, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone,
@@ -202,6 +204,7 @@ impl Hub {
             leg_id,
             revoked: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            later: Arc::default(),
         }
     }
 }
@@ -219,9 +222,15 @@ pub struct DesktopHandle {
     /// The device was revoked on this leg: nothing more it says is acted on.
     revoked: AtomicBool,
     finished: AtomicBool,
+    later: Arc<Later>,
 }
 
 impl DesktopHandle {
+    /// The work the frame handlers deferred behind the frames already read.
+    pub fn later(&self) -> &Arc<Later> {
+        &self.later
+    }
+
     pub fn device_id(&self) -> &str {
         &self.device_id
     }
@@ -323,7 +332,7 @@ impl DesktopHandle {
                 // Media proxy frames (head, body chunks, then end) and every other area's frames: the relay only forwards what it is
                 // handed; the owning area decides.
                 if let Some(handler) = self.hub.dispatch().handler_for(other) {
-                    handler(LegCall { hub: Arc::clone(&self.hub), device_id: self.device_id.clone(), message }).await;
+                    handler(LegCall { later: Arc::clone(&self.later), hub: Arc::clone(&self.hub), device_id: self.device_id.clone(), message }).await;
                 }
             }
         }
@@ -554,14 +563,32 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
         Box::new(move |kind| IngressLeg::install(&pool, &socket, kind, limits))
     };
     let handle = hub.attach_desktop(&device_id, Arc::new(ws), Some(install));
-    while let Some(event) = events.next().await {
-        match event {
-            WsEvent::Message { data, is_binary } => handle.frame(data, is_binary).await,
-            WsEvent::Pong(_) => handle.pong(),
-            // A ping is answered by the socket itself; an error is surfaced as the close that follows it.
-            WsEvent::Ping(_) | WsEvent::Error(_) => {}
-            WsEvent::Close { .. } => break,
+    // Work the handlers deferred runs when no frame is ready, as a promise of Node's runs after the frames of the read.
+    let mut later = FuturesUnordered::new();
+    handle.later().drive();
+    loop {
+        tokio::select! {
+            biased;
+            event = events.next() => {
+                let Some(event) = event else { break };
+                match event {
+                    WsEvent::Message { data, is_binary } => {
+                        handle.frame(data, is_binary).await;
+                        later.extend(handle.later().take());
+                    }
+                    WsEvent::Pong(_) => handle.pong(),
+                    // A ping is answered by the socket itself; an error is surfaced as the close that follows it.
+                    WsEvent::Ping(_) | WsEvent::Error(_) => {}
+                    WsEvent::Close { .. } => break,
+                }
+            }
+            Some(()) = later.next(), if !later.is_empty() => {}
         }
+    }
+    // What was started goes on after the leg: the answer is written to a socket that may be gone, as in Node.
+    later.extend(handle.later().release());
+    for work in later {
+        mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);
     }
     handle.closed();
 }

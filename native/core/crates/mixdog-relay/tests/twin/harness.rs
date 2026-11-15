@@ -276,6 +276,11 @@ impl Run<'_> {
             if let Some(peer) = self.ws.get_mut(&name) {
                 let deadline = Instant::now() + DRAIN;
                 while let Some(event) = peer.next(deadline)? {
+                    // The relay's own liveness ping is on a ten second timer of its start: whether one lands before the
+                    // last read of a scenario is a race of the Node relay itself, and it says nothing a scenario fixes.
+                    if matches!(event, WsEvent::Ping(_)) {
+                        continue;
+                    }
                     unread.push(json!({ "ev": "unread", "conn": name, "event": event.to_value() }));
                 }
             }
@@ -502,6 +507,13 @@ impl Run<'_> {
         let mut conn = self.connect()?;
         conn.write(request);
         let deadline = Instant::now() + Duration::from_millis(step.timeout_ms);
+        // While the answer is awaited the open WebSocket legs keep answering the relay's pings.
+        while !conn.closed && conn.buf.is_empty() && Instant::now() < deadline {
+            conn.pull((Instant::now() + Duration::from_millis(500)).min(deadline));
+            for peer in self.ws.values_mut() {
+                peer.keepalive();
+            }
+        }
         match read_answer(&mut conn, head_request, deadline)? {
             Answer::NoAnswer(seen) => {
                 Self::check_status(step.expect_status, None)?;
@@ -563,16 +575,15 @@ impl Run<'_> {
             }
             Ok(head) if head.status == 101 => {
                 Self::check_status(step.expect_status, Some(101))?;
-                let mut event = json!({
+                let event = json!({
                     "ev": "ws_open",
                     "conn": step.conn,
                     "role": role,
                     "status": head.status_line,
                     "headers": headers_value(&head.headers),
                 });
-                if !conn.buf.is_empty() {
-                    event["early"] = body_value(&conn.buf);
-                }
+                // Frames that came in the same read as the head stay in the connection and are read as frames by the
+                // peer: whether the relay's first frame shares a segment with its head is a matter of the transport.
                 self.push(event);
                 self.capture(&step.capture, Some(&head), &[], &[])?;
                 self.ws.insert(step.conn.clone(), WsPeer::new(conn));

@@ -14,6 +14,15 @@ pub fn decode_utf8(bytes: &[u8]) -> Cow<'_, str> {
     String::from_utf8_lossy(bytes)
 }
 
+/// The message of the error `fs.readFileSync(path)` throws: a folder is read as `EISDIR` on every system (Windows refuses to
+/// open it as access denied), anything else keeps the system's own text.
+pub fn read_file_error(error: &std::io::Error, path: &std::path::Path) -> String {
+    if path.is_dir() {
+        return "EISDIR: illegal operation on a directory, read".to_owned();
+    }
+    error.to_string()
+}
+
 /// `JSON.parse(text)`.
 pub fn parse(text: &str) -> Result<Value, JsonSyntaxError> {
     mixdog_js::json_parse(text)

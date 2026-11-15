@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use mixdog_rt::TaskClass;
 
+use super::bindings::Admitted;
 use super::{NativePushService, PairedClients};
 use crate::legs::dispatch::{CapabilityOffer, Dispatch, Handler, HandlerFuture, LegCall, Rejected, RevokeHook};
 use crate::store::DeviceStore;
@@ -60,11 +60,23 @@ pub fn register(dispatch: &Dispatch, service: &Arc<NativePushService>) -> Result
     let send_handler: Handler = Arc::new(move |call: LegCall| -> HandlerFuture {
         let service = Arc::clone(&send);
         Box::pin(async move {
-            mixdog_rt::spawn("relay-native-push", TaskClass::Work, async move {
-                if let Some(result) = service.send(&call.device_id, call.hub.store(), &call.message).await {
+            // The refusals are answered here, in frame order; only a send that waits for the network is spawned.
+            match service.admit(&call.device_id, call.hub.store(), &call.message) {
+                None => {}
+                Some(Admitted::Refused(result)) => {
                     call.hub.send_to_desktop(&call.device_id, &result);
                 }
-            });
+                Some(Admitted::Send(request)) => {
+                    let later = Arc::clone(&call.later);
+                    later.run(
+                        "relay-native-push",
+                        Box::pin(async move {
+                            let result = service.deliver(&call.device_id, &call.message, request).await;
+                            call.hub.send_to_desktop(&call.device_id, &result);
+                        }),
+                    );
+                }
+            }
         })
     });
     dispatch.register("native-push", send_handler)?;

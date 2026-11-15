@@ -570,7 +570,7 @@ add(
 
 {
   const steps = [desktop('dA'), setToken('dA', TOKEN_A), registerBrowser(TOKEN_A, 'bbbbbbbb', 'browser')];
-  for (let n = 0; n < 120; n += 1) steps.push(phone(`p${n}`, '${browser}'), hangUp(`p${n}`));
+  for (let n = 0; n < 120; n += 1) steps.push(phone(`p${n}`, '${browser}'), hangUp(`p${n}`), expectFrames('dA', 2));
   steps.push(phone('over', '${browser}', 429));
   add(
     'ws_gate_connect_rate',

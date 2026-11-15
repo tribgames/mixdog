@@ -29,6 +29,14 @@ pub trait PairedClients: Sync {
 }
 
 /// `^[0-9a-fA-F]{32,400}$` for APNs, `^[A-Za-z0-9_:.-]{32,4096}$` for FCM.
+/// What the immediate part of a `native-push` frame decided.
+pub enum Admitted {
+    /// The answer, written at once.
+    Refused(Value),
+    /// A message to send; its answer follows the send.
+    Send(PushMessage),
+}
+
 pub fn valid_native_token(platform: &str, token: &str) -> bool {
     let (lengths, allowed): (std::ops::RangeInclusive<usize>, fn(u8) -> bool) = match platform {
         "apns" => (32..=400, |byte: u8| byte.is_ascii_hexdigit()),
@@ -202,12 +210,12 @@ impl NativePushService {
         drop_associations(&mut self.table(), device_id, client_id, None);
     }
 
-    /// `native-push`: validates, checks the association and the limit, sends, and returns the `native-push-result` frame for
-    /// the leg to write. `None` on a relay that cannot deliver to any platform, which ignores the frame (the legs got no
-    /// `nativePush` when its `platforms` was empty).
-    pub async fn send(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) -> Option<Value> {
-        let push = self.push.as_ref().filter(|push| !push.platforms().is_empty())?;
-        let Some(request) = self.validated(message) else { return Some(refusal(message, "invalid-message")) };
+    /// `native-push`, the part that answers at once and in frame order, as Node's handler does before it starts the send:
+    /// validates, checks the association and the limit. `None` on a relay that cannot deliver to any platform, which ignores
+    /// the frame (the legs got no `nativePush` when its `platforms` was empty).
+    pub fn admit(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) -> Option<Admitted> {
+        self.push.as_ref().filter(|push| !push.platforms().is_empty())?;
+        let Some(request) = self.validated(message) else { return Some(Admitted::Refused(refusal(message, "invalid-message"))) };
         let bound = self.table().get_mut(&request.token).is_some_and(|entry| {
             associations_of(entry).values().any(|association| {
                 association.device_id == device_id
@@ -216,11 +224,26 @@ impl NativePushService {
             })
         });
         if !bound {
-            return Some(refusal(message, "unbound-token"));
+            return Some(Admitted::Refused(refusal(message, "unbound-token")));
         }
         if !self.limiter.lock().unwrap_or_else(PoisonError::into_inner).allow(device_id) {
-            return Some(refusal(message, "rate-limited"));
+            return Some(Admitted::Refused(refusal(message, "rate-limited")));
         }
+        Some(Admitted::Send(request))
+    }
+
+    /// `native-push`: [`Self::admit`] and, for an admitted message, the send; returns the `native-push-result` frame for the leg
+    /// to write.
+    pub async fn send(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) -> Option<Value> {
+        match self.admit(device_id, paired, message)? {
+            Admitted::Refused(frame) => Some(frame),
+            Admitted::Send(request) => Some(self.deliver(device_id, message, request).await),
+        }
+    }
+
+    /// The send of an admitted message and its `native-push-result` frame.
+    pub async fn deliver(&self, device_id: &str, message: &Value, request: PushMessage) -> Value {
+        let push = self.push.as_ref().expect("an admitted message has a sender");
         let result = push.send(&request).await;
         // Only the sender's associations go: every other desktop learns the token is dead from its own send and cleans up
         // its own store.
@@ -237,7 +260,7 @@ impl NativePushService {
         if let Some(error) = result.error.filter(|error| !error.is_empty()) {
             fields.push(("error", Value::from(js::js_slice(&error, 80))));
         }
-        Some(result_frame(message, fields))
+        result_frame(message, fields)
     }
 
     /// The message when it is one this relay can deliver: a platform it serves, a well-formed token, an `mx` of 1 to 3500

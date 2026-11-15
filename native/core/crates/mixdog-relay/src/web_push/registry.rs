@@ -206,14 +206,18 @@ impl Registry {
             Ok(bytes) => bytes,
             Err(error) => {
                 if error.kind() != ErrorKind::NotFound {
-                    logline::emit(&logline::web_push_subscriptions_unreadable(&error.to_string()));
+                    logline::emit(&logline::web_push_subscriptions_unreadable(&js::read_file_error(&error, &registry.path)));
                 }
                 return registry;
             }
         };
         match js::parse_bytes(&bytes) {
             Ok(parsed) => registry.load(&parsed),
-            Err(error) => logline::emit(&logline::web_push_subscriptions_unusable(&error.to_string())),
+            Err(error) => {
+                // The text of the SyntaxError V8 raises, as `error.message` of Node's own catch.
+                let message = mixdog_js::v8_json_parse_error(&js::decode_utf8(&bytes)).unwrap_or_else(|| error.to_string());
+                logline::emit(&logline::web_push_subscriptions_unusable(&message));
+            }
         }
         registry
     }

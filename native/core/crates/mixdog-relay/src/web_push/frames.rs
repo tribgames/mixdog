@@ -13,8 +13,6 @@
 
 use std::sync::{Arc, Weak};
 
-use mixdog_rt::TaskClass;
-
 use super::WebPush;
 use crate::legs::dispatch::{CapabilityOffer, Handler, HandlerFuture, LegCall, Rejected, RevokeHook};
 use crate::legs::hub::Hub;
@@ -65,14 +63,19 @@ pub fn register(hub: &Arc<Hub>, web_push: Arc<WebPush>) -> Result<(), Rejected> 
     let send: Handler = Arc::new(move |call: LegCall| -> HandlerFuture {
         let web_push = Arc::clone(&sending);
         Box::pin(async move {
-            // The push service may be slow: the answer is written when it comes, and the leg reads on.
-            mixdog_rt::spawn("relay-webpush-send", TaskClass::Work, async move {
-                let hub = Arc::clone(&call.hub);
-                let known = |device: &str, client: &str| hub.store().has_client(device, client);
-                let announce = |holder: &str| publish(&hub, &web_push, holder);
-                let reply = web_push.send_from_desktop(&call.device_id, &call.message, known, announce).await;
-                hub.send_to_desktop(&call.device_id, &reply);
-            });
+            // The push service may be slow: the answer is written when it comes, and the leg reads on. The sends start in the
+            // order of the frames, after the frames already read (the order the fake or the real push service sees them in).
+            let later = Arc::clone(&call.later);
+            later.run(
+                "relay-webpush-send",
+                Box::pin(async move {
+                    let hub = Arc::clone(&call.hub);
+                    let known = |device: &str, client: &str| hub.store().has_client(device, client);
+                    let announce = |holder: &str| publish(&hub, &web_push, holder);
+                    let reply = web_push.send_from_desktop(&call.device_id, &call.message, known, announce).await;
+                    hub.send_to_desktop(&call.device_id, &reply);
+                }),
+            );
         })
     });
     dispatch.register("webpush-send", send)?;

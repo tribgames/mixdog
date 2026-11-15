@@ -769,7 +769,7 @@ scenario(
     { knobs: { maxInflightBytes: 262144 }, files: oneDevice(...phones) },
     [
       desktopUp(),
-      phones.flatMap((name, i) => [phone(`p${i}`, name)]),
+      phones.flatMap((name, i) => [phone(`p${i}`, name), wait(5)]),
       expect('d', 32),
       text('d', json({ type: 'broadcast', critical: true, data: 'x'.repeat(120 * 1024) })),
       phones.map((_, i) => expect(`p${i}`, 1)),
