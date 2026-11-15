@@ -67,8 +67,7 @@ fn the_manifest_names_no_script_or_recorder() {
     let manifest = mixdog_testkit::read_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"));
     // This test's own entry names itself.
     let kept: Vec<&str> = manifest.lines().filter(|line| !line.trim_start().starts_with('#') && !line.contains("no_powershell")).collect();
-    let code = kept.join("
-").to_ascii_lowercase();
+    let code = kept.join("\n").to_ascii_lowercase();
     for word in [".ps1", "recorder", "powershell"] {
         assert!(!code.contains(word), "Cargo.toml names {word}");
     }
