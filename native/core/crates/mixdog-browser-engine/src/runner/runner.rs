@@ -1438,17 +1438,45 @@ impl PageCtx {
         state.refs.clone()
     }
 
-    /// The state a mutating call is decided against.
+    /// The state a mutating call is decided against. A page that has committed no document reports no address (a tab this command
+    /// just opened, whose first blank load is under way): there is none to bind the call to, and the one the page then commits is its
+    /// own first, not a change under the caller (the old runner acted on such a page as it stood: `runResolvedCommand` of
+    /// `command-runner.ts`). The document binds the call as on any page.
     fn page_precondition(&self) -> Precondition {
         let facts = self.page_facts();
         let origin = origin_of_url(&facts.url);
         Precondition {
             document_id: facts.document_id.clone(),
             origin: (!origin.is_empty()).then_some(origin),
-            url: Some(facts.url.clone()),
+            url: (!facts.url.is_empty()).then(|| facts.url.clone()),
             child_sessions: Some(facts.child_sessions.iter().map(|child| child.session_id.clone()).collect()),
             receiver_key: None,
             snapshot_id: self.latest_refs().map(|refs| refs.snapshot_id),
+        }
+    }
+
+    /// The guard of a move between documents (`navigate` to a URL, a reload, `back`). The move replaces the document: the address,
+    /// the origin, the frames and the observation the page holds are what it discards, so none of them is a state the move is decided
+    /// against (the old handlers checked nothing: `navigate` and `back` of `actions/navigation.ts` loaded into whatever the page
+    /// held). The document is named because the wire has no guard without one.
+    fn navigation_precondition(&self) -> Precondition {
+        Precondition { document_id: self.page_facts().document_id, origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: None }
+    }
+
+    /// One move, decided against the document the page holds now.
+    async fn move_once(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
+        let precondition = self.navigation_precondition();
+        let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
+        if action == Action::Back { navigation::back(&call).await } else { navigation::navigate(&call, command, &self.inner.ports.urls, wall_clock_ms()).await }
+    }
+
+    /// The move, sent once more when the host refused the document it named. The refusal sent nothing and told the page's present
+    /// facts (the lane keeps them): the page replaced its document meanwhile (a tab this command opened starting its first blank load,
+    /// a redirect), and a move has no earlier document to protect. A second refusal is the failure.
+    async fn moved(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
+        match self.move_once(action, command).await {
+            Err(observe::ActionError::Host(HostCallError::PreconditionFailed { .. })) => self.move_once(action, command).await,
+            outcome => outcome,
         }
     }
 
@@ -2123,11 +2151,8 @@ impl PageCtx {
     }
 
     async fn navigate_action(&self, action: Action, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
-        let precondition = self.page_precondition();
         self.invalidate();
-        let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
-        let outcome = if action == Action::Back { navigation::back(&call).await? } else { navigation::navigate(&call, command, &self.inner.ports.urls, wall_clock_ms()).await? };
-        match outcome {
+        match self.moved(action, command).await? {
             NavigateOutcome::Refused(text) if action == Action::Back => Ok(ToolReply::text(text)),
             NavigateOutcome::Refused(text) => Err(RunError::Failed(text)),
             NavigateOutcome::Moved(facts) => match &facts.pending_dialog {
@@ -2139,10 +2164,8 @@ impl PageCtx {
 
     /// A reload and the settle after it (what a performance trace over a reload waits for).
     async fn reload_and_settle(&self) -> Result<(), page::PageActionError> {
-        let precondition = self.page_precondition();
-        let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
         let reload = json!({"action": "navigate", "reload": true});
-        navigation::navigate(&call, &reload, &self.inner.ports.urls, wall_clock_ms()).await.map_err(|error| match error {
+        self.moved(Action::Navigate, &reload).await.map_err(|error| match error {
             observe::ActionError::Host(error) => page::PageActionError::Host(error),
             observe::ActionError::Cancelled(_) => page::PageActionError::Host(HostCallError::Cancelled),
             observe::ActionError::Failed(message) => page::PageActionError::invalid(message),
@@ -2584,6 +2607,7 @@ mod tests {
     use crate::refs::ref_set::tests::payload;
     use crate::types::BrowserApprovalPrompt;
     use crate::types::FileFacts;
+    use mixdog_app_protocol::v2::browser_engine::BrowserPreconditionReason;
     use mixdog_app_protocol::v2::browser_engine::BrowserUserInputReason;
 
     struct Masks;
@@ -2919,6 +2943,160 @@ mod tests {
         let error = run(&engine(&kept, None), "snapshot", json!({})).await.expect_err("fails");
         assert_eq!(error.message_for_model, "page is unavailable");
         kept.finish().expect("no discard");
+    }
+
+    /// The page a command just opened in the background: the host answers before the page committed its first blank document, so
+    /// its facts name the document and no address (`describe` of the host's `pages.ts` right after `ensureOffscreen`).
+    fn resolved_blank(page: &str, tab: &str) -> Expect {
+        let mut row = page_row(page, tab);
+        row["background"] = json!(true);
+        row["created"] = json!(true);
+        row["disposable"] = json!(true);
+        row["facts"]["url"] = json!("");
+        row["facts"]["background"] = json!(true);
+        row["facts"]["visible"] = json!(false);
+        Expect::ok("host/browser/pages/resolve", json!({"page": row, "leaseId": "lease-1"}))
+    }
+
+    /// A page's facts on `document` with a dialog open: a navigation that ends on one answers with the dialog, without the settle.
+    fn facts_with_dialog(page: &str, seq: u64, document: &str) -> Value {
+        let mut facts = page_facts(page, seq);
+        facts["documentId"] = json!(document);
+        facts["url"] = json!("https://b.test/app");
+        facts["pendingDialog"] = json!({"type": "alert", "message": "Arrived", "openedAt": 1, "bridge": false});
+        facts
+    }
+
+    fn sent(host: &FakeHost, method: &str) -> Vec<Value> {
+        host.calls().into_iter().filter(|call| call.method == method).map(|call| call.params).collect()
+    }
+
+    fn page_ctx(engine: &BrowserEngine, page: &str) -> PageCtx {
+        PageCtx {
+            inner: engine.inner.clone(),
+            slot: engine.inner.slot(page),
+            page_id: page.to_owned(),
+            thread: thread(),
+            turn: 1,
+            cancel: CancelSource::new().view(),
+            user_wait: UserWait::new(),
+            timer: Arc::new(CommandTimer::start(0.0)),
+            background: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_navigate_into_the_background_tab_it_just_opened_is_decided_against_the_document_alone() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved_blank("p1", "live").with_params(json!({"background": true, "tab": {"pageId": "live"}, "open": {"reveal": false}})),
+            Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 2, "p1:2")})).with_params(json!({"pageId": "p1", "kind": "url"})),
+        ]));
+        let reply = run(&engine(&host, None), "navigate", json!({"url": "https://b.test/app", "background": true, "tab": "live"})).await.expect("the navigation is sent");
+        assert!(reply.text.contains("Arrived"), "{}", reply.text);
+        host.finish().expect("resolve, navigate");
+        // The blank page's own first load commits `about:blank` after the host described it: the address is not part of the guard, so
+        // that commit is no change under the command; nor are the origin, the frames or an observation, which the move discards.
+        assert_eq!(sent(&host, "host/browser/page/navigate")[0]["expect"], json!({"documentId": "p1:1"}));
+        assert!(sent(&host, "host/browser/pages/close").is_empty(), "the tab holds the page now");
+    }
+
+    #[tokio::test]
+    async fn a_navigate_reload_and_back_name_the_document_alone_on_a_page_with_an_address_and_an_observation() {
+        let moves = [("navigate", json!({"url": "https://b.test/app"}), "url"), ("navigate", json!({"reload": true}), "reload"), ("back", json!({}), "back")];
+        for (action, input, kind) in moves {
+            let host = Arc::new(FakeHost::scripted(vec![
+                resolved("p1"),
+                snapshot_answer(),
+                no_downloads(),
+                resolved("p1"),
+                Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 3, "p1:2")})).with_params(json!({"pageId": "p1", "kind": kind})),
+            ]));
+            let engine = engine(&host, None);
+            run(&engine, "snapshot", json!({})).await.expect("snapshot");
+            run(&engine, action, input).await.expect(kind);
+            host.finish().expect(kind);
+            assert_eq!(sent(&host, "host/browser/page/navigate")[0]["expect"], json!({"documentId": "p1:1"}), "{kind}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_navigate_the_host_refused_for_its_document_is_sent_once_more_against_the_document_the_refusal_told() {
+        let refused = |document: &str, seq: u64| {
+            let mut facts = page_facts("p1", seq);
+            facts["documentId"] = json!(document);
+            Expect::err("host/browser/page/navigate", HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Document, facts: Box::new(serde_json::from_value(facts).expect("facts")) })
+        };
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            refused("p1:2", 5).with_params(json!({"expect": {"documentId": "p1:1"}})),
+            Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 6, "p1:3")})).with_params(json!({"expect": {"documentId": "p1:2"}})),
+        ]));
+        let reply = run(&engine(&host, None), "navigate", json!({"url": "https://b.test/app"})).await.expect("the second send moves the page");
+        assert!(reply.text.contains("Arrived"), "{}", reply.text);
+        host.finish().expect("resolve, navigate refused, navigate");
+
+        // A page that replaced its document again before the second send is the failure, in the words of a page that changed.
+        let racing = Arc::new(FakeHost::scripted(vec![resolved("p1"), refused("p1:2", 5), refused("p1:3", 6).with_params(json!({"expect": {"documentId": "p1:2"}}))]));
+        let error = run(&engine(&racing, None), "navigate", json!({"url": "https://b.test/app"})).await.expect_err("refused twice");
+        assert_eq!(error.message_for_model, "the page changed before the action was sent (Document); nothing was dispatched. Take a fresh snapshot before continuing.");
+        racing.finish().expect("two sends, no third");
+    }
+
+    #[tokio::test]
+    async fn a_page_with_no_address_binds_a_call_to_its_document_and_one_with_an_address_to_the_address_too() {
+        let host = Arc::new(FakeHost::scripted(Vec::new()));
+        let engine = engine(&host, None);
+        let page = page_ctx(&engine, "p1");
+        let mut blank = page_facts("p1", 1);
+        blank["url"] = json!("");
+        engine.inner.store.record(&serde_json::from_value(blank).expect("facts"));
+        let expect = serde_json::to_value(page.page_precondition()).expect("precondition");
+        assert_eq!(expect, json!({"documentId": "p1:1", "childSessions": []}), "no address to bind before the first document commits");
+
+        // The host then tells the blank document: the address binds every later call, and so does the origin once the page has one.
+        let mut committed = page_facts("p1", 2);
+        committed["url"] = json!("about:blank");
+        engine.inner.store.record(&serde_json::from_value(committed).expect("facts"));
+        assert_eq!(serde_json::to_value(page.page_precondition()).expect("precondition"), json!({"documentId": "p1:1", "url": "about:blank", "childSessions": []}));
+        engine.inner.store.record(&serde_json::from_value(page_facts("p1", 3)).expect("facts"));
+        let bound = serde_json::to_value(page.page_precondition()).expect("precondition");
+        assert_eq!(bound, json!({"documentId": "p1:1", "origin": "https://a.test", "url": "https://a.test/", "childSessions": []}));
+        assert_eq!(serde_json::to_value(page.navigation_precondition()).expect("precondition"), json!({"documentId": "p1:1"}));
+    }
+
+    #[tokio::test]
+    async fn a_script_on_the_blank_tab_the_command_opened_is_bound_to_the_document_and_not_to_an_address() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved_blank("p1", "calc"),
+            Expect::err("host/browser/page/eval", HostCallError::Failed { message: "the script threw".into() }),
+            Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "discard"})),
+        ]));
+        let error = run(&engine(&host, None), "evaluate", json!({"script": "1 + 1", "background": true, "tab": "calc"})).await.expect_err("the script fails");
+        assert_eq!(error.message_for_model, "the script threw. The blank tab this command opened was closed.");
+        host.finish().expect("resolve, eval, discard");
+        assert_eq!(sent(&host, "host/browser/page/eval")[0]["expect"], json!({"documentId": "p1:1", "childSessions": []}));
+    }
+
+    #[tokio::test]
+    async fn a_page_that_changed_under_an_observation_still_refuses_the_call_bound_to_it() {
+        let mut moved = page_facts("p1", 4);
+        moved["url"] = json!("https://a.test/elsewhere");
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            snapshot_answer(),
+            no_downloads(),
+            resolved("p1"),
+            Expect::err("host/browser/page/eval", HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Url, facts: Box::new(serde_json::from_value(moved).expect("facts")) }),
+        ]));
+        let engine = engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        let error = run(&engine, "evaluate", json!({"script": "document.title"})).await.expect_err("the page moved on");
+        assert_eq!(error.message_for_model, "the page changed before the action was sent (Url); nothing was dispatched. Take a fresh snapshot before continuing.");
+        host.finish().expect("one eval, not sent again");
+        // The call carried everything the observation was made of: the document, the address and origin, the frames and the snapshot.
+        let expect = &sent(&host, "host/browser/page/eval")[0]["expect"];
+        assert_eq!(*expect, json!({"documentId": "p1:1", "origin": "https://a.test", "url": "https://a.test/", "childSessions": [], "snapshotId": "p1-s1"}));
+        assert_eq!(engine.inner.store.get("p1").map(|facts| facts.url), Some("https://a.test/elsewhere".to_owned()), "the refusal's facts are the page's present ones");
     }
 
     #[tokio::test]
