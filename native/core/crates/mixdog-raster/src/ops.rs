@@ -913,6 +913,13 @@ mod tests {
 
     #[test]
     fn trim_finds_the_box_of_what_differs_from_the_corner() {
+        // find_trim smooths with a 3x3 median first: a 3x3 block keeps its whole box, a lone pixel is noise.
+        let image = rgb(8, 6, |x, y| if (2..5).contains(&x) && (1..4).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
+        let cut = trim(&image, 0.0).unwrap();
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 1, 3, 3));
+        let lone = rgb(8, 6, |x, y| if (x, y) == (3, 2) { [255, 0, 0] } else { [0, 0, 0] });
+        let cut = trim(&lone, 0.0).unwrap();
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (0, 0, 8, 6));
         let image = rgb(10, 8, |x, y| if (2..8).contains(&x) && (2..6).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
         let cut = trim(&image, 0.0).unwrap();
         assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 2, 6, 4));
@@ -937,5 +944,16 @@ mod tests {
         let image = Image::from_raw(10, 8, 4, &bytes).unwrap();
         let cut = trim(&image, 0.0).unwrap();
         assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 2, 6, 4));
+        // A lone pixel does not survive the 3x3 median of find_trim; a 3x3 block does, whole.
+        let mut bytes = vec![0u8; 8 * 6 * 4];
+        for y in 2..5 {
+            for x in 3..6 {
+                let at = (y * 8 + x) * 4;
+                bytes[at..at + 4].copy_from_slice(&[10, 20, 30, 255]);
+            }
+        }
+        let image = Image::from_raw(8, 6, 4, &bytes).unwrap();
+        let cut = trim(&image, 0.0).unwrap();
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (3, 2, 3, 3));
     }
 }

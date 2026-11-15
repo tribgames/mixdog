@@ -11,8 +11,11 @@
 //! Text boxes (`addText`) and tables (`addTable`) are written by `text` and `table`; charts belong to the chart writer,
 //! which adds to the objects and rels held here. Not carried: `addMedia` (audio and video), SVG pictures (pptxgenjs's own
 //! preview of one is a broken-image placeholder, and the build rasterises SVG itself), `defineSlideMaster`,
-//! sections and the custom geometry points.
+//! sections and the custom geometry points, the 3D bar, the bubble chart and combo charts with a secondary axis (the chart
+//! writer of charts.rs carries area, bar and column, line, pie, doughnut, radar and scatter).
 
+mod chart_workbook;
+mod charts;
 mod media;
 mod presentation;
 mod shapes;
@@ -23,6 +26,7 @@ mod theme;
 
 use mixdog_js::{math, number_to_string};
 
+pub use charts::{AxisCrossing, AxisStyle, Chart, ChartArea, ChartBorder, ChartData, ChartKind, ChartLayout, ChartOptions, ChartShadow, GridLine, PlotArea, TitlePos};
 pub use media::ImageFile;
 pub use presentation::Presentation;
 pub use shapes::{Fill, Hyperlink, ImageOptions, ImageSizing, Line, Shadow, ShapeOptions, SizingKind};
