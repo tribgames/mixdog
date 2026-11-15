@@ -1,6 +1,6 @@
 //! The workbook reader against a scripted workbook: a tree of COM objects that answer by member name, in place of Excel.
 //!
-//! The recorded call logs of `tests/scenarios/excel-read.json` (taken from the PowerShell hosts against Microsoft Excel)
+//! The recorded call logs of `recorder/scenarios/excel-read.json` (taken from the PowerShell hosts against Microsoft Excel)
 //! are held to the same reader once they exist on the migration PC; these tests pin the rules of the port that need no
 //! Office: what a page of cells and a selection look like, the types the page's COM arguments go out with, the colour names
 //! of a Korean Excel, and the financial-model audit.

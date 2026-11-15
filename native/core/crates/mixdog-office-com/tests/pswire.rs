@@ -1,9 +1,12 @@
 //! The PowerShell value semantics the Office COM hosts' results depend on (`mixdog_office_com::ps`), checked against the
-//! text Windows PowerShell 5.1 produced: every entry of `tests/fixtures/pswire/corpus.json` (a recorded file;
-//! `MANIFEST.json` records the PowerShell version, the culture, the time zone and the corpus' sha256) is run through the Rust
-//! function and must give byte-identical text or the identical value. The recording is a fixture: it is not edited by hand.
+//! text Windows PowerShell 5.1 produced: every entry of `tests/fixtures/pswire/corpus.json` (recorded by
+//! `recorder/pswire-corpus.ps1`; `MANIFEST.json` records the PowerShell version, the culture, the time zone and the
+//! corpus' sha256) is run through the Rust function and must give byte-identical text or the identical value.
 //!
-//! The entries are specs in a small typed JSON grammar. No COM object and no Office is involved.
+//! The entries are specs in a small typed JSON grammar (see the recorder), so the same value is built here and in
+//! PowerShell. No COM object and no Office is involved. `pswire_live` re-runs the recorder on the machine it runs on
+//! (Windows PowerShell only, under that machine's own culture) and compares the new recording with the Rust functions;
+//! it is `#[ignore]`d because it starts PowerShell.
 
 use mixdog_office_com::ps;
 use mixdog_office_com::ps::DateKind;
@@ -463,4 +466,28 @@ fn machine_time_zone() -> Option<String> {
 #[cfg(not(windows))]
 fn machine_time_zone() -> Option<String> {
     None
+}
+
+/// Re-runs `recorder/pswire-corpus.ps1` on this machine (Windows PowerShell 5.1, any locale; Office is not needed) and
+/// compares its recording with the Rust functions, so a difference that depends on the culture or the time zone shows on
+/// the machine that has it. Run it on a Korean and on an English Windows.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "starts Windows PowerShell and takes minutes; run on a Windows machine"]
+async fn pswire_live() {
+    let out = std::env::temp_dir().join(format!("mixdog-pswire-live-{}", std::process::id()));
+    mixdog_testkit::create_dir_all(&out);
+    let recorder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("recorder").join("pswire-corpus.ps1");
+    let status = tokio::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&recorder)
+        .arg("-Out")
+        .arg(&out)
+        .status()
+        .await
+        .expect("start powershell.exe");
+    assert!(status.success(), "the recorder failed");
+    let corpus = mixdog_testkit::read_string(out.join("corpus.json"));
+    let problems = check_corpus(&corpus, true);
+    mixdog_testkit::remove_dir_all(&out);
+    assert!(problems.is_empty(), "{}", report(&problems));
 }

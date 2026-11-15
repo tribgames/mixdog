@@ -5,8 +5,9 @@
 //! only on a Windows machine with Office, on request, with `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked
 //! for returns at once and says it did nothing (the Node suite's `skip`).
 //!
-//! The Word, Excel and PowerPoint documents are served by the Rust session host, `mixdogd office-com-host`, so build it first
-//! (`cargo build -p mixdog-cli`); `MIXDOG_TEST_MIXDOGD` names another build of it.
+//! The Excel and Word documents are served by the Rust session host, `mixdogd office-com-host`, so build it first
+//! (`cargo build -p mixdog-cli`); `MIXDOG_TEST_MIXDOGD` names another build of it. PowerPoint's host is the PowerShell one the
+//! transport starts itself.
 //!
 //! The profiles of the Node plan (`excel`, `word`, `powerpoint`, `author`, `attach`, `contract`, `compat`, `all`) are name filters
 //! over the tests. The tests share one Office and its foreground, so they hold a lock of their own and run one at a time:

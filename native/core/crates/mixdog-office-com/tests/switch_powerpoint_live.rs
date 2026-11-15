@@ -5,7 +5,7 @@
 //! `MIXDOG_TEST_MIXDOGD` names it) and `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once
 //! and says it did nothing.
 //!
-//! Every pptx scenario of `tests/scenarios/{session,actions,ppt-read,ppt-edit}.json` runs twice, in a directory of its own
+//! Every pptx scenario of `recorder/scenarios/{session,actions,ppt-read,ppt-edit}.json` runs twice, in a directory of its own
 //! each, through the transport API (`open_session`, `call`, `close_session`): once with the PowerShell host (the transport's test
 //! list of Rust-served formats empty) and once with the Rust host (the compiled list, `mixdogd office-com-host`). The recordings of
 //! the PowerShell host (`tests/fixtures/<area>/<scenario>.json`) are written on a PC with PowerPoint by
@@ -77,13 +77,18 @@ fn mixdogd() -> PathBuf {
     program
 }
 
-/// The transport on the Rust host: the daemon binary, `mixdogd office-com-host`.
-fn transport(data: PathBuf) -> OfficeCom {
+/// The transport on the PowerShell host (`rust == false`) or on the Rust host.
+fn transport(data: PathBuf, rust: bool) -> OfficeCom {
     let mut config = OfficeComConfig::new(data, mixdog_rt::testing::tokens());
-    config.rust_host_program = mixdogd();
+    if rust {
+        config.rust_host_program = mixdogd();
+    } else {
+        config = config.with_rust_host_formats(&[]);
+    }
     OfficeCom::new(config)
 }
 
+/// The POWERPNT processes and the EXCEL processes (the chart data sheet's) that are running.
 fn office_processes(platform: &WindowsPlatform) -> BTreeSet<i32> {
     platform.office_process_ids("pptx").into_iter().chain(platform.excel_process_ids()).collect()
 }
@@ -98,7 +103,7 @@ fn wait_for_office(platform: &WindowsPlatform, before: &BTreeSet<i32>) -> BTreeS
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// What a scenario asks.
+// What is compared.
 
 /// `${work}` of every string of the request, the work directory.
 fn substitute(value: &Json, work: &str) -> Json {
@@ -110,8 +115,93 @@ fn substitute(value: &Json, work: &str) -> Json {
     }
 }
 
+struct Rules {
+    location: Regex,
+    date: Regex,
+    guid: Regex,
+    handle: Regex,
+    volatile_key: Regex,
+}
+
+impl Rules {
+    fn new() -> Self {
+        Self {
+            location: Regex::new(r"failed at [^ ]+: ").expect("the location pattern"),
+            date: Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?").expect("the date pattern"),
+            guid: Regex::new(r"(?i)\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?|\b[0-9a-f]{32}\b").expect("the guid pattern"),
+            handle: Regex::new(r"\b(rcw|hwnd):\d+").expect("the handle pattern"),
+            volatile_key: Regex::new(r"(?i)(^|[a-z])(pid|processid)$|hwnd|handle|^foreground|(^|[a-z])(ms|elapsed|duration|ticks)$|^elapsed|^duration").expect("the key pattern"),
+        }
+    }
+
+    fn text(&self, input: &str, work: &str) -> String {
+        let forward = work.replace('\\', "/");
+        let mut out = input.replace(work, "<work>").replace(&forward, "<work>");
+        out = self.location.replace_all(&out, "failed at <location>: ").into_owned();
+        out = self.handle.replace_all(&out, "$1:<n>").into_owned();
+        out = self.date.replace_all(&out, "<date>").into_owned();
+        self.guid.replace_all(&out, "<guid>").into_owned()
+    }
+
+    /// An answer with what differs from one run to the next replaced: ids, handles and times by `<n>`, the work directory,
+    /// dates, GUIDs and the script location a failure names by markers.
+    fn normalise(&self, value: &Json, work: &str, key: Option<&str>) -> Json {
+        match value {
+            Json::Array(items) => Json::Array(items.iter().map(|item| self.normalise(item, work, key)).collect()),
+            Json::Object(fields) => Json::Object(fields.iter().map(|(name, item)| (self.text(name, work), self.normalise(item, work, Some(name)))).collect()),
+            Json::String(text) => Json::String(self.text(text, work)),
+            Json::Number(_) if key.is_some_and(|key| self.volatile_key.is_match(key)) => json!("<n>"),
+            other => other.clone(),
+        }
+    }
+}
+
+/// The parts of a saved deck: the XML with the attributes, elements and stamps that differ from one save to the next
+/// taken out, the other parts reduced to their size.
+fn normalised_parts(path: &Path, rules: &Rules) -> BTreeMap<String, String> {
+    let bytes = mixdog_fsio::read(&mixdog_fsio::Unlaned, path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("a deck is a zip");
+    let volatile = Regex::new(r#"\s(?:xr:uid|xr10:uid|xr2:uid|documentId)="[^"]*""#).expect("the volatile attributes");
+    let stamps = Regex::new(r"<(dcterms:created|dcterms:modified|TotalTime)\b[^>]*>[^<]*</[^>]+>").expect("the stamps");
+    let revision = Regex::new(r"<xr:revisionPtr\b[^>]*/>").expect("the revision pointers");
+    let mut parts = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index).expect("a part");
+        let name = file.name().to_owned();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).expect("a part reads");
+        let text = if name.ends_with(".xml") || name.ends_with(".rels") {
+            let xml = String::from_utf8_lossy(&content);
+            let xml = volatile.replace_all(&xml, "");
+            let xml = stamps.replace_all(&xml, "");
+            let xml = revision.replace_all(&xml, "");
+            rules.guid.replace_all(&xml, "<guid>").into_owned()
+        } else {
+            format!("{} bytes", content.len())
+        };
+        parts.insert(name, text);
+    }
+    parts
+}
+
+fn same_file(rust: &Path, shell: &Path, rules: &Rules, label: &str) {
+    match rust.extension().and_then(|extension| extension.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("pptx" | "pptm" | "potx") => assert_eq!(normalised_parts(rust, rules), normalised_parts(shell, rules), "{label}: the saved decks differ"),
+        // A PDF holds its own creation time and identifiers: both runs must have written one.
+        Some("pdf") => {
+            let sizes = [rust, shell].map(|path| mixdog_fsio::read(&mixdog_fsio::Unlaned, path).map(|bytes| bytes.len()).unwrap_or(0));
+            assert!(sizes.iter().all(|size| *size > 0), "{label}: a PDF is missing or empty ({sizes:?})");
+        }
+        _ => assert_eq!(
+            mixdog_fsio::read(&mixdog_fsio::Unlaned, rust).ok(),
+            mixdog_fsio::read(&mixdog_fsio::Unlaned, shell).ok(),
+            "{label}: the files differ"
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
-// An application of its own that holds documents open.
+// An application of its own that holds documents open (the recorder's helper, taken from its source so there is one copy).
 
 struct HelperApp {
     child: Child,
@@ -120,8 +210,11 @@ struct HelperApp {
 
 impl HelperApp {
     fn start(dir: &Path, names: &[&str]) -> Self {
-        // The helper application that holds documents open is started by a script of its own (`tests/support/host-app.ps1`).
-        let path = crate_dir().join("tests").join("support").join("host-app.ps1");
+        let source = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("recorder").join("record-office-com.mjs")).expect("the recorder");
+        let from = source.find("const HOST_APP_SCRIPT = `").expect("the helper script") + "const HOST_APP_SCRIPT = `".len();
+        let script = &source[from..from + source[from..].find("\n`;").expect("the end of the helper script")];
+        let path = dir.join("host-app.ps1");
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, &path, script.as_bytes()).expect("the helper script is written");
         let powershell = Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
         let mut child = Command::new(powershell)
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-File"])
@@ -155,6 +248,7 @@ impl Drop for HelperApp {
 // One run of a scenario through the transport.
 
 struct Run {
+    answers: Vec<(String, Json)>,
     request_time: Duration,
     work: PathBuf,
 }
@@ -176,11 +270,12 @@ fn is_powerpoint_scenario(scenario: &Json) -> bool {
     formats.len() == 1 && formats.contains("pptx")
 }
 
-async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run {
+async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf, rules: &Rules) -> Run {
     let work_text = work.to_string_lossy().into_owned();
     // Session ids opened through each of the scenario's session hosts, in the order they were opened.
     let mut hosts: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut helpers: Vec<HelperApp> = Vec::new();
+    let mut answers = Vec::new();
     let mut request_time = Duration::ZERO;
     for (index, step) in scenario["steps"].as_array().expect("the steps").iter().enumerate() {
         let recorded = step.get("prepare").and_then(Json::as_bool) != Some(true);
@@ -243,13 +338,10 @@ async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run
         } else {
             panic!("{}: a step this test does not know: {step}", scenario["id"]);
         };
-        if let Some(answer) = answer {
-            // What the scenario says the answer holds (the text of its compact JSON).
-            if let Some(expected) = step.get("expect").and_then(|expect| expect.get("contains")).and_then(Json::as_str) {
-                assert!(answer.to_string().contains(expected), "{}: {label}: the answer lacks {expected}: {answer}", scenario["id"]);
-            }
-            if recorded {
+        if recorded {
+            if let Some(answer) = answer {
                 request_time += started.elapsed();
+                answers.push((label, rules.normalise(&answer, &work_text, None)));
             }
         }
     }
@@ -257,7 +349,7 @@ async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run
     for id in hosts.into_values().flatten() {
         let _ = office.close_session(&id, CloseOptions::default()).await;
     }
-    Run { request_time, work }
+    Run { answers, request_time, work }
 }
 
 /// The names of the decks (`.pptx`) directly in `dir`.
@@ -275,7 +367,7 @@ fn decks_in(dir: &Path) -> Vec<String> {
 
 #[test]
 #[ignore = "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn every_powerpoint_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process() {
+fn every_powerpoint_scenario_through_the_transport_equals_the_powershell_host_and_is_not_slower() {
     if !live_office() {
         eprintln!("MIXDOG_TEST_LIVE_OFFICE is not 1: nothing was run");
         return;
@@ -283,26 +375,43 @@ fn every_powerpoint_scenario_through_the_transport_meets_what_it_expects_and_lea
     let _apartment = Sta::enter().expect("an apartment");
     let platform = WindowsPlatform::new().expect("the Windows layer");
     let before = office_processes(&platform);
+    let rules = Rules::new();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
     let data = scratch("data");
-    let mut request_time = Duration::ZERO;
+    for kind in ["shell", "rust"] {
+        mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, &data.join(kind)).expect("a data directory");
+    }
+    let mut shell_time = Duration::ZERO;
+    let mut rust_time = Duration::ZERO;
     let mut ran = 0;
     for area in AREAS {
-        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("tests").join("scenarios").join(format!("{area}.json"))).expect("the scenarios");
+        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("recorder").join("scenarios").join(format!("{area}.json"))).expect("the scenarios");
         let file: Json = serde_json::from_str(&text).expect("the scenarios are JSON");
         for scenario in file["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| is_powerpoint_scenario(scenario)) {
             let id = scenario["id"].as_str().expect("an id");
             let label = format!("{area}/{id}");
-            let run = runtime.block_on(run_scenario(&transport(data.clone()), scenario, scratch(&format!("{area}-{id}"))));
+            let shell = runtime.block_on(run_scenario(&transport(data.join("shell"), false), scenario, scratch(&format!("{area}-{id}-powershell")), &rules));
+            assert_eq!(wait_for_office(&platform, &before), before, "{label}: the PowerShell host left a POWERPNT or EXCEL process");
+            let rust = runtime.block_on(run_scenario(&transport(data.join("rust"), true), scenario, scratch(&format!("{area}-{id}-rust")), &rules));
+            assert_eq!(rust.answers, shell.answers, "{label}: the answers differ");
+            // The collected files, and every deck the Rust run left in its directory (a scenario that saves does so at its close).
+            let mut names: BTreeSet<String> = scenario["collect"].as_array().into_iter().flatten().filter_map(Json::as_str).map(str::to_owned).collect();
+            names.extend(decks_in(&rust.work));
+            for name in &names {
+                same_file(&rust.work.join(name), &shell.work.join(name), &rules, &format!("{label}/{name}"));
+            }
             assert_eq!(wait_for_office(&platform, &before), before, "{label}: closing the sessions left a POWERPNT or EXCEL process that was not there before");
-            request_time += run.request_time;
+            shell_time += shell.request_time;
+            rust_time += rust.request_time;
             ran += 1;
-            remove(&run.work);
+            remove(&shell.work);
+            remove(&rust.work);
         }
     }
     remove(&data);
     assert!(ran > 0, "no pptx scenario was found");
-    eprintln!("{ran} PowerPoint scenarios through the Rust host: {request_time:?}");
+    eprintln!("{ran} PowerPoint scenarios: Rust host {rust_time:?}, PowerShell host {shell_time:?}");
+    assert!(rust_time <= shell_time, "the Rust host's requests took {rust_time:?}, the PowerShell host's {shell_time:?}");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -359,7 +468,7 @@ async fn run_authoring_flow(office: &OfficeCom, work: &Path) -> Vec<Json> {
 
 #[test]
 #[ignore = "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn the_authoring_flow_of_the_extension_host_runs_on_the_rust_host() {
+fn the_authoring_flow_of_the_extension_host_runs_on_the_rust_host_as_on_powershell() {
     if !live_office() {
         eprintln!("MIXDOG_TEST_LIVE_OFFICE is not 1: nothing was run");
         return;
@@ -367,22 +476,26 @@ fn the_authoring_flow_of_the_extension_host_runs_on_the_rust_host() {
     let _apartment = Sta::enter().expect("an apartment");
     let platform = WindowsPlatform::new().expect("the Windows layer");
     let before = office_processes(&platform);
+    let rules = Rules::new();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
     let data = scratch("author-data");
-    let mut works = Vec::new();
-    for kind in ["rust"] {
+    let mut runs = Vec::new();
+    for (kind, rust) in [("shell", false), ("rust", true)] {
         let work = scratch(&format!("author-{kind}"));
         mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, &data.join(kind)).expect("a data directory");
-        let office = transport(data.join(kind));
-        runtime.block_on(async {
+        let office = transport(data.join(kind), rust);
+        let work_text = work.to_string_lossy().into_owned();
+        let answers = runtime.block_on(async {
             let answers = run_authoring_flow(&office, &work).await;
             office.shutdown().await;
             answers
         });
         assert_eq!(wait_for_office(&platform, &before), before, "{kind}: the authoring flow left a POWERPNT or EXCEL process that was not there before");
-        works.push(work);
+        runs.push((answers.iter().map(|answer| rules.normalise(answer, &work_text, None)).collect::<Vec<_>>(), work));
     }
-    for work in &works {
+    assert_eq!(runs[1].0, runs[0].0, "the Rust host answers the authoring flow as the PowerShell host does");
+    same_file(&runs[1].1.join("deck.pptx"), &runs[0].1.join("deck.pptx"), &rules, "deck.pptx");
+    for (_, work) in &runs {
         remove(work);
     }
     remove(&data);
@@ -398,13 +511,15 @@ fn the_read_only_preview_of_a_deck_with_a_password_given_renders_and_writes_noth
     let _apartment = Sta::enter().expect("an apartment");
     let platform = WindowsPlatform::new().expect("the Windows layer");
     let before = office_processes(&platform);
+    let rules = Rules::new();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
     let data = scratch("preview-data");
+    let mut answers = Vec::new();
     let mut works = Vec::new();
-    for kind in ["rust"] {
+    for (kind, rust) in [("shell", false), ("rust", true)] {
         let work = scratch(&format!("preview-{kind}"));
         mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, &data.join(kind)).expect("a data directory");
-        let office = transport(data.join(kind));
+        let office = transport(data.join(kind), rust);
         let work_text = work.to_string_lossy().into_owned();
         let deck = work.join("d.pptx").to_string_lossy().into_owned();
         let output = work.join("p.pdf").to_string_lossy().into_owned();
@@ -425,8 +540,10 @@ fn the_read_only_preview_of_a_deck_with_a_password_given_renders_and_writes_noth
         let pdf = mixdog_fsio::read(&mixdog_fsio::Unlaned, work.join("p.pdf")).expect("the preview wrote its PDF");
         assert!(pdf.starts_with(b"%PDF"), "{kind}: the preview is a PDF");
         assert_eq!(wait_for_office(&platform, &before), before, "{kind}: the preview left a POWERPNT or EXCEL process that was not there before");
+        answers.push(rules.normalise(&preview, &work_text, None));
         works.push(work);
     }
+    assert_eq!(answers[1], answers[0], "the Rust host answers the preview as the PowerShell host does");
     for work in &works {
         remove(work);
     }
@@ -467,7 +584,7 @@ fn cancelling_a_chart_creation_leaves_no_visible_window_and_the_host_cleans_up_b
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let watcher = watch_windows(before.clone(), stop.clone());
     runtime.block_on(async {
-        let office = transport(data.clone());
+        let office = transport(data.clone(), true);
         let opened = office.open_session(&json!({"action": "open_session", "session": "ch", "format": "pptx", "path": deck, "mode": "background", "create": true}), CallOptions::default()).await;
         assert_eq!(opened["ok"], json!(true), "{opened}");
         let slide = office.call(&json!({"action": "batch", "session": "ch", "operations": [{"op": "add_slide"}]}), CallOptions::default()).await;

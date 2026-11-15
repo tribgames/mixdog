@@ -129,6 +129,6 @@ mod tests {
 
     #[test]
     fn the_session_flag_is_the_one_the_transport_passes() {
-        assert_eq!(crate::session::host_args(true, std::path::Path::new("d"))[..2], [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
+        assert_eq!(crate::route::rust_host_args(true, std::path::Path::new("d"))[..2], [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
     }
 }
