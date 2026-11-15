@@ -1007,6 +1007,8 @@ impl Driver {
         }
         if m.get("method").and_then(Json::as_str).is_some() {
             if m.get("id").is_some() {
+                let mut m = m;
+                conform_tool_approval(&mut m);
                 match serde_json::from_value::<ServerRequest>(m) {
                     Ok(r) => {
                         // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
@@ -1633,12 +1635,89 @@ impl Client {
     }
 }
 
+/// The tool approval the core sends is the card Node's engine produced (`name`, `args`, `kind` of the hook request: `approval`,
+/// `outbound`, or a human gate's `secret`, `takeover`, `permission`, `connector`, and the whole card under `card`), which the
+/// desktop and the phone read; the typed `ToolApprovalRequestParams` names the same request by `tool`, `request` and the tool's
+/// class. The reader fills in what the typed view needs from the card, so a request the core really sends is a request here (a
+/// frame the typed view refused left every approval of a terminal session unanswerable, the turn waiting on a card nobody was
+/// shown). The card itself travels whole in `request`.
+fn conform_tool_approval(frame: &mut Json) {
+    if frame.get("method").and_then(Json::as_str) != Some("item/tool/requestApproval") {
+        return;
+    }
+    let Some(params) = frame.get_mut("params").and_then(Json::as_object_mut) else { return };
+    let name = ["name", "tool"].iter().find_map(|key| params.get(*key).and_then(Json::as_str)).map(str::to_owned);
+    if !params.contains_key("request") {
+        let card = params.get("card").filter(|card| card.is_object()).cloned();
+        let content = card.unwrap_or_else(|| {
+            let content: serde_json::Map<String, Json> = ["name", "args", "cwd", "reason", "kind", "agentId", "grantAction", "remember", "outbound", "secret", "takeover", "permission", "connector"]
+                .iter()
+                .filter_map(|key| params.get(*key).map(|value| ((*key).to_owned(), value.clone())))
+                .collect();
+            Json::Object(content)
+        });
+        params.insert("request".to_owned(), content);
+    }
+    if !params.contains_key("tool") {
+        params.insert("tool".to_owned(), Json::String(name.clone().unwrap_or_default()));
+    }
+    let class = match params.get("kind").and_then(Json::as_str) {
+        Some("approval") => {
+            let tool = name.as_deref().unwrap_or_default();
+            Some(if tool.starts_with("mcp__") {
+                "mcp"
+            } else if matches!(tool, "bash" | "shell" | "powershell") {
+                "shell"
+            } else if tool == "apply_patch" {
+                "patch"
+            } else {
+                "builtin"
+            })
+        }
+        Some("secret" | "takeover" | "permission" | "connector") => Some("humanGate"),
+        _ => None,
+    };
+    if let Some(class) = class {
+        params.insert("kind".to_owned(), Json::String(class.to_owned()));
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)] // reads the shared scenario options file
 mod tests {
 
     use super::*;
     use crate::mock::MockNetwork;
+
+    #[test]
+    fn the_cores_tool_approval_frame_is_the_typed_request_it_names() {
+        let mut frame = json!({
+            "id": "1",
+            "method": "item/tool/requestApproval",
+            "params": {
+                "name": "glob", "args": { "pattern": "*.txt" }, "cwd": "/w", "reason": "why", "kind": "approval", "agentId": "lead",
+                "threadId": "t1", "turnId": "r1", "itemId": "c1", "requestedAt": 5, "order": 1,
+                "card": { "id": "itm_1", "name": "glob", "kind": "approval", "args": { "pattern": "*.txt" } }
+            }
+        });
+        conform_tool_approval(&mut frame);
+        let request: ServerRequest = serde_json::from_value(frame).expect("the frame is a typed request");
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!((wire["params"]["kind"].clone(), wire["params"]["tool"].clone()), (json!("builtin"), json!("glob")));
+        assert_eq!(wire["params"]["request"]["args"], json!({ "pattern": "*.txt" }));
+        assert_eq!(wire["params"]["request"]["kind"], json!("approval"), "the card keeps its own kind");
+
+        let mut gate = json!({ "id": "2", "method": "item/tool/requestApproval", "params": { "name": "handoff_user", "kind": "secret", "threadId": "t1", "requestedAt": 5, "order": 2 } });
+        conform_tool_approval(&mut gate);
+        assert_eq!(gate["params"]["kind"], json!("humanGate"));
+        let mut shell = json!({ "id": "3", "method": "item/tool/requestApproval", "params": { "name": "bash", "kind": "approval", "threadId": "t1", "requestedAt": 5, "order": 3 } });
+        conform_tool_approval(&mut shell);
+        assert_eq!(shell["params"]["kind"], json!("shell"));
+        let mut typed = json!({ "id": "4", "method": "item/tool/requestApproval", "params": { "kind": "patch", "tool": "apply_patch", "request": {}, "threadId": "t1", "requestedAt": 5, "order": 4 } });
+        let before = typed.clone();
+        conform_tool_approval(&mut typed);
+        assert_eq!(typed, before, "a request that is already typed stays as it is");
+    }
 
     fn thread_result(id: &str) -> Json {
         json!({

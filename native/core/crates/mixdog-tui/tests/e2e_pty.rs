@@ -84,7 +84,8 @@ fn boot(workspace: &Workspace) -> TuiSession {
     // An empty session opens on the project list (`useProjectPickerBoot`): the folder the run started in is its first row.
     session.wait_until("the first frame: banner and the project list", BOOT, |grid| any_row(grid, "mixdog coding agent") && any_row(grid, "Choose a project."));
     session.send("\r");
-    session.wait_until("the prompt and the statusline after the project is entered", BOOT, frame_ready);
+    // The key counts when the list is gone: what follows is typed into the prompt of the entered project.
+    session.wait_until("the prompt and the statusline after the project is entered", BOOT, |grid| !any_row(grid, "Choose a project.") && frame_ready(grid));
     session
 }
 
@@ -203,7 +204,9 @@ fn streamed_markdown_answer_and_tool_card_expanded_with_ctrl_o() {
     workspace.provider.script(vec![Reply::calls(vec![("toolu_read_1", "read", json!({ "file_path": notes_path.display().to_string() }))]), Reply::text("read-finished")]);
     submit(&session, "read the notes");
     session.wait_until("the finished tool turn", STEP, |grid| any_row(grid, "read-finished"));
-    session.with_grid(|grid| assert!(any_row(grid, "notes.txt"), "the card names the file\n{}", dump_text(grid)));
+    // A collapsed read is the aggregate card of Node (`aggregate-card.jsx`): the header counts the files ("Read 1 file") with the
+    // ctrl+o hint and the row under it holds the summary; the file's own text and path are the expanded view's.
+    session.with_grid(|grid| assert!(any_row(grid, "Read 1 file") && any_row(grid, "ctrl+o expand"), "the card counts the file and offers ctrl+o\n{}", dump_text(grid)));
     let before = session.with_grid(|grid| any_row(grid, "e2e-line-12"));
     session.send("\x0f");
     session.wait_until("the card expanded", STEP, |grid| any_row(grid, "e2e-line-12"));
@@ -221,10 +224,12 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
     let workspace = Workspace::new(Setup::default());
     let session = boot(&workspace);
 
-    let answer: String = (1..=70).map(|n| format!("row-{n:02} stays where it was put\n")).collect();
+    let answer: String = (1..=80).map(|n| format!("row-{n:02} stays where it was put\n")).collect();
     workspace.provider.script(vec![Reply::streamed(&answer, 1, Duration::from_millis(40))]);
     submit(&session, "stream the rows");
-    session.wait_until("row-30 on screen", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n >= 30));
+    // PageUp moves 60 percent of the screen: 18 rows of 30 (`use-global-key-input.mjs`). The view is read once the newest rows are
+    // far enough from the first for a page and then the wheel to still have rows to go up, and while the answer is still arriving.
+    session.wait_until("row-45 on screen", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n >= 45));
 
     // PageUp while the answer is still arriving: the row the user is looking at stays on its screen row.
     let top_before = session.with_grid(|grid| numbered_rows(grid).first().map(|(_, n)| *n).unwrap_or(0));
@@ -245,13 +250,13 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
     for _ in 0..40 {
         mouse(&session, 65, 40, 12, true);
     }
-    session.wait_until("the end of the answer", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n == 70));
+    session.wait_until("the end of the answer", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n == 80));
 
     // A drag over part of a row highlights it; Ctrl+C copies exactly that text.
     let (target_row, column) = session.with_grid(|grid| {
-        let (y, _) = numbered_rows(grid).into_iter().find(|(_, n)| *n == 60).expect("row-60 on screen");
+        let (y, _) = numbered_rows(grid).into_iter().find(|(_, n)| *n == 70).expect("row-70 on screen");
         let text = grid.row_text(y);
-        (usize::from(y), text[..text.find("row-60").expect("its text")].chars().count())
+        (usize::from(y), text[..text.find("row-70").expect("its text")].chars().count())
     });
     mouse(&session, 0, column + 1, target_row + 1, true);
     mouse(&session, 32, column + 4, target_row + 1, true);
@@ -274,27 +279,27 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
             pause(Duration::from_millis(50));
         }
         let copied = copied.unwrap_or_else(|| panic!("no OSC 52 sequence after Ctrl+C\n{}", session.screen_text()));
-        assert_eq!(copied.trim(), "row-60", "the OSC 52 bytes carry the selected text");
+        assert_eq!(copied.trim(), "row-70", "the OSC 52 bytes carry the selected text");
         for _ in 0..100 {
-            if std::fs::read_to_string(&workspace.clipboard_out).is_ok_and(|text| text.trim() == "row-60") {
+            if std::fs::read_to_string(&workspace.clipboard_out).is_ok_and(|text| text.trim() == "row-70") {
                 break;
             }
             pause(Duration::from_millis(50));
         }
-        assert_eq!(std::fs::read_to_string(&workspace.clipboard_out).unwrap_or_default().trim(), "row-60", "the clipboard helper's input");
+        assert_eq!(std::fs::read_to_string(&workspace.clipboard_out).unwrap_or_default().trim(), "row-70", "the clipboard helper's input");
     }
 
     exit_and_check(session);
 }
 
 #[test]
-fn escape_interrupts_a_turn_and_restores_the_queued_steer_to_the_prompt() {
+fn escape_interrupts_a_turn_and_the_queued_steer_runs_next() {
     let _gate = support::serial();
     let workspace = Workspace::new(Setup::default());
     let session = boot(&workspace);
 
     let answer: String = (0..60).map(|n| format!("chunk-{n:02} of a slow answer\n")).collect();
-    workspace.provider.script(vec![Reply::streamed(&answer, 1, Duration::from_millis(250))]);
+    workspace.provider.script(vec![Reply::streamed(&answer, 1, Duration::from_millis(250)), Reply::text("steer-answer-e2e")]);
     submit(&session, "start a slow answer");
     session.wait_until("the answer under way", STEP, |grid| any_row(grid, "chunk-01"));
 
@@ -306,15 +311,17 @@ fn escape_interrupts_a_turn_and_restores_the_queued_steer_to_the_prompt() {
         rows(grid).iter().enumerate().any(|(y, row)| Some(y) != own && row.contains(steer))
     });
 
-    // Escape interrupts the turn: the answer stops and the queued text is back in the prompt for editing.
+    // Escape interrupts the turn and the answer stops. A steering message already queued means the user redirected the turn, so it
+    // runs next and the interrupted prompt is not put back into the box (`abort.mjs`: `hasPendingSteering`; the prompt input's
+    // Escape restores the interrupted prompt only into an empty box, and the queue back into the box only while idle).
     session.send("\x1b");
-    session.wait_until("the queued text restored to the prompt", STEP, |grid| prompt_text(grid).contains(steer));
-    pause(Duration::from_secs(1));
-    session.with_grid(|grid| assert!(!any_row(grid, "chunk-59"), "the interrupted answer does not go on\n{}", dump_text(grid)));
-
-    // Clear the restored draft so /exit is what is typed.
-    session.send(&"\x7f".repeat(steer.len() + 2));
-    session.wait_until("the prompt empty", STEP, |grid| !prompt_text(grid).contains(steer));
+    session.wait_until("the steering message's answer", STEP, |grid| any_row(grid, "steer-answer-e2e"));
+    session.with_grid(|grid| {
+        assert!(any_row(grid, "Cancelled"), "the interrupted turn is marked\n{}", dump_text(grid));
+        assert!(!any_row(grid, "chunk-59"), "the interrupted answer does not go on\n{}", dump_text(grid));
+        assert!(!prompt_text(grid).contains("start a slow answer") && !prompt_text(grid).contains(steer), "nothing is put back into the box\n{}", dump_text(grid));
+    });
+    assert!(workspace.provider.served() >= 2, "the model was asked again for the steering message");
     exit_and_check(session);
 }
 
