@@ -8,6 +8,7 @@
 //! tick that fires every [`StatuslineText::refresh_ms`], and [`StatuslineText::poll`] for the host's timer that fires at
 //! [`StatuslineText::next_wake`]. The clock is the renderer's, so a test drives all of it with one fake clock.
 
+use mixdog_core_session::session::prompt_submission::truthy;
 use mixdog_js::number_to_string;
 use mixdog_js::value_to_string;
 use mixdog_tui_style::bridge::statusline_footer_identity_changed;
@@ -28,7 +29,6 @@ use super::schedule::STATUSLINE_RETRY_FLOOR_MS;
 use super::schedule::boot_full_render_delay_remaining_ms;
 use super::schedule::first_text;
 use super::schedule::has_active_statusline_work;
-use super::schedule::truthy;
 
 /// What the status line hook is given besides the render arguments.
 #[derive(Clone, Debug, Default)]
@@ -60,6 +60,7 @@ struct Deps {
     workers: String,
     jobs: String,
     tools: String,
+    shells: String,
     refresh_tick: u64,
     theme_epoch: u64,
 }
@@ -108,6 +109,22 @@ fn tools_signature(active_tools: Option<&Value>) -> String {
         if n.is_nan() || n == 0.0 { 0.0 } else { n }
     };
     [number_to_string(field("count")), number_to_string(field("startedAt"))].join("|")
+}
+
+/// The session's shell jobs as the footer reads them (`shellJobsStatus` scoped to the session, of the host process).
+fn shell_status(renderer: &StatuslineRenderer, args: &RenderArgs) -> Value {
+    renderer.scoped_shell_jobs_status(StatuslineRenderer::pid_of(args), args.session_id.as_deref())
+}
+
+/// The count and the `taskId|terminationUnconfirmed|start` of each shell job, so a shell that starts or ends runs the effect.
+fn shells_signature(shell: &Value) -> String {
+    let count = number_to_string(num(shell.get("count")));
+    let Some(jobs) = shell.get("jobs").and_then(Value::as_array) else { return count };
+    let rows = jobs.iter().map(|job| {
+        let task = job.get("taskId").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
+        format!("{task}|{}|{}", job.get("terminationUnconfirmed") == Some(&Value::Bool(true)), number_to_string(time_ms(job.get("startedAt"))))
+    });
+    std::iter::once(count).chain(rows).collect::<Vec<_>>().join(",")
 }
 
 /// The fields `statuslineFooterIdentityChanged` compares (the hook's `lastImmediateArgsRef` and the effect's `args`).
@@ -185,8 +202,7 @@ impl StatuslineText {
         let line = match initial_line.filter(|line| !line.is_empty()) {
             Some(initial) => normalize_status_line(initial),
             None => {
-                // The boot line is built from the route alone: no session scope and no host pid.
-                let shell = renderer.scoped_shell_jobs_status(0.0, None);
+                let shell = shell_status(&renderer, &inputs.args);
                 build_local_snap_line(&local_args(&inputs.args, Some(&shell)), "", now)
             }
         };
@@ -246,6 +262,7 @@ impl StatuslineText {
             workers: entries_signature(&args.agent_workers, &["tag", "agent", "name"], &["stage", "status"]),
             jobs: entries_signature(&args.agent_jobs, &["tag", "agent", "name"], &["status", "stage"]),
             tools: tools_signature(args.active_tools.as_ref()),
+            shells: shells_signature(&shell_status(&self.renderer, args)),
             refresh_tick: self.refresh_tick,
             theme_epoch: inputs.theme_epoch,
         }
@@ -292,7 +309,7 @@ impl StatuslineText {
         }
         if theme_changed || !self.boot_full_done || identity_changed {
             let cached = if route_changed { "" } else { self.last_raw_full_line.as_str() };
-            let shell = self.renderer.scoped_shell_jobs_status(inputs.args.client_host_pid.unwrap_or(0.0), inputs.args.session_id.as_deref());
+            let shell = shell_status(&self.renderer, &inputs.args);
             let next = build_local_snap_line(&local_args(&inputs.args, Some(&shell)), cached, now);
             if !next.is_empty() {
                 self.line = next;

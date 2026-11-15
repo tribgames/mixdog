@@ -5,8 +5,10 @@
 
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
-use mixdog_js::value_to_string;
+use mixdog_tui_style::color::strip_ansi;
 use serde_json::Value;
+
+use crate::slash::notices::first_truthy_text;
 
 /// The wait before a full render starts after an input changed (a later change restarts it).
 pub const STATUSLINE_RENDER_DEBOUNCE_MS: f64 = 150.0;
@@ -19,19 +21,9 @@ pub const STATUSLINE_REFRESH_MS: f64 = 2000.0;
 /// The refresh period while agents, shells or a web search run.
 pub const STATUSLINE_ACTIVE_REFRESH_MS: f64 = 500.0;
 
-pub(crate) fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(_) => true,
-    }
-}
-
 /// `String(a || b || ... || '')` over the named fields of a worker or job.
 pub(crate) fn first_text(value: &Value, keys: &[&str]) -> String {
-    keys.iter().find_map(|key| value.get(key).filter(|v| truthy(Some(v)))).map(value_to_string).unwrap_or_default()
+    first_truthy_text(value, keys).unwrap_or_default()
 }
 
 /// `isTerminalStatus(statusText)`: a status that names an ending.
@@ -54,25 +46,6 @@ fn has_active_tools(active_tools: Option<&Value>) -> bool {
         .and_then(|tools| tools.get("web_search"))
         .and_then(|search| search.get("count"))
         .is_some_and(|count| mixdog_js::to_number(count) > 0.0)
-}
-
-/// `text.replace(/\x1b\[[0-9;]*m/g, '')`.
-pub(crate) fn strip_sgr(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    while at < chars.len() {
-        if chars[at] == '\u{1b}' && chars.get(at + 1) == Some(&'[') {
-            let digits = chars[at + 2..].iter().take_while(|c| c.is_ascii_digit() || **c == ';').count();
-            if chars.get(at + 2 + digits) == Some(&'m') {
-                at += 3 + digits;
-                continue;
-            }
-        }
-        out.push(chars[at]);
-        at += 1;
-    }
-    out
 }
 
 fn is_word(c: Option<char>) -> bool {
@@ -111,7 +84,7 @@ pub fn has_active_statusline_work(line: &str, workers: &[Value], jobs: &[Value],
     if has_running_workers(workers, jobs) || has_active_tools(active_tools) {
         return true;
     }
-    let plain = strip_sgr(line);
+    let plain = strip_ansi(line);
     has_running_count(&plain) || ["Exploring", "Searching", "Memory"].iter().any(|word| has_word(&plain, word))
 }
 
@@ -162,10 +135,5 @@ mod tests {
         assert_eq!(boot_full_render_delay_remaining_ms(1000.0, 1300.0, "", &none, &none, None), 700.0);
         assert_eq!(boot_full_render_delay_remaining_ms(1000.0, 1300.0, "Running 1 Agent", &none, &none, None), 1900.0);
         assert!(boot_full_render_delay_remaining_ms(1000.0, 2000.0, "", &none, &none, None) <= 0.0);
-    }
-
-    #[test]
-    fn sgr_is_stripped_like_the_node_pattern() {
-        assert_eq!(strip_sgr("\u{1b}[38;2;1;2;3mA\u{1b}[0m\u{1b}[2K"), "A\u{1b}[2K");
     }
 }
