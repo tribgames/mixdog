@@ -1,0 +1,19 @@
+# nr-relay-static-gate: the static gate of mixdog-relay (src/web/gate.rs, device_route.rs, preview.rs, tests/web_gate.rs).
+# Nothing here was compiled (no cargo in this task): the sources use only what mixdog-relay's Cargo.toml already lists
+# (url, regex in the test, mixdog-fsio, mixdog-rt, serde_json).
+
+## 1. Cargo.toml, Cargo.lock, mixdog-workspace-hack
+No change. tests/web_gate.rs is found by Cargo's own discovery (no [[test]] row):
+`cargo nextest run -p mixdog-relay --features test-support --offline -E 'binary(web_gate)'`.
+
+## 2. compose_flip.rs SERVICE_PENDING
+Nothing: the crate registers no protocol method.
+
+## 3. What the server assembly (nr-relay-server) calls
+use mixdog_relay::web::gate::{StaticGate, GateStore, write_page_reply};
+- Once at startup: `let gate = StaticGate::new(interactive_io, Arc<RendererCatalog>, Arc<DeviceStore> (as Arc<dyn GateStore>), Arc<Mutex<RateLimiter>> /* the unauthorized limiter the claim and media routes charge too */);`
+- routeRequest's last line (Node `serveStatic(renderer, store, unauthorizedLimiter, request, response)`): `gate.serve(&request, &mut response).await;`
+  It answers /healthz, /preview-frame, the public assets, /d/<id> routes, renderer assets, the update-PC page and every non-GET/HEAD method (405, or 303 for share-target).
+  A write failure is logged `[relay] request failed:` and answered 500, as the guarded handler answers a throw.
+- Node's `serveStatic` also took a plain directory string for the renderer (used by tests only); the Rust gate always takes the catalog (per-device releases, Vary: Cookie), which is what the server always passed.
+- `write_page_reply(&mut response, &PageReply)` writes a page of crate::pages (status, headers in order, body when Some); the router can use it for /app, /connect and the rest.
