@@ -645,6 +645,9 @@ async fn a_phone_leg_answers_its_probe_locally_and_tells_its_pc_when_it_leaves()
     assert_eq!(routed["data"], "{\"hello\":1}");
 
     peer.send(&masked_frame(0x88, &[0x03, 0xe8])).await;
+    // A browser answers the relay's close frame by ending its side of the connection; the socket closes when both sides have.
+    assert_eq!(peer.close_frame().await.map(|(code, _)| code), Some(1000));
+    peer.io.shutdown().await.expect("end the peer's side");
     eventually("the PC is told the phone left", || !desktop.frames_of("client-close").is_empty()).await;
     assert_eq!(desktop.frames_of("client-close")[0]["clientId"], open["clientId"]);
     eventually("the phone left its entry", || rig.hub.client_count(DEVICE) == 0).await;

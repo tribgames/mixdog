@@ -106,8 +106,8 @@ fn the_tool_cards_draw_what_the_node_component_draws() {
     let wide = golden["ambiguousWide"].as_bool().unwrap();
     let (mut frames, mut functions) = (0, 0);
     let mut failures: Vec<String> = Vec::new();
-    // The recorder sets the theme before each frame case (`basic` unless the case names one) and never for a function
-    // case: those ran under whichever theme the frame before them left, and their recording carries its colors.
+    // The recorder sets the theme before each frame case and before nothing else: a function case ran under the theme the frame case
+    // before it left (the corpus puts the dracula frame cases ahead of the format cases), so the same order is kept here.
     mixdog_tui_style::set_theme("basic");
     for case in &cases {
         if case["kind"].as_str() == Some("frame") {
