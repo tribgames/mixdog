@@ -1,0 +1,48 @@
+# nr-relay-legs-phone: wire lines for mixdog-relay (native/core/crates/mixdog-relay): src/legs/{phone,sweep}.rs, src/legs/mod.rs, tests/legs_phone.rs
+# Nothing here could be compiled (no cargo in this task).
+
+## 1. native/core/crates/mixdog-relay/Cargo.toml
+Add a test target next to the other `[[test]]` entries:
+    [[test]]
+    name = "legs_phone"
+    path = "tests/legs_phone.rs"
+    required-features = ["test-support"]
+No new dependency and no new workspace edge: the code uses bytes, url, tokio (io-util, macros for `select!`/`pin!`, rt), mixdog-rt and the
+crate's own hub, ingress, hook, http1, store, ws, rate_limit and logline modules. Every one is already a dependency.
+
+## 2. native/core/Cargo.lock, mixdog-workspace-hack, compose_flip.rs SERVICE_PENDING
+No change. No protocol method is registered.
+
+## 3. src/legs/mod.rs
+Written by this task: `pub mod phone;` and `pub mod sweep;` beside the others.
+
+## 4. What nr-relay-server (the task that assembles the process) must apply
+- One `phone::PhoneLegs` per process: `PhoneLegs::new(hub.clone(), wss.clone() /* Arc<WebSocketServer>, the one the desktop and hook legs
+  upgrade on */, unauthorized /* Arc<Mutex<RateLimiter>>: the relay's one unauthorized limiter, the one the web gate and the leg
+  authentication already charge */, PhoneLimits::default())`. It owns the per-device connect limiter (`phoneConnectLimiter`: 120 per 60 s
+  per device) and the table of outstanding PC-offline answers (`offlineClosing`), so server/start.rs builds neither.
+- upgrade.rs, `/ws` (`upgradePhoneLeg`): after the request line parsed to a `Url` (`http1::util::request_url`; an unparsable one is destroyed
+  before routing, as `handleUpgrade` does) and `url.path() == "/ws"`, run in a task of its own
+  `phone_legs.serve_upgrade(&PhoneRequest { url, headers, handshake, encrypted, remote_address }, transport, head).await`, with `headers` the
+  http1 `Headers` of the request, `handshake` the `HandshakeRequest` built from the same head, `encrypted` true on the TLS listener, and
+  `head` the bytes read past the request head. It decides (origin 403, 4005, 429 rate-limit / client-capacity / offline-capacity, 4002), writes
+  the raw refusal or runs `WebSocketServer::handle_upgrade` itself, and returns when the connection has ended (a PC-offline slot is held
+  until then). A phone leg installs its ingress tap before the first event is taken, attaches through `Hub::attach_phone`, feeds the hub
+  `frame` / `pong` / `closed`, and answers 4002 when the desktop entry went between the decision and the attach.
+- The 10 s sweep (`heartbeat`): `let sweep = sweep::start_sweep(hub.clone(), Some(hook_hub.clone()))` right after the listener starts; it walks
+  the hub's table (desktop, phone and answered-close sockets) and the hook legs of the `HookHub` (their grace is kept by the sweeper, so
+  hook.rs needs no change). `sweep.stop()` (or dropping it) is `clearInterval(heartbeat)` in `closeRelay`. `sweep_legs(&hub.legs(), now)`
+  is the pass for a caller that drives its own timer.
+- The hook leg is NOT registered in the hub's table (HookHub::run_leg keeps its own); registering it with `Hub::register_leg` as well would
+  sweep it twice, so do not.
+- Nothing to remove from SERVICE_PENDING: no protocol method is involved.
+
+## 5. Log lines (all of them were already in logline.rs)
+`[relay] phone upgrade refused status=<s> cause=<rate-limit|client-capacity|offline-capacity> device=<8>`,
+`[relay] phone upgrade refused cause=desktop-offline device=<8>`, `[relay] sweep terminated a leg that missed its ping window`, and
+`[relay] phone frame failed: <message>` for a panic inside a phone frame (`guarded('phone frame', ...)`).
+
+## 6. Ledger
+tests/ledger/nr-relay-legs-phone.json. The row of `the PC-offline close is its own code and never a pairing-revoking one` is
+nr-relay-scaffold's (core_units); tests/legs_phone.rs repeats the assertion (the three numbers and the 6 s budget) beside the sweep cases
+and adds no second row for it.
