@@ -1,0 +1,45 @@
+# nr-office-pdf-jpx-decode
+
+JPEG 2000 decoding half of mixdog-pdf (tier-1, dequantisation, inverse DWT, component transforms, palette/cdef,
+sYCC, 8-bit delivery). Nothing was compiled or run as Rust by the implementing agent (no cargo).
+
+## 1. Module lines (lead-owned file)
+
+File: native/core/crates/mixdog-pdf/src/codec/jpx/mod.rs
+Anchor: the module list, after the line `pub mod tiles;`. Add, in this order:
+
+    pub mod dwt;
+    pub mod mct;
+    pub mod output;
+    pub mod t1;
+
+(The four files exist and need nothing else from mod.rs. `output::decode(&Image, Options)` is the entry point;
+`DecodedImage::to_pixels(max_components)` delivers pdf.js's 8-bit interleaved bytes. The module doc comment of
+mod.rs says tier-1 and the rest "follow in the decoding half": the lead may reword it to name the modules.)
+
+## 2. Cargo
+
+No dependency edge and no Cargo.toml change: every crate the new code and tests use (mixdog-office-base twin
+helpers, mixdog-testkit, serde_json) is already a dependency of mixdog-pdf.
+
+## 3. Fixture index (hot file)
+
+File: native/core/fixtures/MANIFEST.json, array "sets", keep it sorted by "set" (after "office-journal*" /
+before "office-ooxml*" as the sort puts it). Add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-jpx-pixels.mjs",
+      "fileCount": 1,
+      "manifest": "office-jpx-pixels/MANIFEST.json",
+      "manifestSha256": "8653520fe21f58d9a4ff49e81876cbd3aab9080bac6a5342e494919a4b2d24cb",
+      "recorder": "benchmarks/rust-core/recorders/record-office-jpx-pixels.mjs",
+      "set": "office-jpx-pixels",
+      "totalBytes": 378907
+    }
+
+The set "office-jpx" (written by nr-office-pdf-jpx-codestream, MANIFEST.json sha256 b32ae78d9d9c9b5ff9d70770a3a0f0af6b84aa9432bd38cc0bc3a21637d740df) has no row in the index in
+the integration tree at the time of writing; if it still has none, add it too (fileCount 20, see its MANIFEST.json).
+
+## 4. SERVICE_PENDING / protocol
+
+No protocol method, no compose_flip.rs change, nothing to remove from SERVICE_PENDING.
