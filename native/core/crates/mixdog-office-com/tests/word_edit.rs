@@ -4,7 +4,7 @@
 //!
 //! The scripted model answers what the editor asks and records every access (a read as `id.Member(args)`, a write as
 //! `id.Member=value`), so a test states both what the operation answered and in which order Word was asked. It is written
-//! from `office-com-host.ps1`; the recordings (`recorder/scenarios/word-edit.json`, run on a PC with Microsoft Word) are the
+//! from `office-com-host.ps1`; the recordings (`tests/scenarios/word-edit.json`, run on a PC with Microsoft Word) are the
 //! reference the same editor is held to once they exist.
 
 use std::any::Any;
@@ -623,7 +623,7 @@ fn every_recorded_word_edit_fixture_is_listed_and_readable() {
 
 #[test]
 fn every_scenario_of_the_recorder_is_a_scenario_with_steps() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("recorder").join("scenarios").join("word-edit.json");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("scenarios").join("word-edit.json");
     let spec: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(path)).expect("the scenario file");
     assert_eq!(spec["area"], "word-edit");
     let scenarios = spec["scenarios"].as_array().expect("scenarios");

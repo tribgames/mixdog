@@ -2,7 +2,7 @@
 //! (`cargo test -p mixdog-office-com --test actions_live -- --ignored`) on a Windows machine with Office and
 //! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
 //!
-//! The scenarios of `recorder/scenarios/actions.json` that need no reader or editor of an application (those are written
+//! The scenarios of `tests/scenarios/actions.json` that need no reader or editor of an application (those are written
 //! by the application tasks, and their scenarios are run through the transport once they are registered): a background
 //! session of each format created, saved, rendered (a deck twice: the second export needs a reopen), copied and closed, with
 //! every rendered PDF on disk and no Office process left that was not there before; the reload of a deck from a file written
