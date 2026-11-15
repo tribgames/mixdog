@@ -1,4 +1,4 @@
-//! One host process and the client that talks to it. A session host is long-lived and speaks a line
+//! One PowerShell host process and the client that talks to it. A session host is long-lived and speaks a line
 //! protocol (one JSON request with a `requestId` per line in, JSON messages out); a one-shot host takes one JSON
 //! payload on stdin and answers with its last stdout line. Both are driven the same way underneath: stdin is a channel
 //! whose closing is the host's EOF, and a cancel or a timeout only ever sends that EOF, so the host's own `finally`
@@ -51,28 +51,8 @@ const STDERR_TAIL: usize = 16_000;
 
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 
-/// A host program and its leading arguments (the host arguments follow them).
+/// A host program and its leading arguments (the script path follows them).
 pub(crate) type HostCommand = (PathBuf, Vec<OsString>);
-
-/// The first argument of the host, for both kinds of host.
-const HOST_ARG: &str = "office-com-host";
-
-/// The second argument of the host when it is a session host.
-const SESSION_ARG: &str = "--session";
-
-/// The argument that carries the data directory the host keeps its record of the application under.
-const DATA_DIR_ARG: &str = crate::host::ledger::DATA_DIR_FLAG;
-
-/// The arguments the host program is started with.
-pub(crate) fn host_args(session: bool, data_dir: &Path) -> Vec<OsString> {
-    let mut args = vec![OsString::from(HOST_ARG)];
-    if session {
-        args.push(OsString::from(SESSION_ARG));
-    }
-    args.push(OsString::from(DATA_DIR_ARG));
-    args.push(data_dir.as_os_str().to_owned());
-    args
-}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -584,17 +564,5 @@ impl Sessions {
         if table.clients.get(client.session_id()).is_some_and(|held| std::ptr::eq(Arc::as_ptr(held), client)) {
             table.clients.remove(client.session_id());
         }
-    }
-}
-
-#[cfg(test)]
-mod host_args_tests {
-    use super::*;
-
-    #[test]
-    fn the_host_arguments_name_the_kind_of_host_and_the_data_directory() {
-        let dir = Path::new("/data/dir");
-        assert_eq!(host_args(false, dir), ["office-com-host", "--data-dir", "/data/dir"].map(OsString::from));
-        assert_eq!(host_args(true, dir), ["office-com-host", "--session", "--data-dir", "/data/dir"].map(OsString::from));
     }
 }

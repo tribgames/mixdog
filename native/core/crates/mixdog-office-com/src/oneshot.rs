@@ -1,4 +1,4 @@
-//! A call with no session: one host process per call. The whole JSON payload goes to its stdin, the last
+//! A call with no session: one PowerShell host process per call. The whole JSON payload goes to its stdin, the last
 //! non-empty stdout line is the answer. A cancel or a timeout does not kill the host: it is sent EOF and given the
 //! drain grace, and the answer says that the operation may have completed.
 

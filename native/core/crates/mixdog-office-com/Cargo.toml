@@ -49,7 +49,7 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time
 mixdog-office-com = { path = ".", features = ["test-support"] }
 
 [features]
-# The stand-in host the transport tests start in place of the host program (tests/fake_host.rs) and the config that selects it.
+# The stand-in host the transport tests start in place of PowerShell (tests/fake_host.rs) and the config that selects it.
 test-support = []
 
 [[bin]]
@@ -87,8 +87,16 @@ name = "platform_live"
 path = "tests/platform_live.rs"
 
 [[test]]
+name = "transport_route"
+path = "tests/transport_route.rs"
+
+[[test]]
 name = "pswire"
 path = "tests/pswire.rs"
+
+[[test]]
+name = "registry_source"
+path = "tests/registry_source.rs"
 
 [[test]]
 name = "host_protocol"
@@ -176,7 +184,3 @@ path = "tests/word_edit_live.rs"
 [[test]]
 name = "switch_word_live"
 path = "tests/switch_word_live.rs"
-
-[[test]]
-name = "no_powershell"
-path = "tests/no_powershell.rs"

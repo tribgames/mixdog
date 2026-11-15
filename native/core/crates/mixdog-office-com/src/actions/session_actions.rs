@@ -151,33 +151,29 @@ fn batch<P: WriteProof>(
     actions: &Actions<'_, P>,
     out: &mut Emitter,
     state: &mut SessionState,
-    document: Obj,
+    document: &Obj,
     request: &Value,
 ) -> std::result::Result<Value, String> {
     let format = state.format.clone();
     let mut excel_checkpoint = String::new();
     if format == "xlsx" {
         excel_checkpoint = actions.temporary_name("mixdog-excel-batch", path_extension(&state.path));
-        save_document_copy(&document, &format, &excel_checkpoint).map_err(text)?;
+        save_document_copy(document, &format, &excel_checkpoint).map_err(text)?;
     }
     let mut deck_checkpoint = String::new();
     if format == "pptx" && owned_background(state) {
         deck_checkpoint = actions.temporary_name("mixdog-pptx-batch", path_extension(&state.path));
-        save_document_copy(&document, &format, &deck_checkpoint).map_err(text)?;
+        save_document_copy(document, &format, &deck_checkpoint).map_err(text)?;
     }
-    let outcome = run_batch(actions, state, &document, &format, request);
+    let outcome = run_batch(actions, state, document, &format, request);
     if outcome.is_err() {
         if !excel_checkpoint.is_empty() {
             let _ = if owned_background(state) {
                 reopen_background_excel_session(actions, state, "")
             } else {
-                restore_excel_checkpoint(actions, &document, &excel_checkpoint).map_err(text)
+                restore_excel_checkpoint(actions, document, &excel_checkpoint).map_err(text)
             };
         }
-        // This handle is the reference the batch took to the deck. A reload that falls back to a full reopen quits the
-        // application and waits for its process to end, and an application that something still holds a reference to does
-        // not end: the handle is released before the reload, as the PowerShell host's collection of garbage did.
-        drop(document);
         if !deck_checkpoint.is_empty() {
             let _ = reload_session_document(actions, out, state, &deck_checkpoint);
         }
@@ -209,9 +205,6 @@ fn post_save_validate<P: WriteProof>(
             // The saved deck is read back from disk in the running PowerPoint, as re-authoring reloads it: a new PowerPoint
             // process proved nothing more about the file and cost seconds on every finalize.
             "pptx" => {
-                // A reload that falls back to a full reopen quits the application and waits for its process: this handle
-                // to the old deck is released first.
-                drop(document);
                 reload_session_document(actions, out, state, "")?;
             }
             _ => {}
@@ -269,8 +262,6 @@ fn render<P: WriteProof>(
             save_document(Some(&document), &format).map_err(text)?;
         }
         if state.pptx_exports > 0 && owned_background(state) {
-            // The reopen quits the application and waits for its process: this handle to the old deck is released first.
-            drop(document);
             reopen_background_powerpoint_session(actions, out, state, "")?;
             document = document_of(state)?;
         }
@@ -351,7 +342,7 @@ pub fn invoke_session_action<P: WriteProof>(
         "replace_presentation_from_source" => replace_presentation_from_source(actions, out, state, request),
         "batch" => {
             let document = document_of(state)?;
-            batch(actions, out, state, document, request)
+            batch(actions, out, state, &document, request)
         }
         "rollback" => {
             let mut document = document_of(state)?;

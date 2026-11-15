@@ -3,7 +3,7 @@
 //! call log of its scenario, in order, and every line the host writes is compared with the line the script writes.
 //!
 //! The logs here are written by hand from `office-com-session-host.ps1`; the logs recorded from the PowerShell host against
-//! Office (`tests/scenarios/session.json`, run on a PC with Microsoft Office) are held to the same ports once they exist.
+//! Office (`recorder/scenarios/session.json`, run on a PC with Microsoft Office) are held to the same ports once they exist.
 
 use std::io::Write;
 use std::path::PathBuf;

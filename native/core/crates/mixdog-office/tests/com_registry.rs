@@ -1,39 +1,66 @@
-//! The operation registry test of `office-runtime-com.test.mjs` (`operation registry matches every COM implementation and rejects unknown
-//! fields before dispatch`): the operations the Rust COM host serves for each format (`mixdog_office_com::drivers::Drivers`, the editors the
-//! host runs on) are the capability table's operations for the `microsoft-office-com` backend that the runtime does not turn into others
-//! first, and every operation the table lists for that backend names `op` first and the backend among its own.
+//! The source-text test of `office-runtime-com.test.mjs` (`operation registry matches every COM implementation and rejects unknown
+//! fields before dispatch`): the Microsoft Office host is a PowerShell script that only runs against an installed Office on Windows, so the
+//! operations it implements can only be read from its text. The names `assets/office-com-host.ps1` (the crate `mixdog-office-com` embeds
+//! it) implements between each format's markers are the capability table's operations for the `microsoft-office-com` backend that the runtime
+//! does not turn into others first, and every operation the table lists for that backend names `op` first and the backend among its own.
 //! The second half of the Node test (a misspelt field is refused with the name it should have been, a style key moves to `properties`
 //! where the operation does not take it at the top, a geometry key moves out of `properties`) runs against `mixdog_office::contracts`.
 
+use std::path::PathBuf;
+use std::sync::LazyLock;
+
+use mixdog_js::JsRegex;
 use mixdog_office::capabilities::capabilities;
 use mixdog_office::contracts::assert_office_operation_contracts;
-use mixdog_office_com::drivers::Drivers;
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use serde_json::{Value, json};
 
 const BACKEND: &str = "microsoft-office-com";
 
-/// The formats the host serves.
-const FORMATS: [&str; 3] = ["docx", "xlsx", "pptx"];
+/// `(format, start marker, end marker)`: the section of the script that holds each format's operations.
+const SECTIONS: [(&str, &str, &str); 3] = [
+    ("docx", "function Apply-WordOperation", "function Excel-Sheet"),
+    ("xlsx", "function Apply-ExcelOperation", "function Ppt-Slide"),
+    ("pptx", "function Apply-PowerPointOperation", "function Apply-Operations"),
+];
 
-/// The operation names the Rust host's editor of `format` serves, sorted.
-fn implemented(format: &str) -> Vec<String> {
-    let editor = Drivers::registered().editor(format).unwrap_or_else(|| panic!("{format}: the host has no editor"));
-    let mut names: Vec<String> = editor.operation_names().iter().map(|name| (*name).to_owned()).collect();
+static OPERATION_NAME: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s{4,8}'([a-z][a-z0-9_]*)'\s*\{", "gm"));
+
+fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
+    let lanes = mixdog_rt::testing::tokens();
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).expect("submit").await.expect("job") })
+}
+
+fn host_script() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-office-com/assets/office-com-host.ps1");
+    on_lane(move |lane| mixdog_fsio::read_to_string(lane, &path)).expect("the embedded Office COM host script")
+}
+
+/// The operation names of one section of the script, sorted.
+fn implemented(source: &str, format: &str, start_marker: &str, end_marker: &str) -> Vec<String> {
+    let start = source.find(start_marker).unwrap_or_else(|| panic!("{format}: no {start_marker:?}"));
+    let after = start + start_marker.len();
+    let end = after + source[after..].find(end_marker).unwrap_or_else(|| panic!("{format}: no {end_marker:?} after the start"));
+    let mut names: Vec<String> = OPERATION_NAME.captures_iter(&source[start..end]).filter_map(|found| found.get(1).map(str::to_owned)).collect();
     names.sort();
     names
 }
 
 #[test]
 fn the_capability_table_matches_every_com_implementation() {
+    let source = host_script();
     let tables = capabilities();
     let expected = [("docx", 41, 43), ("xlsx", 46, 47), ("pptx", 46, 47)];
-    for (format, (_, native_count, described_count)) in FORMATS.iter().zip(expected) {
-        let found = implemented(format);
+    for ((format, start, end), (_, native_count, described_count)) in SECTIONS.iter().zip(expected) {
+        let found = implemented(&source, format, start, end);
         let mut described: Vec<&str> = tables.operations_for_backend(format, Some(BACKEND));
         described.sort_unstable();
         let native: Vec<&str> = described.iter().copied().filter(|operation| !tables.is_virtual(format, operation)).collect();
         assert_eq!(native, found, "{format} registry drifted from the COM backend");
-        assert_eq!(found.len(), native_count, "{format}: the operations the Rust host serves");
+        assert_eq!(found.len(), native_count, "{format}: the operations the host implements");
         assert_eq!(described.len(), described_count, "{format}: the operations the table lists for the backend (the runtime's own are virtual)");
         for operation in described {
             // `describeOfficeCapabilities({ format, backend, operation }).operation`, as the Node test reads it.

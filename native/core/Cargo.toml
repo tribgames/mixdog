@@ -90,6 +90,7 @@ members = [
     "crates/mixdog-repl",
     "crates/mixdog-tui-widgets",
     "crates/mixdog-tui",
+    "crates/mixdog-office-com/recorder",
     "crates/mixdog-office-author",
     "crates/mixdog-xlsx-formula",
     "crates/mixdog-pdf",

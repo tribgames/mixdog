@@ -29,12 +29,13 @@ fn scratch() -> PathBuf {
     dir
 }
 
-/// A transport whose hosts are the stand-in, started where the Rust host program would be (`<stand-in> office-com-host
-/// [--session] --data-dir <dir>`); `grace_ms` is how long it waits for a host it asked to end.
+/// A transport whose hosts are the stand-in, on the host command line for every format (no format is routed to the Rust
+/// host program); `grace_ms` is how long it waits for a host it asked to end.
 fn office(grace_ms: u64) -> (OfficeCom, PathBuf) {
     let dir = scratch();
     let mut config = OfficeComConfig::new(dir.clone(), mixdog_rt::testing::tokens())
-        .with_host_command(PathBuf::from(env!("CARGO_BIN_EXE_fake-office-host")), Vec::<OsString>::new());
+        .with_host_command(PathBuf::from(env!("CARGO_BIN_EXE_fake-office-host")), Vec::<OsString>::new())
+        .with_rust_host_formats(&[]);
     config.drain_grace = Duration::from_millis(grace_ms);
     (OfficeCom::new(config), dir)
 }
@@ -63,15 +64,18 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_one_shot_call_answers_with_the_last_stdout_line_on_the_host_program_and_leaves_no_script_behind() {
+async fn a_one_shot_call_answers_with_the_last_stdout_line_and_the_scripts_are_written_once() {
     let (office, data) = office(2_000);
     let payload = json!({"action": "snapshot", "path": "a.docx"});
     let reply = office.call(&payload, CallOptions::default()).await;
     assert_eq!(reply.value["ok"], json!(true));
     assert_eq!(reply.value["echo"], payload);
-    assert_eq!(reply.value["argv"], json!(["office-com-host", "--data-dir", data.to_string_lossy()]));
     assert!(reply.host_exit.is_none());
-    assert!(!mixdog_testkit::exists(data.join("office").join("com")), "no script directory is written");
+    let scripts: Vec<_> = mixdog_testkit::tree(data.join("office").join("com"));
+    let names: Vec<&str> = scripts.iter().map(|(path, _)| path.as_str()).collect();
+    for name in ["office-com-host.ps1", "office-com-session-host.ps1", "office-com-cleanup.ps1", "office-word-formatting.ps1"] {
+        assert!(names.iter().any(|path| path.ends_with(name)), "{name} was not written: {names:?}");
+    }
     mixdog_testkit::remove_dir_all(&data);
 }
 
@@ -338,3 +342,112 @@ async fn off_windows_every_entry_point_says_so_without_starting_a_host() {
     assert!(!mixdog_testkit::exists(dir.join("office")));
     mixdog_testkit::remove_dir_all(&dir);
 }
+
+/// The PowerShell test of `Close-SessionState` from `office-cleanup.test.mjs`, run against the embedded copy of
+/// `office-com-cleanup.ps1` (which is byte for byte the Node tree's file): cleanup closes by format, preserves shared
+/// documents and exposes failures. It only runs PowerShell over stand-in objects; no Office application is started.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn powershell_cleanup_closes_by_format_preserves_shared_documents_and_exposes_failures() {
+    let cleanup = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join("office-com-cleanup.ps1");
+    let dir = scratch();
+    let probe = dir.join("cleanup-probe.ps1");
+    let quoted = cleanup.to_string_lossy().replace("'", "''");
+    mixdog_testkit::write(&probe, CLEANUP_PROBE.replace("{CLEANUP}", &quoted));
+    let output = tokio::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&probe)
+        .output()
+        .await
+        .expect("run powershell");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("cleanup behavior passed"), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    mixdog_testkit::remove_dir_all(&dir);
+}
+
+#[cfg(windows)]
+const CLEANUP_PROBE: &str = r##"
+$ErrorActionPreference = 'Stop'
+. '{CLEANUP}'
+Add-Type -TypeDefinition @'
+using System;
+public class CollectionProbe { public int Count = 1; }
+public class AppProbe {
+  public CollectionProbe Documents = new CollectionProbe();
+  public CollectionProbe Workbooks = new CollectionProbe();
+  public CollectionProbe Presentations = new CollectionProbe();
+  public int Quits;
+  public bool FailQuit;
+  public void Quit() { if (FailQuit) throw new Exception("quit rejected"); Quits++; }
+}
+public class PptProbe {
+  public CollectionProbe Collection;
+  public bool Fail;
+  public int Closes;
+  public void Close() { if (Fail) throw new Exception("close rejected"); Closes++; Collection.Count--; }
+}
+public class WordProbe {
+  public CollectionProbe Collection;
+  public int Closes;
+  public void Close(int save) { if (save != 0) throw new Exception("unexpected save"); Closes++; Collection.Count--; }
+}
+public class ExcelProbe {
+  public CollectionProbe Collection;
+  public int Closes;
+  public void Close(bool save) { if (save) throw new Exception("unexpected save"); Closes++; Collection.Count--; }
+}
+'@
+function Check($condition, $message) { if (-not $condition) { throw $message } }
+function Make-State($format, $ownership, $ownsApplication, $otherDocuments = 0, $fail = $false) {
+  $app = New-Object AppProbe
+  switch ($format) {
+    'pptx' { $doc = New-Object PptProbe; $doc.Collection = $app.Presentations; $doc.Fail = $fail }
+    'docx' { $doc = New-Object WordProbe; $doc.Collection = $app.Documents }
+    'xlsx' { $doc = New-Object ExcelProbe; $doc.Collection = $app.Workbooks }
+  }
+  $doc.Collection.Count = 1 + $otherDocuments
+  return [pscustomobject]@{ Format=$format; Mode='background'; Ownership=$ownership; OwnsApplication=$ownsApplication; App=$app; Document=$doc; AppPid=0; AppStartTicks=0 }
+}
+foreach ($format in @('pptx', 'docx', 'xlsx')) {
+  $state = Make-State $format 'owned' $true
+  $app = $state.App; $doc = $state.Document
+  $result = Close-SessionState $state $false
+  Check ($result.ok -and $doc.Closes -eq 1 -and $app.Quits -eq 1) "wrong close signature for $format"
+}
+$state = Make-State 'pptx' 'owned' $false
+$app = $state.App; $doc = $state.Document
+$result = Close-SessionState $state $false
+Check ($result.ok -and $doc.Closes -eq 1 -and $app.Quits -eq 0 -and $result.applicationRetained) 'shared application was quit'
+$state = Make-State 'pptx' 'attached' $false
+$app = $state.App; $doc = $state.Document
+$result = Close-SessionState $state $false
+Check ($result.ok -and $doc.Closes -eq 0 -and $app.Quits -eq 0 -and $result.detached) 'attached user document was closed'
+$state = Make-State 'pptx' 'owned' $true 1
+$app = $state.App
+$result = Close-SessionState $state $false
+Check ($result.ok -and $app.Presentations.Count -eq 1 -and $app.Quits -eq 0) 'another user document was closed'
+$state = Make-State 'pptx' 'owned' $true 0 $true
+$result = Close-SessionState $state $false
+Check (-not $result.ok -and $result.errors.Count -gt 0 -and $null -ne $state.Document) 'close failure was hidden or cannot retry'
+$state.Document.Fail = $false
+$result = Close-SessionState $state $false
+Check $result.ok 'explicit close retry failed'
+$state = Make-State 'pptx' 'owned' $true
+$state.App.FailQuit = $true
+$result = Close-SessionState $state $false
+Check (-not $result.ok -and $result.errors.Count -gt 0 -and $null -ne $state.App) 'quit failure was hidden or cannot retry'
+$state.App.FailQuit = $false
+$result = Close-SessionState $state $false
+Check $result.ok 'explicit quit retry failed'
+# An application that accepted Quit shuts itself down in its own time. Waiting
+# one second killed it mid-shutdown on every background close, and reported a
+# visible session — which is never killed — as still running.
+$child = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Milliseconds 2500' -PassThru -WindowStyle Hidden
+$state = Make-State 'xlsx' 'owned' $true
+$state.AppPid = $child.Id
+$state.AppStartTicks = $child.StartTime.ToUniversalTime().Ticks
+$result = Close-SessionState $state $false
+Check ($result.processExited -and -not $result.forcedProcessCleanup) 'a quitting application was killed instead of allowed to exit'
+Check ($result.ok -and $result.errors.Count -eq 0) 'a clean exit was reported as a cleanup failure'
+[Console]::Out.WriteLine('cleanup behavior passed')
+"##;

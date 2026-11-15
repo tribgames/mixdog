@@ -5849,6 +5849,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-office-com-recorder"
+version = "1.5.0"
+dependencies = [
+ "mixdog-office-com",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "mixdog-office-crypto"
 version = "1.5.0"
 dependencies = [

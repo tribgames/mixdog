@@ -2,7 +2,7 @@
 //! dispatch object: the reader must make the calls the script makes, in its order, and answer the text the script answers.
 //!
 //! The call logs below are written by hand from `office-com-host.ps1`. The logs recorded from the PowerShell host against
-//! PowerPoint (`tests/scenarios/ppt-read.json`, run on a PC with Microsoft PowerPoint) are replayed by
+//! PowerPoint (`recorder/scenarios/ppt-read.json`, run on a PC with Microsoft PowerPoint) are replayed by
 //! `recorded_scenarios_are_replayed` as soon as `tests/fixtures/ppt-read/*.json` exist: each snapshot and each issue pass of a
 //! recorded step is cut out of the step's call log at its boundary markers and played back through the reader.
 

@@ -3,7 +3,7 @@
 //! on a Windows machine with Office and `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends
 //! at once and says it did nothing.
 //!
-//! The scenarios of `tests/scenarios/session.json` through the lifecycle in this process, on a single-threaded apartment
+//! The scenarios of `recorder/scenarios/session.json` through the lifecycle in this process, on a single-threaded apartment
 //! of its own: open and create per format in the background, closed with a save; no WINWORD, EXCEL or POWERPNT process is
 //! left that was not there before; and a user's visible Excel holding a workbook is still running, workbook open, after an
 //! attach session on that workbook closes.
