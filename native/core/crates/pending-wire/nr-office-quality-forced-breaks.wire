@@ -1,0 +1,35 @@
+# nr-office-quality-forced-breaks: what the lead applies (all of it is in files this task does not own)
+
+## 1. native/core/crates/mixdog-office-quality/src/lib.rs
+Add, right after the line `pub mod document_design_review;`:
+
+    pub mod forced_breaks;
+
+## 2. native/core/crates/mixdog-office-quality/Cargo.toml
+[dependencies]: add, right after the `mixdog-ooxml = { workspace = true }` line (the preview PDF's text layout comes from
+mixdog-office-pdf, a workspace member already; it does not depend on mixdog-office-quality, so no cycle):
+
+    mixdog-office-pdf = { workspace = true }
+
+The module also uses `mixdog-js`, `mixdog-fsio` and `mixdog-ooxml` (zipio::Package), already dependencies. The twin test
+`tests/twin_forced_breaks.rs` uses `base64`, `mixdog-fsio`, `mixdog-js`, `serde_json`, `tempfile` and
+`mixdog-office-base` (feature test-support): all already declared in the crate.
+
+## 3. native/core/Cargo.lock
+Lead regenerates it offline: the package `mixdog-office-quality` gains the dependency `mixdog-office-pdf` (already in the
+lock; no new crate).
+
+## 4. native/core/fixtures/MANIFEST.json
+Run `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` once the wave is merged: it adds the row of
+the new set `office-forced-breaks` (recorder benchmarks/rust-core/recorders/record-office-forced-breaks.mjs, 1 file,
+golden.json). The set's own MANIFEST.json is already written (native/core/fixtures/office-forced-breaks/MANIFEST.json).
+
+## 5. Consumers (later tasks of the track, not this one)
+The office review that builds the options of `rendered::review_rendered_office_pages` calls
+`forced_breaks::forced_break_pages(&proof, &BreakSession { format, target, html_source, html_source_edits },
+&BreakPreview { has_images, output, export_available })`: it answers `Ok(Some(pages))` (1-based page numbers in page order;
+map them to f64 for `RenderedOptions::forced_break_pages`), `Ok(None)` when the render has no authored source (Node's
+`null`), or `Err(message)` where Node threw (unreadable docx, html or PDF).
+
+## 6. Nothing else
+No protocol row, no SERVICE_PENDING name, no desktop fragment, no environment variable.
