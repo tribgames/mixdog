@@ -395,6 +395,27 @@ fn high_throughput_blocks_are_refused() {
 }
 
 #[test]
+fn region_and_quantisation_styles_are_read_as_openjpeg_reads_them() {
+    let e = expected();
+    let c = &e["cases"]["coc-qcc-rgn"];
+    let mut data = load(c);
+    let rgn = position_of(&data, [0xFF, 0x5E]);
+    data[rgn + 5] = 1; // Srgn: a style the standard does not define
+    let image = jpx::parse(&data).unwrap();
+    let shifts: Vec<u64> = image.codestream.main.comps.iter().map(|p| p.roi_shift as u64).collect();
+    let recorded: Vec<u64> = c["comps"].as_array().unwrap().iter().map(|w| n(&w["roi"])).collect();
+    assert_eq!(shifts, recorded);
+
+    let mut data = gray();
+    let qcd = position_of(&data, [0xFF, 0x5C]);
+    data[qcd + 4] = (data[qcd + 4] & 0xE0) | 3; // Sqcd style 3: read as scalar expounded
+    let image = jpx::parse(&data).unwrap();
+    let q = &image.codestream.main.comps[0].quant;
+    let len = u16::from_be_bytes([data[qcd + 2], data[qcd + 3]]) as usize - 3;
+    assert_eq!((q.style, q.explicit_steps().len()), (3, len / 2));
+}
+
+#[test]
 fn invalid_code_block_and_precinct_sizes_are_refused() {
     let mut data = gray();
     let cod = position_of(&data, [0xFF, 0x52]);

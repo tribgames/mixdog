@@ -281,7 +281,7 @@ pub struct Step {
 /// The quantisation of one component (Sqcd / Sqcc and SPqcd / SPqcc).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Quant {
-    /// 0 no quantisation, 1 scalar derived, 2 scalar expounded.
+    /// 0 no quantisation, 1 scalar derived, 2 (or any other value) scalar expounded.
     pub style: u8,
     pub guard: u8,
     steps: Vec<Step>,
@@ -327,13 +327,13 @@ fn parse_quant(r: &mut Be) -> Result<Quant, JpxError> {
             let v = r.u16()?;
             steps.push(Step { expn: (v >> 11) as u8, mant: v & 0x7ff });
         }
-        2 => {
+        // 2 scalar expounded; OpenJPEG reads every other style value the same way.
+        _ => {
             while r.left() >= 2 && steps.len() < MAX_BANDS {
                 let v = r.u16()?;
                 steps.push(Step { expn: (v >> 11) as u8, mant: v & 0x7ff });
             }
         }
-        _ => return Err(bad("unknown quantisation style")),
     }
     Ok(Quant { style, guard, steps })
 }
@@ -482,12 +482,9 @@ impl ParamBuilder {
             }
             RGN => {
                 let c = self.comp_index(&mut r)?;
-                let style = r.u8()?;
-                let shift = r.u8()?;
-                if style != 0 {
-                    return Err(bad("unknown region-of-interest style"));
-                }
-                self.params.comps[c].roi_shift = shift;
+                // Srgn: OpenJPEG reads the style without checking it; the shift applies whatever it says.
+                r.u8()?;
+                self.params.comps[c].roi_shift = r.u8()?;
             }
             POC => {
                 if self.in_tile && !self.poc_in_tile {
