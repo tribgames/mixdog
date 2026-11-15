@@ -345,11 +345,7 @@ mod tests {
     async fn a_failed_npm_reports_its_exit_code() {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
-        let npm = shim(dir.path(), if cfg!(windows) { "@echo off
-exit /b 3
-" } else { "#!/bin/sh
-exit 3
-" }).await;
+        let npm = shim(dir.path(), if cfg!(windows) { "@echo off\r\nexit /b 3\r\n" } else { "#!/bin/sh\nexit 3\n" }).await;
         assert_eq!(staged(&config, &npm, "9.9.9").await.unwrap_err(), "npm install exited with code 3");
     }
 
