@@ -368,8 +368,11 @@ pub fn picture_xml(options: &Value) -> String {
     let id = text_of(options.get("id"));
     let name = options.get("name").filter(|value| truthy(value)).map_or_else(|| format!("Picture {id}"), value_to_string);
     let (left, top, width, height) = box_of(options, 100.0, 100.0);
-    let alt = options.get("altText").map(value_to_string).unwrap_or_default();
-    let description = if alt.is_empty() { String::new() } else { format!(" descr=\"{}\"", xml_encode(&alt)) };
+    // `altText ? ...`: a null or other falsy description (an operation's `altText: null`) writes none.
+    let description = match options.get("altText").filter(|value| truthy(value)) {
+        Some(text) => format!(" descr=\"{}\"", xml_encode(&value_to_string(text))),
+        None => String::new(),
+    };
     format!(
         "<p:pic><p:nvPicPr><p:cNvPr id=\"{id}\" name=\"{}\"{description}/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed=\"{}\"/>{}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>",
         xml_encode(&name),
@@ -784,6 +787,12 @@ mod tests {
         let body = text_body_xml(&json!({ "paragraphs": [{ "text": "a", "bullet": true, "level": 1 }] }));
         assert!(body.contains("lvl=\"1\" marL=\"558800\" indent=\"-279400\""), "{body}");
         assert!(body.contains("<a:buChar char=\"&#8226;\"/>"));
+    }
+
+    #[test]
+    fn a_picture_with_a_null_description_writes_none() {
+        assert!(!picture_xml(&json!({ "id": 4, "embedId": "rId2", "altText": null })).contains("descr="));
+        assert!(picture_xml(&json!({ "id": 4, "embedId": "rId2", "altText": "Logo" })).contains(" descr=\"Logo\""));
     }
 
     #[test]
