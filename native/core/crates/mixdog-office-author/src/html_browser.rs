@@ -34,10 +34,6 @@ use crate::page::Page;
 /// The deadline of a route's layout work.
 pub const LAYOUT_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// The flag the Office layout expects of the browser: glyph advances are not snapped to hinted widths, so a line
-/// breaks where the Word and PowerPoint render breaks it. The shared render browser is started with it.
-pub const FONT_RENDER_HINTING: &str = "--font-render-hinting=none";
-
 /// How long a browser context is given to go away.
 const TEARDOWN: Duration = Duration::from_secs(2);
 
@@ -85,7 +81,8 @@ impl AuthorLanes {
         let target = path.clone();
         self.tokens
             .durability_io
-            .submit(&CancellationToken::new(), move |lane| mixdog_fsio::write(lane, &target, bytes))
+            .submit_wait(&CancellationToken::new(), move |lane| mixdog_fsio::write(lane, &target, bytes))
+            .await
             .map_err(|full| full.to_string())?
             .await
             .map_err(|dropped| dropped.to_string())?
@@ -98,7 +95,7 @@ impl AuthorLanes {
         let prefix = prefix.to_string();
         self.tokens
             .durability_io
-            .submit(&CancellationToken::new(), move |lane| loop {
+            .submit_wait(&CancellationToken::new(), move |lane| loop {
                 let number = SCRATCH.fetch_add(1, Ordering::Relaxed);
                 let path = base.join(format!("{prefix}{:x}{number:x}", std::process::id()));
                 match mixdog_fsio::create_dir(lane, &path) {
@@ -107,6 +104,7 @@ impl AuthorLanes {
                     Err(error) => return Err(format!("{}: {error}", path.display())),
                 }
             })
+            .await
             .map_err(|full| full.to_string())?
             .await
             .map_err(|dropped| dropped.to_string())?
@@ -116,7 +114,7 @@ impl AuthorLanes {
     /// its failure swallowed).
     pub async fn remove_dir_all(&self, path: &Path) {
         let path = path.to_path_buf();
-        let removal = self.tokens.durability_io.submit(&CancellationToken::new(), move |lane| mixdog_fsio::remove_dir_all(lane, &path));
+        let removal = self.tokens.durability_io.submit_wait(&CancellationToken::new(), move |lane| mixdog_fsio::remove_dir_all(lane, &path)).await;
         if let Ok(removal) = removal {
             let _ = removal.await;
         }
@@ -128,12 +126,7 @@ impl AuthorLanes {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.tokens
-            .cpu_bulk
-            .submit(&CancellationToken::new(), move |_lane| job())
-            .map_err(|full| full.to_string())?
-            .await
-            .map_err(|dropped| dropped.to_string())
+        mixdog_raster::on_lane(self.tokens.cpu_bulk, job).await.map_err(|error| error.to_string())
     }
 }
 
@@ -146,11 +139,12 @@ pub struct HtmlBrowser {
 
 impl HtmlBrowser {
     /// Leases the shared render browser (launching it when none runs) and opens a context in it. The lease is kept
-    /// until [`close`](Self::close) or until the last reference to this value is dropped.
+    /// until [`close`](Self::close) or until the last reference to this value is dropped. The Office layout expects
+    /// glyph advances not snapped to hinted widths (`--font-render-hinting=none`, so a line breaks where the Word and
+    /// PowerPoint render breaks it): the shared render browser is started with that flag (mixdog-exthost `browser.rs`).
     pub async fn launch(endpoint: &dyn BrowserEndpoint) -> Result<Arc<Self>, String> {
         let (url, hold) = endpoint.lease().await?;
         let cdp = Arc::new(Cdp::connect(&url).await?);
-        expect_font_hinting(&cdp).await?;
         let context = cdp.send("Target.createBrowserContext", json!({ "disposeOnDetach": true }), None).await?;
         let context_id = context.get("browserContextId").and_then(Value::as_str).unwrap_or_default().to_string();
         Ok(Arc::new(Self { cdp, context_id, hold: Mutex::new(Some(hold)) }))
@@ -169,19 +163,6 @@ impl HtmlBrowser {
         )
         .await;
         drop(self.hold.lock().unwrap_or_else(|p| p.into_inner()).take());
-    }
-}
-
-/// The shared browser is expected to have been started with [`FONT_RENDER_HINTING`]; a browser that says it was not
-/// would lay the pages out with different line breaks than the Office render, which no later check would catch. A
-/// browser that does not say how it was started is taken as it is.
-async fn expect_font_hinting(cdp: &Cdp) -> Result<(), String> {
-    let Ok(info) = cdp.send("SystemInfo.getInfo", json!({}), None).await else { return Ok(()) };
-    match info.get("commandLine").and_then(Value::as_str) {
-        Some(line) if !line.contains(FONT_RENDER_HINTING) => {
-            Err(format!("the shared render browser was started without {FONT_RENDER_HINTING}, so HTML layout would not match the Office render"))
-        }
-        _ => Ok(()),
     }
 }
 
@@ -269,6 +250,5 @@ mod tests {
     #[test]
     fn the_layout_deadline_is_ninety_seconds() {
         assert_eq!(LAYOUT_TIMEOUT, Duration::from_secs(90));
-        assert_eq!(FONT_RENDER_HINTING, "--font-render-hinting=none");
     }
 }
