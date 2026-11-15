@@ -8,8 +8,9 @@
 //! exposed for the callers that rotate. The whole image is decoded once: a corrupt stream that the header does not
 //! show is rejected here, as `decodedImageMeta` does, and the pixel limit is enforced before any pixel is read.
 //!
-//! AVIF, HEIF and SVG bytes (which sharp also decodes) are answered as unsupported, by owner decision: every caller
-//! gates on png, jpeg, gif and webp content types, so only a mislabelled file is affected.
+//! SVG buffers are rasterized through resvg. AVIF/HEIF decoding remains a parity
+//! blocker: sharp accepts them even when a caller labels the bytes as PNG. Native
+//! image routing must wait for that gap; it is not an intentional removal.
 
 use std::io::Cursor;
 
@@ -51,6 +52,7 @@ pub enum Format {
     Gif,
     Webp,
     Tiff,
+    Svg,
 }
 
 impl Format {
@@ -70,9 +72,21 @@ impl Format {
             || bytes.starts_with(&[b'M', b'M', 0x00, 0x2B])
         {
             Some(Self::Tiff)
+        } else if bytes.starts_with(&[0x1f, 0x8b]) || Self::looks_like_svg_text(bytes) {
+            // XML (including declarations/comments) and SVGZ are parsed by usvg;
+            // malformed SVG still fails the actual decode.
+            Some(Self::Svg)
         } else {
             None
         }
+    }
+
+    /// Markup is taken as SVG only when `<svg` (any case) is in its first 1000 bytes, as libvips' svgload asks:
+    /// other XML or HTML stays an unsupported image format, the sentence sharp gives for it.
+    fn looks_like_svg_text(bytes: &[u8]) -> bool {
+        let text = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+        text.iter().copied().find(|byte| !byte.is_ascii_whitespace()) == Some(b'<')
+            && bytes[..bytes.len().min(1000)].windows(4).any(|window| window.eq_ignore_ascii_case(b"<svg"))
     }
 
     /// sharp's `metadata().format`, which names the image type of a result: `image/<name>`.
@@ -83,6 +97,7 @@ impl Format {
             Self::Gif => "gif",
             Self::Webp => "webp",
             Self::Tiff => "tiff",
+            Self::Svg => "svg",
         }
     }
 }
@@ -148,6 +163,7 @@ fn corrupt(format: Format, stage: Stage) -> ImagingError {
         (Format::Webp, _) => corrupt_header("webp: unable to parse image"),
         (Format::Tiff, Stage::Header) => UNSUPPORTED_FORMAT.to_owned(),
         (Format::Tiff, Stage::Data) => "tiff2vips: read error".to_owned(),
+        (Format::Svg, _) => corrupt_header("invalid SVG data"),
     };
     ImagingError::invalid(sentence)
 }
@@ -193,7 +209,46 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
         Some(Format::Gif) => decode_with(GifDecoder::new(Cursor::new(bytes)), Format::Gif, pixel_limit),
         Some(Format::Webp) => decode_with(WebPDecoder::new(Cursor::new(bytes)), Format::Webp, pixel_limit),
         Some(Format::Tiff) => decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit),
+        Some(Format::Svg) => decode_svg(bytes, pixel_limit),
     }
+}
+
+/// SVG metadata uses sharp's default density (72 DPI). The raster retains straight
+/// alpha like the other decoders; tiny-skia renders premultiplied sRGB.
+fn decode_svg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+    use std::sync::{Arc, OnceLock};
+    use resvg::{tiny_skia, usvg};
+    static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
+    let fonts = FONTS.get_or_init(|| {
+        let mut fonts = usvg::fontdb::Database::new();
+        fonts.load_system_fonts();
+        Arc::new(fonts)
+    }).clone();
+    let options = usvg::Options {
+        dpi: 72.0,
+        fontdb: fonts,
+        // A buffer has no base URL. Embedded data images are handled by usvg;
+        // do not resolve relative paths against the worker's current directory.
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_string: Box::new(|_, _| None),
+            ..usvg::ImageHrefResolver::default()
+        },
+        ..usvg::Options::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options)
+        .map_err(|_| corrupt(Format::Svg, Stage::Header))?;
+    let size = tree.size().to_int_size();
+    let (width, height) = (size.width(), size.height());
+    check_pixels(width, height, pixel_limit)?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
+    resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    let data = pixmap.pixels().iter().flat_map(|pixel| {
+        let pixel = pixel.demultiply();
+        [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+    }).collect();
+    let raster = Raster { width, height, has_alpha: true, data };
+    Ok(Decoded { format: Format::Svg, width, height, orientation: 1, raster })
 }
 
 /// The dimensions of the image after one full decode: sharp's `decodedImageMeta`.
@@ -329,7 +384,10 @@ mod tests {
         assert_eq!(Format::sniff(b"II*\0\x08\0\0\0"), Some(Format::Tiff));
         assert_eq!(Format::sniff(b"MM\0*\0\0\0\x08"), Some(Format::Tiff));
         assert_eq!(Format::sniff(b"RIFF\x10\0\0\0WAVEfmt "), None);
-        assert_eq!(Format::sniff(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
+        assert_eq!(Format::sniff(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), Some(Format::Svg));
+        assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?>\n<!-- c --><SVG/>"), Some(Format::Svg));
+        assert_eq!(Format::sniff(b"<!doctype html><html><body>not an image</body></html>"), None);
+        assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?><note/>"), None);
         assert_eq!(Format::sniff(b"\0\0\0\x1cftypavif"), None);
         assert_eq!(Format::sniff(b""), None);
     }
@@ -382,5 +440,24 @@ mod tests {
     fn raster_to_rgba_adds_an_opaque_alpha() {
         let raster = Raster { width: 1, height: 2, has_alpha: false, data: vec![1, 2, 3, 4, 5, 6] };
         assert_eq!(raster.to_rgba(), [1, 2, 3, 255, 4, 5, 6, 255]);
+    }
+
+    #[test]
+    fn svg_buffers_decode_pixels_and_keep_straight_alpha() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"><rect width="4" height="3" fill="#336699" fill-opacity="0.5"/></svg>"##;
+        let decoded = decode(svg, 12).unwrap();
+        assert_eq!((decoded.width, decoded.height, decoded.format), (4, 3, Format::Svg));
+        let pixel = &decoded.raster.data[..4];
+        for (actual, expected) in pixel.iter().zip([51u8, 102, 153, 128]) {
+            assert!(actual.abs_diff(expected) <= 1, "{pixel:?}");
+        }
+        assert_eq!(decode(svg, 11).unwrap_err().sentence(), PIXEL_LIMIT);
+    }
+
+    #[test]
+    fn svg_physical_dimensions_use_sharps_default_density() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="1in" height="1in"/>"#;
+        let decoded = decode(svg, DECODE_PIXEL_LIMIT).unwrap();
+        assert_eq!((decoded.width, decoded.height), (72, 72));
     }
 }

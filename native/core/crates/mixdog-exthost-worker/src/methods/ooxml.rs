@@ -24,6 +24,15 @@ pub(super) fn register(registry: &mut Registry) {
     registry.register_blocking("ooxml.text", text);
 }
 
+// JSON numbers `1024` and `1024.0` are the same Number in Node. The typed
+// callers supply nonnegative integer limits; accepting floating JSON notation
+// must not silently substitute the default cap.
+fn json_whole_bytes(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| value.as_f64()
+        .filter(|number| number.is_finite() && *number >= 0.0 && number.fract() == 0.0)
+        .map(|number| number as u64))
+}
+
 fn text(ctx: CallCtx) -> HandlerResult {
     let params = &ctx.params;
     let file = ctx.approved_path(&js_string(params.get("path")), "")?;
@@ -32,7 +41,7 @@ fn text(ctx: CallCtx) -> HandlerResult {
     }
     let max_output_bytes = params
         .get("maxOutputBytes")
-        .and_then(Value::as_u64)
+        .and_then(json_whole_bytes)
         .map_or(DEFAULT_MAX_OUTPUT_BYTES, |bytes| usize::try_from(bytes).unwrap_or(usize::MAX));
     if params.get("maxPartBytes").is_none() && params.get("maxContainerBytes").is_none() {
         let options = ExtractOptions { max_output_bytes };
@@ -45,11 +54,24 @@ fn text(ctx: CallCtx) -> HandlerResult {
         None | Some(Value::Null) => file.to_string_lossy().into_owned(),
         other => js_string(other),
     };
-    let limit = |name: &str| params.get(name).and_then(Value::as_u64).unwrap_or(0);
+    let limit = |name: &str| params.get(name).and_then(json_whole_bytes).unwrap_or(0);
     let limits = Limits {
         max_output_bytes,
         max_part_bytes: limit("maxPartBytes"),
         max_container_bytes: limit("maxContainerBytes"),
     };
     Ok(Outcome::value(json!({"text": try_extract_ooxml_text_from_buffer(&bytes, &filename, &limits)})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whole_json_numbers_keep_the_same_limit_regardless_of_notation() {
+        for value in [serde_json::json!(1024), serde_json::json!(1024.0), serde_json::from_str("1.024e3").unwrap()] {
+            assert_eq!(json_whole_bytes(&value), Some(1024));
+        }
+        assert_eq!(json_whole_bytes(&serde_json::json!(-0.0)), Some(0));
+    }
 }
