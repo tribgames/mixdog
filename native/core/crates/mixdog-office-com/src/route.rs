@@ -1,6 +1,6 @@
 //! Which host program serves a format: Windows PowerShell with the embedded scripts, or the Rust host, which is the
 //! service binary started as `<program> office-com-host` (one-shot) or `<program> office-com-host --session`, with the
-//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration (`docx` and `xlsx` today); a
+//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration (`docx`, `xlsx` and `pptx`); a
 //! format that is not on it, and a payload with no format, go to PowerShell. A one-shot `detect`, whatever format it probes, goes
 //! where `docx` goes.
 
@@ -8,9 +8,9 @@ use std::ffi::OsString;
 
 use serde_json::Value;
 
-/// The formats served by the Rust host: Word documents and Excel workbooks (one-shot calls and sessions; `detect` follows
-/// `docx`). PowerPoint stays on Windows PowerShell until its readers and editors are switched.
-pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx"];
+/// The formats served by the Rust host: Word documents, Excel workbooks and PowerPoint decks (one-shot calls and sessions;
+/// `detect` follows `docx`).
+pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx", "pptx"];
 
 /// The format whose host serves `detect`.
 const DETECT_FOLLOWS: &str = "docx";
@@ -66,17 +66,17 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_list_serves_word_and_excel_and_not_powerpoint() {
-        for format in ["docx", "xlsx", " XLSX "] {
+    fn the_shipped_list_serves_word_excel_and_powerpoint() {
+        for format in ["docx", "xlsx", " XLSX ", "pptx", "PPTX"] {
             assert!(serves(RUST_HOST_FORMATS.iter().copied(), Some(format)), "{format}");
         }
-        assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some("pptx")));
+        assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some("pdf")));
         assert!(!serves(RUST_HOST_FORMATS.iter().copied(), None));
     }
 
     #[test]
-    fn detect_and_a_docx_or_xlsx_call_are_served_and_a_pptx_call_is_not() {
-        let list = || RUST_HOST_FORMATS.iter().copied();
+    fn detect_follows_the_list_through_docx_and_a_pptx_call_needs_pptx_listed() {
+        let list = || ["docx", "xlsx"].into_iter();
         assert!(serves(list(), one_shot_format(&serde_json::json!({"action": "detect", "format": "pptx"}))));
         assert!(serves(list(), one_shot_format(&serde_json::json!({"action": "snapshot", "format": "docx"}))));
         assert!(serves(list(), one_shot_format(&serde_json::json!({"action": "snapshot", "format": "xlsx"}))));
