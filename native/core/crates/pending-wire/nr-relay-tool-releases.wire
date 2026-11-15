@@ -1,8 +1,0 @@
-# nr-relay-tool-releases: `mixdog-relay renderer-releases --action=prepare` (src/tools/renderer_releases.rs, tests/tool_renderer_releases.rs).
-# Nothing was compiled (no cargo in this task).
-# No Cargo edge: the tool uses only mixdog-fsio, mixdog-js, serde_json, thiserror and the crate's own web::releases, js and
-# rate_limit; the tests use tempfile and serde_json. All are already in native/core/crates/mixdog-relay/Cargo.toml.
-# The test target needs no [[test]] entry (tests/tool_renderer_releases.rs is auto-discovered and needs no test-support feature).
-# compose_flip.rs: nothing, no protocol method belongs to this task.
-# MANIFEST: nothing (the recording lives in the crate: tests/fixtures/renderer-releases-index.json, recorder tests/renderer_releases_record.mjs).
-# Not covered here: the Node test "verification requires the added release among the retained ones" exercises verifyRelease and belongs to nr-relay-tool-verify.

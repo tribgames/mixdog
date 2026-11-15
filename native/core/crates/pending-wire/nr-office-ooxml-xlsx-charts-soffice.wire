@@ -1,41 +1,6 @@
-# nr-office-ooxml-xlsx-charts-soffice: mixdog-ooxml gains xlsx_charts (add_chart, chart cache refresh) and soffice (the LibreOffice driver).
+# nr-office-ooxml-xlsx-charts-soffice.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-## native/core/crates/mixdog-ooxml/src/lib.rs
-
-Module lines: add after `pub mod xlsx_assertions;`:
-
-    pub mod soffice;
-    pub mod xlsx_charts;
-
-## native/core/crates/mixdog-ooxml/Cargo.toml
-
-Add a new table after `[dependencies]` (before `[dev-dependencies]`). The job object that stops LibreOffice's process tree on Windows is
-written in soffice/run.rs (same calls as mixdog-exthost/src/containment.rs; that crate is not a dependency). Win32_System_Threading is used
-by tests/soffice_lifecycle.rs to ask whether a process is still running:
-
-    [target.'cfg(windows)'.dependencies]
-    windows-sys = { workspace = true, features = [
-        "Win32_Foundation",
-        "Win32_Security",
-        "Win32_System_JobObjects",
-        "Win32_System_Threading",
-    ] }
-
-No other new dependency: mixdog-fonts (Os, HostEnv, mac_office_font_dir), mixdog-fsio, mixdog-js, mixdog-rt (time), reqwest (Url::from_file_path),
-tokio (features rt, time, net, process, io-util: already listed), uuid (v4) and tempfile (dev) are in the list already.
-
-## native/core/Cargo.lock
-
-mixdog-ooxml gains the dependency `windows-sys` (already locked, one version). `cargo update -w` offline writes it.
-
-## native/core/crates/mixdog-workspace-hack/Cargo.toml
-
-Run the repository's hakari check after the edge above; take its output if it asks for a feature of windows-sys.
-
-## native/core/fixtures/MANIFEST.json
-
-Index entry for the new set (the set's own MANIFEST.json is in the worktree under native/core/fixtures/office-xlsx-charts-soffice/; the digest below is of
-that file as committed). Add to "sets", in name order:
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-xlsx-charts-soffice.mjs --tree <tree>",
@@ -46,24 +11,3 @@ that file as committed). Add to "sets", in name order:
       "set": "office-xlsx-charts-soffice",
       "totalBytes": 641509
     }
-
-The recording was made from a scratch checkout whose git history is not the product's (the recorder was run with `--tree C:/Project/mixdog` and
-the recorders' lib copied beside it), so the manifest's `product.commit` is null and `refComparison.closestCommit` names that scratch commit. Re-record
-once from the integration checkout (`node benchmarks/rust-core/recorders/record-office-xlsx-charts-soffice.mjs --tree <Node product tree>`): golden.json
-does not change, the manifest's identity does; then update the digest above.
-
-## What the callers must do (interfaces added)
-
-- `mixdog_ooxml::xlsx_charts::add_worksheet_chart(measurer, zip, sheet, xml, op, sheets)` is the add_chart operation: the xlsx operation dispatcher
-  (the task that ports the operation table of portable-xlsx.mjs) calls it with `sheets = workbook_sheets(zip)` and the operation's JSON.
-  `refresh_chart_caches(zip)` is called by the driver after a recalculation; nothing else needs to call it.
-- `mixdog_ooxml::soffice::Soffice` is the driver (`Soffice::process()` for the process-wide one: one private profile and one queue). Its calls take the
-  job's write proof and block; a cancellation is the `AtomicBool` the caller sets: `available()`, `render(proof, path, output, RenderFormat::{Pdf,Png}, cancel)`,
-  `recalculate_workbook(proof, path, force, cancel)`, `validate_reopen(proof, path, cancel)`, `convert_legacy_office(proof, path, output, cancel, hooks)`.
-  The reports are the JSON the Node functions answered, key for key.
-- The process must call `Soffice::process().shutdown(proof)` as it ends (the private profile is removed there; Node did it from a process exit handler,
-  which Rust has no equivalent of). The place is the daemon's shutdown path of whichever task wires the office engine.
-
-## SERVICE_PENDING (compose_flip.rs)
-
-No name to remove: this task registers no service.

@@ -1,17 +1,9 @@
-# nr-relay-tool-delta: nothing to paste into a hot file.
-#
-# Cargo: every dependency the tool uses is already in native/core/crates/mixdog-relay/Cargo.toml (mixdog-fsio, mixdog-js, serde_json,
-#   sha2, thiserror; the tests use base64, tempfile, mixdog-testkit). No workspace member, no workspace dependency, no Cargo.lock change.
-# Test target: tests/tool_renderer_delta.rs is picked up by cargo's test discovery (binary `tool_renderer_delta`); it needs no feature.
-#   Verify: cargo nextest run -p mixdog-relay --features test-support --offline -E 'binary(tool_renderer_delta)'
-# Fixtures: tests/fixtures/renderer-delta.recording.json is kept in the crate (as node-http-echo.recording.json is); regenerate with
-#   node native/core/crates/mixdog-relay/tests/renderer_delta_record.mjs <tree>/apps/relay/deploy <scratch dir> > tests/fixtures/renderer-delta.recording.json
-#   If the lead moves recordings into native/core/fixtures/MANIFEST.json, add this one (and its recorder) there.
-# SERVICE_PENDING (compose_flip.rs): this task registers no protocol method; nothing to remove.
-#
-# What the callers see: `mixdog-relay renderer-delta --action=manifest --root=D` prints the manifest line;
-#   `--action=create --root --delta --manifest [--base=<manifest file>]` prints the report and writes the manifest file (2-space JSON, a
-#   trailing newline, the base tree hash recorded); `--action=apply --base --delta --manifest --output [--hardlink-base=true]` prints
-#   {files,bytes,treeHash}. Failure: the reason on stderr, exit code 1 (Node ended in an unhandled rejection, also non-zero).
-#   scripts/deploy-remote.ps1 and the VPS side call it the same way once they name the Rust binary instead of `node renderer-delta.mjs`
-#   (the deploy-script task owns that edit).
+# nr-relay-tool-delta: reduced by the wire audit (t19). Already applied: the tool, its test target (auto-discovered), its recording in the crate.
+
+## scripts/deploy-remote.ps1 and the VPS side (the deploy-script owner)
+They still call the Node tool (deploy-remote.ps1 copies apps/relay/deploy/renderer-delta.mjs to the server and runs it). They must name the Rust binary instead of node renderer-delta.mjs:
+  mixdog-relay renderer-delta --action=manifest --root=D
+  mixdog-relay renderer-delta --action=create --root --delta --manifest [--base=<manifest file>]
+  mixdog-relay renderer-delta --action=apply --base --delta --manifest --output [--hardlink-base=true]
+Failure is the reason on stderr and exit code 1. Then delete renderer-delta.mjs and renderer-delta.test.mjs.
+Optional: if recordings move into native/core/fixtures/MANIFEST.json, index tests/fixtures/renderer-delta.recording.json and its recorder tests/renderer_delta_record.mjs.
