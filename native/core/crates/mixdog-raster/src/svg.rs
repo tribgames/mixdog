@@ -251,10 +251,22 @@ struct Document {
     ink: Option<(Option<InkSide>, Option<InkSide>)>,
     /// The root's viewBox is stated and has no area: nothing is drawn.
     blank: bool,
+    /// The same picture parsed with the smooth image filter, when it has embedded raster images.
+    smooth: Option<usvg::Tree>,
 }
 
 impl Document {
+    /// Opens `bytes`. A picture with embedded raster images is parsed a second time with the smooth image filter: which of the two draws it is
+    /// decided at the scale it is rendered at ([`Document::tree_for`]).
     fn open(fonts: &SvgFonts, bytes: &[u8], density: f64) -> Result<Self, RasterError> {
+        let mut document = Self::open_with(fonts, bytes, density, usvg::ImageRendering::OptimizeSpeed)?;
+        if has_raster_image(document.tree.root()) {
+            document.smooth = Some(Self::open_with(fonts, bytes, density, usvg::ImageRendering::Smooth)?.tree);
+        }
+        Ok(document)
+    }
+
+    fn open_with(fonts: &SvgFonts, bytes: &[u8], density: f64, rendering: usvg::ImageRendering) -> Result<Self, RasterError> {
         if !(1.0..=100_000.0).contains(&density) {
             return Err(RasterError::new(format!("Expected number between 1 and 100000 for density but received {density} of type number")));
         }
@@ -272,7 +284,7 @@ impl Document {
             bytes
         };
         let text = std::str::from_utf8(source).map_err(|_| invalid_svg())?;
-        let options = options(fonts, density);
+        let options = options(fonts, density, rendering);
         let document = parse(text)?;
         let root = document.root_element();
         if root.tag_name().name() != "svg" {
@@ -283,7 +295,7 @@ impl Document {
             Extent::Declared => {
                 let tree = build(&document, &options)?;
                 let size = tree.size();
-                Ok(Self { width: f64::from(size.width()), height: f64::from(size.height()), tree, ink: None, blank })
+                Ok(Self { width: f64::from(size.width()), height: f64::from(size.height()), tree, ink: None, blank, smooth: None })
             }
             Extent::Derived { width, height, rewrite } => {
                 let tree = if rewrite {
@@ -292,7 +304,7 @@ impl Document {
                 } else {
                     build(&document, &options)?
                 };
-                Ok(Self { tree, width, height, ink: None, blank })
+                Ok(Self { tree, width, height, ink: None, blank, smooth: None })
             }
             Extent::Ink { unusable, stated } => {
                 // A side that is negative or a percentage is no size here and usvg refuses it: the page is the ink without it.
@@ -308,7 +320,7 @@ impl Document {
                 if width <= 0.0 || height <= 0.0 {
                     return Err(bad_dimensions());
                 }
-                Ok(Self { tree, width, height, ink: Some(stated), blank })
+                Ok(Self { tree, width, height, ink: Some(stated), blank, smooth: None })
             }
         }
     }
@@ -330,6 +342,15 @@ impl Document {
     }
 
     /// The page drawn into `width` x `height` at the largest uniform scale that fits, centred; straight RGBA.
+    /// The tree to draw at `scale`: the smooth-filtered one when an embedded image is drawn larger than its own pixels (the bilinear filter
+    /// of cairo), else the one that keeps the pixels (an image placed at its own size is laid as it is, one drawn smaller is averaged).
+    fn tree_for(&self, scale: f64) -> &usvg::Tree {
+        match &self.smooth {
+            Some(smooth) if magnifies_an_image(self.tree.root(), scale) => smooth,
+            _ => &self.tree,
+        }
+    }
+
     fn render(&self, width: u32, height: u32) -> Result<Image, RasterError> {
         if self.blank {
             return Ok(Image::from_rgba(width, height, 4, vec![0; width as usize * height as usize * 4]));
@@ -347,16 +368,8 @@ impl Document {
         // block it stands for, which brings an edge within a few levels of exact coverage; a raster too large for that within
         // `SUPERSAMPLE_PIXELS` is drawn as it is.
         let factor = supersample_factor(width, height);
-        let (big_width, big_height) = (width * factor, height * factor);
-        let mut pixmap = tiny_skia::Pixmap::new(big_width, big_height).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
-        let k = f64::from(factor);
-        let transform = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, (left * k) as f32, (top * k) as f32);
-        resvg::render(&self.tree, transform, &mut pixmap.as_mut());
-        let premultiplied: Vec<[u8; 4]> = if factor == 1 {
-            pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
-        } else {
-            mean_of_blocks(pixmap.pixels(), width as usize, height as usize, factor as usize)
-        };
+        let tree = self.tree_for(scale);
+        let premultiplied = paint_shapes(tree, width as usize, height as usize, factor as usize, scale, left, top)?;
         // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes the rasterizer's
         // premultiplied pixels back to straight alpha.
         let data = premultiplied
@@ -369,6 +382,259 @@ impl Document {
             .collect();
         Ok(Image::from_rgba(width, height, 4, data))
     }
+}
+
+/// Whether the tree has a raster image (not an SVG one) anywhere.
+fn has_raster_image(group: &usvg::Group) -> bool {
+    group.children().iter().any(|node| match node {
+        usvg::Node::Group(inner) => has_raster_image(inner),
+        usvg::Node::Image(image) => !matches!(image.kind(), usvg::ImageKind::SVG(_)),
+        _ => false,
+    })
+}
+
+/// Whether a raster image of the tree is drawn larger than its own pixels at `scale`.
+fn magnifies_an_image(group: &usvg::Group, scale: f64) -> bool {
+    group.children().iter().any(|node| match node {
+        usvg::Node::Group(inner) => magnifies_an_image(inner, scale),
+        usvg::Node::Image(image) => {
+            let ts = image.abs_transform();
+            f64::from(ts.sx).hypot(f64::from(ts.ky)) * scale > 1.0 + 1e-6
+        }
+        _ => false,
+    })
+}
+
+/// The units the rasterizer paints one at a time: a shape, an image, a text or a group that is drawn as a whole (opacity, clip, mask, filter),
+/// each with the absolute transform of the group it lies in. Plain groups are looked through.
+fn paint_units<'a>(group: &'a usvg::Group, out: &mut Vec<(&'a usvg::Node, tiny_skia::Transform)>) {
+    for node in group.children() {
+        match node {
+            usvg::Node::Group(inner) if !inner.should_isolate() => paint_units(inner, out),
+            _ => out.push((node, group.abs_transform())),
+        }
+    }
+}
+
+/// The premultiplied pixels of the tree at `width` x `height`, drawn the way cairo draws it: every shape is covered by its own anti-aliased
+/// coverage and laid over what is there (so two shapes with one edge leave a pixel less covered than a union would), while the coverage of
+/// each shape is taken from a raster `factor` times larger and averaged, which is exact to within a few levels.
+fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, scale: f64, left: f64, top: f64) -> Result<Vec<[u8; 4]>, RasterError> {
+    let k = factor as f64;
+    let mut units = Vec::new();
+    paint_units(tree.root(), &mut units);
+    let mut out = vec![[0u8; 4]; width * height];
+    for (node, parent) in units {
+        let layer = node.abs_layer_bounding_box();
+        // The box in final pixels, widened by two for the edge pixels.
+        let stroke = match node {
+            // The box usvg keeps for an image is moved a second time by the placement of the image: the box is the image rectangle at its
+            // absolute transform.
+            usvg::Node::Image(image) => image.size().to_rect(0.0, 0.0).and_then(|rect| rect.transform(image.abs_transform())).unwrap_or_else(|| node.abs_stroke_bounding_box()),
+            _ => node.abs_stroke_bounding_box(),
+        };
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::from(stroke.left()), f64::from(stroke.top()), f64::from(stroke.right()), f64::from(stroke.bottom()));
+        if let (Some(bbox), false) = (layer, matches!(node, usvg::Node::Image(_))) {
+            (min_x, min_y) = (min_x.min(f64::from(bbox.left())), min_y.min(f64::from(bbox.top())));
+            (max_x, max_y) = (max_x.max(f64::from(bbox.right())), max_y.max(f64::from(bbox.bottom())));
+        }
+        let x0 = ((min_x * scale + left).floor() as i64 - 2).max(0);
+        let y0 = ((min_y * scale + top).floor() as i64 - 2).max(0);
+        let x1 = ((max_x * scale + left).ceil() as i64 + 2).min(width as i64);
+        let y1 = ((max_y * scale + top).ceil() as i64 + 2).min(height as i64);
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let (region_width, region_height) = ((x1 - x0) as usize, (y1 - y0) as usize);
+        let mut pixmap = tiny_skia::Pixmap::new((region_width * factor) as u32, (region_height * factor) as u32).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
+        let base = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, ((left - x0 as f64) * k) as f32, ((top - y0 as f64) * k) as f32).pre_concat(parent);
+        // The tolerance cairo flattens a curve at, 0.1 of a device pixel, in the units the path is written in.
+        let device = f64::from(parent.sx).hypot(f64::from(parent.ky)) * scale;
+        let drawn = match node {
+            usvg::Node::Path(path) if device > 0.0 => draw_path(path, base, &mut pixmap, (0.1 / device) as f32),
+            _ => false,
+        };
+        if !drawn {
+            match (layer, node) {
+                // `resvg::render_node` puts the node layer box at the corner: the translation by the box undoes that.
+                (Some(bbox), _) => {
+                    if resvg::render_node(node, base.pre_translate(bbox.x(), bbox.y()), &mut pixmap.as_mut()).is_none() {
+                        continue;
+                    }
+                }
+                (None, _) => continue,
+            }
+        }
+        let layer: Vec<[u8; 4]> = if factor == 1 {
+            pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
+        } else {
+            mean_of_blocks(pixmap.pixels(), region_width, region_height, factor)
+        };
+        for row in 0..region_height {
+            let target = (y0 as usize + row) * width + x0 as usize;
+            for (column, source) in layer[row * region_width..(row + 1) * region_width].iter().enumerate() {
+                if source[3] == 0 {
+                    continue;
+                }
+                let below = &mut out[target + column];
+                let keep = 255 - u32::from(source[3]);
+                for channel in 0..4 {
+                    let product = u32::from(below[channel]) * keep + 128;
+                    below[channel] = (u32::from(source[channel]) + ((product + (product >> 8)) >> 8)).min(255) as u8;
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The paint of a fill or a stroke: a colour or a gradient (a pattern is `None`: it is drawn by `resvg` itself).
+fn paint_of(paint: &usvg::Paint, opacity: usvg::Opacity, anti_alias: bool) -> Option<tiny_skia::Paint<'static>> {
+    let stops_of = |gradient: &usvg::BaseGradient| -> (Vec<tiny_skia::GradientStop>, tiny_skia::SpreadMode) {
+        let mode = match gradient.spread_method() {
+            usvg::SpreadMethod::Pad => tiny_skia::SpreadMode::Pad,
+            usvg::SpreadMethod::Reflect => tiny_skia::SpreadMode::Reflect,
+            usvg::SpreadMethod::Repeat => tiny_skia::SpreadMode::Repeat,
+        };
+        let stops = gradient
+            .stops()
+            .iter()
+            .map(|stop| {
+                let alpha = stop.opacity() * opacity;
+                tiny_skia::GradientStop::new(stop.offset().get(), tiny_skia::Color::from_rgba8(stop.color().red, stop.color().green, stop.color().blue, alpha.to_u8()))
+            })
+            .collect();
+        (stops, mode)
+    };
+    let mut made = tiny_skia::Paint::default();
+    match paint {
+        usvg::Paint::Color(c) => made.set_color_rgba8(c.red, c.green, c.blue, opacity.to_u8()),
+        usvg::Paint::LinearGradient(gradient) => {
+            let (stops, mode) = stops_of(gradient);
+            made.shader = tiny_skia::LinearGradient::new((gradient.x1(), gradient.y1()).into(), (gradient.x2(), gradient.y2()).into(), stops, mode, gradient.transform())?;
+        }
+        usvg::Paint::RadialGradient(gradient) => {
+            let (stops, mode) = stops_of(gradient);
+            made.shader = tiny_skia::RadialGradient::new((gradient.fx(), gradient.fy()).into(), (gradient.cx(), gradient.cy()).into(), gradient.r().get(), stops, mode, gradient.transform())?;
+        }
+        usvg::Paint::Pattern(_) => return None,
+    }
+    made.anti_alias = anti_alias;
+    Some(made)
+}
+
+/// The path as cairo walks it: every curve is cut into straight lines until none of its control points is more than `tolerance` (0.1 of a
+/// device pixel in cairo) from the chord, so a curve smaller than a few pixels is drawn as the coarse polygon cairo draws.
+fn flatten(path: &tiny_skia::Path, tolerance: f32) -> Option<tiny_skia::Path> {
+    fn error_squared(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> f32 {
+        let (mut bx, mut by, mut cx, mut cy) = (b.0 - a.0, b.1 - a.1, c.0 - a.0, c.1 - a.1);
+        if a != d {
+            let (dx, dy) = (d.0 - a.0, d.1 - a.1);
+            let v = dx * dx + dy * dy;
+            let along = |x: &mut f32, y: &mut f32| {
+                let u = *x * dx + *y * dy;
+                if u >= v {
+                    *x -= dx;
+                    *y -= dy;
+                } else if u > 0.0 {
+                    *x -= u / v * dx;
+                    *y -= u / v * dy;
+                }
+            };
+            along(&mut bx, &mut by);
+            along(&mut cx, &mut cy);
+        }
+        (bx * bx + by * by).max(cx * cx + cy * cy)
+    }
+    fn cubic(out: &mut tiny_skia::PathBuilder, p: [(f32, f32); 4], tolerance_squared: f32, depth: u32) {
+        if depth >= 16 || error_squared(p[0], p[1], p[2], p[3]) < tolerance_squared {
+            out.line_to(p[3].0, p[3].1);
+            return;
+        }
+        let mid = |u: (f32, f32), v: (f32, f32)| ((u.0 + v.0) / 2.0, (u.1 + v.1) / 2.0);
+        let (ab, bc, cd) = (mid(p[0], p[1]), mid(p[1], p[2]), mid(p[2], p[3]));
+        let (abc, bcd) = (mid(ab, bc), mid(bc, cd));
+        let middle = mid(abc, bcd);
+        cubic(out, [p[0], ab, abc, middle], tolerance_squared, depth + 1);
+        cubic(out, [middle, bcd, cd, p[3]], tolerance_squared, depth + 1);
+    }
+    let tolerance_squared = tolerance * tolerance;
+    let mut out = tiny_skia::PathBuilder::new();
+    let mut at = (0.0f32, 0.0f32);
+    for segment in path.segments() {
+        match segment {
+            tiny_skia::PathSegment::MoveTo(p) => {
+                out.move_to(p.x, p.y);
+                at = (p.x, p.y);
+            }
+            tiny_skia::PathSegment::LineTo(p) => {
+                out.line_to(p.x, p.y);
+                at = (p.x, p.y);
+            }
+            tiny_skia::PathSegment::QuadTo(c, p) => {
+                // The quadratic as the cubic with the same curve.
+                let c1 = (at.0 + 2.0 / 3.0 * (c.x - at.0), at.1 + 2.0 / 3.0 * (c.y - at.1));
+                let c2 = (p.x + 2.0 / 3.0 * (c.x - p.x), p.y + 2.0 / 3.0 * (c.y - p.y));
+                cubic(&mut out, [at, c1, c2, (p.x, p.y)], tolerance_squared, 0);
+                at = (p.x, p.y);
+            }
+            tiny_skia::PathSegment::CubicTo(c1, c2, p) => {
+                cubic(&mut out, [at, (c1.x, c1.y), (c2.x, c2.y), (p.x, p.y)], tolerance_squared, 0);
+                at = (p.x, p.y);
+            }
+            tiny_skia::PathSegment::Close => out.close(),
+        }
+    }
+    out.finish()
+}
+
+/// A shape laid the way cairo lays it: its curves flattened at `tolerance` (in the units of its own coordinates), then filled and stroked with a
+/// colour or a gradient. `false` for a shape `resvg` has to draw (a pattern paint).
+fn draw_path(path: &usvg::Path, transform: tiny_skia::Transform, pixmap: &mut tiny_skia::Pixmap, tolerance: f32) -> bool {
+    let anti_alias = path.rendering_mode().use_shape_antialiasing();
+    let fill = match path.fill() {
+        Some(fill) => match paint_of(fill.paint(), fill.opacity(), anti_alias) {
+            Some(paint) => Some((fill, paint)),
+            None => return false,
+        },
+        None => None,
+    };
+    let stroke = match path.stroke() {
+        Some(stroke) => match paint_of(stroke.paint(), stroke.opacity(), anti_alias) {
+            Some(paint) => Some((stroke, paint)),
+            None => return false,
+        },
+        None => None,
+    };
+    if !path.is_visible() {
+        return true;
+    }
+    let Some(flat) = flatten(path.data(), tolerance) else { return true };
+    let fill_it = |pixmap: &mut tiny_skia::Pixmap| {
+        if let Some((fill, paint)) = &fill {
+            let bounds = path.data().bounds();
+            if bounds.width() != 0.0 && bounds.height() != 0.0 {
+                let rule = match fill.rule() {
+                    usvg::FillRule::NonZero => tiny_skia::FillRule::Winding,
+                    usvg::FillRule::EvenOdd => tiny_skia::FillRule::EvenOdd,
+                };
+                pixmap.fill_path(&flat, paint, rule, transform, None);
+            }
+        }
+    };
+    let stroke_it = |pixmap: &mut tiny_skia::Pixmap| {
+        if let Some((stroke, paint)) = &stroke {
+            pixmap.stroke_path(&flat, paint, &stroke.to_tiny_skia(), transform, None);
+        }
+    };
+    if path.paint_order() == usvg::PaintOrder::FillAndStroke {
+        fill_it(pixmap);
+        stroke_it(pixmap);
+    } else {
+        stroke_it(pixmap);
+        fill_it(pixmap);
+    }
+    true
 }
 
 /// The pixels a supersampled raster may have, and the most it is drawn larger by.
@@ -408,9 +674,10 @@ fn mean_of_blocks(big: &[tiny_skia::PremultipliedColorU8], width: usize, height:
     out
 }
 
-fn options(fonts: &SvgFonts, density: f64) -> usvg::Options<'static> {
+fn options(fonts: &SvgFonts, density: f64, rendering: usvg::ImageRendering) -> usvg::Options<'static> {
     let mut options = usvg::Options {
         dpi: density as f32,
+        image_rendering: rendering,
         fontdb: Arc::clone(&fonts.database),
         // A buffer has no base URL: relative links are not followed; `data:` images are.
         image_href_resolver: usvg::ImageHrefResolver { resolve_string: Box::new(|_, _| None), ..usvg::ImageHrefResolver::default() },
