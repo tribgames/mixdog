@@ -345,7 +345,9 @@ fn newline_chords_and_the_backslash_enter() {
     assert_eq!(h.value(), "a\nb\nc\n");
     assert!(h.rec.submits.is_empty());
     let mut h = Harness::new("line\\");
-    h.feed("\r");
+    // A bare Enter event carries no text of its own; a decoded CR is raw Enter text, which takes the submit-chunk path
+    // before the backslash rule, in Node as here.
+    h.press("", KeyFlags { return_key: true, ..KeyFlags::default() });
     assert_eq!((h.value(), h.cursor()), ("line\n", 5));
     assert!(h.rec.submits.is_empty());
     let mut h = Harness::new("x");

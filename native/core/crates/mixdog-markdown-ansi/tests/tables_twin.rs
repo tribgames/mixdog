@@ -38,7 +38,7 @@ fn fix_policy() {
 }
 
 fn parse(text: &str) -> Value {
-    serde_json::from_str(text).unwrap_or_else(|error| panic!("a recorded file does not parse: {error}"))
+    serde_json::from_str(&read_lone_surrogates(text)).unwrap_or_else(|error| panic!("a recorded file does not parse: {error}"))
 }
 
 fn entries(value: &Value) -> &[Value] {
@@ -249,4 +249,46 @@ fn live_tables_golden_matches_the_node_layout() {
         .status()
         .expect("node runs");
     assert!(status.success(), "the recorder found the golden different from a fresh recording");
+}
+
+fn hex4(digits: &[u8]) -> Option<u32> {
+    std::str::from_utf8(digits).ok().and_then(|text| u32::from_str_radix(text, 16).ok())
+}
+
+/// A recorded string may hold half of a surrogate pair (Node cuts a string by UTF-16 unit): JSON text writes that as a lone
+/// `\ud83d`, which a Rust string cannot hold. Each lone half is read as U+FFFD, which is also what the recorder's SHA-256 over
+/// UTF-8 saw. A value holding U+FFFD is therefore a recording of something a Rust string cannot be, and is not compared.
+fn read_lone_surrogates(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut at, mut copied) = (0, 0);
+    while at < bytes.len() {
+        if bytes[at] != b'\x5c' {
+            at += 1;
+            continue;
+        }
+        let unit = if bytes.get(at + 1) == Some(&b'u') && at + 6 <= bytes.len() { hex4(&bytes[at + 2..at + 6]) } else { None };
+        let Some(unit) = unit else {
+            at += 2;
+            continue;
+        };
+        let low_follows = |from: usize| {
+            bytes.get(from) == Some(&b'\x5c')
+                && bytes.get(from + 1) == Some(&b'u')
+                && from + 6 <= bytes.len()
+                && hex4(&bytes[from + 2..from + 6]).is_some_and(|low| (0xDC00..0xE000).contains(&low))
+        };
+        if (0xD800..0xDC00).contains(&unit) && low_follows(at + 6) {
+            at += 12;
+        } else if (0xD800..0xE000).contains(&unit) {
+            out.push_str(&text[copied..at]);
+            out.push_str("\\ufffd");
+            at += 6;
+            copied = at;
+        } else {
+            at += 6;
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
 }

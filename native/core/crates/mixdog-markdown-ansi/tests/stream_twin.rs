@@ -51,9 +51,38 @@ fn id_of(entry: &Value) -> &str {
     entry["id"].as_str().unwrap_or("")
 }
 
+/// Stands for a member whose value is `undefined` in the recorded Node tokens: the recorder's `canonical` writes the word.
+const UNDEFINED: &str = "\u{1}undefined\u{1}";
+
+/// The members marked leaves on a token that the lexer's tokens do not carry: the recorder digests the raw marked tokens, so
+/// a link or image from a bracket form has `title: null` (an autolink has no `title`), a list item that is no task has
+/// `checked: undefined` and a table cell of an unaligned column has `align: null`, all of which `canonical` writes out.
+fn as_marked_shaped(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(as_marked_shaped),
+        Value::Object(map) => {
+            map.values_mut().for_each(as_marked_shaped);
+            let kind = map.get("type").and_then(Value::as_str).unwrap_or("").to_owned();
+            let raw_opens_bracket = map.get("raw").and_then(Value::as_str).is_some_and(|raw| raw.starts_with('['));
+            if (kind == "image" || (kind == "link" && raw_opens_bracket)) && !map.contains_key("title") {
+                map.insert("title".to_owned(), Value::Null);
+            }
+            // A table cell carries no type, and `align: null` when its column has no alignment.
+            if !map.contains_key("type") && map.contains_key("header") && !map.contains_key("align") {
+                map.insert("align".to_owned(), Value::Null);
+            }
+            if kind == "list_item" && !map.contains_key("checked") {
+                map.insert("checked".to_owned(), Value::String(UNDEFINED.to_owned()));
+            }
+        }
+        _ => {}
+    }
+}
+
 /// `JSON.stringify` of the value with its object keys sorted (the recorder's `canonical`).
 fn canonical(value: &Value) -> String {
     match value {
+        Value::String(text) if text == UNDEFINED => "undefined".to_owned(),
         Value::Array(items) => format!("[{}]", items.iter().map(canonical).collect::<Vec<_>>().join(",")),
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
@@ -114,7 +143,9 @@ fn tail_value(prefix: &str) -> Option<Value> {
             _ => !format_token(token, &context).trim_matches('\n').is_empty(),
         })
         .collect();
-    serde_json::to_value(&drawn).ok()
+    let mut value = serde_json::to_value(&drawn).ok()?;
+    as_marked_shaped(&mut value);
+    Some(value)
 }
 
 /// The columns of one document, computed in the order the recorder calls them for each prefix.
