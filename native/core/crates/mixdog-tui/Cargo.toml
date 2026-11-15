@@ -12,6 +12,7 @@ workspace = true
 mixdog-term = { workspace = true }
 mixdog-termtext = { workspace = true }
 mixdog-tui-style = { workspace = true }
+mixdog-tui-widgets = { workspace = true }
 mixdog-markdown-ansi = { workspace = true }
 mixdog-view-model = { workspace = true }
 mixdog-session-view = { workspace = true }
