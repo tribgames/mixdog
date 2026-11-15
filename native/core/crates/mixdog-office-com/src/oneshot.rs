@@ -88,10 +88,10 @@ pub(crate) async fn call_once(
 }
 
 /// The client of a one-shot host.
-pub(crate) fn attach(running: crate::session::Running, grace: Duration) -> std::sync::Arc<HostClient> {
+pub(crate) fn attach(running: crate::session::Running, grace: Duration, sweeper: crate::sweep::Sweeper) -> std::sync::Arc<HostClient> {
     HostClient::attach(
         running,
-        Attach { session_id: String::new(), one_shot: true, sessions: std::sync::Weak::new(), grace },
+        Attach { session_id: String::new(), one_shot: true, sessions: std::sync::Weak::new(), grace, sweeper },
     )
 }
 

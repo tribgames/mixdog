@@ -51,6 +51,7 @@ pub fn run(args: &[OsString]) -> i32 {
 /// The host with the given parts (the test host registers its own operations and apartment).
 pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
     let session = args.iter().any(|arg| arg == SESSION_FLAG);
+    let data_dir = ledger::data_dir_from_args(args);
     // A panic inside a request is answered as an error line with its text; the default report on stderr would only be noise
     // for the transport, which reads that stream for cleanup lines and failure text.
     std::panic::set_hook(Box::new(|_| {}));
@@ -75,7 +76,7 @@ pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
         eprintln!("mixdogd office-com-host: starting the stdin reader: {error}");
         return 1;
     }
-    let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| host(lane, session, parts, &inbox));
+    let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| host(lane, session, data_dir.as_deref(), parts, &inbox));
     match job {
         Ok(handle) => match executors.handle(TaskClass::Work).block_on(handle) {
             Ok(code) => code,
@@ -92,7 +93,7 @@ pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
 }
 
 /// The apartment thread: enters the apartment, serves until the protocol ends, and gives everything back in order.
-fn host(lane: &InLane<MaintenanceIo>, session: bool, parts: Handlers, inbox: &apartment::Inbox) -> i32 {
+fn host(lane: &InLane<MaintenanceIo>, session: bool, data_dir: Option<&std::path::Path>, parts: Handlers, inbox: &apartment::Inbox) -> i32 {
     let Handlers { apartment, one_shot, session: session_factory } = parts;
     let mut out = Emitter::stdio();
     let apartment = match apartment() {
@@ -102,7 +103,7 @@ fn host(lane: &InLane<MaintenanceIo>, session: bool, parts: Handlers, inbox: &ap
             return 1;
         }
     };
-    let env = HostEnv::new(lane);
+    let env = HostEnv::new(lane, data_dir);
     let code = if session {
         let mut handler = session_factory(env);
         let code = session_loop::run(&mut *handler, &mut out, inbox);
@@ -128,6 +129,6 @@ mod tests {
 
     #[test]
     fn the_session_flag_is_the_one_the_transport_passes() {
-        assert_eq!(crate::route::rust_host_args(true), [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
+        assert_eq!(crate::route::rust_host_args(true, std::path::Path::new("d"))[..2], [OsString::from("office-com-host"), OsString::from(SESSION_FLAG)]);
     }
 }

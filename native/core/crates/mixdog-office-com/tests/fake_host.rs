@@ -132,7 +132,8 @@ fn session() {
 
 fn main() {
     let script = std::env::args().next_back().unwrap_or_default();
-    if script.ends_with("office-com-session-host.ps1") || script == "--session" {
+    // The Rust host's `--session` flag is followed by `--data-dir <dir>`, so it is looked for among the arguments.
+    if script.ends_with("office-com-session-host.ps1") || std::env::args().any(|arg| arg == "--session") {
         session();
     } else {
         one_shot();

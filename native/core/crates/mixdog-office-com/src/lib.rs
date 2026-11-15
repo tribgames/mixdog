@@ -52,6 +52,7 @@ use session::HostClient;
 use session::HostCommand;
 use session::Running;
 use session::Sessions;
+use sweep::Sweeper;
 
 /// How long a call may take unless its caller says otherwise.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(90_000);
@@ -170,6 +171,7 @@ pub struct OfficeCom {
 struct Inner {
     config: OfficeComConfig,
     sessions: Arc<Sessions>,
+    sweeper: Sweeper,
 }
 
 fn unsupported() -> Value {
@@ -196,7 +198,10 @@ fn failed(value: &Value) -> bool {
 
 impl OfficeCom {
     pub fn new(config: OfficeComConfig) -> Self {
-        Self { inner: Arc::new(Inner { config, sessions: Arc::new(Sessions::default()) }) }
+        let sweeper = Sweeper::new(config.tokens, config.data_dir.clone());
+        // Office left behind by a host that died before its cleanup (in an earlier run, or while nothing was watching).
+        sweeper.request();
+        Self { inner: Arc::new(Inner { config, sessions: Arc::new(Sessions::default()), sweeper }) }
     }
 
     /// Whether Office COM exists on this platform: Windows only.
@@ -262,6 +267,7 @@ impl OfficeCom {
                 one_shot: false,
                 sessions: Arc::downgrade(sessions),
                 grace: self.inner.config.drain_grace,
+                sweeper: self.inner.sweeper.clone(),
             },
         );
         sessions.register(client.clone());
@@ -386,7 +392,7 @@ impl Inner {
         let rt = Handle::current();
         let tokens = self.config.tokens;
         let (program, args) = if self.rust_serves(format) {
-            (self.config.rust_host_program.clone(), route::rust_host_args(session))
+            (self.config.rust_host_program.clone(), route::rust_host_args(session, &self.config.data_dir))
         } else {
             let script = if session { scripts::SESSION_HOST_SCRIPT } else { scripts::HOST_SCRIPT };
             let data_dir = self.config.data_dir.clone();
@@ -413,7 +419,7 @@ impl Inner {
     async fn call_once(&self, payload: &Value, options: &CallOptions) -> OfficeReply {
         match self.start(false, route::one_shot_format(payload)).await {
             Ok(running) => {
-                let client = oneshot::attach(running, self.config.drain_grace);
+                let client = oneshot::attach(running, self.config.drain_grace, self.sweeper.clone());
                 oneshot::call_once(client, payload, options.timeout, &options.cancel).await
             }
             Err(error) => OfficeReply::plain(json!({"ok": false, "error": error})),

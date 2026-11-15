@@ -18,6 +18,7 @@ use mixdog_office_com::office::Env;
 use mixdog_office_com::office::ScriptedApplications;
 use mixdog_office_com::platform::FakePlatform;
 use mixdog_office_com::platform::FakeWindow;
+use mixdog_office_com::platform::Platform;
 use mixdog_office_com::ps::Value;
 use mixdog_office_com::ps::json::emit_json;
 use mixdog_office_com::ps::payload;
