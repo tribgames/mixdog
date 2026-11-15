@@ -357,3 +357,35 @@ test('a converted document PDF in a PC window is the hosts ranged mixdog-media U
   assert.deepEqual(asked, [['C:/cache', 'a.pdf']]);
   assert.equal(client.calls.some((c) => c.method === 'projectFs/previewRange'), false);
 });
+
+test('entry operations in a standalone folder go to the core with the folder as root, trash included', async () => {
+  const { api, sent } = await world((method, params) => {
+    if (method === 'project/directory' && !params.standalone) throw refused;
+    return defaults(method, params);
+  });
+  const folder = 'C:/loose/folder';
+  await api.listProjectDir(folder, 'sub');
+  await api.createProjectEntry(folder, '', 'a.txt', false);
+  await api.renameProjectEntry(folder, 'a.txt', 'b.txt');
+  await api.moveProjectEntry(folder, 'b.txt', 'sub');
+  await api.copyProjectEntry(folder, 'sub/b.txt', '');
+  await api.trashProjectEntry(folder, 'sub/b.txt');
+  const roots = sent().filter(([m]) => m !== 'project/directory').map(([m, p]) => [m, p.root ?? p.path]);
+  assert.deepEqual(roots, [
+    ['projectFs/listDir', folder],
+    ['projectFs/create', folder],
+    ['projectFs/rename', folder],
+    ['projectFs/move', folder],
+    ['projectFs/copy', folder],
+    ['projectFs/trash', folder],
+  ]);
+});
+
+test('project add, rename and remove announce the settings-changed event so phones refresh', async () => {
+  const { api, sent } = await world();
+  await api.addProject('C:/a');
+  await api.renameProject('C:/a', 'A');
+  await api.removeProject('C:/a');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(sent().filter(([m]) => m === 'ui/settings/announce').length, 3);
+});

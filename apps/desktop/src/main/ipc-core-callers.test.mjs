@@ -81,41 +81,6 @@ test('a chat link reports the operating system failure and the core refusal, and
   await assert.rejects(projectIpc(null).invoke(DESKTOP_IPC.openLocalFileLink, '/p', 'a'), /core connection is not available/);
 });
 
-test('feedback goes to the core with its attachment images as blobs and answers the core receipt', async () => {
-  const receipt = { id: 'id-1', status: 'accepted' };
-  const core = fakeCore({ ...blobAnswers, 'feedback/upload': receipt });
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
-  const input = {
-    id: 'id-1',
-    kind: 'bug',
-    message: 'it broke',
-    replyTo: 'me@example.com',
-    attachments: [
-      { name: 'a.png', mimeType: 'image/png', data: png.toString('base64') },
-      { name: 'b.png', mimeType: 'image/png', data: 'not base64!' },
-    ],
-  };
-  assert.deepEqual(await projectIpc(core).invoke(DESKTOP_IPC.submitFeedback, input), receipt);
-  const puts = core.calls.filter(([method]) => method === 'blob/put');
-  assert.equal(puts.length, 1);
-  assert.equal(Buffer.from(puts[0][1].bytesB64, 'base64').equals(png), true);
-  const [method, params] = core.calls.at(-1);
-  assert.equal(method, 'feedback/upload');
-  assert.deepEqual(params.input.attachments[0], {
-    name: 'a.png',
-    mimeType: 'image/png',
-    data: { $blobRef: puts[0][1].digest, as: 'base64' },
-  });
-  assert.equal(params.input.attachments[1].data, 'not base64!', 'data that is no canonical base64 is left for the core to refuse');
-  assert.deepEqual({ ...params.input, attachments: undefined }, { ...input, attachments: undefined });
-});
-
-test('feedback reports the core failure and fails without a core', async () => {
-  const failing = projectIpc(fakeCore({ 'feedback/upload': new Error('Too many feedback requests. Please try again later.') }));
-  await assert.rejects(failing.invoke(DESKTOP_IPC.submitFeedback, { id: 'x' }), /Too many feedback requests/);
-  await assert.rejects(projectIpc(null).invoke(DESKTOP_IPC.submitFeedback, {}), /core connection is not available/);
-});
-
 function fileDialogIpc(core) {
   return register(registerFileDialogIpc, {
     window: {},

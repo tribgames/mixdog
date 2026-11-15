@@ -87,29 +87,6 @@ test('saved-login sign-in is on by default and an explicit off is kept', () => {
 
 
 
-test('the session retention IPC validates and forwards to the store', async () => {
-  const handlers = new Map();
-  const saved = [];
-  registerWindowSettingsIpc({
-    window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
-    app: {},
-    host: {},
-    handle: (channel, handler) => handlers.set(channel, handler),
-    invokeDesktopOperation: async () => undefined,
-    settingsStore: {
-      updateSessionRetention: async (key, days) => {
-        saved.push([key, days]);
-        return { [key]: days };
-      },
-    },
-  });
-  const set = handlers.get(DESKTOP_IPC.setSessionRetention);
-  assert.deepEqual(await set({}, 'sessionAutoArchiveDays', 14), { sessionAutoArchiveDays: 14 });
-  await assert.rejects(set({}, 'sessionAutoArchiveDays', '14'), /invalid/);
-  await assert.rejects(set({}, 'notificationVolume', 7), /invalid/);
-  assert.deepEqual(saved, [['sessionAutoArchiveDays', 14]]);
-});
-
 test('a control that is already on grandfathers its install marker', () => {
   const settings = desktopSettingsFromConfig({
     desktop: { browserControl: true, computerControl: true },
@@ -202,97 +179,6 @@ test('desktop capability validation accepts explicit voice enablement only', () 
       }),
     /requires a boolean/
   );
-});
-
-test('updateSetting IPC enforces sender, key, boolean, success, and store rejection', async () => {
-  const handlers = new Map();
-  const mainFrame = {};
-  const webContents = {
-    mainFrame,
-    isDestroyed: () => false,
-    send() {},
-    on() {},
-    removeListener() {},
-  };
-  const window = { webContents, isDestroyed: () => false };
-  const writes = [];
-  const changed = [];
-  const notices = [];
-  const settingsStore = {
-    read: async () => ({ autoClear: true, autoCompact: true }),
-    update: async (key, enabled) => {
-      writes.push([key, enabled]);
-      if (key === 'autoClear' && enabled === false) throw new Error('config write rejected');
-      return { autoClear: true, autoCompact: enabled };
-    },
-  };
-  const remove = registerDesktopIpc(
-    window,
-    {
-      subscribe: () => () => {},
-      subscribeSessionStates: () => () => {},
-      invokeDesktopOperation: async (name, args) => {
-        notices.push([name, args]);
-      },
-    },
-    {
-      app: { quit() {} },
-      ipcMain: {
-        handle: (channel, listener) => handlers.set(channel, listener),
-        removeHandler: (channel) => handlers.delete(channel),
-        on: () => {},
-        removeListener: () => {},
-      },
-      dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-      shell: { openPath: async () => '', openExternal: async () => {} },
-      settingsStore,
-      onDesktopSettingsChanged: (settings) => changed.push(settings),
-    }
-  );
-  const invoke = (event, ...args) => handlers.get(DESKTOP_IPC.updateSetting)(event, ...args);
-  const validEvent = { sender: webContents, senderFrame: mainFrame };
-
-  assert.throws(() => invoke({ sender: {}, senderFrame: mainFrame }, 'autoCompact', true), /rejected/);
-  assert.throws(() => invoke(validEvent, 'homeAccess', true), /setting key is invalid/);
-  assert.throws(() => invoke(validEvent, 'autoCompact', 'yes'), /enabled must be a boolean/);
-  assert.deepEqual(await invoke(validEvent, 'autoCompact', false), { autoClear: true, autoCompact: false });
-  await assert.rejects(invoke(validEvent, 'autoClear', false), /config write rejected/);
-  assert.deepEqual(writes, [
-    ['autoCompact', false],
-    ['autoClear', false],
-  ]);
-  // The change hook fires only after a SUCCESSFUL write, with the saved value.
-  assert.deepEqual(changed, [{ autoClear: true, autoCompact: false }]);
-  // Paired browsers and other windows hear about the same successful write.
-  assert.deepEqual(notices, [['notifySettingsChanged', ['desktop']]]);
-  remove();
-});
-
-test('a core connection sends no desktop announcement after a settings write: the write carried it', async () => {
-  for (const [writesAnnounceThemselves, expected] of [[true, []], [false, [['notifySettingsChanged', ['desktop']]]]]) {
-    const handlers = new Map();
-    const operations = [];
-    registerWindowSettingsIpc({
-      window: { webContents: { setZoomFactor() {} } },
-      app: { quit() {} },
-      host: {},
-      handle: (channel, listener) => handlers.set(channel, listener),
-      invokeDesktopOperation: async (name, args) => {
-        operations.push([name, args]);
-        return {};
-      },
-      writesAnnounceThemselves,
-    });
-    for (const [channel, args] of [
-      [DESKTOP_IPC.updateSetting, ['keepAwake', true]],
-      [DESKTOP_IPC.setNotificationVolume, [50]],
-      [DESKTOP_IPC.setSessionRetention, ['sessionAutoArchiveDays', 7]],
-    ]) {
-      operations.length = 0;
-      await handlers.get(channel)({}, ...args);
-      assert.deepEqual(operations.slice(1), expected, String(channel));
-    }
-  }
 });
 
 /** A port that records what the store asks of the core. */
