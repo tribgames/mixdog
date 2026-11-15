@@ -520,6 +520,70 @@ mod tests {
         assert!(seen >= 8, "{seen} rows of the group");
     }
 
+    /// A custom provider through the protocol: what a save, an edit and a connection test of the saved provider carry
+    /// (`custom-provider-section.tsx` `customProviderInput`: the provider is named by `id`), in the unversioned form
+    /// with a `models` list and in the v2 form the settings dialog sends. Every field the service reads from the input
+    /// (`provider-admin.mjs` `customInputAt`, `withStoredSettings`, `normalizeCustomProviderConfig`) is taken.
+    #[test]
+    fn validate_custom_provider_save_and_test_of_a_saved_provider() {
+        use serde_json::json;
+        let id = "custom-0190f3c2-7a31-7c00-8000-000000000001";
+        let unversioned = json!({ "name": "live-check", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:4010/v1", "auth": "none", "models": [{ "id": "smoke" }] });
+        let saved = {
+            let mut input = unversioned.clone();
+            input["id"] = json!(id);
+            input
+        };
+        let dialog = json!({
+            "schemaVersion": 2,
+            "id": id,
+            "type": "custom",
+            "enabled": true,
+            "name": "Team gateway",
+            "protocol": "openai-chat",
+            "baseURL": "https://gateway.example/v1",
+            "auth": "key",
+            "apiKey": "sk-test",
+            "extraApiKeys": [{ "id": "0190f3c2-7a31-7c00-8000-000000000002" }, { "apiKey": "sk-second" }],
+            "headers": { "X-Team": "blue" },
+            "requestBody": { "store": false },
+            "discovery": { "newModelsHidden": true },
+            "wires": ["chat", "responses"],
+            "modelWires": { "m1": "responses" },
+            "modelOverrides": {
+                "m1": {
+                    "manual": true,
+                    "hidden": false,
+                    "name": "Model one",
+                    "contextWindow": 200000,
+                    "maxOutputTokens": 8192,
+                    "supportsVision": true,
+                    "reasoning": { "levels": ["low", "high"], "wireFormat": "standard", "wireValues": { "high": "max" }, "replay": true },
+                    "requestBody": { "temperature": 0 },
+                    "requestHeaders": { "X-Model": "one" }
+                }
+            }
+        });
+        let env_key = json!({ "schemaVersion": 2, "name": "Env", "protocol": "anthropic", "baseURL": "https://gateway.example", "auth": "key", "apiKeyEnv": "GATEWAY_KEY", "modelOverrides": {} });
+        for method in ["account/saveCustomProvider", "account/testCustomProvider", "account/discoverCustomProviderModels"] {
+            for input in [&unversioned, &saved, &dialog, &env_key] {
+                assert_eq!(check(method, Some(&json!({ "opId": "o1", "input": input }))), Some(Ok(())), "{method} {input}");
+            }
+        }
+        // The provider a test addresses is `id`, and the model it sends to is the service's choice (the first visible
+        // one): the setup input has no `providerId` and no `model`, and the desktop refused both as it refused any
+        // other field (`requiredCustomProviderInput`).
+        for extra in ["providerId", "model"] {
+            let mut input = unversioned.clone();
+            input[extra] = json!("smoke");
+            assert_eq!(
+                check("account/testCustomProvider", Some(&json!({ "opId": "o1", "input": input }))),
+                Some(Err(fail("/input", "custom provider contains an unsupported field."))),
+                "{extra}"
+            );
+        }
+    }
+
     #[test]
     fn other_methods_are_not_owned() {
         assert!(check("thread/start", Some(&Value::Null)).is_none());
