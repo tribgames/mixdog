@@ -1247,6 +1247,37 @@ mod tests {
         assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
     }
 
+    /// The sidebar's marks do not list a thread the catalog leaves out: Node's favorite and archive live in the desktop's
+    /// metadata map and are laid over the catalog's rows (`withFavoriteFlags`, `withArchiveFlags`), which are
+    /// `isLeadVisibleRow`'s (`store-summary-catalog.mjs:187`), so a favorited or archived thread with no message and no title
+    /// is in no listing. The same header with a title lists with `favorite` and `archived` set, in the archived listing only.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_favorite_or_archive_mark_lists_only_a_thread_the_catalog_lists() {
+        let golden = golden();
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
+        let id = "sess_marked_probe";
+        let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64, "favoriteAt": 9_000_000_000_001_i64, "archivedAt": 9_000_000_000_002_i64 });
+        let head = |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+        let row = |answer: &Value| answer["data"].as_array().expect("data").iter().find(|row| row["id"] == id).cloned();
+        service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
+        for params in [json!({ "limit": 1000 }), json!({ "limit": 1000, "archived": true })] {
+            let answer = value(&service, request(LIST, params, None)).await.expect("list");
+            assert!(row(&answer).is_none(), "a marked thread with no message and no title is listed");
+        }
+
+        let mut titled = header.clone();
+        titled["title"] = json!("Probe");
+        service.store.upsert(head(&titled), DirtyMark::Clear).await.expect("upsert");
+        let all = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        let listed = row(&all).expect("the titled thread is listed");
+        assert_eq!((listed["favorite"].clone(), listed["archived"].clone()), (json!(true), json!(true)), "the marks are on its row");
+        let archived = value(&service, request(LIST, json!({ "limit": 1000, "archived": true }), None)).await.expect("list");
+        assert!(row(&archived).is_some(), "the archived listing holds it");
+        let live = value(&service, request(LIST, json!({ "limit": 1000, "archived": false }), None)).await.expect("list");
+        assert!(row(&live).is_none(), "the live listing does not");
+    }
+
     /// A listing larger than one frame of a connection comes in pages that each end at the byte budget, however many rows were
     /// asked for: every row once, in the listing's order, each page continuing after the last row of the one before.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

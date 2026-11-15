@@ -249,7 +249,11 @@ impl RunHostFactory {
 impl RunFactory for RunHostFactory {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
         let (parts, liveness, search_usage) = (self.parts.clone(), self.liveness.clone(), self.search_usage.clone());
-        Box::pin(drive(parts, liveness, search_usage, run))
+        let before_loop = BeforeLoop { port: run.port.clone(), input_item: run.input_item.clone(), input_body: run.input_body.clone(), cancel: run.cancel.clone(), signal: run.signal.clone(), asked: Arc::default() };
+        Box::pin(async move {
+            let outcome = drive(parts, liveness, search_usage, run, before_loop.asked.clone()).await;
+            before_loop.settle(outcome).await
+        })
     }
 
     fn crashed(&self, run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
@@ -354,6 +358,94 @@ pub(super) use mixdog_core_session::session::run::new_item_id;
 
 fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
     RunOutcome::Failed(TurnError { message: message.into(), data, provider_error: None })
+}
+
+/// What a run that ended before its model loop reads as ([`setup_end`]).
+#[derive(Debug, PartialEq, Eq)]
+enum SetupEnd {
+    /// The outcome as the setup reported it.
+    AsReported,
+    /// The progress watchdog's stop: a stalled failure whose sentence is the error, as after the loop.
+    Stalled,
+    /// A stop: a stopped turn, closed as `finalizeCancelledTurn` closes one that produced nothing.
+    Stopped,
+}
+
+/// Node's abort rejects the turn wherever it stands and `askSession` closes it as stopped (`finalizeCancelledTurn`,
+/// `ask-turn-failure.mjs`; the stop itself takes the prompt back, `abort.mjs` `reclaimInFlightPrompt`). The run's own
+/// waits here end with its fired token (`RunPort::scoped`), so a setup step that was waiting on a save reports a
+/// failure of its own ("the session's title could not be saved"): a failure reported before the model was asked
+/// (`asked`) by a run whose token has fired is that stop, not a failed turn.
+fn setup_end(failed: bool, asked: bool, cancelled: bool, abort_reason: Option<&str>) -> SetupEnd {
+    if !failed || asked || !cancelled {
+        return SetupEnd::AsReported;
+    }
+    if abort_reason.is_some_and(is_watchdog_abort) {
+        return SetupEnd::Stalled;
+    }
+    SetupEnd::Stopped
+}
+
+/// What `finalizeInterruptedTurn` leaves of a prompt whose turn was stopped before anything was asked of the model, for
+/// the stop's reason: whether the prompt's row leaves (a user's stop that hands it back), and the rows that follow it
+/// when it stays (the interruption line of a stop that keeps the prompt).
+fn stopped_prompt(input: &AgentMessage, reason: mixdog_agent::interrupt::AbortReason) -> (bool, Vec<AgentMessage>) {
+    use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
+    let finalized = finalize_interrupted_turn(Interrupted {
+        transcript: vec![input.clone()],
+        current_user_text: input.text(),
+        response_started: false,
+        partial_assistant: String::new(),
+        partial_reasoning: String::new(),
+        observed_tool_calls: Vec::new(),
+        observed_tool_results: Vec::new(),
+        phase: Phase::Streaming,
+        reason,
+    });
+    (!finalized.user_turn_preserved, finalized.transcript.into_iter().skip(1).collect())
+}
+
+/// What a stop that lands before the model loop needs of the run: the loop closes a stop that lands inside it
+/// ([`close_cancelled`]); this closes one that ends the run's setup.
+struct BeforeLoop {
+    port: RunPort,
+    input_item: ItemId,
+    input_body: Value,
+    cancel: tokio_util::sync::CancellationToken,
+    signal: mixdog_agent::cancel::Cancel,
+    /// Set once the run reaches its model loop.
+    asked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl BeforeLoop {
+    async fn settle(self, outcome: RunOutcome) -> RunOutcome {
+        let reported_failure = matches!(outcome, RunOutcome::Failed(_));
+        let reason = self.signal.is_aborted().then(|| self.signal.reason());
+        match setup_end(reported_failure, self.asked.load(Ordering::SeqCst), self.cancel.is_cancelled(), reason.as_deref()) {
+            SetupEnd::AsReported => outcome,
+            SetupEnd::Stalled => failed(reason.unwrap_or_default(), Value::Null),
+            SetupEnd::Stopped => {
+                // The run's token has fired: what closes the stopped turn is saved on a port whose waits outlive it.
+                let port = self.port.closing();
+                if let Ok(input) = message_of(&self.input_body) {
+                    let (rewound, following) = stopped_prompt(&input, self.signal.close_reason());
+                    if rewound {
+                        // A row the thread shows under another id is taken by the actor when the turn closes (`apply_reclaim`).
+                        if let Err(error) = port.prompt_rewound(self.input_item.clone()).await {
+                            tracing::warn!("[session] rewound prompt save failed: {error:?}");
+                        }
+                    }
+                    for message in &following {
+                        let item = ItemCommit { iid: new_item_id(), role: Some("user".to_owned()), model: true, visible: false, body: row_of(message), prompt: None };
+                        if let Err(error) = port.commit_item(item).await {
+                            tracing::warn!("[session] interrupted turn row save failed: {error:?}");
+                        }
+                    }
+                }
+                RunOutcome::Interrupted
+            }
+        }
+    }
 }
 
 // ---- the commit sink ---------------------------------------------------------------------------------
@@ -1394,6 +1486,7 @@ async fn drive(
     liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
+    asked: Arc<std::sync::atomic::AtomicBool>,
 ) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts, lifecycle } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
@@ -1464,7 +1557,7 @@ async fn drive(
     // `dispatchPromptSubmit` (`turn-prepare.mjs:185-208`), after the prompt row and before the model is asked: a handler's
     // block refuses the turn (`prompt blocked by hook: <reason>`), a hook failure decides nothing, and the context the
     // handlers add joins the turn's own as the context this turn carries. The wait ends with the turn (`turn.awaitTurn`):
-    // a turn stopped meanwhile goes on to the loop, which ends it as stopped.
+    // a turn stopped meanwhile ends as stopped: in the loop, or by `BeforeLoop` when a later setup wait ends with the fired token.
     let submitted_prompt = input_body.get("content").cloned().unwrap_or(Value::Null);
     let verdict = tokio::select! {
         verdict = lifecycle.prompt_submit(&thread, &header, &submitted_prompt) => verdict,
@@ -1718,6 +1811,8 @@ async fn drive(
         images,
         failures,
     };
+    // The loop closes a stop from here on (`close_cancelled`); one that ended the setup above is `BeforeLoop`'s.
+    asked.store(true, Ordering::SeqCst);
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
     let provider_id = provider.id().as_str().to_owned();
@@ -2395,6 +2490,104 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// A failure the run's setup reports after its token fired is the stop that fired it (`setup_end`): Node's abort rejects
+    /// the turn wherever it stands, and `askSession` closes it as stopped. A failure with no stop stays the failure, the loop
+    /// closes its own stops, and the progress watchdog's stop stays a stalled failure.
+    #[test]
+    fn a_setup_failure_after_a_stop_is_that_stop() {
+        let stop = mixdog_agent::cancel::runtime_abort_reason("sess_1", mixdog_agent::cancel::USER_CANCEL);
+        assert_eq!(setup_end(true, false, true, Some(&stop)), SetupEnd::Stopped);
+        assert_eq!(setup_end(true, false, true, None), SetupEnd::Stopped);
+        assert_eq!(setup_end(true, true, true, Some(&stop)), SetupEnd::AsReported, "the loop closes a stop that lands inside it");
+        assert_eq!(setup_end(true, false, false, None), SetupEnd::AsReported, "a failure with no stop is the failure");
+        assert_eq!(setup_end(false, false, true, Some(&stop)), SetupEnd::AsReported, "an outcome that is no failure is itself");
+        assert_eq!(setup_end(true, false, true, Some("agent task stale (no progress for 600s)")), SetupEnd::Stalled);
+    }
+
+    /// What a stop before the model was asked leaves of the prompt, by its reason (`finalizeInterruptedTurn` over a turn
+    /// that produced nothing): a user's stop hands it back, a stop that keeps it adds the interruption line, any other
+    /// stop leaves it as it is.
+    #[test]
+    fn a_prompt_stopped_before_the_model_is_asked_is_left_as_the_interruption_leaves_it() {
+        use mixdog_agent::interrupt::AbortReason;
+        let prompt = AgentMessage::user("give it back");
+        let texts = |rows: Vec<AgentMessage>| rows.iter().map(AgentMessage::text).collect::<Vec<_>>();
+        let (rewound, following) = stopped_prompt(&prompt, AbortReason::UserCancel);
+        assert!(rewound && following.is_empty(), "a user's stop hands the prompt back: {:?}", texts(following));
+        let (rewound, following) = stopped_prompt(&prompt, AbortReason::UserCancelKeepPrompt);
+        assert!(!rewound);
+        assert_eq!(texts(following), ["[Request interrupted]"]);
+        let (rewound, following) = stopped_prompt(&prompt, AbortReason::Other);
+        assert!(!rewound && following.is_empty(), "a stop that is not the user's keeps the prompt: {:?}", texts(following));
+    }
+
+    /// A `UserPromptSubmit` hook that never answers: the turn stands in its setup, before the model is asked.
+    struct HeldPrompt {
+        reached: tokio::sync::Notify,
+    }
+
+    #[async_trait]
+    impl mixdog_core_session::session::lifecycle_hooks::LifecycleHooks for HeldPrompt {
+        async fn prompt_submit(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &Value) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
+            self.reached.notify_one();
+            std::future::pending().await
+        }
+    }
+
+    /// A Stop that hands the prompt back while the turn is still setting up (`abort.mjs` `reclaimInFlightPrompt`, with the
+    /// runtime's abort ending the turn as stopped): the step that was waiting on a save when the token fired (the first
+    /// turn's title, "the session's title could not be saved") does not fail the turn. It ends interrupted, its prompt's
+    /// row is rewound, and no model was asked.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_before_the_model_is_asked_ends_the_turn_stopped_and_takes_the_prompt_back() {
+        use mixdog_store::schema::record::RunPhase;
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::new()),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let hooks = Arc::new(HeldPrompt { reached: tokio::sync::Notify::new() });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.lifecycle = hooks.clone();
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let records = || rig.store.records(&id);
+        let ended = || {
+            records()
+                .into_iter()
+                .filter_map(|(_, record)| match record {
+                    Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted) => Some(format!("{:?}", run.phase)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "give it back", "options": { "clientSubmissionId": "sub-1" } } }), "op-1"))
+            .await
+            .expect("turn/start");
+        mixdog_core_session::session::testing::awaiting(|| "the turn to reach its UserPromptSubmit hook".to_owned(), hooks.reached.notified()).await;
+        let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+        let stopped = handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(true), submission_id: Some("sub-1".to_owned()), ctx }).await.expect("stop");
+        assert_eq!(stopped["restoreText"], json!("give it back"), "the stop hands the prompt back: {stopped}");
+        eventually_on_awaiting(|| "the stopped turn's end record".to_owned(), &[handle.stepped()], || (!ended().is_empty()).then_some(())).await;
+        assert_eq!(ended(), ["Interrupted"], "a stop during the setup is a stopped turn, not a failed one");
+        assert!(records().iter().any(|(_, record)| matches!(record, Record::Rewind(_))), "the handed-back prompt's row is rewound");
+        assert!(lock(&provider.requests).is_empty(), "no model was asked");
+        let stored = format!("{:?}", records());
+        assert!(!stored.contains("could not be saved"), "no setup step's failure is recorded: {stored}");
     }
 
     /// The hooks a turn fired, in order, and what its `UserPromptSubmit` answers.
