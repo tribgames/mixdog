@@ -216,50 +216,58 @@ fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::Devic
     paint.shader.transform(state.transform);
     let Some(draw) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
     let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
-    let Some(mut coverage) = Mask::new(width as u32, height as u32) else { return };
     let table = glyph::correcting_table(glyph::canonical_luminance(style.luminance_color()));
-    // The pixels touched, as left, top, right, bottom.
-    let mut touched: Option<(usize, usize, usize, usize)> = None;
-    let mut include = |left: usize, top: usize, right: usize, bottom: usize| {
-        touched = Some(touched.map_or((left, top, right, bottom), |(l, t, r, b)| (l.min(left), t.min(top), r.max(right), b.max(bottom))));
-    };
-    if let Some(path) = paths.sampled.as_ref() {
-        let bounds = path.bounds();
+    // The pixels the glyphs can touch, as left, top, right, bottom: the coverage, the scratch pixels and the clip are only
+    // looked at inside them, so the work follows the size of the text and not the size of the canvas.
+    let clamp = |bounds: tiny_skia::Rect| {
         let left = (bounds.left().floor().max(0.0) as usize).min(width);
         let right = (bounds.right().ceil().max(0.0) as usize).min(width);
         let top = (bounds.top().floor().max(0.0) as usize).min(height);
         let bottom = (bounds.bottom().ceil().max(0.0) as usize).min(height);
-        if right > left && bottom > top {
-            coverage.fill_path(path, FillRule::Winding, true, Transform::identity());
-            for row in top..bottom {
-                for value in &mut coverage.data_mut()[row * width + left..row * width + right] {
-                    *value = table[usize::from(*value)];
-                }
+        (right > left && bottom > top).then_some((left, top, right, bottom))
+    };
+    let sampled = paths.sampled.as_ref().and_then(|path| clamp(path.bounds()));
+    let exact = paths.exact.as_ref().and_then(|path| clamp(path.bounds()));
+    let Some((left, top, right, bottom)) = [sampled, exact].into_iter().flatten().reduce(|(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2))) else { return };
+    let (area_width, area_height) = (right - left, bottom - top);
+    let Some(mut coverage) = Mask::new(area_width as u32, area_height as u32) else { return };
+    let to_area = Transform::from_translate(-(left as f32), -(top as f32));
+    if let (Some(path), Some((sl, st, sr, sb))) = (paths.sampled.as_ref(), sampled) {
+        coverage.fill_path(path, FillRule::Winding, true, to_area);
+        for row in st - top..sb - top {
+            for value in &mut coverage.data_mut()[row * area_width + sl - left..row * area_width + sr - left] {
+                *value = table[usize::from(*value)];
             }
-            include(left, top, right, bottom);
         }
     }
     if let Some(raster) = paths.exact.as_ref().and_then(|path| glyph::rasterize(path, width, height)) {
         for row in 0..raster.height {
             for column in 0..raster.width {
-                let at = (raster.top + row) * width + raster.left + column;
+                let at = (raster.top + row - top) * area_width + raster.left + column - left;
                 let corrected = table[usize::from(raster.data[row * raster.width + column])];
                 coverage.data_mut()[at] = coverage.data()[at].max(corrected);
             }
         }
-        include(raster.left, raster.top, raster.left + raster.width, raster.top + raster.height);
     }
-    let Some((left, top, right, bottom)) = touched else { return };
     if let Some(cut) = draw.get() {
-        for row in top..bottom {
-            for column in left..right {
-                let at = row * width + column;
-                coverage.data_mut()[at] = multiply(coverage.data()[at], cut.data()[at]);
+        for row in 0..area_height {
+            for column in 0..area_width {
+                let at = row * area_width + column;
+                coverage.data_mut()[at] = multiply(coverage.data()[at], cut.data()[(top + row) * width + left + column]);
             }
         }
     }
-    if let Some(area) = Rect::from_ltrb(left as f32, top as f32, right as f32, bottom as f32) {
-        pixmap.fill_rect(area, &paint, Transform::identity(), Some(&coverage));
+    // The paint goes over a copy of the pixels under the glyphs, which then replaces them.
+    let Some(rows) = tiny_skia::IntRect::from_xywh(left as i32, top as i32, area_width as u32, area_height as u32) else { return };
+    let Some(mut scratch) = pixmap.clone_rect(rows) else { return };
+    paint.shader.transform(to_area);
+    let Some(whole) = Rect::from_xywh(0.0, 0.0, area_width as f32, area_height as f32) else { return };
+    scratch.fill_rect(whole, &paint, Transform::identity(), Some(&coverage));
+    let bytes = pixmap.data_mut();
+    for row in 0..area_height {
+        let from = row * area_width * 4;
+        let to = ((top + row) * width + left) * 4;
+        bytes[to..to + area_width * 4].copy_from_slice(&scratch.data()[from..from + area_width * 4]);
     }
 }
 

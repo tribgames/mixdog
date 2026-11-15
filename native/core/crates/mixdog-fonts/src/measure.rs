@@ -120,7 +120,7 @@ struct Look {
     /// A bold request answered by a face that is not bold: the glyph is stroked and filled (Skia's fake bold).
     synthetic_bold: bool,
     /// The auto-hinter grid-fits the glyph vertically.
-    hinted: bool,
+    script: autohint::Script,
 }
 
 /// The ink box of a glyph as the canvas keeps it: the control box of the outline the canvas draws (hinted when it is
@@ -129,9 +129,9 @@ struct Look {
 fn glyph_ink(face: &Face, parsed: &ttf_parser::Face<'_>, glyph: u16, look: Look) -> Option<Ink> {
     let upem = f32::from(parsed.units_per_em().max(1));
     let scale = look.size / upem;
-    let hinted = if look.hinted && !look.synthetic_italic {
+    let hinted = if !look.synthetic_italic {
         let ppem = (f64::from(look.size) * 64.0) as i64;
-        autohint::metrics_of(face).and_then(|metrics| metrics.hint(parsed, glyph, ppem, ppem))
+        autohint::metrics_of(face).and_then(|metrics| metrics.hint_script(parsed, glyph, ppem, ppem, look.script))
     } else {
         None
     };
@@ -239,13 +239,13 @@ fn shape_text(chain: &Chain<'_>, text: &str, font: &ParsedFont, letter_spacing: 
         let synthetic_italic = font.slant != Slant::Upright && registered.style.slant == Slant::Upright;
         let synthetic_bold = font.weight >= 600 && registered.style.weight < 600;
         for glyph in shape::shape_run(face, &text[region.range.clone()], region.rtl, region.range.start) {
-            let hinted = text[glyph.cluster..].chars().next().is_none_or(autohint::is_hinted);
+            let script = text[glyph.cluster..].chars().next().map_or(autohint::Script::Latin, autohint::script_of);
             placed.push(Placed {
                 cluster: glyph.cluster,
                 run: run_index,
                 advance: advance_of(parsed, &glyph, size, units_per_em) + letter_spacing,
                 offset: shaper_scaled_fixed(glyph.x_offset, size, units_per_em) as f32 / 65536.0,
-                ink: glyph_ink(registered, parsed, glyph.glyph_id, Look { size, synthetic_italic, synthetic_bold, hinted }),
+                ink: glyph_ink(registered, parsed, glyph.glyph_id, Look { size, synthetic_italic, synthetic_bold, script }),
             });
         }
     }

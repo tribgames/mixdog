@@ -121,7 +121,7 @@ pub(crate) struct LaidGlyph {
     /// An italic was asked of an upright face: the canvas shears the outline by a quarter of its height.
     pub skew: bool,
     /// The auto-hinter grid-fits this glyph (every script but the ideographs and Hangul).
-    pub hint: bool,
+    pub hint: autohint::Script,
 }
 
 /// A line of text laid out at the origin of its baseline, y growing downwards.
@@ -165,10 +165,10 @@ pub(crate) fn device_path(registry: &Registry, laid: &Laid, matrix: Transform, m
         }
         let scale = glyph.scale;
         let upem = f32::from(parsed.units_per_em().max(1));
-        let hinted = if axis_aligned && !glyph.skew && glyph.hint && matrix.sy > 0.0 && matrix.sx > 0.0 {
+        let hinted = if axis_aligned && !glyph.skew && matrix.sy > 0.0 && matrix.sx > 0.0 {
             let ppem = |pixels: f32| (f64::from(pixels) * 64.0) as i64;
             let (px, py) = (ppem(scale * upem * matrix.sx), ppem(scale * upem * matrix.sy));
-            autohint::metrics_of(face).and_then(|metrics| metrics.hint(&parsed, glyph.glyph, px, py))
+            autohint::metrics_of(face).and_then(|metrics| metrics.hint_script(&parsed, glyph.glyph, px, py, glyph.hint))
         } else {
             None
         };
@@ -257,7 +257,7 @@ pub(crate) fn lay_out<P: ReadProof>(proof: &P, registry: &Registry, font: &Parse
                         scale,
                         embolden,
                         skew,
-                        hint: character.is_none_or(autohint::is_hinted),
+                        hint: character.map_or(autohint::Script::Latin, autohint::script_of),
                     });
                 }
                 pen += glyph.x_advance as f32 * scale + letter_spacing;
