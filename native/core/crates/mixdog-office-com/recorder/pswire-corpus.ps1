@@ -18,7 +18,6 @@ $inv = [System.Globalization.CultureInfo]::InvariantCulture
 [System.Threading.Thread]::CurrentThread.CurrentUICulture = [System.Globalization.CultureInfo]::GetCultureInfo('en-US')
 
 # ---- the host functions the corpus runs verbatim (office-com-host.ps1) ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- the host functions the corpus runs verbatim (office-com-host.ps1) ----"
 function Color-Value([string]$hex) {
     $clean = $hex.TrimStart('#')
     if ($clean.Length -ne 6) { throw "Invalid color '$hex'; expected RRGGBB" }
@@ -62,7 +61,6 @@ function Snapshot-Fingerprint($value) {
 }
 
 # ---- spec grammar: JSON that both this recorder and tests/pswire.rs turn into a value ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- spec grammar: JSON that both this recorder and tests/pswire.rs turn into a value ----"
 # null | {"t":"null"} | {"t":"dbnull"} | {"t":"b","v":true} | {"t":"i","v":1} (Int32) | {"t":"l","v":"1"} (Int64)
 # {"t":"d","v":"R text"} (Double) | {"t":"f","v":"R text"} (Single) | {"t":"m","v":"1.50"} (Decimal) | {"t":"s","v":"text"}
 # {"t":"e","v":2} (System.DayOfWeek) | {"t":"dt","v":"2026-09-12T03:04:05.0000000","k":"u|l|n"} (DateTime of that Kind)
@@ -290,7 +288,6 @@ $ascii = [string]::new([char[]](0..127))
 $controls = (0..31 | ForEach-Object { [char]$_ }) -join ''
 
 # ---- json writer: scalars ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- json writer: scalars ----"
 $n = 0
 foreach ($spec in @(
         (SpN), (SpDB), (SpB $true), (SpB $false), (SpI 0), (SpI -1), (SpI 2147483647), (SpI -2147483648),
@@ -317,7 +314,6 @@ foreach ($spec in @(
 }
 
 # ---- json writer: containers ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- json writer: containers ----"
 $n = 0
 foreach ($spec in @(
         (SpA @()), (SpA @((SpI 1))), (SpA @((SpI 1), (SpI 2))), (SpA @((SpN))), (SpA @((SpA @()))), (SpA @((SpA @((SpI 1))))), (SpA @((SpS 'a'), (SpS 'b'), (SpN), (SpB $true))),
@@ -337,7 +333,6 @@ foreach ($spec in @(
 }
 
 # ---- json writer: depth (Emit-Json 20, cleanup 8, fingerprint 30) ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- json writer: depth (Emit-Json 20, cleanup 8, fingerprint 30) ----"
 foreach ($kind in @('o', 'p', 'a')) {
     foreach ($depth in @(0, 1, 2, 3, 5, 7, 8, 9, 10, 19, 20, 21, 22, 29, 30, 31, 32, 35)) {
         foreach ($limit in @(8, 20, 30)) {
@@ -357,7 +352,6 @@ Rec-Json 'depth-string-quote' (SpNest 'p' 1 (SpP @(@('a', (SpS 'x "y" <z>')), @(
 Rec-Json 'depth-array-in-pco' (SpNest 'p' 1 (SpP @(@('a', (SpA @((SpI 1), (SpP @(, @('x', (SpI 1))))))), @('b', (SpA @(, (SpA @((SpI 1))))))))) 1
 
 # ---- pipeline unrolling (Emit-Json / Snapshot-Fingerprint) ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- pipeline unrolling (Emit-Json / Snapshot-Fingerprint) ----"
 $n = 0
 foreach ($spec in @(
         (SpN), (SpA @()), (SpA @((SpI 1))), (SpA @((SpS 'one'))), (SpA @((SpI 1), (SpI 2))), (SpA @((SpA @((SpI 1), (SpI 2))))), (SpA @((SpA @()))), (SpA @((SpN))), (SpA @((SpO @(, @('a', (SpI 1)))))),
@@ -367,7 +361,6 @@ foreach ($spec in @(
 }
 
 # ---- fingerprints ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- fingerprints ----"
 $n = 0
 foreach ($spec in @(
         (SpN), (SpA @()), (SpA @((SpI 1))), (SpO @(@('format', (SpS 'xlsx')), @('sheets', (SpA @((SpO @(@('name', (SpS 'Sheet1')), @('mergedRanges', (SpA @()))))))))),
@@ -383,7 +376,6 @@ foreach ($text in @('', 'abc', '한글', ('emoji ' + [char]::ConvertFromUtf32(0x
 }
 
 # ---- ConvertFrom-Json payloads ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- ConvertFrom-Json payloads ----"
 $n = 0
 foreach ($text in @(
         '{}', '{"a":1}', '{"a":-1,"b":2147483647,"c":2147483648,"d":-2147483649,"e":9223372036854775807,"f":9223372036854775808,"g":-9223372036854775808,"h":-9223372036854775809}',
@@ -437,7 +429,6 @@ Rec-OpProp 'opprop-propsscalar' '{"properties":5}' 'b' (SpN)
 Rec-OpProp 'opprop-propsarray' '{"properties":[1]}' 'b' (SpI 3)
 
 # ---- casts ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- casts ----"
 $int_inputs = @(
     (SpN), (SpB $true), (SpB $false), (SpI 5), (SpI -5), (SpL 7), (SpL 2147483648), (SpL -2147483649), (SpD '2.5'), (SpD '3.5'), (SpD '-2.5'), (SpD '-3.5'), (SpD '0.5'), (SpD '1.5'), (SpD '-0.5'), (SpD '2.4999999999999996'),
     (SpD '2147483647.4'), (SpD '2147483647.5'), (SpD '-2147483648.5'), (SpD '-2147483648.4'), (SpD '1E+20'), (SpD 'NaN'), (SpF '2.5'), (SpF '3.5'), (SpM '2.5'), (SpM '3.5'), (SpM '-2.5'), (SpM '79228162514264337593543950335'),
@@ -543,7 +534,6 @@ foreach ($spec in @((SpD 'Infinity'), (SpD '-Infinity'), (SpS '-Infinity'), (SpS
 }
 
 # ---- Sort-Object / Group-Object ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- Sort-Object / Group-Object ----"
 $words = @('banana', 'Apple', 'apple', 'cherry', 'APPLE', 'Banana', 'a', 'B', 'ab', 'aB', 'Ab', 'a b', 'a-b', 'a_b', 'a.b', 'a1', 'a10', 'a2', 'A1', '1', '10', '2', '_x', '-x', '.x', ' x', 'x', 'é', 'e', 'f', 'E', 'É', 'z', 'Z', 'ä', 'a', 'æ', 'ss', 'ß', 'Ω', 'ω', 'я', 'Я', '', 'A1:B2', 'A1:A2', 'A10:B2', 'a1:b2', 'Sheet1!A1', "tab`there", 'cat', 'Cat', 'cAt')
 $hangul = @('나', '가', '다', '하', '가나', '가가', '각', '개', '갸', '힣', '가A', 'A가', 'ㄱ', 'ㅏ', '한글', '漢字', '日本語', 'abc', 'ABC', '가1', '1가')
 $sw = @($words | ForEach-Object { SpS $_ })
@@ -583,7 +573,6 @@ Rec-Group 'group-8' @((SpD '1.5'), (SpD '1.5'), (SpI 2), (SpD '2'))
 Rec-Group 'group-10' @((SpI 0), (SpI 1), (SpI 1), (SpI 0), (SpI 2), (SpI 0), (SpI 1))
 
 # ---- text operators ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- text operators ----"
 $dec = '^[+-]?(?:(?:0|[1-9]\d*)(?:\.\d+)?|\.\d+|[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?)%?$'
 $n = 0
 foreach ($row in @(
@@ -605,7 +594,6 @@ foreach ($row in @(
 }
 
 # ---- VT_DATE ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- VT_DATE ----"
 $n = 0
 foreach ($oa in @('0', '1', '-1', '2', '25569', '36526', '45912.12345', '45912.5', '45912.999999999', '45912.0000000001', '45912.00000579', '45912.000005787', '45658.75', '44927.0000115', '-0.5', '-1.5', '-657434.9999999', '-657434.99999999', '-657435', '2958465.9999999', '2958466', '1E+20', 'NaN', '0.00001157407', '43831.04166666667', '43831.083333333336', '43830.99999999999', '61.5', '60.5', '59.5', '1.0000000001', '-0.0000001', '40000.123456789', '2.5', '3.5', '-2.5', '-3.5', '45000.0000057870', '45000.0000058')) {
     $n++
@@ -613,7 +601,6 @@ foreach ($oa in @('0', '1', '-1', '2', '25569', '36526', '45912.12345', '45912.5
 }
 
 # ---- write ----
-Write-Host ("[{0}] {1} " + $entries.Count) (Get-Date -Format HH:mm:ss) "# ---- write ----"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $corpus = '[' + "`n" + ($entries -join ",`n") + "`n" + ']' + "`n"
