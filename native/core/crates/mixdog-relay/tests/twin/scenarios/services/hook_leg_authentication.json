@@ -1,0 +1,87 @@
+{
+  "id": "hook_leg_authentication",
+  "description": "the hook leg authenticates like the desktop leg: routing id, a secret of 16 characters, the secret on later dials",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/hookleg",
+      "role": "hook",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "short"
+      ],
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "not a routing id",
+        "0123456789abcdef"
+      ],
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "close": true
+    },
+    {
+      "do": "ws_open",
+      "conn": "b",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "fedcba9876543210"
+      ],
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "b",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    }
+  ]
+}

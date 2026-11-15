@@ -1,0 +1,347 @@
+{
+  "id": "webpush_gone_subscription_is_dropped_for_every_pc",
+  "description": "one browser registered with two PCs: a 410 from the push service drops it for both and each is told its new set; revoking the browser on one PC removes only that PC association",
+  "files": {
+    "data": {
+      "webpush-vapid.json": "{\n  \"version\": 1,\n  \"publicKey\": \"BPxBd1ahXCTe-q001mNPhEU8JcDwByuASgyDRlPeGD5Czy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY\",\n  \"privateKeyJwk\": {\n    \"kty\": \"EC\",\n    \"x\": \"_EF3VqFcJN76rTTWY0-ERTwlwPAHK4BKDINGU94YPkI\",\n    \"y\": \"zy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY\",\n    \"crv\": \"P-256\",\n    \"d\": \"2QZwDAiit22CA2-vF9GmfcwkMpQMfisVKdk_ujisRgc\"\n  }\n}"
+    }
+  },
+  "fakes": {
+    "webPushFetch": {
+      "answers": [
+        {
+          "status": 201
+        },
+        {
+          "status": 410
+        }
+      ]
+    }
+  },
+  "keys": {
+    "vapid_public": [
+      "BPxBd1ahXCTe-q001mNPhEU8JcDwByuASgyDRlPeGD5Czy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY"
+    ]
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimIdA",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimIdA}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimIdA}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenA",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-ready\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "ws_open",
+      "conn": "b",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-2222-4222-8222-000000000002",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-2222-4222-8222-000000000002\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimIdB",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimIdB}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimIdB}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "tokenB",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-ready\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenA}"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenB}"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"payload\":\"Y2lwaGVydGV4dC1mcm9tLWE\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"payload\":\"Y2lwaGVydGV4dC1mcm9tLWE\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "a",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"revoke-client\",\"requestId\":\"r1\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "label": "the revoked credential cannot bind again",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenA}"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "b",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"payload\":\"Y2lwaGVydGV4dC1mcm9tLWE\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "b",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${tokenB}"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\"}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    }
+  ]
+}

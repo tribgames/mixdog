@@ -1,0 +1,46 @@
+{
+  "id": "feedback_unconfigured_mail_is_503_and_stores_nothing",
+  "description": "without a sender or SMTP settings every POST is 503 feedback_unavailable before its body is read and nothing is stored",
+  "knobs": {
+    "feedbackEnv": {}
+  },
+  "steps": [
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"bug\",\"message\":\"  it broke  \"}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Content-Length",
+          "5000"
+        ]
+      ],
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "path": "/feedback",
+      "expect_status": 405,
+      "close_probe_ms": 100
+    }
+  ]
+}

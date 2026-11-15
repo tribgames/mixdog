@@ -1,0 +1,69 @@
+{
+  "id": "webpush_without_an_identity_is_off",
+  "description": "a relay whose identity file cannot be used disables Web Push: /webpush answers 404 and the desktop is told nothing about it",
+  "files": {
+    "data": {
+      "webpush-vapid.json": "{ not json"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "path": "/webpush/key",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/webpush/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"webpush-send\",\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"payload\":\"Y2lwaGVydGV4dC1mcm9tLWE\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"list-clients\",\"requestId\":\"barrier\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    }
+  ]
+}

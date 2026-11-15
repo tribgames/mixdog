@@ -1,0 +1,54 @@
+{
+  "id": "feedback_record_cap_without_a_delivered_record_is_busy",
+  "description": "at the record cap with every record undelivered nothing can be pruned: 503 feedback_busy",
+  "knobs": {
+    "feedbackOptions": {
+      "maxRecords": 1,
+      "baseDelayMs": 600000,
+      "maxDelayMs": 600000
+    }
+  },
+  "fakes": {
+    "feedbackSender": {
+      "answers": [
+        {
+          "throw": "smtp down"
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"bug\",\"message\":\"  it broke  \"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/feedback",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"id\":\"22222222-2222-4222-8222-222222222222\",\"kind\":\"bug\",\"message\":\"  it broke  \"}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    }
+  ]
+}

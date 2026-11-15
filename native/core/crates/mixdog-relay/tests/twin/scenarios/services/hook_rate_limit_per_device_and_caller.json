@@ -1,0 +1,740 @@
+{
+  "id": "hook_rate_limit_per_device_and_caller",
+  "description": "the 121st webhook in a window is 429 with Retry-After 60 and the connection destroyed",
+  "steps": [
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 503,
+      "close_probe_ms": 20
+    },
+    {
+      "do": "http",
+      "label": "the 121st",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/x",
+      "expect_status": 429,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "the caller bucket also refuses another device",
+      "path": "/hook/dddddddd-2222-4222-8222-000000000002/x",
+      "expect_status": 429,
+      "close_probe_ms": 100
+    }
+  ]
+}
