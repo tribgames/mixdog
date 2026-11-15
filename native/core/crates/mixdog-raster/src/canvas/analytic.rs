@@ -1196,6 +1196,15 @@ impl Edge {
 // aaa_walk_edges: the active edge array replaces the intrusive list, retaining its
 // stable x order and quarter/half/full-row goY increments. Coverage is accumulated
 // by winding intervals, not by folding an already integrated signed area.
+fn insert_new_edge_after_cursor(active: &mut Vec<(usize, i32)>, edge: (usize, i32), cursor: usize) -> usize {
+    // insert_new_edges keeps start=newEdge after each backward insertion. The
+    // next edge must therefore search after that edge, preserving batch ties,
+    // while the first new edge still precedes an existing equal-x edge.
+    let at = cursor + active[cursor..].partition_point(|(_, x)| *x < edge.1);
+    active.insert(at, edge);
+    at
+}
+
 fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_intersect: bool) {
     let (clip_l, clip_r) = (
         (raster.left as i32) << 16,
@@ -1208,8 +1217,10 @@ fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_in
     let mut y = first.top.1.max((raster.top as i32) << 16);
     let mut cursor = 0;
     let mut active: Vec<(usize, i32)> = Vec::new();
+    let mut first_scan = true;
     while y < stop {
         active.retain(|(i, _)| edges[*i].bottom.1 > y);
+        let mut inserted = Vec::new();
         while cursor < edges.len() && edges[cursor].top.1 <= y {
             let e = &mut edges[cursor];
             if e.id > e.group {
@@ -1218,12 +1229,56 @@ fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_in
                 }
             }
             if e.bottom.1 > y {
-                active.push((cursor, e.top.0.wrapping_add(fixed_mul(e.dx, y - e.top.1))));
+                let placed = (cursor, e.top.0.wrapping_add(fixed_mul(e.dx, y - e.top.1)));
+                if e.id == e.group {
+                    inserted.push(placed);
+                } else {
+                    // A new chord is updateQuadratic/updateCubic of an existing
+                    // edge, not insert_new_edges of a new source path segment.
+                    active.push(placed);
+                }
             }
             cursor += 1;
         }
         active.sort_by_key(|(_, x)| *x);
+        // SkScan_AAAPath::insert_new_edges always checks newly inserted edges,
+        // even when skipIntersect suppresses checks while advancing old edges.
+        // In the backward-insertion branch it also checks the next edge before
+        // that edge becomes active. This conservative lookahead affects strip
+        // partitioning, hence integer alpha rounding, for multi-contour paths.
+        let backward = inserted.first().is_some_and(|(_, x)| active.last().is_some_and(|(_, last)| last > x));
+        let future = edges[cursor..].iter().find(|e| e.id == e.group).map(|e| (e.top.0, e.dx));
+        let mut inserted_intersection = false;
+        let mut insertion_cursor = 0;
+        for (n, &(i, x)) in inserted.iter().enumerate() {
+            let at = if backward {
+                insert_new_edge_after_cursor(&mut active, (i, x), insertion_cursor)
+            } else {
+                let at = active.len();
+                active.push((i, x));
+                at
+            };
+            insertion_cursor = at + 1;
+            if !first_scan {
+                if at > 0 {
+                    let (previous, px) = active[at - 1];
+                    inserted_intersection |= i64::from(px) + i64::from(edges[previous].dx) > i64::from(x) + i64::from(edges[i].dx);
+                }
+                if backward {
+                    let next_edge = active.get(at + 1).map(|&(j, nx)| (nx, edges[j].dx))
+                        .or_else(|| inserted.get(n + 1).map(|&(j, nx)| (nx, edges[j].dx)))
+                        .or(future);
+                    if let Some((nx, ndx)) = next_edge {
+                        inserted_intersection |= i64::from(x) + i64::from(edges[i].dx) > i64::from(nx) + i64::from(ndx);
+                    }
+                }
+            }
+        }
+        first_scan = false;
         let mut next = ceil_fixed(y + 1).min(stop);
+        if inserted_intersection {
+            next = next.min(y + (ONE >> 2));
+        }
         if let Some(e) = edges.get(cursor) {
             next = next.min(e.top.1);
         }
@@ -1364,6 +1419,85 @@ mod tests {
         let total: f32 = raster.data.iter().map(|value| f32::from(*value) / 255.0).sum();
         let exact = 2.0 / 3.0 * 20.0 * 12.5;
         assert!((total - exact).abs() / exact < 0.02, "area {total} against {exact}");
+    }
+
+    #[test]
+    fn new_edges_sharing_a_vertex_keep_batch_order_before_existing_equal_x_edges() {
+        let mut active = vec![(3, 5 * ONE), (0, 10 * ONE)];
+        let mut cursor = 0;
+        for edge in [(1, 5 * ONE), (2, 5 * ONE)] {
+            cursor = insert_new_edge_after_cursor(&mut active, edge, cursor) + 1;
+        }
+        assert_eq!(active.iter().map(|&(id, _)| id).collect::<Vec<_>>(), [1, 2, 3, 0]);
+        // The source's initial (upperY,x,dx) order is -1 then +1 at this shared
+        // vertex. Reversing those ties invents a forward intersection (6 > 4).
+        let slopes = [0, -ONE, ONE, ONE];
+        let (left, lx) = active[0];
+        let (right, rx) = active[1];
+        assert!(lx + slopes[left] <= rx + slopes[right]);
+    }
+
+    #[test]
+    fn a_new_contour_edge_checks_its_pending_successor_even_when_intersections_are_skipped() {
+        // Original canvas 1.0.11 / pinned Skia: the Q in the Office PDF fixture.
+        // Standalone bounded Node probe renders alpha 23 at (96,832); removing the
+        // inner contour renders 24. The inner contour causes insert_new_edges to
+        // look forward to a pending edge and split the strip at y=832.5.
+        let mut builder = PathBuilder::new();
+        builder.move_to(0.72998047, 0.34716797);
+        builder.quad_to(0.72998047, 0.27441406, 0.71118164, 0.21411133);
+        builder.quad_to(0.69238281, 0.15380859, 0.65698242, 0.10839844);
+        builder.quad_to(0.62158203, 0.062988281, 0.57006836, 0.034423828);
+        builder.quad_to(0.51855469, 0.005859375, 0.453125, -0.0029296875);
+        builder.quad_to(0.46337891, -0.034179688, 0.47631836, -0.056152344);
+        builder.quad_to(0.48925781, -0.078125, 0.50585938, -0.092041016);
+        builder.quad_to(0.52246094, -0.10595703, 0.54272461, -0.11254883);
+        builder.quad_to(0.56298828, -0.11914062, 0.58789062, -0.11914062);
+        builder.quad_to(0.6015625, -0.11914062, 0.6171875, -0.1171875);
+        builder.quad_to(0.6328125, -0.11523438, 0.64404297, -0.11279297);
+        builder.line_to(0.64404297, -0.17822266);
+        builder.quad_to(0.62548828, -0.18261719, 0.60327148, -0.18579102);
+        builder.quad_to(0.58105469, -0.18896484, 0.55712891, -0.18896484);
+        builder.quad_to(0.51513672, -0.18896484, 0.48388672, -0.17651367);
+        builder.quad_to(0.45263672, -0.1640625, 0.42895508, -0.14086914);
+        builder.quad_to(0.40527344, -0.11767578, 0.38818359, -0.083984375);
+        builder.quad_to(0.37109375, -0.050292969, 0.35791016, -0.0078125);
+        builder.quad_to(0.28076172, -0.00390625, 0.22241211, 0.024169922);
+        builder.quad_to(0.1640625, 0.052246094, 0.12524414, 0.099365234);
+        builder.quad_to(0.086425781, 0.14648438, 0.066894531, 0.2097168);
+        builder.quad_to(0.047363281, 0.27294922, 0.047363281, 0.34716797);
+        builder.quad_to(0.047363281, 0.42773438, 0.069824219, 0.49267578);
+        builder.quad_to(0.092285156, 0.55761719, 0.13574219, 0.60327148);
+        builder.quad_to(0.17919922, 0.64892578, 0.24291992, 0.67358398);
+        builder.quad_to(0.30664062, 0.69824219, 0.38916016, 0.69824219);
+        builder.quad_to(0.47119141, 0.69824219, 0.53491211, 0.67333984);
+        builder.quad_to(0.59863281, 0.6484375, 0.6418457, 0.60253906);
+        builder.quad_to(0.68505859, 0.55664062, 0.70751953, 0.49169922);
+        builder.quad_to(0.72998047, 0.42675781, 0.72998047, 0.34716797);
+        builder.line_to(0.72998047, 0.34716797);
+        builder.move_to(0.63476562, 0.34716797);
+        builder.quad_to(0.63476562, 0.40917969, 0.61889648, 0.45996094);
+        builder.quad_to(0.60302734, 0.51074219, 0.57202148, 0.546875);
+        builder.quad_to(0.54101562, 0.58300781, 0.49511719, 0.60253906);
+        builder.quad_to(0.44921875, 0.62207031, 0.38916016, 0.62207031);
+        builder.quad_to(0.32763672, 0.62207031, 0.28125, 0.60253906);
+        builder.quad_to(0.23486328, 0.58300781, 0.20385742, 0.546875);
+        builder.quad_to(0.17285156, 0.51074219, 0.1574707, 0.45996094);
+        builder.quad_to(0.14208984, 0.40917969, 0.14208984, 0.34716797);
+        builder.quad_to(0.14208984, 0.28515625, 0.15795898, 0.23364258);
+        builder.quad_to(0.17382812, 0.18212891, 0.20483398, 0.14477539);
+        builder.quad_to(0.23583984, 0.10742188, 0.28198242, 0.086669922);
+        builder.quad_to(0.328125, 0.065917969, 0.38818359, 0.065917969);
+        builder.quad_to(0.45263672, 0.065917969, 0.49926758, 0.086914062);
+        builder.quad_to(0.54589844, 0.10791016, 0.57592773, 0.14526367);
+        builder.quad_to(0.60595703, 0.18261719, 0.62036133, 0.234375);
+        builder.quad_to(0.63476562, 0.28613281, 0.63476562, 0.34716797);
+        builder.close();
+        let path = builder.finish().expect("Q path").transform(tiny_skia::Transform::from_row(
+            17.201988, 0.0, 0.0, -17.201988, 83.87689, 840.62897,
+        )).expect("device Q");
+        let raster = coverage(&path, FillRule::Winding, 640, 906).expect("Q coverage");
+        assert_eq!(at(&raster, 96, 832), 23);
     }
 
     #[test]
