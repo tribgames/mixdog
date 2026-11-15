@@ -487,13 +487,16 @@ fn lane_error(cancel: &CancellationToken, message: String) -> AnalysisError {
 }
 
 /// Puts `job` on `lane`; the handle is awaited with [`finish`].
-async fn submit<L, R, F>(lane: L, cancel: &CancellationToken, job: F) -> Result<JobHandle<R>, AnalysisError>
+///
+/// The future is boxed here, where its `Send` is proved for any job: left as an `async fn`, a caller that has to be `Send`
+/// (the preview's page renderer) cannot prove it through the higher-ranked job closures.
+fn submit<'a, L, R, F>(lane: L, cancel: &'a CancellationToken, job: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<JobHandle<R>, AnalysisError>> + Send + 'a>>
 where
     L: LaneToken,
     R: Send + 'static,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
 {
-    lane.submit_wait(cancel, job).await.map_err(|error| lane_error(cancel, error.to_string()))
+    Box::pin(async move { lane.submit_wait(cancel, job).await.map_err(|error| lane_error(cancel, error.to_string())) })
 }
 
 async fn finish<R>(cancel: &CancellationToken, handle: JobHandle<R>) -> Result<R, AnalysisError> {

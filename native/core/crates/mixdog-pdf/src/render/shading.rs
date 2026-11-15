@@ -1297,7 +1297,8 @@ mod tests {
         assert!(!radial.is_origin_based());
         assert!(radial.are_conic(), "overlapping circles are conic");
         radial.p1 = [40.0, 0.0];
-        assert!(!radial.are_conic(), "apart circles are not conic");
+        // pdf.js's areConic is only the two "does not contain" comparisons, so circles lying apart satisfy it too.
+        assert!(radial.are_conic(), "apart circles satisfy pdf.js's areConic");
         assert!(!axial(Vec::new()).are_conic());
     }
 
@@ -1391,9 +1392,10 @@ mod tests {
             background: None,
         };
         let canvas = mesh.create_canvas((2.0, 2.0), None, None).expect("canvas");
-        // 10 * 2 * 1.1 rounds up to 23 pixels, so one pixel stands for 10 / 23 of a unit; the border is two pixels.
+        // 10 * 2 * 1.1 is 22 in IEEE doubles (20 * 1.1 ties to even), as in pdf.js, so one pixel stands for 10 / 22 of a unit; the
+        // border is two pixels.
         let width = (10.0f64 * 2.0 * 1.1).ceil();
-        assert_eq!(width, 23.0);
+        assert_eq!(width, 22.0);
         assert!((canvas.scale_x - 10.0 / width).abs() < 1e-12);
         assert!((canvas.offset_x + 2.0 * canvas.scale_x).abs() < 1e-12);
     }

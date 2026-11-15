@@ -26,6 +26,16 @@ use sha2::{Digest, Sha256};
 const SET: &str = "office-preview";
 const RECORDER: &str = "benchmarks/rust-core/recorders/record-office-preview.mjs";
 
+/// Writes `contents` and moves the file's modification time on, as the time between two edits does in life: two writes within
+/// one tick of the file system's clock would otherwise leave the same identity (modification time and size) behind.
+#[allow(clippy::disallowed_methods, reason = "a test sets a file's modification time, which the lane API has no call for")]
+fn rewrite(path: &std::path::Path, contents: impl AsRef<[u8]>) {
+    static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    mixdog_testkit::write(path, contents);
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(10 * EDITS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+    std::fs::File::options().write(true).open(path).and_then(|file| file.set_modified(later)).expect("the modification time moves on");
+}
+
 fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -213,7 +223,7 @@ fn replay_cases(golden: &Value) {
             let cache_text = if step["noCacheRoot"] == true { String::new() } else { cache_root.to_string_lossy().into_owned() };
             let before: HashSet<PathBuf> = tracked_preview_scratch().into_iter().collect();
             if let Some(bytes) = step["rewrite"].as_str() {
-                mixdog_testkit::write(&source, decode(bytes));
+                rewrite(&source, decode(bytes));
             }
             if let Some(made) = step["makeDirectory"].as_str() {
                 mixdog_testkit::create_dir_all(dir.join(made));
@@ -302,7 +312,7 @@ fn replay_pages(golden: &Value) {
         for (index, recorded) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let step = &recorded["step"];
             if let Some(text) = step["rewrite"].as_str() {
-                mixdog_testkit::write(&pdf, text);
+                rewrite(&pdf, text);
             }
             let mut options = PagesOptions { cache_root: if step["noCacheRoot"] == true { String::new() } else { cache_root.to_string_lossy().into_owned() }, ..PagesOptions::default() };
             if let Some(pages) = step["pages"].as_array() {
