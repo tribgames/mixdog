@@ -193,7 +193,7 @@ pub fn html_failure(message: &str, started_at: Instant, extra: Option<Map<String
     let mut result = Map::new();
     result.insert("ok".into(), json!(false));
     result.insert("error".into(), json!({ "message": message }));
-    result.insert("elapsedMs".into(), json!(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64));
+    result.insert("elapsedMs".into(), json!((started_at.elapsed().as_secs_f64() * 1000.0).round() as u64));
     result.extend(extra.unwrap_or_default());
     Value::Object(result)
 }
