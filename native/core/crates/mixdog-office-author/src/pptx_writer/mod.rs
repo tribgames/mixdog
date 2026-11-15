@@ -8,8 +8,8 @@
 //! one slide layout, notes master and notes slides, in its entry order, so a deck from here equals a deck from there
 //! part by part.
 //!
-//! What pptxgenjs writes for text bodies and tables belongs to the text writer, and charts to the chart writer; both
-//! add to the objects and rels held here. Not carried: `addMedia` (audio and video), SVG pictures (pptxgenjs's own
+//! Text boxes (`addText`) and tables (`addTable`) are written by `text` and `table`; charts belong to the chart writer,
+//! which adds to the objects and rels held here. Not carried: `addMedia` (audio and video), SVG pictures (pptxgenjs's own
 //! preview of one is a broken-image placeholder, and the build rasterises SVG itself), `defineSlideMaster`,
 //! sections and the custom geometry points.
 
@@ -17,6 +17,8 @@ mod media;
 mod presentation;
 mod shapes;
 mod slide;
+mod table;
+mod text;
 mod theme;
 
 use mixdog_js::{math, number_to_string};
@@ -25,6 +27,8 @@ pub use media::ImageFile;
 pub use presentation::Presentation;
 pub use shapes::{Fill, Hyperlink, ImageOptions, ImageSizing, Line, Shadow, ShapeOptions, SizingKind};
 pub use slide::{Background, Slide, SlideNumber, SlideNumberMargin};
+pub use table::{ColWidths, RowHeights, TableCell, TableOptions};
+pub use text::{Border, Borders, Bullet, BulletSpec, Glow, Margin, Outline, Strike, TabStop, TextContent, TextOptions, TextRun, Underline};
 pub use theme::ThemeFonts;
 
 /// One inch in EMU.
