@@ -1,0 +1,358 @@
+{
+  "kept": [
+    "scripts/deploy-plan.test.mjs"
+  ],
+  "templates": {
+    "lib/connect-page.test.mjs::${name} carries its logo inline, not from a relay-root asset": [
+      "/connect carries its logo inline, not from a relay-root asset",
+      "/app carries its logo inline, not from a relay-root asset"
+    ],
+    "deploy/release-transaction.test.mjs::release transaction: ${scenario}": [
+      "release transaction: success",
+      "release transaction: preparation-fails",
+      "release transaction: first-move-fails",
+      "release transaction: second-move-fails",
+      "release transaction: restart-fails",
+      "release transaction: verify-fails",
+      "release transaction: interrupted",
+      "release transaction: stop-fails",
+      "release transaction: rollback-start-fails"
+    ],
+    "deploy/verify-release.test.mjs::healthy HTTP cannot hide a broken WebSocket gate: ${mode}": [
+      "healthy HTTP cannot hide a broken WebSocket gate: missing-route",
+      "healthy HTTP cannot hide a broken WebSocket gate: foreign-origin-accepted"
+    ]
+  },
+  "titles": {
+    "security.test.mjs": [
+      "precompressed siblings are negotiated and never served directly",
+      "encoding negotiation honours q=0 on staged AND live-gzip bodies",
+      "a symlinked precompressed sibling is never negotiated",
+      "static responses apply browser security headers without changing HEAD behavior",
+      "pairing and device cookies keep Max-Age HttpOnly SameSite forms",
+      "inlined renderer boot script receives only its exact CSP hash",
+      "routing ids share one predicate across store, HTTP, and binary frames",
+      "binary relay envelopes preserve routing metadata without base64",
+      "static target resolution rejects symlink and junction escapes",
+      "device authentication accepts headers and rejects URL credentials",
+      "device store persists owner-only and refuses corrupt authentication state",
+      "a new registration is persisted before the credential authenticates",
+      "client activity updates coalesce into one debounced rewrite",
+      "frame admission bounds every leg without stalling its neighbours",
+      "trust-on-first-use refuses to bind a guessable device id",
+      "a revocation that cannot be persisted is reported as a failure",
+      "desktop media metadata cannot make the relay origin serve active content",
+      "browser credentials are isolated per desktop and individually revocable",
+      "browser registration exchanges a pairing token for an individual credential",
+      "per-device browser capacity preserves normal clients and bounds floods",
+      "installability assets bypass the pairing gate; the app shell never does",
+      "a malformed media path answers 400 and leaves the relay serving",
+      "an unknown query token is never persisted as the pairing cookie",
+      "the device route opens the shell and aims its manifest back at that route",
+      "a share POST that outran the service worker reopens the app instead of failing",
+      "an approval mints the credential; the relay only routes the request",
+      "a reopened request resumes instead of prompting the desktop again",
+      "a claim for an unknown desktop is refused and never reaches a leg",
+      "phone /ws accepts only per-browser credentials; others close 4005",
+      "phone websocket survives a desktop leg redial and is re-announced",
+      "a desktop leg that misses a joining phone handshake turn is closed so the PC redials",
+      "the PC-offline close is its own code and never a pairing-revoking one",
+      "PC-offline answers are rate-limited and their closing sockets are bounded",
+      "a malformed frame on an answered-and-closing socket cannot crash the relay, and frees its slot",
+      "an oversize frame is a payload error both phone kinds surface",
+      "an oversize desktop frame is answered on that leg and names the client",
+      "a frame past the ceiling is refused while it is still arriving, once",
+      "a frame at exactly the ceiling is forwarded, never warned about",
+      "a nested clientId in the payload never attributes a refusal",
+      "a burst of control frames pins no ingress reservation",
+      "a message that cannot be enveloped for the desktop is refused, not delivered",
+      "messages coalesced into one read are refused at most once each",
+      "a fragmented message past transport capacity is refused before the close",
+      "a declared frame that never completes is not described as a message",
+      "a desktop leg is held to the capacity it declares, not to configuration",
+      "the refused limit is a stable property of the path, and is honoured",
+      "a declared text-frame leg carries text in the envelope that cannot inflate",
+      "capacity configuration is clamped on both inputs and normalises nonsense",
+      "a claim is trusted on the connection that made it, and on no other",
+      "the text envelope is acknowledged per connection, never inferred",
+      "a close the relay cannot attribute accuses no client",
+      "a critical fan-out defers what the box cannot carry and closes no healthy leg",
+      "ingress admission bounds arriving frames to the box, not to leg count",
+      "a leg parked for ingress admission waits instead of losing its frame",
+      "webhook ingress caps bodies that are still arriving, not just landed ones",
+      "pending claims give each desktop a bounded share of the pool",
+      "a wrong secret for a KNOWN device id is charged and then refused",
+      "a leg revocation that cannot persist keeps both the pairing and the phone",
+      "a proxied media answer is neutralized at the relay origin",
+      "a redialed leg carries nothing it has not declared on that connection",
+      "an unrelated 1009 leaves the next leg its full declared capacity",
+      "one phone cannot shrink the path of the phone beside it",
+      "a refusal names the client the router itself would have used",
+      "a nonsense configured capacity is normalised once, and published equals enforced",
+      "an enveloped uplink message measures the same fragmented or whole",
+      "no padding length lets a decoy id outrank the id that routes",
+      "attribution costs one pass over the frame, whatever shape it is"
+    ],
+    "lib/app-page.test.mjs": [
+      "/app/latest.json reports the version and APK of the deployed release",
+      "/app/latest.json is 404 when only the releases page is known",
+      "/app links the Android release recorded at deploy time",
+      "/app sends an Android phone straight to the APK and others to the install page",
+      "/app falls back to the releases list without a usable deployed link"
+    ],
+    "lib/connect-page.test.mjs": [
+      "/connect carries its logo inline, not from a relay-root asset",
+      "/app carries its logo inline, not from a relay-root asset"
+    ],
+    "lib/feedback.test.mjs": [
+      "accepts, persists before replying, and mails immediately once",
+      "same id and payload is idempotent, different payload conflicts",
+      "validation, method, size and rate limits",
+      "global rate limit applies across clients",
+      "failed sends retry with bounded backoff and survive restart",
+      "never overlaps sends for one record and close waits for in-flight work",
+      "capacity limits answer 503 and prune only delivered records",
+      "unconfigured mail answers 503 and stores nothing; env enables it",
+      "blank replyTo is treated as absent",
+      "a record still persisting is not scheduled or sent, and close waits for its write",
+      "capacity prune waits for unlink and a failed unlink answers 503 without forgetting the record",
+      "corrupt stored records fail closed with a generic diagnostic",
+      "failed initial persistence answers 503 and leaves nothing acknowledged",
+      "storage unavailable answers 503 without crashing the relay",
+      "attachment validator rejects malformed, unsafe and oversized input and drops unknown fields",
+      "attachments are persisted before acceptance, mailed as MIME attachments, then removed",
+      "attachment-free payloads keep their legacy hash and mail shape",
+      "attachment content takes part in idempotency and conflicts",
+      "invalid attachments answer 400 and store nothing",
+      "attachment mail retries across restart with identical bytes",
+      "legacy records without attachments still load and send; corrupt attachments fail closed",
+      "pending attachment storage is bounded and freed after delivery",
+      "feedback body reads are capped; extra requests get 503 without being read",
+      "unconfigured mail answers 503 before the body is read",
+      "feedback POST requires an application/json content type"
+    ],
+    "lib/ice-legs.test.mjs": [
+      "an unpaired device is refused: no credential, only the public STUN URL",
+      "a device with a paired phone gets a credential coturn would accept, until it expires",
+      "credentials are per device; issuance is limited per device to the configured count, with the wait named",
+      "the limiter reports when a limited key is admitted again",
+      "a request id that is not a routing id is dropped, never truncated or echoed",
+      "a relay without TURN settings gets no answer",
+      "over a real desktop leg: the relay advertises ice, refuses until a phone is paired, then issues",
+      "a relay without usable TURN settings advertises nothing and never answers"
+    ],
+    "lib/native-push.test.mjs": [
+      "no credentials: no platform is advertised and sends fail gracefully",
+      "APNs request shape: token auth, headers, mutable-content, and no action category from the relay",
+      "APNs 410 reports the token invalid; other failures do not",
+      "APNs sandbox tokens go to the sandbox host",
+      "APNs reuses one connection and provider JWT until the JWT expires or is refused",
+      "APNs close() closes its connections and a later send reconnects",
+      "FCM request shape: service-account JWT exchange, data-only high priority message",
+      "FCM access token is cached until near expiry or a 401",
+      "FCM UNREGISTERED reports the token invalid",
+      "capabilities advertise native push only when the relay can deliver",
+      "only the desktop that bound a token to its own paired client can send to it",
+      "one phone token paired with two desktops: both deliver, and revoking one leaves the other",
+      "a single-binding (legacy) entry is still honoured and upgraded on use",
+      "unpairing a client drops its bindings; a stale binding can be re-bound",
+      "invalid tokens reported by the platform are dropped and the desktop is told",
+      "sends are validated and rate limited per device",
+      "a relay without credentials ignores native push frames (old/unconfigured relay)"
+    ],
+    "lib/pair-codes.test.mjs": [
+      "a code resolves once, to its device, and is then spent",
+      "a code expires after five minutes and a new lease replaces the old without extending it",
+      "callers cannot choose codes: malformed leases are refused and issued codes are relay-generated",
+      "a ticket is single use and bound to its device",
+      "wrong guesses lock a source out with a growing backoff, even for a right code",
+      "the whole code space shares one guess budget across sources",
+      "relay: a desktop can no longer register a chosen code or probe for occupied ones",
+      "relay: a redial gets a fresh code and the old leg code dies with its socket",
+      "relay: /support is throttled and never returns a host name",
+      "relay: a registered code redeems into a claim the desktop sees as a code claim",
+      "relay: wrong guesses are limited per source and never echo the code",
+      "relay: oversize and malformed code requests are refused, cross-origin callers too",
+      "relay: /app is a parameterless install page, never the web client or an app launcher",
+      "relay: an old desktop is reported as not supporting pairing v2, and presence is per route"
+    ],
+    "lib/preview-frame-credentials.test.mjs": [
+      "relay cookies are SameSite=Lax, host-only, and the pairing token is HttpOnly",
+      "no relay code sets a cookie except through the SameSite=Lax helper",
+      "a cookie authenticates only same-origin, browser-initiated or top-level navigation requests",
+      "the static gate ignores the pairing cookie on a request from the preview frame"
+    ],
+    "lib/relay-diagnostics.test.mjs": [
+      "logs every interval while a phone is connected, with each socket buffer and the loop delay",
+      "the event-loop sampler runs only while a PC or phone is connected",
+      "stop clears the timer and the probe",
+      "a long socket list names the largest and sums the rest"
+    ],
+    "lib/relay-hook.test.mjs": [
+      "webhook relay responses enforce strict base64 and byte limits",
+      "hook HTTP answers 400/404/503 without a live agent",
+      "a dropped hook leg fails every pending HTTP response",
+      "hook rate limits destroy the request before a body is read"
+    ],
+    "lib/relay-http.test.mjs": [
+      "browser websocket upgrades require the relay origin",
+      "caller identity falls back when the socket has no address",
+      "trust-on-first-use upgrades charge unknown ids and failed secrets"
+    ],
+    "lib/relay-legs.test.mjs": [
+      "runClientLeg announces client-open and removes the socket on close",
+      "runDesktopLeg publishes capabilities and replays live phone ids",
+      "a phone the PC rejected never holds the PC to a handshake turn, even if it withholds its close",
+      "a missed handshake turn closes the PC leg only when the leg is also silent through a probe",
+      "parked phones are told once when the PC leg closes, then once a second per phone while calls go nowhere",
+      "a superseded PC leg closing does not tell phones the PC is gone",
+      "isTransportFrame recognises MXT\\x01 in clear and nothing else",
+      "a transport frame marked droppable is still delivered to a phone past the push-skip mark",
+      "a full phone queue cuts the leg for a transport frame instead of silently dropping it",
+      "a box that cannot carry a transport frame cuts the leg, never defers or drops it",
+      "legacy droppable frames keep dropping: skipped past 1 MiB, dropped at a full queue, with a resync hint",
+      "legacy non-droppable frames keep their behavior: delivered when queued, cut at a full queue",
+      "legacy text frames and broadcasts keep their droppable behavior",
+      "downstream: transport frames reach a pressured phone in the order the PC sent them, flush by flush",
+      "upstream: transport frames reach the PC in the order the phone sent them, flush by flush",
+      "upstream: an exhausted queue cuts the phone leg after a contiguous prefix, never a silent loss",
+      "client-open omits the credential when the leg has none (older desktops)"
+    ],
+    "lib/relay-media-proxy.test.mjs": [
+      "the media route accepts the download variant and still refuses unknown ones",
+      "malformed media paths answer 400 without consulting the store",
+      "encrypted media bytes reach the phone exactly as the desktop sent them",
+      "a plaintext-era request is forwarded without the scheme marker so the desktop can refuse it",
+      "a malformed session label is refused before the desktop is asked",
+      "an older desktop that announced media:false is answered 503 without a request",
+      "a vanished desktop closes half-written media responses"
+    ],
+    "lib/relay-pairing.test.mjs": [
+      "pending claim pool bounds are the ones the HTTP handler enforces",
+      "client registration refuses non-POST and cross-origin callers",
+      "claim GET for an id this relay does not hold is unknown, not expired or 404",
+      "an approved claim can be read again until its retention ends, then it is unknown",
+      "a lapsed pending claim answers expired for a while, then unknown",
+      "registering with the claim credential ends the re-read window",
+      "claim POST refuses malformed fields before lookup and unknown desktops after lookup"
+    ],
+    "lib/relay-static-gate.test.mjs": [
+      "device routes require a trailing slash before they can resolve relative assets",
+      "installability assets are the only pairing-gate exemptions",
+      "a share POST that outran the worker reopens the app shell",
+      "preview frame is public, sandboxed, cookie-free and frame-able only by self",
+      "healthz is public and other writes still 405"
+    ],
+    "lib/relay-sweep.test.mjs": [
+      "a leg that never answers its ping is terminated on the next sweep",
+      "a leg draining a queue, or paused by backpressure, gets extra windows before it is cut",
+      "answering a ping restores the full grace for the next stall"
+    ],
+    "lib/renderer-releases.test.mjs": [
+      "selection: exact version, else newest compatible, else legacy",
+      "selection: an exact renderer release id outranks the version, and no legacy means newest",
+      "retention keeps legacy, the newest N and releases recently-seen devices still use",
+      "an invalid registry is rejected",
+      "the device store persists the reported version across restarts and rejects junk",
+      "the relay serves each device the renderer release for its reported desktop version",
+      "the phone app gets the update-PC page instead of the legacy renderer",
+      "the update page escapes the versions it prints",
+      "oldest supported version is the lowest retained non-legacy desktop version",
+      "without a registry the relay serves the single renderer to everyone",
+      "readiness fails when ANY retained release is broken"
+    ],
+    "lib/static-http.test.mjs": [
+      "conditional assets retain security/cookies and distinguish changed representations"
+    ],
+    "lib/turn-credentials.test.mjs": [
+      "the password is base64(HMAC-SHA1) of the username (RFC 2202 test case 2)",
+      "a credential is \"<expiry>:<id>\" valid for one day by default and verifies like coturn would",
+      "the real lifetime is what is left after the expiry is floored to a whole second",
+      "a credential cannot be forged, altered, extended or used with another secret",
+      "the user id is the full keyed digest, stable per device, opaque, and bound to the secret",
+      "settings come from the deploy environment and fail closed",
+      "the ICE list names only this host: STUN, then TURN over udp, tcp and (when provisioned) tls"
+    ],
+    "lib/web-push.test.mjs": [
+      "the relay mints its VAPID identity once, keeps it, and signs with it",
+      "an unreadable identity disables web push instead of being replaced",
+      "only endpoints on a known push service are accepted, in one canonical spelling",
+      "the sender re-checks the endpoint and never posts outside the push services",
+      "the web app reads the relay key, the same one after a restart",
+      "each PC delivers through its own association; unauthorized senders are refused",
+      "associations are persisted, and a retired subscription (410) is dropped for every PC",
+      "a browser registers only with PCs that deliver through the relay",
+      "an unregister that cannot be stored is refused and kept, never resurrected",
+      "re-stating an unchanged registration writes and announces nothing, and mutations are rate limited"
+    ],
+    "deploy/release-transaction.test.mjs": [
+      "release transaction: success",
+      "release transaction: preparation-fails",
+      "release transaction: first-move-fails",
+      "release transaction: second-move-fails",
+      "release transaction: restart-fails",
+      "release transaction: verify-fails",
+      "release transaction: interrupted",
+      "release transaction: stop-fails",
+      "release transaction: rollback-start-fails"
+    ],
+    "deploy/renderer-delta.test.mjs": [
+      "renderer delta copies only changed files and reconstructs the exact tree",
+      "renderer reconstruction rejects a mismatched reused base file",
+      "hardlinked reconstruction never mutates the installed base",
+      "renderer manifests reject traversal paths"
+    ],
+    "deploy/renderer-releases.test.mjs": [
+      "the first deploy adopts the installed renderer as legacy and adds the new one beside it",
+      "garbage collection applies the retention rule and spares the installed tree it was linked from",
+      "unregistered leftovers from an interrupted run are collected, and bad input is refused",
+      "the CLI reads reporting devices from devices.json and prints one JSON result",
+      "verification requires the added release among the retained ones"
+    ],
+    "deploy/verify-release.test.mjs": [
+      "deployed renderer and WebSocket gates verify without registering any device",
+      "readiness notices missing bootstrap, CSS and imported worker files while liveness stays healthy",
+      "renderer traversal and invalid release metadata never pass readiness",
+      "healthy HTTP cannot hide a broken WebSocket gate: missing-route",
+      "healthy HTTP cannot hide a broken WebSocket gate: foreign-origin-accepted"
+    ],
+    "deploy/coturn/render-turnserver-conf.test.mjs": [
+      "every marker of the template is filled",
+      "a variable left unset fails instead of rendering an empty value",
+      "a missing template stops provisioning when rendered inside a command substitution",
+      "a template marker the renderer does not know fails the render, without the secret in the error"
+    ],
+    "deploy/coturn/reserved-ports.test.mjs": [
+      "port lists parse, merge and print the way the kernel reads them",
+      "missing, added and removed parts are exact",
+      "apply reserves only the missing part and leaves what others reserved",
+      "release takes back only what apply added, keeping reservations others made meanwhile",
+      "a range that was already reserved is neither recorded nor released",
+      "an apply after a crash keeps owning what the interrupted one added",
+      "ownership is recorded before the reservation changes: a failed save leaves nothing reserved",
+      "a crash between the steps leaves a record that releases whatever was reserved",
+      "a release whose sysctl write fails keeps the record, so it can be retried",
+      "a damaged ownership record is refused, not guessed at",
+      "covers fails, naming what is reserved, when the range is not wholly in the set",
+      "a bad command or port is refused"
+    ],
+    "deploy/coturn/stun-probe.test.mjs": [
+      "a Binding request is a bare RFC 8489 header",
+      "the mapped address is un-XORed, skipping other attributes, and foreign replies are ignored",
+      "truncated or inconsistent messages are refused, not read around",
+      "a XOR-MAPPED-ADDRESS must be the complete 8-byte IPv4 form",
+      "the retransmission schedule is the RFC 8489 §6.2.1 one",
+      "probeStun resends the same request on the doubling schedule and answers on a later copy",
+      "probeStun gives up after Rc requests and Rm times the RTO of silence",
+      "probeStun ignores a malformed reply and keeps waiting for a good one"
+    ],
+    "scripts/deploy-plan.test.mjs": [
+      "an unchanged live deployment skips build, stage, and upload",
+      "a relay-only change uploads no renderer",
+      "a fresh renderer artifact is reused when renderer inputs changed",
+      "desktop command edits do not invalidate the live renderer",
+      "the live renderer fingerprint includes the renderer source tree",
+      "transitive local codec changes invalidate the renderer, but unrelated tests do not"
+    ]
+  }
+}

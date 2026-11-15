@@ -1,0 +1,16 @@
+[
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: success","shell":"apps/relay/deploy/release-transaction.test.sh::commit_release_transaction"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: preparation-fails","shell":"apps/relay/deploy/release-transaction.test.sh::preparation-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: first-move-fails","shell":"apps/relay/deploy/release-transaction.test.sh::first-move-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: second-move-fails","shell":"apps/relay/deploy/release-transaction.test.sh::second-move-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: restart-fails","shell":"apps/relay/deploy/release-transaction.test.sh::restart-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: verify-fails","shell":"apps/relay/deploy/release-transaction.test.sh::verify-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: interrupted","shell":"apps/relay/deploy/release-transaction.test.sh::interrupted"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: stop-fails","shell":"apps/relay/deploy/release-transaction.test.sh::stop-fails"},
+  {"node":"apps/relay/deploy/release-transaction.test.mjs::release transaction: rollback-start-fails","shell":"apps/relay/deploy/release-transaction.test.sh::rollback-start-fails"},
+  {"node":"apps/relay/lib/relay-http.test.mjs::trust-on-first-use upgrades charge unknown ids and failed secrets","rust":"server_smoke::a_new_device_is_registered_by_its_first_dial_and_the_relay_closes_with_the_leg_open"},
+  {"node":"apps/relay/lib/relay-http.test.mjs::trust-on-first-use upgrades charge unknown ids and failed secrets","rust":"server_smoke::a_wrong_secret_for_a_known_device_id_is_charged_and_then_refused"},
+  {"node":"apps/relay/lib/renderer-releases.test.mjs::the device store persists the reported version across restarts and rejects junk","rust":"store::a_desktop_version_report_is_stored_and_an_unchanged_one_is_rewritten_only_when_an_hour_old"},
+  {"node":"apps/relay/lib/renderer-releases.test.mjs::the device store persists the reported version across restarts and rejects junk","rust":"store::unusable_version_fields_are_dropped_at_load_and_the_rest_of_the_row_is_kept"},
+  {"node":"apps/relay/deploy/renderer-releases.test.mjs::verification requires the added release among the retained ones","rust":"tool_verify_release::the_added_release_must_be_served_with_the_uploaded_digest"}
+]

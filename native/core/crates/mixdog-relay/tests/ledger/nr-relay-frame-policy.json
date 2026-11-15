@@ -12,7 +12,7 @@
     "rust": "legs_policy::frame_admission_bounds_every_leg_without_stalling_its_neighbours"
   },
   {
-    "node": "apps/relay/security.test.mjs::frame admission bounds every leg without stalling its neighbours (sendToPhone half)",
+    "node": "apps/relay/security.test.mjs::frame admission bounds every leg without stalling its neighbours",
     "rust": "legs_policy::a_congested_phone_is_dropped_hinted_or_cut_and_its_sibling_is_untouched"
   },
   {
