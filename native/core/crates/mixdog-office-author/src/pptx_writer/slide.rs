@@ -2,6 +2,7 @@
 //! its relationships and its notes slide. The `p:cSld` writer is shared by the slide, the slide layout and the slide
 //! master (`slideObjectToXml`).
 
+use super::charts::{Chart, ChartData, ChartKind, ChartOptions};
 use super::media::{ImageFile, MediaRel, background_rel, image_extension, picture_rel};
 use super::shapes::{Fill, Hyperlink, ImageObject, ImageOptions, ShapeObject, ShapeOptions, color_selection, color_selection_of, image_xml, shape_xml};
 use super::table::{TableCell, TableObject, TableOptions, TablePlacement};
@@ -50,6 +51,7 @@ pub(crate) enum SlideObject {
     Text(TextObject),
     Table(TableObject),
     Image(ImageObject),
+    Chart(Chart),
     Notes(String),
 }
 
@@ -99,7 +101,23 @@ impl Slide {
 
     /// `getNewRelId`: one more than the relationships of the slide.
     fn next_rel_id(&self) -> usize {
-        self.rels.len() + self.rels_media.len() + 1
+        self.rels.len() + self.rels_media.len() + self.charts().count() + 1
+    }
+
+    /// The charts of the slide in the order they were added (`slide._relsChart`).
+    pub(crate) fn charts(&self) -> impl Iterator<Item = &Chart> {
+        self.objects.iter().filter_map(|object| match object {
+            SlideObject::Chart(chart) => Some(chart),
+            _ => None,
+        })
+    }
+
+    /// `slide.addChart(type, data, options)`; `id` is the deck's chart number (`Presentation::add_chart` counts them).
+    pub(crate) fn add_chart(&mut self, kind: ChartKind, data: Vec<ChartData>, options: ChartOptions, id: usize) -> Result<(), String> {
+        let before = self.charts().count();
+        let chart = Chart::new(kind, data, options, id, self.next_rel_id(), before)?;
+        self.objects.push(SlideObject::Chart(chart));
+        Ok(())
     }
 
     /// `slide.hidden = value`.
@@ -244,6 +262,10 @@ impl Slide {
                 ));
             }
         }
+        for chart in self.charts() {
+            last = last.max(chart.rid());
+            xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"{}\"/>", chart.rid(), chart.target()));
+        }
         for rel in &self.rels_media {
             last = last.max(rel.rid);
             xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"{}\"/>", rel.rid, rel.target));
@@ -335,6 +357,7 @@ pub(crate) fn csld_xml(input: &Csld<'_>) -> String {
             SlideObject::Text(text) => xml.push_str(text.xml()),
             SlideObject::Table(table) => xml.push_str(table.xml()),
             SlideObject::Image(image) => xml.push_str(&image_xml(image, index, input.layout)),
+            SlideObject::Chart(chart) => xml.push_str(&chart.frame_xml(index, input.layout)),
             SlideObject::Notes(_) => {}
         }
     }
