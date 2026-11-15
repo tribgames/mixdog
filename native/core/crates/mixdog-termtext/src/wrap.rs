@@ -584,12 +584,13 @@ fn expand_tabs(line: &str) -> String {
     expanded
 }
 
-fn signed(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
-}
-
 /// `exec(string, columns, options)`: one line (no newline in it).
-fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
+///
+/// `columns` is the whole cells a row may take and `measured` the width as Node was given it, a fraction when Yoga measured
+/// the text at one: a `rowLength >= columns` comparison is against its ceiling (a length is a whole number, so
+/// `length >= 33.68` is `length >= 34`), and the hard-wrap break counts divide by it as Node does.
+fn exec(text: &str, columns: usize, measured: f64, options: WrapOptions) -> String {
+    let ge_columns = measured.ceil() as usize;
     if options.trim && js_trim_start(js_trim_end(text)).is_empty() {
         return String::new();
     }
@@ -616,7 +617,7 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
         if is_first_word {
             is_first_word = false;
         } else {
-            if row_length >= columns && (!options.word_wrap || !options.trim) {
+            if row_length >= ge_columns && (!options.word_wrap || !options.trim) {
                 // A new word starts and the row is as long as the columns: add a row.
                 rows.push(String::new());
                 row_length = 0;
@@ -633,11 +634,11 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
             // Zero columns: the Node code divides by zero, both counts are Infinity or NaN and the comparison is
             // false, so no row is started here.
             if columns > 0 {
-                let remaining = signed(columns) - signed(row_length);
-                let width = signed(word.width);
-                let per_row = signed(columns);
-                let breaks_starting_this_line = 1 + (width - remaining - 1).div_euclid(per_row);
-                let breaks_starting_next_line = (width - 1).div_euclid(per_row);
+                // JavaScript numbers: `Math.floor((lengths[index] - remainingColumns - 1) / columns)`.
+                let remaining = measured - row_length as f64;
+                let width = word.width as f64;
+                let breaks_starting_this_line = 1.0 + ((width - remaining - 1.0) / measured).floor();
+                let breaks_starting_next_line = ((width - 1.0) / measured).floor();
                 if breaks_starting_next_line < breaks_starting_this_line {
                     rows.push(String::new());
                     row_length = 0;
@@ -647,7 +648,7 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
             continue;
         }
         if row_length + word.width > columns && row_length > 0 && word.width > 0 {
-            if !options.word_wrap && row_length < columns {
+            if !options.word_wrap && row_length < ge_columns {
                 row_length = wrap_word(&mut rows, &word.value, columns, row_length);
                 continue;
             }
@@ -687,10 +688,15 @@ fn normalize_text(text: &str) -> String {
 
 /// `wrapAnsi(text, columns, options)`: each line (lines end at `\n` or `\r\n`) wrapped on its own.
 pub fn wrap_ansi(text: &str, columns: usize, options: WrapOptions) -> String {
+    wrap_ansi_measured(text, columns, columns as f64, options)
+}
+
+/// [`wrap_ansi`] at the width Node was given, which may be a fraction (see `exec`).
+fn wrap_ansi_measured(text: &str, columns: usize, measured: f64, options: WrapOptions) -> String {
     normalize_text(text)
         .replace("\r\n", "\n")
         .split('\n')
-        .map(|line| exec(&expand_tabs(line), columns, options))
+        .map(|line| exec(&expand_tabs(line), columns, measured, options))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -920,6 +926,30 @@ pub fn wrap_text_with(text: &str, max_width: usize, mode: WrapMode, wide: bool) 
         WrapMode::TruncateMiddle => truncate(text, max_width, TruncatePosition::Middle),
         WrapMode::TruncateStart => truncate(text, max_width, TruncatePosition::Start),
     }
+}
+
+/// Ink's `wrapText(text, maxWidth, wrapType)` with the width Yoga measured a text at, which is a fraction when a row
+/// shrinks its texts in proportion (`floor(33.68)` columns, but a line is over the width when it is longer than that, and
+/// a row full to the width starts a new row only when it reaches the next whole number). A whole width is the plain
+/// [`wrap_text`]. Wrapping modes only: a truncating mode takes the whole columns.
+///
+/// With the display-width policy on and an arrow or enclosed glyph in the text, the repair measures every wrapped line
+/// against the width again, so a line that wrapping itself leaves one cell over a fractional width (it keeps the blank it
+/// added before the word that did not fit) is cut there, its overflow becoming a row of its own.
+pub fn wrap_text_fractional(text: &str, max_width: f64, mode: WrapMode) -> String {
+    let whole = max_width.round();
+    if max_width < 1.0 || (max_width - whole).abs() < 1e-4 {
+        return wrap_text(text, whole.max(0.0) as usize, mode);
+    }
+    let floor = max_width.floor() as usize;
+    let word_wrap = match mode {
+        WrapMode::Wrap => true,
+        WrapMode::Hard => false,
+        _ => return wrap_text(text, floor, mode),
+    };
+    let wide = process_policy();
+    let wrapped = wrap_ansi_measured(text, floor, max_width, WrapOptions { trim: false, hard: true, word_wrap });
+    enforce_display_width(wrapped, floor, Enforce::Reflow, wide)
 }
 
 /// Entries after which a cache is emptied: the Node caches are unbounded, a long session must not be.

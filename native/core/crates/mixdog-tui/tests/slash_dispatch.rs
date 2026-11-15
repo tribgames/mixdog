@@ -163,7 +163,8 @@ fn argument_forms_write_through_the_store_and_report_the_outcome() {
         "Effort set to high",
         "Fast mode off for openai/gpt-5",
         "usage: /fast [on|off|ultra]",
-        "autoclear on \u{b7} idle 10m",
+        // The real `formatDuration` (the Node test stubbed it as whole minutes): 600000 ms is "10m 0s".
+        "autoclear on \u{b7} idle 10m 0s",
         "Goal paused.",
     ] {
         assert!(messages.iter().any(|message| message == expected), "{expected}: {messages:?}");

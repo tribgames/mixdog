@@ -24,7 +24,7 @@ pub(crate) fn open_panel(host: &mut dyn SlashHost, opener: Opener, options: Valu
 
 /// `submitPrompt(prompt, options)`: hands the prompt to the session service. Input clearing stays synchronous; the service's
 /// acknowledgement is responsible for durable intake while provider execution continues independently.
-pub(crate) fn submit_prompt(host: &mut dyn SlashHost, content: &PromptContent, options: &SubmitOptions) -> bool {
+pub(crate) fn submit_prompt(host: &mut dyn SlashHost, content: &PromptContent, options: Option<&SubmitOptions>) -> bool {
     if !host.has_store_method("submitAsync") {
         return match host.store_submit("submit", content, options) {
             Ok(accepted) => truthy(&accepted),

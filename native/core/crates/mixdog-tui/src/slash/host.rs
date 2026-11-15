@@ -268,7 +268,12 @@ pub trait SlashHost: AppCtx {
     fn clear_pasted_texts(&mut self, ids: Option<&BTreeSet<u64>>);
     /// `armTranscriptFollow()`.
     fn arm_transcript_follow(&mut self);
-    /// `store.submitAsync(content, options)` or `store.submit(content, options)` (`method`); the result value.
-    fn store_submit(&mut self, method: &str, content: &PromptContent, options: &SubmitOptions)
-    -> Result<Value, String>;
+    /// `store.submitAsync(content, options)` or `store.submit(content, options)` (`method`); the result value. `options` is
+    /// `None` where the Node code passed none (`submitPrompt(prompt)`).
+    fn store_submit(
+        &mut self,
+        method: &str,
+        content: &PromptContent,
+        options: Option<&SubmitOptions>,
+    ) -> Result<Value, String>;
 }
