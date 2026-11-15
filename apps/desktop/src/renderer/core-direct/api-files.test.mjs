@@ -20,7 +20,10 @@ function fakeClient(answer) {
     server: { limits: {} },
     store: { sections: () => [], section: () => undefined, appFeed: () => ({ epoch: 'e1' }), subscribe: () => () => undefined },
     async call(method, params) {
-      calls.push({ method, params });
+      // Every file call of a window asks for `nodeErrors` (see file-errors.test.mjs); the calls below are compared without it.
+      const { nodeErrors, ...rest } = params ?? {};
+      if (method.startsWith('projectFs/')) assert.equal(nodeErrors, true, `${method} asks for the plain errors`);
+      calls.push({ method, params: method.startsWith('projectFs/') ? rest : params });
       return answer(method, params, client);
     },
     notify: () => undefined,
