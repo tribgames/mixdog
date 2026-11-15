@@ -1748,10 +1748,11 @@ mod tests {
         let manager = Arc::new(Answering::default());
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
         let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap();
-        assert_eq!(refused.len(), 3, "{refused:?}");
         assert!(matches!(&refused[0], ToolPart::Text(text) if text.starts_with("Error: stale_target: window w1 is gone") && text.contains("window w1 was captured again below")), "{refused:?}");
-        assert_eq!(refused[1], ToolPart::Text("fresh".into()));
-        assert_eq!(refused[2], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None });
+        // The capture's own parts follow the refusal: the pixels' text, then their image.
+        let fresh = refused.iter().position(|part| *part == ToolPart::Text("fresh".into())).unwrap_or_else(|| panic!("{refused:?}"));
+        let image = ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None };
+        assert!(fresh > 0 && refused[fresh + 1..].contains(&image), "{refused:?}");
         assert!(captures(&manager) > 0, "{:?}", locked(&manager.lines));
 
         let manager = Arc::new(Answering::default());
@@ -1770,7 +1771,7 @@ mod tests {
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
         let focus = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "focus", "window_id": "w1"}) };
         let error = backend.run(focus, CancellationToken::new()).await.unwrap_err();
-        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "capture" && line["window_id"] == "w1"), "{:?}", locked(&manager.lines));
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "window_capture" && line["window_id"] == "w1"), "{:?}", locked(&manager.lines));
         let ComputerError::Failed { code, message } = &error else { panic!("{error:?}") };
         let args = json!({"action": "window", "input": {"window_id": "w1"}});
         let text = super::super::computer::failure_text(code, message, &args);
@@ -1912,7 +1913,7 @@ mod tests {
         failing_cleanup: AtomicBool,
         /// The helper takes every request and answers none of them.
         silent: AtomicBool,
-        /// A capture of window `w1` is answered with an error instead of a frame.
+        /// The pixels of window `w1` are answered with an error instead of a frame.
         capture_refused: AtomicBool,
     }
 
@@ -1974,10 +1975,10 @@ mod tests {
             match request["action"].as_str() {
                 _ if self.silent.load(Ordering::SeqCst) => {}
                 Some("hang") => {}
-                Some("capture") if request["window_id"] == "w1" && self.capture_refused.load(Ordering::SeqCst) => {
+                Some("window_capture") if request["window_id"] == "w1" && self.capture_refused.load(Ordering::SeqCst) => {
                     self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_target_not_found: w1 is closed"})))
                 }
-                Some("capture") if request["window_id"] == "w1" => self.say(
+                Some("window_capture") if request["window_id"] == "w1" => self.say(
                     handle,
                     format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "fresh", "image_base64": "aGk="}})),
                 ),
