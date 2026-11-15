@@ -1,0 +1,27 @@
+[package]
+name = "mixdog-tui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The terminal UI of the native mixdog binary: the prompt editor and the application state machines (panel surface, slash dispatch, pickers, transcript window, mouse selection, handlers, view, run loop)"
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-term = { workspace = true }
+mixdog-termtext = { workspace = true }
+mixdog-tui-style = { workspace = true }
+mixdog-markdown-ansi = { workspace = true }
+mixdog-view-model = { workspace = true }
+mixdog-session-view = { workspace = true }
+mixdog-launch = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-fsio = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+unicode-segmentation = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
