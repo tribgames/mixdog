@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-docx-xml.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1183349,
+      "path": "golden.json",
+      "sha256": "49b75b13730def578444d831beaa5d3af2381fb8f792103cb512342b6d864838"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "3885db5f68cd73f41336810fe7b4b4285aa6e4bc",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 21681
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-docx-xml.mjs",
+  "set": "office-docx-xml",
+  "totalBytes": 1183349
+}
