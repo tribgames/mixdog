@@ -56,3 +56,15 @@ fn nothing_moves_across() {
         assert!((before.0 - after.0).abs() <= 1.0 / 64.0, "{before:?} {after:?}");
     }
 }
+
+#[test]
+fn the_cjk_fallback_notdef_fits_horizontally_in_light_mode() {
+    let face = lisu();
+    let parsed = face.parsed().expect("parsed");
+    let metrics = autohint::metrics_of(&face).expect("metrics");
+    let hinted = metrics.hint_script(&parsed, 0, 16 * 64, 16 * 64, autohint::Script::Cjk).expect("notdef");
+    let right = hinted.contours.iter().flatten().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max).ceil();
+    // Isolated canvas oracle: 16px Twin Lisu "안녕" right 17.600021362304688,
+    // minus the .notdef advance 9.600021362304688. The unhinted box rounds to 9.
+    assert_eq!(right, 8.0);
+}
