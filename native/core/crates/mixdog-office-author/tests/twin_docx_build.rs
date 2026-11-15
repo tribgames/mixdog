@@ -156,7 +156,7 @@ fn build_record(g: &Value, record: &Value) -> Result<(Vec<u8>, Vec<String>, Path
         mixdog_testkit::write(&path, &picture.bytes);
         inline.insert(picture.src, path);
     }
-    match build_docx_from_flow(&Unlaned, &flow, &page_of(record), &captures, &inline, record["title"].as_str().unwrap_or_default()) {
+    match build_docx_from_flow(&Unlaned, &Registry::new(), &flow, &page_of(record), &captures, &inline, record["title"].as_str().unwrap_or_default()) {
         Ok(built) => Ok((built.bytes, built.notes, dir)),
         Err(message) => Err((message, dir)),
     }
@@ -377,7 +377,6 @@ fn html_run_writes_a_native_word_document() {
         eprintln!("no Chrome, Chromium or Edge: the document is not laid out");
         return;
     };
-    let g = golden();
     let measured = twin::load_golden("office-measure-docs");
     let html = measured["docx"][0]["html"].as_str().expect("the HTML of the Word suite document");
     on_runtime(async {

@@ -16,6 +16,7 @@ use base64::Engine;
 use base64::engine::DecodePaddingMode;
 use base64::engine::GeneralPurpose;
 use base64::engine::GeneralPurposeConfig;
+use mixdog_fonts::registry::Registry;
 use mixdog_fsio::ReadProof;
 use mixdog_js::JsRegex;
 use mixdog_js::js_to_lowercase;
@@ -38,6 +39,7 @@ use mixdog_ooxml::docx_xml::word_run_properties;
 use mixdog_ooxml::docx_xml::word_text_content;
 use mixdog_ooxml::package::package_buffer;
 use mixdog_ooxml::snapshot_docx::append_docx_block;
+use mixdog_ooxml::text_metrics::TextMeasurer;
 use mixdog_ooxml::xml::xml_encode;
 use mixdog_ooxml::zipio::Package;
 use serde_json::Map;
@@ -667,9 +669,10 @@ fn setup_operations(flow: &Value, page: &DocxPage) -> Vec<Value> {
 
 /// Writes the measured flow as a .docx. `captures` are the picture files of the captured elements (an SVG, a chart, a
 /// canvas) by capture number; `inline` the files of the flow's `data:` pictures by source ([`inline_pictures`]). The
-/// pictures are read through `proof`.
+/// pictures are read through `proof`; `registry` holds the faces the Word batch measures in.
 pub fn build_docx_from_flow<P: ReadProof>(
     proof: &P,
+    registry: &Registry,
     flow: &Value,
     page: &DocxPage,
     captures: &BTreeMap<usize, PathBuf>,
@@ -680,7 +683,8 @@ pub fn build_docx_from_flow<P: ReadProof>(
     let family = kind_family("docx").ok_or_else(|| "Portable Office creation does not support docx".to_owned())?;
     let parts = blank_parts(family, if title.is_empty() { "Untitled" } else { title }, "docx", "").unwrap_or_default();
     let mut zip = package_of(&parts);
-    apply_docx(&mut zip, &setup_operations(flow, page))?;
+    let measurer = TextMeasurer::new(proof, registry);
+    apply_docx(proof, &measurer, &mut zip, &setup_operations(flow, page))?;
     let xml = {
         let mut writer = BodyWriter { proof, zip: &mut zip, captures, inline, notes: &mut notes, drawing_id: 1000, lists: Vec::new(), bullet: None, heading_styles: BTreeMap::new() };
         let blocks = array(flow, "blocks");
@@ -719,7 +723,7 @@ mod tests {
             flow["body"] = json!({ "size": 11 });
         }
         let flow = &flow;
-        let built = build_docx_from_flow(&Unlaned, flow, &PAGE, &BTreeMap::new(), &BTreeMap::new(), "Report").expect("a document");
+        let built = build_docx_from_flow(&Unlaned, &Registry::new(), flow, &PAGE, &BTreeMap::new(), &BTreeMap::new(), "Report").expect("a document");
         (Package::load(&built.bytes).expect("a package"), built.notes)
     }
 
@@ -799,7 +803,7 @@ mod tests {
 
     #[test]
     fn a_body_with_no_face_size_or_colour_is_refused() {
-        let refused = build_docx_from_flow(&Unlaned, &json!({ "blocks": [], "body": {} }), &PAGE, &BTreeMap::new(), &BTreeMap::new(), "");
+        let refused = build_docx_from_flow(&Unlaned, &Registry::new(), &json!({ "blocks": [], "body": {} }), &PAGE, &BTreeMap::new(), &BTreeMap::new(), "");
         assert_eq!(refused.expect_err("refused"), "set_document_font needs properties.name, nameEastAsia, size, or color");
     }
 
