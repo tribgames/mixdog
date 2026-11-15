@@ -1397,7 +1397,8 @@ impl<'a> Evaluator<'a> {
             if single_opaque_pixel {
                 (Op::PaintSolidColorImageMask, false)
             } else {
-                let id = format!("mask_p{}_{}", self.page_index, self.create_obj_id());
+                let object_id = self.create_obj_id();
+                let id = format!("mask_p{}_{}", self.page_index, object_id);
                 let reference = ImageRef {
                     id,
                     width: w,
@@ -1417,7 +1418,8 @@ impl<'a> Evaluator<'a> {
                 Self::add_image_ops(op_list, op, optional_content, false);
                 return Ok(());
             }
-            let id = format!("img_p{}_{}", self.page_index, self.create_obj_id());
+            let object_id = self.create_obj_id();
+            let id = format!("img_p{}_{}", self.page_index, object_id);
             let reference = ImageRef {
                 id,
                 width: w,
@@ -1782,7 +1784,8 @@ impl<'a> Evaluator<'a> {
         {
             return found.clone();
         }
-        let id = format!("pattern_p{}_{}", self.page_index, self.create_obj_id());
+        let object_id = self.create_obj_id();
+        let id = format!("pattern_p{}_{}", self.page_index, object_id);
         let reference = ShadingRef {
             id,
             source: shading,

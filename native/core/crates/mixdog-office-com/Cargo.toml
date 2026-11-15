@@ -84,3 +84,7 @@ path = "tests/transport_route.rs"
 [[test]]
 name = "pswire"
 path = "tests/pswire.rs"
+
+[[test]]
+name = "registry_source"
+path = "tests/registry_source.rs"

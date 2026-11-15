@@ -14,5 +14,10 @@ mixdog-js = { workspace = true }
 mixdog-view-model = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+mixdog-rt = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }

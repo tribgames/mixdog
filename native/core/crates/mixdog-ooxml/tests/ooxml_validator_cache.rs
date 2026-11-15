@@ -2,6 +2,7 @@
 //! `ooxml-validator-cache.test.mjs` (the three cases) against a fake npm tarball served from a local socket, and the
 //! classification and parsing of the validator's output. Nothing here starts a validator: the one test that does is ignored.
 
+use mixdog_rt::LaneToken;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};

@@ -86,6 +86,10 @@ members = [
     "crates/mixdog-ooxml",
     "crates/mixdog-raster",
     "crates/mixdog-entry",
+    "crates/mixdog-tui-widgets",
+    "crates/mixdog-tui",
+    "crates/mixdog-office-com/recorder",
+    "crates/mixdog-office-author",
     "crates/mixdog-xlsx-formula",
     "crates/mixdog-pdf",
     "crates/mixdog-cli",
@@ -200,6 +204,9 @@ mixdog-office-quality = { path = "crates/mixdog-office-quality" }
 mixdog-ooxml = { path = "crates/mixdog-ooxml" }
 mixdog-raster = { path = "crates/mixdog-raster" }
 mixdog-entry = { path = "crates/mixdog-entry" }
+mixdog-tui-widgets = { path = "crates/mixdog-tui-widgets" }
+mixdog-tui = { path = "crates/mixdog-tui" }
+mixdog-office-author = { path = "crates/mixdog-office-author" }
 mixdog-cli = { path = "crates/mixdog-cli" }
 mixdog-xlsx-formula = { path = "crates/mixdog-xlsx-formula" }
 mixdog-pdf = { path = "crates/mixdog-pdf" }
@@ -273,6 +280,7 @@ p256 = { version = "0.13.2", default-features = false, features = ["ecdh", "jwk"
 pretty_assertions = "1.4.1"
 rand = "0.9"
 ttf-parser = "=0.25.1"
+tiny-skia = "=0.11.4"
 rustybuzz = "=0.20.1"
 unicode-script = "0.5"
 rayon = "1" # not in Codex; WP-GRAPH-GIT parallel graph parse (same major as mixdog-graph)
@@ -349,6 +357,7 @@ tree-sitter-javascript = "0.25"
 unicode-ident = "1"
 aes = "0.8.4"
 md-5 = "0.10.6"
+tar = { version = "0.4.45", default-features = false } # the Open XML validator tarball reader
 portable-pty = "0.9.0"
 vte = "0.14.1"
 signal-hook = "0.3.18"

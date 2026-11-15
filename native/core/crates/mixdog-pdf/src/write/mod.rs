@@ -19,6 +19,10 @@ pub mod info;
 pub mod object_streams;
 mod serialize;
 pub mod store;
+pub mod attachments;
+pub mod copy_pages;
+pub mod outline;
+pub mod pages;
 
 use std::collections::HashSet;
 use std::fmt;

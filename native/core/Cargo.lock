@@ -5488,11 +5488,24 @@ dependencies = [
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
+ "mixdog-office-design",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+]
+
+[[package]]
+name = "mixdog-office-author"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-office-design",
+ "mixdog-office-quality",
+ "mixdog-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]
@@ -5533,6 +5546,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-office-com-recorder"
+version = "1.5.0"
+dependencies = [
+ "mixdog-office-com",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "mixdog-office-crypto"
 version = "1.5.0"
 dependencies = [
@@ -5552,20 +5574,36 @@ dependencies = [
 name = "mixdog-office-design"
 version = "1.5.0"
 dependencies = [
+ "base64 0.22.1",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
+ "mixdog-ooxml",
+ "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-workspace-hack",
+ "reqwest",
+ "ring",
  "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
 name = "mixdog-office-quality"
 version = "1.5.0"
 dependencies = [
+ "base64 0.22.1",
+ "mixdog-fsio",
  "mixdog-js",
+ "mixdog-office-author",
  "mixdog-office-base",
+ "mixdog-ooxml",
  "mixdog-workspace-hack",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -5573,15 +5611,22 @@ name = "mixdog-ooxml"
 version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
+ "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-ooxml-text",
+ "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-workspace-hack",
+ "reqwest",
  "serde_json",
  "sha1",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
+ "tokio",
  "zip",
 ]
 
@@ -5616,6 +5661,7 @@ version = "1.5.0"
 dependencies = [
  "brotli",
  "flate2",
+ "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
@@ -5623,6 +5669,7 @@ dependencies = [
  "mixdog-testkit",
  "serde_json",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -5657,11 +5704,17 @@ version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "image",
+ "mixdog-fonts",
+ "mixdog-fsio",
  "mixdog-imaging",
+ "mixdog-office-base",
  "mixdog-rt",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde_json",
+ "sha2 0.10.9",
+ "tiny-skia",
+ "ttf-parser",
 ]
 
 [[package]]
@@ -5933,9 +5986,11 @@ dependencies = [
 name = "mixdog-session-view"
 version = "1.5.0"
 dependencies = [
+ "async-trait",
  "mixdog-app-protocol",
  "mixdog-app-server-client",
  "mixdog-js",
+ "mixdog-rt",
  "mixdog-view-model",
  "mixdog-workspace-hack",
  "serde_json",
@@ -6177,10 +6232,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-tui"
+version = "1.5.0"
+dependencies = [
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-launch",
+ "mixdog-markdown-ansi",
+ "mixdog-session-view",
+ "mixdog-term",
+ "mixdog-termtext",
+ "mixdog-tui-style",
+ "mixdog-view-model",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "mixdog-tui-style"
 version = "1.5.0"
 dependencies = [
  "mixdog-js",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mixdog-tui-widgets"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-markdown-ansi",
+ "mixdog-term",
+ "mixdog-termtext",
+ "mixdog-tui-style",
+ "mixdog-view-model",
  "serde",
  "serde_json",
 ]
@@ -8829,6 +8919,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
  "libc",
 ]
 
