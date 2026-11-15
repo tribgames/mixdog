@@ -76,6 +76,10 @@ pub trait FontObject {
 /// `PartialEvaluator.translateFont`: the font object of a font dictionary.
 pub trait FontProvider {
     fn translate_font(&self, dict: &Arc<Dict>, xref: &Xref) -> Result<Arc<dyn FontObject>>;
+
+    /// The name the evaluator gave a font [`translate_font`](Self::translate_font) returned (`loadedName`: what the
+    /// operator list's `setFont` carries). A provider whose fonts draw learns here which font a name stands for.
+    fn font_loaded(&self, _loaded_name: &str, _font: &Arc<dyn FontObject>) {}
 }
 
 /// The glyph procedures of a Type3 font (`loadType3Data`): one operator list per `CharProcs` entry.

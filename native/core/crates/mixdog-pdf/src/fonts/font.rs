@@ -484,6 +484,20 @@ pub struct Font {
     pub default_vmetrics: Option<[f64; 3]>,
     /// The code to character map of a missing-file font (`toFontChar`).
     to_font_char: ToUnicodeMap,
+    /// The font program that was read (embedded, or the bundled one of Symbol and ZapfDingbats): what drawing needs of
+    /// a font pdf.js rebuilds into its own file. `None` for a font without a usable program.
+    pub program: Option<Arc<Vec<u8>>>,
+    pub is_internal_font: bool,
+    /// The encoding of the font program (`builtInEncoding`): code to glyph name.
+    pub built_in_encoding: Option<BTreeMap<u32, String>>,
+    /// `cidToGidMap` of a CID font that has a `CIDToGIDMap` stream.
+    pub cid_to_gid_map: Option<BTreeMap<u32, u32>>,
+    pub has_encoding: bool,
+    pub base_encoding_name: Option<String>,
+    pub has_included_to_unicode_map: bool,
+    /// The `Flags` of the descriptor (as the font leaves them) and its `ItalicAngle`.
+    pub flags: i32,
+    pub italic_angle: f64,
     space_width: OnceLock<f64>,
     glyph_cache: Mutex<HashMap<u32, Arc<Glyph>>>,
     chars_cache: CharsCache,
@@ -626,6 +640,15 @@ impl Font {
             vmetrics: BTreeMap::new(),
             default_vmetrics: None,
             to_font_char: ToUnicodeMap::new(),
+            program: None,
+            is_internal_font: properties.is_internal_font,
+            built_in_encoding: None,
+            cid_to_gid_map: properties.cid_to_gid_map.clone(),
+            has_encoding: properties.has_encoding,
+            base_encoding_name: properties.base_encoding_name.clone(),
+            has_included_to_unicode_map: properties.has_included_to_unicode_map,
+            flags: properties.flags,
+            italic_angle: properties.italic_angle,
             space_width: OnceLock::new(),
             glyph_cache: Mutex::new(HashMap::new()),
             chars_cache: Mutex::new(HashMap::new()),
@@ -665,6 +688,8 @@ impl Font {
             }
         }
         font.amend_fallback_to_unicode(&properties);
+        font.program = Some(Arc::new(file.to_vec()));
+        font.built_in_encoding = properties.built_in_encoding.clone();
         font.ty = file_type;
         font.subtype = file_subtype;
         font.font_matrix = properties.font_matrix;
@@ -1044,6 +1069,41 @@ impl Font {
                 _ => self.default_width,
             }
         })
+    }
+
+    /// The CID a character code stands for through the font's CMap (the code itself without one): what the widths and the
+    /// glyphs of a CID font are looked up by. `None` where the CMap maps the code to something that is no CID.
+    pub fn cid_of(&self, charcode: u32) -> Option<i64> {
+        if let Some(cmap) = &self.cmap
+            && cmap.contains(charcode)
+        {
+            return match cmap.lookup(charcode) {
+                Some(CMapValue::Cid(cid)) => Some(cid),
+                Some(CMapValue::Str(text)) => {
+                    convert_cid_string(charcode, &text, false).unwrap_or(None)
+                }
+                _ => None,
+            };
+        }
+        Some(i64::from(charcode))
+    }
+
+    /// The glyph name of a code of a simple font: its `Differences` entry, else its base encoding's.
+    pub fn glyph_name(&self, charcode: u32) -> Option<&str> {
+        glyph_name_of(&self.differences, self.default_encoding, i64::from(charcode))
+    }
+
+    /// `glyph.fontChar` of a missing-file font as a code point: the character the substitute face is asked for.
+    pub fn font_char_code(&self, charcode: u32) -> u32 {
+        let mut font_char_code = match self.to_font_char.get(charcode) {
+            Some(UniValue::Code(code)) if *code != 0 => *code,
+            _ => i64::from(charcode),
+        };
+        let glyph_name = self.glyph_name(charcode);
+        if matches!(glyph_name, Some(".notdef" | "")) && self.ty == "Type1" {
+            font_char_code = 0x20;
+        }
+        data::map_special_unicode_values(u32::try_from(font_char_code).unwrap_or(u32::MAX))
     }
 
     /// `_charToGlyph(charcode, isSpace)`.
