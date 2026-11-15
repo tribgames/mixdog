@@ -8,8 +8,8 @@
 //! exposed for the callers that rotate. The whole image is decoded once: a corrupt stream that the header does not
 //! show is rejected here, as `decodedImageMeta` does, and the pixel limit is enforced before any pixel is read.
 //!
-//! SVG buffers are rasterized through resvg. AVIF is decoded by `crate::avif` (sharp accepts it even when a
-//! caller labels the bytes as PNG); HEVC HEIC is not sniffed and stays an unsupported format.
+//! SVG buffers are rasterized through resvg. HEIF files are read by `crate::avif` (sharp accepts them even when a
+//! caller labels the bytes as PNG): AVIF is decoded, HEVC HEIC is rejected with libheif's sentence.
 
 use std::io::Cursor;
 
@@ -52,7 +52,7 @@ pub enum Format {
     Webp,
     Tiff,
     Svg,
-    /// AVIF, which libvips names `heif`.
+    /// HEIF (AVIF, or HEVC that cannot be decoded), which libvips names `heif`.
     Avif,
 }
 
@@ -73,7 +73,7 @@ impl Format {
             || bytes.starts_with(&[b'M', b'M', 0x00, 0x2B])
         {
             Some(Self::Tiff)
-        } else if crate::avif::is_avif(bytes) {
+        } else if crate::avif::is_heif(bytes) {
             Some(Self::Avif)
         } else if bytes.starts_with(&[0x1f, 0x8b]) || Self::looks_like_svg_text(bytes) {
             // XML (including declarations/comments) and SVGZ are parsed by usvg;
@@ -168,7 +168,7 @@ fn corrupt(format: Format, stage: Stage) -> ImagingError {
         (Format::Tiff, Stage::Header) => UNSUPPORTED_FORMAT.to_owned(),
         (Format::Tiff, Stage::Data) => "tiff2vips: read error".to_owned(),
         (Format::Svg, _) => corrupt_header("invalid SVG data"),
-        (Format::Avif, _) => corrupt_header("heifload_buffer: unable to parse the AVIF"),
+        (Format::Avif, _) => corrupt_header("heif: Invalid input: Unspecified: Corrupt frame detected (2.0)"),
     };
     ImagingError::invalid(sentence)
 }
@@ -529,7 +529,8 @@ mod tests {
         assert_eq!(Format::sniff(b"<!doctype html><html><body>not an image</body></html>"), None);
         assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?><note/>"), None);
         assert_eq!(Format::sniff(b"\0\0\0\x1cftypavif\0\0\0\0mif1avif"), Some(Format::Avif));
-        assert_eq!(Format::sniff(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"), None);
+        assert_eq!(Format::sniff(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"), Some(Format::Avif));
+        assert_eq!(Format::sniff(b"\0\0\0\x14ftypisom\0\0\0\0isom"), None);
         assert_eq!(Format::sniff(b""), None);
     }
 

@@ -15,6 +15,7 @@ image = { workspace = true }
 libwebp-sys = { workspace = true }
 moxcms = { workspace = true, features = ["options"] }
 rav1d = { version = "=1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+ravif = { version = "=0.12.0", default-features = false }
 resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 sha2 = { workspace = true }
 tiff = "0.10.3"
