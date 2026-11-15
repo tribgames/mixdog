@@ -6,7 +6,6 @@
 //! runtime a caller wants (`--tool-mode readonly|full`).
 
 use std::path::PathBuf;
-use std::process::Command;
 use std::process::Stdio;
 
 /// The variable that names the `mixdogd` to run instead of the one on the search path.
@@ -99,10 +98,11 @@ impl Mixdogd {
     }
 }
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the office scripts start `mixdogd exec` and wait for its output, as skill-run's interpreter start does; they have no runtime or lane")]
 impl ExecRunner for Mixdogd {
     fn run(&self, options: &ExecOptions) -> ExecResult {
         let bin = mixdogd_bin(self.bin.as_deref());
-        let mut command = Command::new(&bin);
+        let mut command = std::process::Command::new(&bin);
         command.args(mixdogd_exec_args(options)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(cwd) = options.cwd.as_ref().filter(|cwd| !cwd.as_os_str().is_empty()) {
             command.current_dir(cwd);
