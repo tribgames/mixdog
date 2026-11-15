@@ -1,0 +1,6 @@
+[
+  {
+    "node": "apps/relay/security.test.mjs::a wrong secret for a KNOWN device id is charged and then refused",
+    "rust": "server_smoke::a_wrong_secret_for_a_known_device_id_is_charged_and_then_refused"
+  }
+]
