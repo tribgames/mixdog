@@ -19,11 +19,13 @@ pub(super) fn register(registry: &mut Registry) {
     registry.register_blocking("office.sweepJournals", sweep);
 }
 
-/// `listOfficeJournals(ctx.params.dataDir)`: an absent `dataDir` and an empty one are the default data directory; any other
-/// value that is not a string is what `path.resolve` refuses.
+/// `listOfficeJournals(ctx.params.dataDir)`: `resolve(dataDir || defaultOfficeDataDir())`, so a `dataDir` that is absent or
+/// falsy (`null`, `false`, `0`, `""`) is the default data directory; any other value that is not a string is what
+/// `path.resolve` refuses.
 fn data_dir(params: &Value) -> Result<&str, CodedError> {
     match params.get("dataDir") {
-        None => Ok(""),
+        None | Some(Value::Null | Value::Bool(false)) => Ok(""),
+        Some(Value::Number(number)) if number.as_f64() == Some(0.0) => Ok(""),
         Some(Value::String(text)) => Ok(text),
         Some(_) => Err(CodedError::new(
             "ERR_INVALID_ARG_TYPE",
@@ -51,10 +53,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_data_dir_is_a_string_or_absent() {
+    fn a_falsy_data_dir_is_the_default_and_another_non_string_is_refused() {
         assert_eq!(data_dir(&json!({})).unwrap(), "");
         assert_eq!(data_dir(&json!({"dataDir": "/x"})).unwrap(), "/x");
-        for bad in [json!({"dataDir": null}), json!({"dataDir": 3})] {
+        for falsy in [json!({"dataDir": null}), json!({"dataDir": false}), json!({"dataDir": 0}), json!({"dataDir": ""})] {
+            assert_eq!(data_dir(&falsy).unwrap(), "");
+        }
+        for bad in [json!({"dataDir": true}), json!({"dataDir": 3}), json!({"dataDir": {}})] {
             assert_eq!(data_dir(&bad).unwrap_err().code, "ERR_INVALID_ARG_TYPE");
         }
     }
