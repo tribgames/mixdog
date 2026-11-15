@@ -22,7 +22,7 @@ const MIN_SHEET_WIDTH: f64 = 256.0;
 /// call can use).
 pub fn sheet_width(max_width: f64) -> f64 {
     let wanted = if max_width == 0.0 || max_width.is_nan() { 1400.0 } else { max_width };
-    if wanted.is_nan() { wanted } else { wanted.max(MIN_SHEET_WIDTH) }
+    wanted.max(MIN_SHEET_WIDTH)
 }
 
 /// The groups the pages are cut into: `ceil(pages / 12)` pages a sheet, in order, so there are at most twelve sheets.

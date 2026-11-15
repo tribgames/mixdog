@@ -407,7 +407,7 @@ struct PageImageData {
 
 /// What a page job needs: the document's bytes and how to draw the page.
 struct PageJob {
-    bytes: Arc<Vec<u8>>,
+    bytes: Arc<[u8]>,
     page: usize,
     target_width: f64,
     minimum_scale: f64,
@@ -426,8 +426,10 @@ fn open_options(cancel: &CancellationToken) -> OpenOptions {
     OpenOptions { cancel: Some(cancel_check(cancel)), use_system_fonts: false, ..OpenOptions::default() }
 }
 
+/// A failure of the reader as the render reports it: the reader's message in a plain `Error` (Node's render worker
+/// rethrows every failure as `new Error(message)`), the caller's cancellation as the call's own message.
 fn reader(error: &PdfError) -> AnalysisError {
-    AnalysisError::from_pdf_or_cancelled(error, CANCELLED)
+    AnalysisError::plain(AnalysisError::from_pdf_or_cancelled(error, CANCELLED).message)
 }
 
 /// `renderPdfPageDirect` up to the repaint: the page drawn on a white canvas at its scale, and the page numbers of
@@ -436,7 +438,7 @@ fn paint_page(job: &PageJob) -> Result<Painted, AnalysisError> {
     if job.cancel.is_cancelled() {
         return Err(AnalysisError::plain(CANCELLED));
     }
-    let document = Document::open(job.bytes.to_vec(), &open_options(&job.cancel)).map_err(|error| reader(&error))?;
+    let document = Document::open(Arc::clone(&job.bytes), &open_options(&job.cancel)).map_err(|error| reader(&error))?;
     let page = document.page(job.page - 1).map_err(|error| reader(&error))?;
     let base = page.viewport(1.0);
     let scale = scale_of(job.target_width, base.width, job.minimum_scale, job.maximum_scale);
@@ -575,11 +577,11 @@ pub async fn render_pdf_pages(lanes: LaneTokens, registry: Arc<Registry>, note: 
     }
     let target = path.to_path_buf();
     let read = submit(lanes.interactive_io, &cancel, move |lane| mixdog_fsio::read(lane, &target)).await?;
-    let bytes = Arc::new(finish(&cancel, read).await?.map_err(|error| AnalysisError::plain(error.to_string()))?);
+    let bytes: Arc<[u8]> = Arc::from(finish(&cancel, read).await?.map_err(|error| AnalysisError::plain(error.to_string()))?);
     let opened = Arc::clone(&bytes);
     let open_cancel = cancel.clone();
     let counted = submit(lanes.cpu_bulk, &cancel, move |_: &InLane<CpuBulk>| {
-        Document::open(opened.to_vec(), &open_options(&open_cancel)).map(|document| document.num_pages()).map_err(|error| reader(&error))
+        Document::open(opened, &open_options(&open_cancel)).map(|document| document.num_pages()).map_err(|error| reader(&error))
     })
     .await?;
     let page_count = usize::try_from(finish(&cancel, counted).await??).unwrap_or(0);

@@ -104,7 +104,9 @@ fn replay(golden: &Value) {
     for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
         let dir = root.join(name);
-        mixdog_testkit::remove_dir_all(&dir);
+        if mixdog_testkit::exists(&dir) {
+            mixdog_testkit::remove_dir_all(&dir);
+        }
         mixdog_testkit::create_dir_all(&dir);
         let pdf_path = dir.join("doc.pdf");
         mixdog_testkit::write(&pdf_path, unhex(case["pdf"].as_str().expect("pdf")));
