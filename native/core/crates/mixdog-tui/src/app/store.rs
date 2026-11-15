@@ -9,10 +9,17 @@ use mixdog_session_view::store::SessionStore;
 use serde_json::Value;
 use tokio::runtime::Handle;
 
+/// A store call that can be made from another thread (a worker that reads a paste needs the core's image resize).
+pub type StoreCaller = Arc<dyn Fn(&str, &[Value]) -> Result<Value, String> + Send + Sync>;
+
 /// What the application needs of the session store (the members of `tui-store-calls.json` it reaches).
 pub trait AppStore {
     /// `store.<action>(...args)`: the answer, or the rejection text. `args` are the positional arguments.
     fn call(&mut self, action: &str, args: &[Value]) -> Result<Value, String>;
+    /// The calls of this store as a function a worker thread can hold; none when the store cannot be called from another thread.
+    fn caller(&self) -> Option<StoreCaller> {
+        None
+    }
     /// Whether the store serves the action `name` (`typeof store[name] === 'function'`).
     fn has_method(&self, name: &str) -> bool;
     /// The last published state.
@@ -55,6 +62,12 @@ impl SessionStoreIo {
 impl AppStore for SessionStoreIo {
     fn call(&mut self, action: &str, args: &[Value]) -> Result<Value, String> {
         self.runtime.block_on(self.store.call(action, args)).map_err(|error| error.to_string())
+    }
+
+    fn caller(&self) -> Option<StoreCaller> {
+        let store = Arc::clone(&self.store);
+        let runtime = self.runtime.clone();
+        Some(Arc::new(move |action: &str, args: &[Value]| runtime.block_on(store.call(action, args)).map_err(|error| error.to_string())))
     }
 
     fn has_method(&self, name: &str) -> bool {

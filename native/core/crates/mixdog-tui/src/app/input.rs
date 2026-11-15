@@ -16,6 +16,7 @@ use mixdog_tui_widgets::question::{QuestionAction, QuestionState, questions_of};
 use serde_json::{Value, json};
 
 use super::AppState;
+use super::store::AppStore;
 use crate::editor::draft::Draft;
 use crate::editor::helpers::HintTone as EditorHint;
 use crate::editor::prompt::{EscapePhase, HistoryDirection, PaletteNav, PaletteReply, PasteReply, PasteSource, PromptCallbacks, PromptProps, RestoreRequest};
@@ -40,7 +41,7 @@ use crate::transcript::window::selection_shift::SelectionRect;
 use crate::view::{PaletteMove, step_palette_index};
 
 /// What the editor reports to the application while a key is handled.
-struct Bridge<'a>(&'a mut AppState);
+pub(crate) struct Bridge<'a>(pub(crate) &'a mut AppState);
 
 impl PromptCallbacks for Bridge<'_> {
     fn on_submit(&mut self, text: &str) -> bool {
@@ -103,6 +104,10 @@ impl PromptCallbacks for Bridge<'_> {
     }
 
     fn on_paste_text(&mut self, text: &str, source: PasteSource) -> PasteReply {
+        // A paste that reads the clipboard or an image file is read on a worker: the editor takes the answer with its ticket.
+        if self.0.start_paste_job(text, source) {
+            return PasteReply::Pending;
+        }
         handle_prompt_paste(self.0, text, source).into_reply()
     }
 
@@ -274,6 +279,9 @@ impl AppState {
 
     /// A bracketed paste.
     pub fn prompt_paste(&mut self, text: &str) {
+        if self.text_entry_open() && self.text_entry_paste(text) {
+            return;
+        }
         let Some(mut editor) = self.editor.take() else { return };
         let props = self.prompt_props();
         editor.handle_paste(text, &props, &mut Bridge(self));
@@ -285,13 +293,16 @@ impl AppState {
 
     /// What follows an operation on the editor: the draft it holds is the one the frame paints, the selection and the box it
     /// reports are the ones the mouse and the copy read.
-    fn after_editor(&mut self, editor: &mut crate::editor::PromptEditor) {
+    pub(crate) fn after_editor(&mut self, editor: &mut crate::editor::PromptEditor) {
         self.draft = editor.draft().clone();
         self.prompt.selection = editor.selection(false);
         self.prompt.box_rect = editor.box_rect();
         self.live_draft = None;
-        // Asynchronous answers of pastes (an image read) finish on the next turn; none starts a worker today.
-        let _ = editor.take_pending_pastes();
+        // The answers of pastes that read on a worker finish on a later turn with the tickets the editor handed out.
+        let tickets = editor.take_pending_pastes();
+        if !tickets.is_empty() {
+            self.bind_paste_tickets(tickets);
+        }
         let _ = editor.take_render_request();
     }
 
@@ -330,9 +341,11 @@ impl AppState {
         if self.approval_input(input, key) {
             return;
         }
-        if !self.text_entry_open() {
-            self.prompt_key(input, key);
+        if self.text_entry_open() {
+            self.text_entry_key(input, key);
+            return;
         }
+        self.prompt_key(input, key);
     }
 
     /// The keys of the tool approval panel on screen: the picker's arrows and Enter, or the question panel's own keys.
@@ -421,25 +434,29 @@ impl AppState {
         }
     }
 
-    /// A transcript scroll of `rows` (positive toward older rows) with the selection following the content.
+    /// A transcript scroll of `rows` (positive toward older rows) with the selection following the content. Scrolling past the
+    /// oldest or newest loaded row pages the history through the store inside the scroll, as `use-transcript-scroll.mjs` does,
+    /// because the scroll goes on by whether a page was restored.
     fn scroll_rows_with(&mut self, mouse: &mut Mouse, rows: f64) {
         let mut scroll = std::mem::take(&mut self.scroll);
         let now = self.clock.now();
         let state = self.store.state();
         let flag = |name: &str| state.get(name) == Some(&Value::Bool(true));
-        let mut paging = Paging { before: flag("transcriptHistoryBefore"), after: flag("transcriptHistoryAfter"), asked: None };
-        let mut history = History(self);
-        {
-            let mut host = crate::mouse::scroll::SelectionScroll { mouse, store: &mut history, inner: &mut paging, now_ms: now };
-            scroll.scroll_rows(&mut host, rows, false);
-        }
-        let this = history.0;
-        this.scroll = scroll;
-        this.frame_requested = true;
-        if let Some(action) = paging.asked {
-            if let Err(error) = this.call_store(action, json!([])) {
-                this.notice(&format!("transcript page failed: {error}"), crate::slash::host::Tone::Error);
+        let (before, after) = (flag("transcriptHistoryBefore"), flag("transcriptHistoryAfter"));
+        let error = {
+            let AppState { store, rendered_grid, render_selection, frame_requested, repaint_requested, .. } = &mut *self;
+            let mut render = Render { grid: rendered_grid, selection: render_selection, frame: frame_requested, repaint: repaint_requested };
+            let mut paging = Paging { before, after, store: &mut **store, error: None };
+            {
+                let mut host = crate::mouse::scroll::SelectionScroll { mouse, store: &mut render, inner: &mut paging, now_ms: now };
+                scroll.scroll_rows(&mut host, rows, false);
             }
+            paging.error
+        };
+        self.scroll = scroll;
+        self.frame_requested = true;
+        if let Some(error) = error {
+            self.notice(&format!("transcript page failed: {error}"), crate::slash::host::Tone::Error);
         }
     }
 
@@ -462,15 +479,28 @@ impl AppState {
     }
 }
 
-/// The paging of transcript history is the store's: the scroll learns whether a page exists and asks for it, the call is made
-/// when the scroll is done.
-struct Paging {
+/// The paging of transcript history is the store's: the scroll learns whether a page exists and asks for it, and goes on by the
+/// answer (`store.restoreOlderTranscript()` answers whether a page was restored).
+struct Paging<'a> {
     before: bool,
     after: bool,
-    asked: Option<&'static str>,
+    store: &'a mut dyn AppStore,
+    error: Option<String>,
 }
 
-impl ScrollHost for Paging {
+impl Paging<'_> {
+    fn restore(&mut self, action: &str) -> bool {
+        match self.store.call(action, &[]) {
+            Ok(answer) => answer == Value::Bool(true),
+            Err(error) => {
+                self.error = Some(error);
+                false
+            }
+        }
+    }
+}
+
+impl ScrollHost for Paging<'_> {
     fn history_before(&self) -> bool {
         self.before
     }
@@ -480,42 +510,48 @@ impl ScrollHost for Paging {
     }
 
     fn restore_older(&mut self) -> bool {
-        self.asked = Some("restoreOlderTranscript");
-        true
+        self.restore("restoreOlderTranscript")
     }
 
     fn restore_newer(&mut self) -> bool {
-        self.asked = Some("restoreNewerTranscript");
-        true
+        self.restore("restoreNewerTranscript")
     }
 }
 
-/// [`AppState`] as the render store of a scroll that runs while the mouse state is out of it.
-struct History<'a>(&'a mut AppState);
+/// The rendered frame and the render selection as the mouse reads them, borrowed apart from the store so a scroll that pages
+/// the history can hold both.
+struct Render<'a> {
+    grid: &'a Option<mixdog_term::frame::Grid>,
+    selection: &'a mut mixdog_term::selection::SelectionState,
+    frame: &'a mut bool,
+    repaint: &'a mut bool,
+}
 
-impl RenderStore for History<'_> {
+impl RenderStore for Render<'_> {
     fn word_rect_at(&mut self, x: i32, y: i32) -> Option<CellSpan> {
-        self.0.word_rect_at(x, y)
+        self.grid.as_ref().and_then(|grid| word_rect_at(grid, x, y))
     }
 
     fn line_rect_at(&mut self, y: i32) -> Option<CellSpan> {
-        self.0.line_rect_at(y)
+        self.grid.as_ref().and_then(|grid| line_rect_at(grid, y))
     }
 
     fn set_render_selection(&mut self, rect: Option<&TermRect>) {
-        self.0.set_render_selection(rect);
+        if self.selection.set_selection(rect.copied()) {
+            *self.frame = true;
+        }
     }
 
     fn render_selection_text(&mut self) -> Option<String> {
-        self.0.render_selection_text()
+        self.selection.selection_text().map(str::to_owned)
     }
 
     fn render_selection_rows(&mut self) -> Option<Vec<SelectedRow>> {
-        self.0.render_selection_rows()
+        self.selection.selection_rows().map(<[SelectedRow]>::to_vec)
     }
 
     fn force_render_repaint(&mut self) {
-        self.0.repaint_requested = true;
+        *self.repaint = true;
     }
 }
 
@@ -563,7 +599,9 @@ impl PromptHost for AppState {
         self.prompt_layout_value = text.to_owned();
     }
 
-    fn dismiss_welcome_prompt_hint(&mut self) {}
+    fn dismiss_welcome_prompt_hint(&mut self) {
+        self.dismiss_welcome_hint();
+    }
 
     fn usage_panel_open(&self) -> bool {
         self.surface.usage().is_some()
@@ -632,16 +670,24 @@ impl PromptHost for AppState {
         &mut self.enter_latch
     }
 
+    /// `providerPrompt.login.cancel()`: an MCP sign-in is cancelled and said so; a provider sign-in's flow is cancelled in the core.
     fn cancel_provider_login(&mut self, target: &TextPrompt) {
+        if crate::pickers::extensions::mcp_login::is_login_prompt(target) {
+            self.with_extensions(|extensions, host| extensions.login.cancel(host));
+            return;
+        }
         let flow = target.text("_login");
         if !flow.is_empty() {
             let _ = self.call_store("cancelOAuthProviderLogin", json!([flow]));
         }
     }
 
+    /// `providerPrompt.cancelReturn()`: the OAuth code prompt goes back to the provider's sign-in actions (not to the `returnTo`
+    /// of the open, which is `afterSave`'s).
     fn provider_cancel_return(&mut self, target: &TextPrompt) -> bool {
         if target.fields.get("_cancelReturn").is_some_and(crate::slash::notices::truthy) {
-            return crate::pickers::provider::run_return_to(self);
+            crate::pickers::provider::oauth_cancel_return(self);
+            return true;
         }
         false
     }
@@ -688,6 +734,9 @@ impl PasteIo for AppState {
     }
 
     fn read_image_from_path(&mut self, raw_path: &str) -> Result<Option<ImageAttachment>, String> {
+        if let Some(read) = self.paste.reads.take_path(raw_path) {
+            return read;
+        }
         let cwd = self.session_cwd();
         let provider = text_of(&self.store.state(), "provider");
         let platform = Platform::current();
@@ -697,10 +746,16 @@ impl PasteIo for AppState {
     }
 
     fn read_clipboard_text(&mut self) -> Result<String, String> {
+        if let Some(read) = self.paste.reads.take_text() {
+            return read;
+        }
         read_clipboard_text(Platform::current(), &SystemRunner)
     }
 
     fn read_clipboard_image(&mut self) -> Result<Option<ImageAttachment>, String> {
+        if let Some(read) = self.paste.reads.take_image() {
+            return read;
+        }
         let provider = text_of(&self.store.state(), "provider");
         let resize = self.image_resizer();
         read_clipboard_image_attachment(Platform::current(), &SystemRunner, &provider, &resize)
@@ -877,31 +932,35 @@ impl GlobalKeyHost for AppState {
 
 // ---- the mouse's host --------------------------------------------------------------------------------------------------
 
+impl AppState {
+    fn render_view(&mut self) -> Render<'_> {
+        Render { grid: &self.rendered_grid, selection: &mut self.render_selection, frame: &mut self.frame_requested, repaint: &mut self.repaint_requested }
+    }
+}
+
 impl RenderStore for AppState {
     fn word_rect_at(&mut self, x: i32, y: i32) -> Option<CellSpan> {
-        self.rendered_grid.as_ref().and_then(|grid| word_rect_at(grid, x, y))
+        self.render_view().word_rect_at(x, y)
     }
 
     fn line_rect_at(&mut self, y: i32) -> Option<CellSpan> {
-        self.rendered_grid.as_ref().and_then(|grid| line_rect_at(grid, y))
+        self.render_view().line_rect_at(y)
     }
 
     fn set_render_selection(&mut self, rect: Option<&TermRect>) {
-        if self.render_selection.set_selection(rect.copied()) {
-            self.frame_requested = true;
-        }
+        self.render_view().set_render_selection(rect);
     }
 
     fn render_selection_text(&mut self) -> Option<String> {
-        self.render_selection.selection_text().map(str::to_owned)
+        self.render_view().render_selection_text()
     }
 
     fn render_selection_rows(&mut self) -> Option<Vec<SelectedRow>> {
-        self.render_selection.selection_rows().map(<[SelectedRow]>::to_vec)
+        self.render_view().render_selection_rows()
     }
 
     fn force_render_repaint(&mut self) {
-        self.repaint_requested = true;
+        self.render_view().force_render_repaint();
     }
 }
 
@@ -950,7 +1009,9 @@ impl MouseHost for AppState {
         self.slash_index = next.clamp(0, count.saturating_sub(1) as i64) as usize;
     }
 
-    fn passthrough_ctrl_wheel_zoom(&mut self) {}
+    fn passthrough_ctrl_wheel_zoom(&mut self) {
+        self.zoom_passthrough();
+    }
 
     fn write_clipboard(&mut self, text: &str) -> Result<(), String> {
         GlobalKeyHost::copy_to_clipboard(self, text)

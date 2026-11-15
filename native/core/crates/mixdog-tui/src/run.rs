@@ -125,6 +125,8 @@ enum LoopEvent {
     Store(StoreEvent),
     /// The store's disposal finished (in time or not).
     Disposed,
+    /// A worker finished a read the application waits for (a paste); the turn after it takes the answer.
+    Wake,
 }
 
 /// The store and the runtime that serves it, for the thread a signal runs the cleanup on.
@@ -290,6 +292,11 @@ fn run_session(
     spawn_store_forwarder(runtime, &store, tx.clone());
     let reader = start_reader(tx.clone());
     app.chrome.update(usize::from(columns), usize::from(rows));
+    app.set_terminal(restorer.clone());
+    let wake_tx = tx.clone();
+    app.set_wake(Arc::new(move || {
+        let _ = wake_tx.send(LoopEvent::Wake);
+    }));
     app.mount();
     if let Some(renderer) = options.statusline.clone() {
         app.set_statusline(renderer, None);
@@ -464,6 +471,7 @@ impl Driver {
                 self.dirty = true;
             }
             LoopEvent::Disposed => self.app.dispose_settled(),
+            LoopEvent::Wake => {}
         }
         None
     }

@@ -59,6 +59,19 @@ fn prompt_text(grid: &VtGrid) -> String {
     prompt_row(grid).map(|y| grid.row_text(y)).unwrap_or_default()
 }
 
+/// The row that shows a welcome hint: one of the starter tips, or the tip a setup problem replaces it with.
+fn welcome_hint(grid: &VtGrid) -> Option<String> {
+    use mixdog_tui::view::format::{WELCOME_PROMPT_HINTS, conditional_hints};
+    let conditional = [
+        conditional_hints::NO_PROVIDER,
+        conditional_hints::NO_MODEL,
+        conditional_hints::SOLO_WORKFLOW,
+        conditional_hints::WEB_SEARCH_DEFAULT_UNSUPPORTED,
+        conditional_hints::ERROR,
+    ];
+    rows(grid).into_iter().find(|row| WELCOME_PROMPT_HINTS.iter().chain(conditional.iter()).any(|hint| row.contains(hint)))
+}
+
 fn frame_ready(grid: &VtGrid) -> bool {
     let Some(top) = prompt_top(grid) else { return false };
     rows(grid).iter().skip(usize::from(top)).any(|row| row.to_lowercase().contains("sonnet"))
@@ -140,11 +153,15 @@ fn first_frame_typing_slash_palette_and_model_picker() {
         assert!(any_row(grid, "\u{2588}\u{2588}\u{2588}\u{2557}"), "the logo\n{}", dump_text(grid));
         assert!(any_row(grid, &format!("v{}", env!("CARGO_PKG_VERSION"))), "the version line");
         assert!(prompt_top(grid).is_some_and(|top| any_row_below(grid, top, "\u{2570}")), "the prompt box is closed under its content");
+        // An empty session shows a starter tip (or the tip that names a setup problem) under the banner.
+        assert!(welcome_hint(grid).is_some(), "the welcome prompt hint\n{}", dump_text(grid));
     });
 
-    // Korean and an emoji: the characters are in the prompt and the caret is on the cell after the last one.
+    // Korean and an emoji: the characters are in the prompt and the caret is on the cell after the last one. The first character
+    // typed takes the welcome hint away.
     let typed = "\u{ac00}\u{b098}\u{1f600}x";
     session.send(typed);
+    session.wait_until("the welcome hint gone with the first typed character", STEP, |grid| welcome_hint(grid).is_none());
     session.wait_until("the caret after the typed text", STEP, |grid| {
         let Some(y) = prompt_row(grid) else { return false };
         // One border cell and one padding cell, then the content.
@@ -338,6 +355,113 @@ fn a_tool_approval_is_answered_with_y() {
     session.send("y");
     session.wait_until("the turn finished after the approval", STEP, |grid| any_row(grid, "approved-flow-done") && !any_row(grid, "Tool approval"));
     assert!(workspace.provider.served() >= 2, "the model was asked again after the tool ran");
+
+    exit_and_check(session);
+}
+
+#[test]
+fn a_question_of_ask_user_is_answered_by_key() {
+    let _gate = support::serial();
+    let workspace = Workspace::new(Setup::default());
+    let session = boot(&workspace);
+
+    let questions = json!({ "questions": [{
+        "question": "Which flavor do you want?",
+        "header": "Flavor",
+        "options": [
+            { "label": "Vanilla", "description": "plain and classic" },
+            { "label": "Mango", "description": "sweet and fruity" }
+        ]
+    }] });
+    workspace.provider.script(vec![Reply::calls(vec![("toolu_ask_1", "ask_user", questions)]), Reply::text("question-flow-done")]);
+    submit(&session, "ask me something");
+    // The question panel: the question, its options, and the keys that answer it.
+    session.wait_until("the question panel", STEP, |grid| any_row(grid, "Which flavor do you want?") && any_row(grid, "Vanilla") && any_row(grid, "Mango"));
+    // Down moves to the second option, Enter answers with it.
+    session.send("\x1b[B");
+    pause(Duration::from_millis(300));
+    session.send("\r");
+    session.wait_until("the turn finished after the answer", STEP, |grid| any_row(grid, "question-flow-done") && !any_row(grid, "Vanilla"));
+    // The transcript records the answer that was given, the second option.
+    session.with_grid(|grid| assert!(any_row(grid, "=\"Mango\""), "the card shows the answer\n{}", dump_text(grid)));
+    assert!(workspace.provider.served() >= 2, "the model was asked again after the answer");
+
+    exit_and_check(session);
+}
+
+/// The row of the screen that shows `needle`.
+fn row_with(grid: &VtGrid, needle: &str) -> Option<String> {
+    rows(grid).into_iter().find(|row| row.contains(needle))
+}
+
+#[test]
+fn the_spinner_row_runs_above_the_prompt_while_a_turn_streams() {
+    let _gate = support::serial();
+    let workspace = Workspace::new(Setup::default());
+    let session = boot(&workspace);
+
+    // The model answers with blank deltas first: nothing readable is on screen yet, so the spinner row stays (it gives way to the
+    // answer once text shows, `live-spinner-visibility.mjs`).
+    let mut chunks: Vec<String> = vec!["\n".to_owned(); 14];
+    chunks.push("spinner-answer-done".to_owned());
+    workspace.provider.script(vec![Reply { chunks, calls: Vec::new(), pause: Duration::from_millis(700) }]);
+    submit(&session, "think for a while");
+    session.wait_until("the spinner row with the interrupt hint", STEP, |grid| row_with(grid, "esc to interrupt").is_some());
+    let first = session.with_grid(|grid| row_with(grid, "esc to interrupt")).expect("the spinner row");
+    assert!(first.contains('(') && first.contains(')'), "the byline is in parentheses: {first:?}");
+    // It sits above the prompt box, not under it.
+    session.with_grid(|grid| {
+        let at = rows(grid).iter().position(|row| row.contains("esc to interrupt")).expect("its row");
+        assert!(prompt_top(grid).is_some_and(|top| usize::from(top) > at), "the spinner row is above the prompt box\n{}", dump_text(grid));
+    });
+    // The timer and the glyph move with the clock.
+    session.wait_until("the row changed with the clock", STEP, |grid| row_with(grid, "esc to interrupt").is_some_and(|row| row != first));
+    // The answer replaces it, and the row is gone once the turn is.
+    session.wait_until("the answer", STEP, |grid| any_row(grid, "spinner-answer-done"));
+    session.wait_until("the spinner row gone", STEP, |grid| !any_row(grid, "esc to interrupt"));
+
+    exit_and_check(session);
+}
+
+#[test]
+fn the_api_key_prompt_takes_typing_a_paste_and_escape_and_masks_the_key() {
+    let _gate = support::serial();
+    let workspace = Workspace::new(Setup::default());
+    let session = boot(&workspace);
+
+    // /providers, the OpenAI API row, its "Add API key" action: the masked key prompt.
+    session.send("/providers");
+    session.wait_until("/providers in the prompt", STEP, |grid| prompt_text(grid).contains("/providers"));
+    session.send("\r");
+    if session.try_wait_until(Duration::from_secs(5), |grid| any_row(grid, "Choose a provider.")).is_none() {
+        // The first Enter completed the palette's selection; the second runs it.
+        session.send("\r");
+    }
+    session.wait_until("the provider list", STEP, |grid| any_row(grid, "Choose a provider.") && any_row(grid, "OpenAI API"));
+    for _ in 0..6 {
+        session.send("\x1b[B");
+        pause(Duration::from_millis(100));
+    }
+    session.send("\r");
+    session.wait_until("the API-key actions", STEP, |grid| any_row(grid, "Choose an API-key action.") && any_row(grid, "Add API key"));
+    session.send("\r");
+    session.wait_until("the key prompt", STEP, |grid| any_row(grid, "Set API key") && any_row(grid, "API key >"));
+
+    // Typing: the characters go into the field and the screen shows a mask, never the key.
+    let key_row = |grid: &VtGrid| row_with(grid, "API key >").unwrap_or_default();
+    session.send("sk-secret-1234");
+    session.wait_until("fourteen masked characters", STEP, |grid| key_row(grid).matches('*').count() == 14);
+    session.with_grid(|grid| assert!(!any_row(grid, "sk-secret"), "the key is not on screen\n{}", dump_text(grid)));
+    // Backspace removes the last one.
+    session.send("\x7f");
+    session.wait_until("thirteen masked characters", STEP, |grid| key_row(grid).matches('*').count() == 13);
+    // A bracketed paste is inserted as text; its line break does not submit and the pasted key stays off the screen.
+    session.send("\x1b[200~pasted-part\x1b[201~");
+    session.wait_until("the pasted characters", STEP, |grid| key_row(grid).matches('*').count() == 13 + "pasted-part".len());
+    session.with_grid(|grid| assert!(!any_row(grid, "pasted-part"), "the pasted key is not on screen\n{}", dump_text(grid)));
+    // Escape cancels: the panel is gone and the prompt is back (nothing was saved).
+    session.send("\x1b");
+    session.wait_until("the key prompt closed", STEP, |grid| !any_row(grid, "Set API key") && frame_ready(grid));
 
     exit_and_check(session);
 }
