@@ -48,10 +48,12 @@ fn non_shell_detail(base: &CardBase, surface: &CardSurface, display: &DisplayedR
     let result_summary = display.result_summary.as_deref().unwrap_or_default();
     let generic_detail = if !base.pending && !surface.is_shell_surface && status.agent_detail.is_empty() && image_detail.is_empty() && result_summary.is_empty()
     {
+        // Node reads `hasResult` off the displayed result, which has no such field: the generic row is never the first result
+        // line here (an error says "Failed", any other tool says nothing and the status word stands).
         generic_completed_detail(&GenericDetailInput {
             normalized_name: &surface.normalized_name,
             label: &surface.label,
-            has_result: display.has_display_result,
+            has_result: false,
             first_result_line: &display.first_result_line,
             is_error: base.is_error,
         })
@@ -216,10 +218,13 @@ mod tests {
     }
 
     #[test]
-    fn an_output_tool_shows_its_first_line_and_a_view_image_its_path() {
+    fn an_output_tool_without_a_summary_shows_its_status_and_a_view_image_its_path() {
+        // Node's generic row never reads the first result line (it asks the displayed result for a field it lacks).
         let search = detail_of("custom", "Search", json!({}), json!({ "result": "first
 second" }));
-        assert_eq!(search.detail_line, "first");
+        assert_eq!(search.detail_line, "Finished");
+        let failed = detail_of("custom", "Custom", json!({}), json!({ "result": "first", "isError": true }));
+        assert!(failed.detail_line.starts_with("Failed"), "{}", failed.detail_line);
         let image = detail_of("view_image", "Image", json!({ "path": "a/b.png" }), json!({ "result": "" }));
         assert_eq!(image.detail_line, "a/b.png");
         assert_eq!(image.tool_arg_path, "a/b.png");
