@@ -236,11 +236,8 @@ fn new_revisions(original: &[&RevisionSpan], modified: &[&RevisionSpan]) -> Vec<
 }
 
 fn unwrap_deletion(inner: &str) -> String {
-    inner
-        .replace("<w:delText", "<w:t")
-        .replace("</w:delText>", "</w:t>")
-        .replace("<w:delInstrText", "<w:instrText")
-        .replace("</w:delInstrText>", "</w:instrText>")
+    let text = compiled(r"<w:delText\b", "g").replace_all_with(inner, |_| "<w:t".to_owned()).replace("</w:delText>", "</w:t>");
+    compiled(r"<w:delInstrText\b", "g").replace_all_with(&text, |_| "<w:instrText".to_owned()).replace("</w:delInstrText>", "</w:instrText>")
 }
 
 /// Rebuilds `xml[from, to)` with the targeted wrappers undone: a targeted insertion disappears with its content, a
@@ -706,7 +703,7 @@ pub fn lint_docx_revisions(stories: &[Story<'_>], comments_xml: &str) -> Vec<Lin
 /// Which wrappers `resolve_docx_revisions` accepts or rejects.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolveOptions<'a> {
-    /// `reject`, or anything else (`accept`).
+    /// `accept` (also when empty, Node's default) or anything else, which rejects as Node's `resolution === 'accept'` test does.
     pub resolution: &'a str,
     /// The one wrapper at this place (1-based, document order of the opening tags); 0 for all.
     pub target: usize,
