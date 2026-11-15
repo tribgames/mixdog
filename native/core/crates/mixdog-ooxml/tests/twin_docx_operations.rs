@@ -10,9 +10,10 @@
 use std::collections::HashMap;
 
 use mixdog_js::value_to_string;
+use mixdog_office_base::docx_style_defs::docx_style_definitions;
 use mixdog_office_base::twin;
 use mixdog_ooxml::docx_operations::{
-    TocEntry, add_docx_note, define_docx_styles, docx_style_definitions, docx_toc_cache_runs, docx_toc_entries, edit_docx_paragraph,
+    TocEntry, add_docx_note, define_docx_styles, docx_toc_cache_runs, docx_toc_entries, edit_docx_paragraph,
     fill_docx_content_control, fit_docx_table, refresh_docx_table_of_contents, replace_tracked_paragraphs, resolve_docx_revisions,
     set_docx_document_font, set_docx_page, style_or_merge_docx_table_cell, write_docx_toc_pages,
 };
@@ -85,7 +86,7 @@ fn pure(name: &str, args: &[Value]) -> Result<Value, String> {
             json!(docx_toc_cache_runs(&entries, arg(1).as_f64().unwrap_or(f64::NAN)))
         }
         "docxStyleDefinitions" => {
-            let definitions = docx_style_definitions(arg(0))?;
+            let definitions = docx_style_definitions(arg(0).as_object().expect("an operation"))?;
             Value::Array(definitions.into_iter().map(|(name, fields)| json!([name, fields])).collect())
         }
         other => panic!("the recording has a function this test does not replay: {other}"),

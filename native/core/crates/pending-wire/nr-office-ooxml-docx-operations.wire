@@ -37,8 +37,8 @@ that keeps this file reorders or reformats them.)
 The entry points are the Node exports under their Rust names, all in mixdog_ooxml::docx_operations (operation arguments are the
 batch's serde_json::Value, results the result object, errors the message Node throws): refresh_docx_table_of_contents,
 write_docx_toc_pages, docx_heading_levels, docx_toc_entries, docx_toc_cache_runs, replace_tracked_paragraphs, add_docx_note,
-set_docx_document_font, docx_style_definitions (also what capabilities validates a define_styles operation with),
-define_docx_styles, set_docx_page, fit_docx_table, fill_docx_content_control, edit_docx_paragraph (tracking: bool),
+set_docx_document_font, define_docx_styles (its styles are read by mixdog_office_base::docx_style_defs::docx_style_definitions,
+the one capabilities validates a define_styles operation with), set_docx_page, fit_docx_table, fill_docx_content_control, edit_docx_paragraph (tracking: bool),
 style_or_merge_docx_table_cell, resolve_docx_revisions (parts: the document's story and comments part names). The tracked edits
 are mixdog_ooxml::docx_tracked_edits::{tracked_paragraph_rewrite, anchor_phrase_in_paragraph, tracked_paragraph_replace}.
 Not ported here because it belongs to the dispatcher of that task: the 'an inherited name is not a DOCX operation' test of
