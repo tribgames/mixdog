@@ -65,18 +65,7 @@ pub const RESYNC_HINT: &str = "{\"resync\":1}";
 
 /// `Number(value)` of a JSON value, the way a declared capacity reaches the relay; `None` is NaN.
 pub fn js_number(value: &Value) -> Option<f64> {
-    let number = match value {
-        Value::Number(n) => n.as_f64()?,
-        Value::String(text) => mixdog_js::string_to_number(text),
-        Value::Bool(flag) => f64::from(u8::from(*flag)),
-        Value::Null => 0.0,
-        Value::Array(items) => match items.as_slice() {
-            [] => 0.0,
-            [only] => return js_number(only),
-            _ => return None,
-        },
-        Value::Object(_) => return None,
-    };
+    let number = mixdog_js::to_number(value);
     (!number.is_nan()).then_some(number)
 }
 
