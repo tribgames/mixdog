@@ -8,7 +8,6 @@
 //! slot of a PC-offline answer, `store.touchClient`); [`PhoneLegs::serve_upgrade`] carries it out on a transport, to the end of the
 //! connection. The caller runs it in a task of its own, one per upgrade.
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -21,6 +20,7 @@ use url::Url;
 use super::hub::{Hub, IngressInstall, Liveness, PhoneOptions, SweepLeg};
 use super::ingress::IngressLeg;
 use crate::close_codes::{DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON, PAIRING_RESCAN_REQUIRED, PAIRING_RESCAN_REQUIRED_REASON};
+use crate::http1::conn::panic_message;
 use crate::http1::{Headers, refusal_bytes};
 use crate::http1::util::{browser_socket_origin_allowed, client_ip};
 use crate::logline;
@@ -277,15 +277,4 @@ impl PhoneLegs {
         }
         handle.closed(code, &reason);
     }
-}
-
-/// What a panic carried, for the log line of a frame that failed.
-fn panic_message(payload: &(dyn Any + Send)) -> String {
-    if let Some(text) = payload.downcast_ref::<&str>() {
-        return (*text).to_owned();
-    }
-    if let Some(text) = payload.downcast_ref::<String>() {
-        return text.clone();
-    }
-    "panic".to_owned()
 }
