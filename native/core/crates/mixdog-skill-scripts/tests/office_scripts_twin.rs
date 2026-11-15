@@ -235,14 +235,30 @@ fn clip(text: &str) -> String {
 
 /// The files a review packet lists are copied by `Promise.all`, and Node lists them in the order the copies finished:
 /// the recording lists the pages of one packet as 1, 2 in one case and 2, 1 in another. The list is the packet's set of
-/// files, so both sides are compared in the order of their names.
+/// files, so both sides are compared in the order of their names. One `Promise.all` copies the sources, then one per
+/// candidate copies its pages, in turn: only the order inside a group is a race, so each consecutive run of one group is
+/// put in name order and the groups keep their recorded order.
 fn sort_review_inputs(observed: &mut Value) {
     let Some(files) = observed.get_mut("files").and_then(Value::as_object_mut) else {
         return;
     };
+    let group = |entry: &Value| -> String {
+        let file = entry["file"].as_str().unwrap_or_default();
+        let name = file.rsplit('/').next().unwrap_or(file);
+        match name.split_once("-page-") {
+            Some((candidate, _)) => candidate.to_owned(),
+            None => name.split('-').next().unwrap_or(name).to_owned(),
+        }
+    };
     for written in files.values_mut() {
         if let Some(inputs) = written.get_mut("inputs").and_then(Value::as_array_mut) {
-            inputs.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+            let mut start = 0;
+            while start < inputs.len() {
+                let key = group(&inputs[start]);
+                let end = (start..inputs.len()).find(|&index| group(&inputs[index]) != key).unwrap_or(inputs.len());
+                inputs[start..end].sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+                start = end;
+            }
         }
     }
 }
