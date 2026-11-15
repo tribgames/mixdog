@@ -1,0 +1,50 @@
+# nr-office-comrs-ppt-edit: the PowerPoint editor of mixdog-office-com (src/ppt/edit/{mod,layout,text,shapes,tables,images,slides,footer,
+# template,chart_data,chart_window,charts}.rs: Apply-PowerPointOperation, its 46 operations, the chart data sheet with its Excel process
+# tracking and the hidden chart window), tests/ppt_edit.rs, tests/ppt_edit_live.rs, recorder/scenarios/ppt-edit.json and
+# tests/fixtures/ppt-edit/inputs/{pixel.png,tone.wav}.
+# Nothing was compiled (the lead builds the wave); the sources were checked to parse with rustfmt only.
+# No protocol row, no service, no SERVICE_PENDING name belongs to this task. No new dependency edge and no new crate: the code uses
+# only what the crate has (regex, zip for the live test, the crate's own com, ps, platform, state and template modules).
+# This task builds on the PowerPoint reader (nr-office-comrs-ppt-read: src/ppt/{mod,ink,...}.rs), whose own fragment adds `pub mod ppt;`
+# to lib.rs; apply that one first.
+
+## 1. native/core/crates/mixdog-office-com/src/ppt/mod.rs (not owned by this task)
+The editor is used by the integration tests and by the driver table, so the module is public: replace
+
+    pub(crate) mod edit;
+
+by
+
+    pub mod edit;
+
+## 2. native/core/crates/mixdog-office-com/src/drivers.rs (not owned by this task)
+Register the editor: replace the empty `EDITORS` table by (keep the doc comment above it, and the lines the Word and Excel editors add)
+
+    static EDITORS: &[(&str, &dyn FormatEditor)] = &[("pptx", &crate::ppt::edit::Editor)];
+
+## 3. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Test targets, after `[[test]] name = "actions_live"` (and the ppt_read ones):
+
+    [[test]]
+    name = "ppt_edit"
+    path = "tests/ppt_edit.rs"
+
+    [[test]]
+    name = "ppt_edit_live"
+    path = "tests/ppt_edit_live.rs"
+
+## 4. Two helpers the script shares with the other editors
+`Office-ChartTypeCode` (the chart type by name or code) and `Provenance-Text` are shared by the three editors in office-com-host.ps1.
+This task needed them and the Word and Excel editors are written in parallel, so each is written once here, as `pub(crate)`:
+`crate::ppt::edit::charts::chart_type_code(&crate::ps::Value) -> crate::com::Result<i32>` and
+`crate::ppt::edit::slides::provenance_text(&crate::ps::Value) -> crate::com::Result<String>`.
+nr-office-comrs-excel-edit (add_chart, set_chart_series, ...) and nr-office-comrs-word-edit (add_provenance) must call these and not
+carry a second copy; if either already wrote its own, delete that copy and point it here (or move both to a shared module, which is the
+lead's call: no other file of this task changes).
+
+## 5. After the recording
+`node recorder/record-office-com.mjs --area ppt-edit` (on the migration PC with Microsoft PowerPoint and Excel) writes
+tests/fixtures/ppt-edit/<scenario>.json and updates tests/fixtures/MANIFEST.json; `recorded_scenarios_are_replayed` of tests/ppt_edit.rs
+replays every operation of every recorded batch (it passes without a fixture and says so). The first replay may need the platform script
+adjusted: the test puts one fake window on the fake platform per window handle the recorded log read (a process of its own each) and
+no Excel process before the operation, which is what the registry of the chart Excel is exercised with.
