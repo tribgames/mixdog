@@ -335,6 +335,15 @@ pub(super) enum Waiting {
     Retry(super::quota_lane::RetryTurn),
 }
 
+/// The task that waits on a checkout's HEAD watch: ended (and the follow left) when dropped.
+struct HeadTask(tokio::task::JoinHandle<()>);
+
+impl Drop for HeadTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// Results of lane jobs the actor submitted.
 pub(crate) enum JobDone {
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
@@ -428,6 +437,10 @@ pub(crate) enum JobDone {
     RouteStatus { seq: u64, status: Option<Value> },
     /// The session's live workspace (`read_live_workspace`).
     LiveWorkspace(u64, Option<Value>),
+    /// The follow of the checkout's HEAD that `follow_head` number `seq` made (`None`: outside a git checkout, or no file watcher).
+    HeadFollowing(u64, Option<mixdog_scm::head_watch::HeadFollow>),
+    /// HEAD of the checkout follow `seq` holds was written outside the session (`git switch`, `git branch -m`, a detach).
+    HeadMoved(u64),
     /// The idle deadline found the thread quiet; `working`: its background work still runs.
     IdleChecked { working: bool },
     /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
@@ -823,6 +836,11 @@ pub(crate) struct SessionActor {
     turn_prewarm_armed: bool,
     /// The live-workspace reads started; only the latest one's answer is published.
     live_workspace_reads: u64,
+    /// The checkout whose HEAD the session follows (its header's `cwd`), the follows started, and the task that waits on the
+    /// shared HEAD watch (ended with the session, or when its `cwd` moves).
+    head_cwd: String,
+    head_follows: u64,
+    head_task: Option<HeadTask>,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -1306,6 +1324,9 @@ impl SessionActor {
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
             live_workspace_reads: 0,
+            head_cwd: String::new(),
+            head_follows: 0,
+            head_task: None,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
@@ -1447,6 +1468,7 @@ impl SessionActor {
         self.reconcile_offloads();
         self.read_context_display();
         self.read_live_workspace();
+        self.follow_head();
         let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes(&self.id).map(SettingsFollow::begin));
         self.stepped();
         loop {
@@ -1922,13 +1944,17 @@ impl SessionActor {
         let held_moved = moved(&["pendingRoute"]);
         // The session's list moved (`commitPhases` / `clearTodo` of `todo-list.mjs` write `session.todo`).
         let todo_moved = moved(&["todo"]);
-        let route_moved = moved(&["provider", "model"]) || moved(&["cwd"]) || held_moved;
+        let cwd_moved = moved(&["cwd"]);
+        let route_moved = moved(&["provider", "model"]) || cwd_moved || held_moved;
         let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
         let change = Change::Record {
             record: record.clone(),
             display,
         };
         self.projected.apply(&change, None);
+        if cwd_moved {
+            self.follow_head();
+        }
         let entry = self
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
@@ -2543,6 +2569,12 @@ impl SessionActor {
                 if read == self.live_workspace_reads
                     && !self.tombstoned && !self.cell.closed.load(SeqCst) && self.projected.sections.workspace != workspace {
                     self.accept_view(Change::Section(Section::Workspace(workspace)), Vec::new());
+                }
+            }
+            JobDone::HeadFollowing(seq, follow) => self.head_following(seq, follow),
+            JobDone::HeadMoved(seq) => {
+                if seq == self.head_follows {
+                    self.read_live_workspace();
                 }
             }
             JobDone::IdleChecked { working } => self.idle_checked(working),
@@ -6817,6 +6849,49 @@ impl SessionActor {
         });
     }
 
+    /// Follows the HEAD of the checkout the header's `cwd` lies in (`createGitHeadWatcher`, `local-session-runtime.mjs` headWatch):
+    /// the sessions of one repository share one watch, and a HEAD written outside the session (`git switch`, a branch rename, a
+    /// detach) reads the live workspace again, so the branch shows within a frame. Called at load and when `cwd` moved.
+    fn follow_head(&mut self) {
+        let cwd = self.projected.header.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
+        if cwd == self.head_cwd {
+            return;
+        }
+        self.head_follows += 1;
+        self.head_task = None;
+        self.head_cwd = cwd.clone();
+        if cwd.is_empty() {
+            return;
+        }
+        let (done, seq) = (self.jobs_tx.clone(), self.head_follows);
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "head-follow",
+            move |_| mixdog_scm::head_watch::HeadWatchers::shared().follow(std::path::Path::new(&cwd)),
+            move |followed| drop(done.send(JobDone::HeadFollowing(seq, followed.ok().flatten()))),
+        );
+    }
+
+    /// The follow `seq` is made: the live workspace of the (new) `cwd` is read now, which also covers a HEAD that moved before the
+    /// watch was set, and each later write of HEAD is read when it comes. A `cwd` outside any checkout is read once and followed by
+    /// nothing.
+    fn head_following(&mut self, seq: u64, follow: Option<mixdog_scm::head_watch::HeadFollow>) {
+        if seq != self.head_follows || self.tombstoned || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        if let Some(mut follow) = follow {
+            let jobs = self.jobs_tx.clone();
+            self.head_task = Some(HeadTask(tokio::spawn(async move {
+                while follow.moved().await {
+                    if jobs.send(JobDone::HeadMoved(seq)).is_err() {
+                        return;
+                    }
+                }
+            })));
+        }
+        self.read_live_workspace();
+    }
+
     /// `syncContextDisplayFields(status)` (context-state.mjs:116-136): the window the status shows, the compaction boundary and
     /// the auto-compact trigger (`compaction.triggerTokens || compaction.autoCompactTokenLimit || session.autoCompactTokenLimit`),
     /// each only once known (> 0).
@@ -8116,4 +8191,77 @@ pub(crate) fn stale_compacting_change(header: &mixdog_store::schema::record::Hea
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), Value::Object(next));
     Some(HeaderChange { set, unset: Vec::new() })
+}
+
+// A HEAD written outside the session (`git switch`, a branch rename, a detach): the checkout's watch wakes every session of its
+// repository, which reads its live workspace again, so the branch the island and the sidebar show is the new one.
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+mod head_follow_tests {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use mixdog_core_api::ids::ThreadId;
+    use serde_json::Value;
+    use serde_json::json;
+
+    use crate::session::SessionDirectory;
+    use crate::session::testing::Rig;
+    use crate::session::worktree::LiveWorkspace;
+
+    /// The live workspace of a rig session: the branch the checkout's HEAD file names, as `getLiveWorkspace` reads it.
+    struct HeadFile(PathBuf);
+
+    #[async_trait]
+    impl LiveWorkspace for HeadFile {
+        async fn live(&self, _session: &str) -> Option<Value> {
+            let text = std::fs::read_to_string(self.0.join(".git/HEAD")).ok()?;
+            let branch = text.trim().strip_prefix("ref: refs/heads/")?.to_owned();
+            Some(json!({ "branch": branch }))
+        }
+    }
+
+    async fn open(directory: &SessionDirectory, id: &str, cwd: &Path) -> Arc<crate::session::SessionHandle> {
+        let header = json!({ "cwd": cwd.to_string_lossy() }).as_object().cloned().expect("header");
+        directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("create");
+        directory.open_handle(&ThreadId::from(id), &mixdog_core_api::call::CallContext::internal("test")).await.expect("opened")
+    }
+
+    async fn branch_of(handle: &crate::session::SessionHandle, expected: &str) -> bool {
+        for _ in 0..160 {
+            let state = serde_json::to_value(&handle.cell.view.load_full().state).unwrap();
+            if state["workspace"]["branch"] == json!(expected) {
+                return true;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_branch_switched_outside_the_app_reaches_every_session_of_the_repository() {
+        let repo = tempfile::tempdir().unwrap();
+        let git = repo.path().join(".git");
+        std::fs::create_dir_all(git.join("refs/heads")).unwrap();
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let inner = repo.path().join("pkg");
+        std::fs::create_dir_all(&inner).unwrap();
+
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.live_workspace = Arc::new(HeadFile(repo.path().to_path_buf()));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let first = open(&directory, "sess_head_a", repo.path()).await;
+        let second = open(&directory, "sess_head_b", &inner).await;
+        assert!(branch_of(&first, "main").await && branch_of(&second, "main").await, "the load's own read");
+
+        // What `git switch topic` leaves: the new HEAD written to HEAD.lock and renamed over HEAD.
+        std::fs::write(git.join("HEAD.lock"), "ref: refs/heads/topic\n").unwrap();
+        std::fs::rename(git.join("HEAD.lock"), git.join("HEAD")).unwrap();
+        assert!(branch_of(&first, "topic").await, "the session in the repository root names the new branch");
+        assert!(branch_of(&second, "topic").await, "the session in a folder of it names it too");
+    }
 }

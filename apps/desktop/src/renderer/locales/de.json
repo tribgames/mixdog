@@ -3063,6 +3063,7 @@
   "Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.": "Eine andere Verbindung installiert Mixdog bereits auf {{name}}. Warten Sie einen Moment und versuchen Sie es erneut.",
   "Mixdog is free and open source — a GitHub star genuinely helps it grow.": "Mixdog ist kostenlos und Open Source – ein GitHub-Star trägt wirklich zum Wachstum bei.",
   "Mixdog is reconnecting automatically.": "Mixdog stellt die Verbindung automatisch wieder her.",
+  "Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.": "Mixdog hat die Verbindung verloren, bevor diese Git-Aktion bestätigt wurde. Sie wurde möglicherweise ausgeführt. Prüfen Sie den Repository-Status, bevor Sie es erneut versuchen.",
   "Mixdog needs a one-time approval from the desktop it belongs to.": "Mixdog muss einmalig auf dem zugehörigen Desktop genehmigt werden.",
   "Mixdog needs to recover": "Mixdog muss wiederhergestellt werden",
   "Mixdog on {{name}} did not stop. Check the details below, then try again.": "Mixdog auf {{name}} wurde nicht beendet. Prüfen Sie die Details unten und versuchen Sie es erneut.",
