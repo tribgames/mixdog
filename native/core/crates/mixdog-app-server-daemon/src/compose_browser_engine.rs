@@ -221,6 +221,9 @@ pub struct BrowserApprovalContext {
     pub catalog: Arc<OnceLock<Arc<mixdog_store::sqlite::SqliteStore>>>,
     /// The approval gates of the runs under way: where a command no tool call made raises its card.
     pub run_gates: Arc<RunGates>,
+    /// The unattended runs of the process (`unattendedRunOf`, the registry the turn path's gate reads): a schedule or webhook run
+    /// that owns the asking session is decided as the Node runtime marked it (`unattended_run`, `unattended_agent`).
+    pub unattended: Arc<mixdog_core::run_host::unattended::UnattendedRunRegistry>,
 }
 
 impl BrowserApprovalContext {
@@ -241,10 +244,17 @@ impl BrowserApprovalContext {
 
 #[async_trait]
 impl ApprovalContext for BrowserApprovalContext {
-    fn facts(&self, thread: &ThreadId) -> SessionFacts {
-        // The port keeps the life mark only; the bot is read from the session id, and the session is decided as an attended turn.
+    async fn facts(&self, thread: &ThreadId) -> SessionFacts {
+        // The life mark, and the unattended run that owns the session with its owner (`bridge-tools.mjs`: `unattendedRun:
+        // isGrantedRun(run)`, `unattendedAgent: run?.agentId || ''`); the bot is read from the session id.
         let life = self.late.live_header(thread.as_str()).and_then(|header| mixdog_core_ports::ports::gate::life_mark(&header));
-        SessionFacts { life, ..SessionFacts::default() }
+        let run = self.unattended.named_run_of(thread).await.map(|(run, _)| run);
+        SessionFacts {
+            life,
+            agent_id: run.as_ref().map(|run| run.agent_id.clone()).unwrap_or_default(),
+            run: run.map(|run| run.kind),
+            ..SessionFacts::default()
+        }
     }
 
     fn settings(&self) -> PolicySettings {
