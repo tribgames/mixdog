@@ -15,6 +15,8 @@ use mixdog_core_api::domain::retry::RetryRow;
 use mixdog_core_api::domain::retry::RetrySchedule;
 use mixdog_core_api::domain::retry::StatusRules;
 
+use crate::providers::first_byte::FirstByteSettings;
+
 /// Retries of the Messages POST (the SDK default of 10).
 const REQUEST_RETRIES: u32 = 10;
 /// Consecutive overloads after which the send hands over to the fallback model.
@@ -29,6 +31,11 @@ fn millis(steps: &[u64]) -> Vec<Duration> {
 /// `retry_429`: whether a 429 on the Messages POST is retried. An API key and
 /// an enterprise subscription retry it; a Max/Pro subscription window does not.
 pub(crate) fn retry_policy(retry_429: bool) -> RetryPolicy {
+    retry_policy_with(retry_429, FirstByteSettings::default_jitter())
+}
+
+/// [`retry_policy`] with `default_jitter` as the mid-stream ratio (the shared `MIXDOG_PROVIDER_RETRY_JITTER_RATIO`).
+pub(crate) fn retry_policy_with(retry_429: bool, default_jitter: Jitter) -> RetryPolicy {
     let mut policy = RetryPolicy::codex_default();
     policy.request = RetryRow::single(RetrySchedule {
         max_retries: REQUEST_RETRIES,
@@ -42,7 +49,8 @@ pub(crate) fn retry_policy(retry_429: bool) -> RetryPolicy {
     policy.midstream = RetryRow::single(RetrySchedule {
         max_retries: MIDSTREAM_RETRIES,
         backoff: Backoff::Ladder(millis(&[250, 1000, 2000, 4000])),
-        jitter: Jitter::symmetric(0.2),
+        // `midstreamBackoffFor` names no ratio: the shared default.
+        jitter: default_jitter,
         advice: AdviceRule::honored_in_full(),
     });
     policy.status = StatusRules {
@@ -57,4 +65,17 @@ pub(crate) fn retry_policy(retry_429: bool) -> RetryPolicy {
     };
     policy.honor_should_retry_true = true;
     policy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_midstream_row_takes_the_tuned_ratio_and_the_request_row_keeps_its_own() {
+        let tuned = Jitter::symmetric(0.5);
+        let policy = retry_policy_with(true, tuned);
+        assert_eq!(policy.midstream.schedule.jitter, tuned);
+        assert_eq!(policy.request.schedule.jitter, Jitter { ratio: 0.25, mode: JitterMode::Positive });
+    }
 }
