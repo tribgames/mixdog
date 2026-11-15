@@ -21,24 +21,13 @@ export interface FilesApiOptions {
   host?: Pick<DesktopApi, 'previewProjectFile'>;
 }
 
-/** Raw bytes asked per `projectFs/previewRange` (the core allows 4 MiB). */
-const PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
-/** Preview blobs a window keeps: the oldest is revoked past this. */
-const PREVIEW_BLOB_LIMIT = 48;
 /** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
 const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
-/** Code points one window of a file read answers. An answer carries at most 512 KiB and a code point is at most 6 bytes of it (a
- *  control character is escaped to six), so 80 000 always fits; typical text is 1 to 3 bytes a code point, so a 10 MiB file is
- *  about a hundred calls, not the hundred and seventy-five of a 60 000 window. */
-const READ_WINDOW_CHARS = 80_000;
+/** Code points one window of a file read answers. A file is at most 10 MiB, so a text of up to 2 Mi code points comes in one call and
+ *  the largest file in five, where windows of 80 000 took 125. The core writes an answer of any size whole when nothing else of the
+ *  connection is waiting, and a read is one call after another, so a window larger than the 512 KiB control reserve is no burden. */
+const READ_WINDOW_CHARS = 2_097_152;
 const hasToken = (token: unknown): token is string => typeof token === 'string' && token !== '';
-
-function bytesFromBase64(data: string): Uint8Array {
-  const raw = atob(data);
-  const bytes = new Uint8Array(raw.length);
-  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
-  return bytes;
-}
 
 const hostPlatform = (): 'win32' | 'darwin' | 'linux' => {
   const name = typeof navigator === 'object' ? String(navigator.platform ?? '') : '';
@@ -143,45 +132,13 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     return result;
   };
 
-  // A converted document's PDF in this PC's window is served by range: the converted file's folder is a folder that is no Project,
-  // which the host's `previewProjectFile` takes as its own root (standalone) and answers with a `mixdog-media://preview/<token>` URL
-  // the main process serves by range, so the viewer shows the first page without the file being read here. A server window's
-  // folders are the server's, out of the host's reach: its converted PDF is read in ranges over this window's connection and held
-  // as a blob URL. A file previewed as it is (an image, audio, video or PDF) is the host's in every window.
+  // A converted document's PDF is served by range in every window: the converted file's folder is a folder that is no Project, which
+  // the host's `previewProjectFile` takes as its own root (standalone on this PC; the server's own folder in a server window, where
+  // the main process serves it by ranged reads over the window's connection) and answers with a `mixdog-media://preview/<token>`
+  // URL, so the viewer shows the first page without the file being read here. A file previewed as it is (an image, audio, video or
+  // PDF) is the host's in every window.
   const hostPreview = (): FilesApiOptions['host'] =>
     options.host ?? (globalThis as { mixdogDesktopHost?: FilesApiOptions['host'] }).mixdogDesktopHost;
-  const previewBlobs = new Map<string, string>();
-  const previewBlobUrl = async (target: FileTarget, version: string): Promise<string> => {
-    const key = `${target.root}\0${target.rel}\0${target.accessToken ?? ''}\0${version}`;
-    const held = previewBlobs.get(key);
-    if (held) {
-      previewBlobs.delete(key);
-      previewBlobs.set(key, held);
-      return held;
-    }
-    const parts: Uint8Array[] = [];
-    let offset = 0;
-    let size = Number.POSITIVE_INFINITY;
-    while (offset < size) {
-      const range = (await ctx.call('projectFs/previewRange', { ...target, offset, length: PREVIEW_CHUNK_BYTES })) as {
-        data: string;
-        size: number;
-      };
-      size = range.size;
-      const bytes = bytesFromBase64(range.data);
-      if (!bytes.length) break;
-      parts.push(bytes);
-      offset += bytes.length;
-    }
-    const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/pdf' }));
-    previewBlobs.set(key, url);
-    while (previewBlobs.size > PREVIEW_BLOB_LIMIT) {
-      const [oldest, oldUrl] = previewBlobs.entries().next().value as [string, string];
-      previewBlobs.delete(oldest);
-      URL.revokeObjectURL(oldUrl);
-    }
-    return url;
-  };
 
   // The language servers publish on the feed `lsp:<project>`; a project's feed is followed from its first document or request.
   const lspFollowed = new Set<string>();
@@ -274,10 +231,9 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
         // The converted PDF sits in the core's cache: its folder and name are what the range reads take.
         const cut = Math.max(converted.path.lastIndexOf('/'), converted.path.lastIndexOf('\\'));
         const target = { root: converted.path.slice(0, cut), rel: converted.path.slice(cut + 1) };
-        const streamed = serverWindow() ? undefined : hostPreview()?.previewProjectFile;
-        const url = streamed
-          ? (await streamed(target.root, target.rel)).url
-          : await previewBlobUrl(target, `${converted.mtimeMs}:${converted.size}`);
+        const streamed = hostPreview()?.previewProjectFile;
+        if (!streamed) throw new Error('This window cannot show a document preview.');
+        const { url } = await streamed(target.root, target.rel);
         return { url, kind: 'pdf' as const, mime: 'application/pdf', format: converted.format, mtimeMs: converted.mtimeMs, size: converted.size };
       }),
     previewDocumentPages: (projectPath, relPath, accessToken, options) =>
