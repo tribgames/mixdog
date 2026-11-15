@@ -201,12 +201,10 @@ fn reduce_ops(list: &OperatorList) -> Value {
             Op::SetDash { array, phase } => ("setDash", vec![numbers(array), json!(phase)]),
             Op::SetGState(entries) => (
                 "setGState",
-                vec![Value::Array(
-                    entries
-                        .iter()
-                        .map(|(key, value)| json!([key, gstate_value(key, value)]))
-                        .collect(),
-                )],
+                entries
+                    .iter()
+                    .map(|(key, value)| json!([key, gstate_value(key, value)]))
+                    .collect(),
             ),
             Op::Param(param, args) => (param_name(*param), args.iter().map(plain).collect()),
             Op::BeginText => ("beginText", vec![]),

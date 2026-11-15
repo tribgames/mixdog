@@ -482,12 +482,13 @@ pub fn packet_order(t: &TileStructure) -> Vec<(u32, u32, u32, u32)> {
 }
 
 /// Reads every packet of the tile from `body` (and, with PPM or PPT, the packet headers from `packed`), filling in
-/// the code-blocks. Data that ends early stops the reading and sets `truncated`; it is not an error.
+/// the code-blocks. Data that ends early stops the reading and sets `truncated`; it is not an error. Returns the
+/// bytes of `packed` the packet headers took.
 pub(super) fn read_packets(
     tile: &mut TileStructure,
     body: &[u8],
     packed: Option<&[u8]>,
-) -> Result<(), JpxError> {
+) -> Result<usize, JpxError> {
     let order = packet_order(tile);
     let sop = tile.params.sop;
     let eph = tile.params.eph;
@@ -563,5 +564,5 @@ pub(super) fn read_packets(
             break;
         }
     }
-    Ok(())
+    Ok(hpos)
 }
