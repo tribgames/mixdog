@@ -4,7 +4,7 @@
 //! session actions of an owned background Word session, and the DPI repair on the bytes of a package.
 //!
 //! The call logs are written by hand from `office-com-host.ps1` and `office-com-session-host.ps1`; the logs recorded from the
-//! PowerShell hosts against Office (`recorder/scenarios/actions.json`, run on a PC with Microsoft Office) are held to the same
+//! PowerShell hosts against Office (`tests/scenarios/actions.json`, run on a PC with Microsoft Office) are held to the same
 //! ports once they exist. The readers and the editor here are stand-ins that call nothing: the actions are exercised without
 //! the application code, as the recorded scenarios use the smallest operation of each format for the same reason.
 
