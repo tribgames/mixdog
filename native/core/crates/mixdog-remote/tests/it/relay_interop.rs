@@ -1,5 +1,7 @@
-//! DS-REM-2: the Rust leg, clients, claims, caps, control requests and pair code against the
-//! unmodified `apps/relay/server.mjs`, run locally on an ephemeral port with a scratch data dir.
+//! DS-REM-2: the Rust leg, clients, claims, caps, control requests and pair code against both relays: the
+//! unmodified `apps/relay/server.mjs` started with node, and the Rust relay (`mixdog_relay::server::spawn`) started in
+//! this process, each on an ephemeral port with a scratch data dir. The expected outcomes are the same for both; a
+//! difference fails the case naming the runtime.
 //! No real relay or account credentials are involved; a Rust phone peer completes the E2EE
 //! handshake and exchanges an application frame through the relay.
 
@@ -22,10 +24,10 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_util::sync::CancellationToken;
 
-struct Relay {
-    child: Child,
-    port: u16,
-    _data: tempfile::TempDir,
+/// The relay a case runs against; `stop` closes it (dropping it kills a Node relay).
+enum Relay {
+    Node { child: Child, port: u16, _data: tempfile::TempDir },
+    Rust { running: mixdog_relay::server::RunningRelay, port: u16, _data: tempfile::TempDir },
 }
 
 impl Relay {
@@ -34,7 +36,7 @@ impl Relay {
         clippy::disallowed_types,
         reason = "test runs the unmodified Node relay as the reference peer"
     )]
-    fn spawn() -> Self {
+    fn spawn_node() -> Self {
         let server = std::env::var("MIXDOG_RELAY_SERVER").map(PathBuf::from).unwrap_or_else(|_| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/server.mjs")
         });
@@ -60,15 +62,61 @@ impl Relay {
         assert_ne!(port, 0, "relay did not report its port");
         // Keep draining so the relay never blocks on a full pipe.
         std::thread::spawn(move || while lines.read_line(&mut String::new()).unwrap_or(0) > 0 {});
-        Self { child, port, _data: data }
+        Self::Node { child, port, _data: data }
+    }
+
+    async fn spawn_rust() -> Self {
+        let data = tempfile::tempdir().unwrap();
+        let env = [("PORT", "0".to_owned()), ("DATA_DIR", data.path().to_string_lossy().into_owned())]
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect();
+        let config = mixdog_relay::config::Config::from_env(env, PathBuf::new());
+        let running = mixdog_relay::server::spawn(&config, mixdog_rt::testing::tokens()).await.expect("the Rust relay starts");
+        let port = running.port;
+        Self::Rust { running, port, _data: data }
+    }
+
+    fn port(&self) -> u16 {
+        match self {
+            Self::Node { port, .. } | Self::Rust { port, .. } => *port,
+        }
+    }
+
+    async fn stop(self) {
+        if let Self::Rust { running, .. } = &self {
+            running.close().await;
+        }
     }
 }
 
 impl Drop for Relay {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Self::Node { child, .. } = self {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
+}
+
+/// Runs the case against the relay and, when it fails, fails naming the runtime.
+async fn against(runtime: &str, relay: Relay) {
+    let port = relay.port();
+    let outcome = tokio::spawn(leg_pairs_and_serves_a_phone(port)).await;
+    relay.stop().await;
+    if let Err(error) = outcome {
+        panic!("{runtime} relay: {error}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn leg_pairs_and_serves_a_phone_through_the_node_relay() {
+    against("node", Relay::spawn_node()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn leg_pairs_and_serves_a_phone_through_the_rust_relay() {
+    against("rust", Relay::spawn_rust().await).await;
 }
 
 async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
@@ -79,15 +127,13 @@ fn text(value: Value) -> Outgoing {
     Outgoing::Text(value.to_string())
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
-    let relay = Relay::spawn();
+async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     let identity = DeviceIdentity { device_id: uuid::Uuid::new_v4().to_string(), device_secret: "ab".repeat(24) };
     let (events_tx, mut events) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(64);
     let cancel = CancellationToken::new();
     let config_device_id = identity.device_id.clone();
-    let config = LegConfig::desktop(format!("ws://127.0.0.1:{}", relay.port), identity, 80 << 20);
+    let config = LegConfig::desktop(format!("ws://127.0.0.1:{relay_port}"), identity, 80 << 20);
     let leg = tokio::spawn(run_leg(config, events_tx, out_rx, cancel.clone()));
 
     // The leg opens, announces itself, and registers the phone token before any client binds.
@@ -151,9 +197,9 @@ async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
     let pair = mixdog_remote::e2ee::generate_claim_key_pair();
     let phone_id = uuid::Uuid::new_v4().to_string();
     let device_id = config_device_id.clone();
-    let origin = format!("http://127.0.0.1:{}", relay.port);
+    let origin = format!("http://127.0.0.1:{relay_port}");
     let body = json!({"deviceId": device_id, "clientId": phone_id, "publicKey": pair.public_key, "name": "Test phone"});
-    let (status, answer) = http(relay.port, "POST", "/claim", Some(&origin), Some(&body.to_string())).await;
+    let (status, answer) = http(relay_port, "POST", "/claim", Some(&origin), Some(&body.to_string())).await;
     assert_eq!(status, 202, "{answer}");
     let claim_id = serde_json::from_str::<Value>(&answer).unwrap()["claimId"].as_str().unwrap().to_owned();
     let mut bindings = ClaimBindings::default();
@@ -166,7 +212,7 @@ async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
     assert_eq!(request.name, "Test phone");
     out_tx.send(text(bindings.answer(&claim_id, true, &server.pairing()))).await.unwrap();
     let approved = loop {
-        let (status, answer) = http(relay.port, "GET", &format!("/claim/{claim_id}"), None, None).await;
+        let (status, answer) = http(relay_port, "GET", &format!("/claim/{claim_id}"), None, None).await;
         assert_eq!(status, 200);
         let value: Value = serde_json::from_str(&answer).unwrap();
         if value["status"] == "approved" {
@@ -182,7 +228,7 @@ async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
 
     // The phone attaches with its own credential; the relay announces it to the leg.
     // A browser sends its own origin; the relay admits only a same-origin upgrade.
-    let mut request = format!("ws://127.0.0.1:{}/ws?token={phone_token}", relay.port).into_client_request().unwrap();
+    let mut request = format!("ws://127.0.0.1:{relay_port}/ws?token={phone_token}").into_client_request().unwrap();
     request.headers_mut().insert("Origin", origin.parse().unwrap());
     let (mut phone, _) = tokio_tungstenite::connect_async(request).await.unwrap();
     let client_id = loop {
