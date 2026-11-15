@@ -186,6 +186,10 @@ fn main() -> ExitCode {
                 },
                 Err(error) => mixdog_skill_scripts::UserScriptRuntime::Unavailable { reason: error.to_string() },
             };
+            // The shipped office scripts (source-extract, qc-pages) read Office files through this process's engine.
+            if let Ok(engine) = mixdog_exthost_worker::methods::SkillOfficeEngine::new() {
+                let _ = mixdog_skill_scripts::source_extract::install_office_engine(Box::new(engine));
+            }
             mixdog_skill_scripts::skill_run(args, runtime)
         }
     }

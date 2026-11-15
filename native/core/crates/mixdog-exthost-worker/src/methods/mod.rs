@@ -1,6 +1,7 @@
 //! The methods the worker serves. Each family registers itself here as its task lands.
 
 pub mod document;
+pub use skill_office::SkillOfficeEngine;
 mod document_engine;
 mod image;
 mod media_office;
@@ -11,6 +12,7 @@ mod ooxml;
 mod pdf;
 mod pdf_ocr;
 mod pdf_render;
+mod skill_office;
 mod soffice;
 
 use base64::Engine as _;
