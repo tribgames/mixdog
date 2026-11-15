@@ -1,0 +1,155 @@
+{
+  "id": "pair_code_request_over_websocket",
+  "description": "only the relay picks codes: a lease is required and malformed ones answer ok:false, another desktop cannot register or probe the code of a desktop, and the code still resolves",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "victim",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "victim",
+      "frames": 2
+    },
+    {
+      "do": "ws_open",
+      "conn": "attacker",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "b1b2c3d4-0000-4000-8000-00000000000b",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "attacker",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "victim",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"desktop-lanes\",\"media\":true,\"e2ee\":1,\"pairV2\":1}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "victim",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"victim-lease-1\",\"name\":\"\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "victim",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "vcode",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "attacker",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code\",\"code\":\"${vcode}\",\"name\":\"x\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "attacker",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"attacker-1\",\"code\":\"${vcode}\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "attacker",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "acode",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "attacker",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"short\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "attacker",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "attacker",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"has spaces in it\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "attacker",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "attacker",
+      "frames": 2
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/pair-code/resolve",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"code\":\"${vcode}\"}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "victim",
+      "frames": 1
+    }
+  ]
+}

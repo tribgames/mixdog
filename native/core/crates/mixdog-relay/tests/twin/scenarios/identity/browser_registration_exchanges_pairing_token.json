@@ -1,0 +1,275 @@
+{
+  "id": "browser_registration_exchanges_pairing_token",
+  "description": "a browser trades the desktop's pairing token for its own credential; refreshing needs that credential and the same client id; method, origin, body and credential refusals; the pairing token and the credential survive a restart",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"set-client-token\",\"token\":\"fedcba9876543210\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\",\"name\":\"Android · Chrome\",\"platform\":\"Android\",\"browser\":\"Chrome\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "browser",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Authorization",
+          "Bearer ${browser}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\"}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Authorization",
+          "Bearer ${browser}"
+        ]
+      ],
+      "body": "{\"clientId\":\"cccccccc\"}",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\"}",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=ffffffffffffffff",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\"}",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"nope\"}",
+      "expect_status": 401,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/client/register",
+      "expect_status": 405,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "PUT",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{}",
+      "expect_status": 405,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "https://evil.example"
+        ]
+      ],
+      "body": "{\"clientId\":\"dddddddd\"}",
+      "expect_status": 403,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"clientId\":\"dddddddd\"}",
+      "expect_status": 403,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{",
+      "expect_status": 400,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "restart"
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ],
+        [
+          "Authorization",
+          "Bearer ${browser}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\"}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"cccccccc\",\"name\":\"Android · Chrome\",\"platform\":\"Android\",\"browser\":\"Chrome\"}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    }
+  ]
+}

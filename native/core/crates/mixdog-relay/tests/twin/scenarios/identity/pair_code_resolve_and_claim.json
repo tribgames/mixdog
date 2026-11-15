@@ -1,0 +1,205 @@
+{
+  "id": "pair_code_resolve_and_claim",
+  "description": "a published code redeems once into the device, its name (control characters dropped, trimmed) and a one-time ticket; the desktop hears pair-code-used; the ticket marks the first following claim a code claim and every other claim a qr claim or a retry",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "dA",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "dA",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"desktop-lanes\",\"media\":true,\"e2ee\":1,\"pairV2\":1}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "dA",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"pair-code-request\",\"lease\":\"lease-main-01\",\"name\":\"  Home\\tPC  \"}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "code",
+          "from": "frame_json",
+          "path": "code"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/pair-code/support?deviceId=a1b2c3d4-0000-4000-8000-00000000000a",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/pair-code/resolve",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"code\":\"${code}\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "ticket",
+          "from": "body_json",
+          "path": "ticket"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/pair-code/resolve",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"code\":\"${code}\"}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"00000001\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"name\":\"Phone\",\"ticket\":\"${ticket}\"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 1
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"00000002\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"name\":\"Phone\",\"ticket\":\"${ticket}\"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"00000003\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"name\":\"Phone\",\"ticket\":\"00000000000000000000000000000000\"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"00000004\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"name\":\"Phone\",\"retry\":true}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"00000005\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"name\":\"Phone\",\"retry\":\"yes\"}",
+      "expect_status": 202,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 4
+    }
+  ]
+}
