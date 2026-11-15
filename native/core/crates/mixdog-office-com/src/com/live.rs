@@ -721,6 +721,29 @@ impl LiveObject {
         }
     }
 
+    /// The id the object's type information gives a member (`ITypeInfo::GetIDsOfNames`, slot 10 of its table).
+    fn type_member_id(dispatch: &Iface, name: &str) -> Option<i32> {
+        type TypeIds = unsafe extern "system" fn(*mut c_void, *const *const u16, u32, *mut i32) -> i32;
+        let mut info: *mut c_void = ptr::null_mut();
+        // SAFETY: `dispatch` holds a reference; `info` receives an owned reference on success.
+        let hr = unsafe { (vtbl::<IDispatchVtbl>(dispatch.as_ptr()).get_type_info)(dispatch.as_ptr(), 0, LCID, &mut info) };
+        if hr < 0 {
+            return None;
+        }
+        // SAFETY: on success `info` carries the reference the call gave.
+        let info = unsafe { Iface::from_raw(info) }?;
+        let wide = utf16_nul(name);
+        let names = [wide.as_ptr()];
+        let mut id = 0i32;
+        // SAFETY: `unused[6]` is slot 10 of ITypeInfo's table (3 of IUnknown, GetTypeAttr, then six more), GetIDsOfNames, whose
+        // signature `TypeIds` is; `names` holds one NUL-terminated string that outlives the call and `id` has room for one id.
+        let hr = unsafe {
+            let slot: TypeIds = std::mem::transmute::<usize, TypeIds>(vtbl::<ITypeInfoVtbl>(info.as_ptr()).unused[6]);
+            slot(info.as_ptr(), names.as_ptr(), 1, &mut id)
+        };
+        (hr >= 0).then_some(id)
+    }
+
     fn get_ids(&self, dispatch: &Iface, names: &[&str]) -> Result<Vec<i32>, i32> {
         let wide: Vec<Vec<u16>> = names.iter().map(|name| utf16_nul(name)).collect();
         let pointers: Vec<*const u16> = wide.iter().map(|name| name.as_ptr()).collect();
@@ -887,12 +910,13 @@ impl ComObject for LiveObject {
         } else {
             named_ids.reverse();
             match self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named_ids) {
-                // PowerPoint answers a plain property read of some members (the HWND of its application) with "member not
-                // found" and gives the value when the read also names the method kind, which is how .NET reads a member of
-                // a late-bound object. The name was resolved above, so the member is there: it is asked for again that way.
-                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET => {
-                    self.invoke_id(dispatch, member_id, DISPATCH_METHOD | DISPATCH_PROPERTYGET, &mut arguments, &mut named_ids)
-                }
+                // PowerPoint's `GetIDsOfNames` names a member its `Invoke` then does not find (the HWND of its application),
+                // while the type information gives the member's own id. Windows PowerShell reads a COM member by the id of
+                // the type information, so the read is made again with that id when it is another one.
+                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET => match Self::type_member_id(dispatch, call.member) {
+                    Some(id) if id != member_id => self.invoke_id(dispatch, id, flags, &mut arguments, &mut named_ids),
+                    _ => Err(raw),
+                },
                 other => other,
             }
         };

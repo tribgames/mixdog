@@ -1,8 +1,6 @@
 //! Which host program serves a format: Windows PowerShell with the embedded scripts, or the Rust host, which is the
 //! service binary started as `<program> office-com-host` (one-shot) or `<program> office-com-host --session`, with the
-//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration (`docx` and `xlsx`; `pptx` joins it
-//! when the Rust host passes the live PowerPoint suite: on 2026-11-16 a chart in a background deck could not get its window
-//! handle and a failed call left PowerPoint running, where the PowerShell host passes); a
+//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration (`docx`, `xlsx` and `pptx`); a
 //! format that is not on it, and a payload with no format, go to PowerShell. A one-shot `detect`, whatever format it probes, goes
 //! where `docx` goes.
 
@@ -10,9 +8,9 @@ use std::ffi::OsString;
 
 use serde_json::Value;
 
-/// The formats served by the Rust host: Word documents and Excel workbooks (one-shot calls and sessions; `detect` follows
-/// `docx`). Both pass the live suites on a real Word and Excel. A PowerPoint deck is served by the PowerShell host.
-pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx"];
+/// The formats served by the Rust host: Word documents, Excel workbooks and PowerPoint decks (one-shot calls and sessions;
+/// `detect` follows `docx`).
+pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx", "pptx"];
 
 /// The format whose host serves `detect`.
 const DETECT_FOLLOWS: &str = "docx";
@@ -68,12 +66,9 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_list_serves_word_and_excel_and_leaves_powerpoint_to_powershell() {
-        for format in ["docx", "xlsx", " XLSX "] {
+    fn the_shipped_list_serves_word_excel_and_powerpoint() {
+        for format in ["docx", "xlsx", " XLSX ", "pptx", "PPTX"] {
             assert!(serves(RUST_HOST_FORMATS.iter().copied(), Some(format)), "{format}");
-        }
-        for format in ["pptx", "PPTX"] {
-            assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some(format)), "{format}");
         }
         assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some("pdf")));
         assert!(!serves(RUST_HOST_FORMATS.iter().copied(), None));
