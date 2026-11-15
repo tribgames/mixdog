@@ -1,0 +1,29 @@
+# nr-office-pdf-images: image XObject and inline image decoding in mixdog-pdf (module image: mod.rs, decode.rs, jpeg.rs, smask.rs).
+# Written without cargo. What the author checked instead: rustc (no cargo) compiled the real sources of the crate's object, stream,
+# lexer, parser, xref, repair, color, function, function_ps and codec modules together with image/ against stubs of `tracing` and
+# `mixdog_js::math`, ran the 24 unit tests of image/ (all pass) and replayed 158 recorded cases of office-images/golden.json through
+# decode_image, decode_small_inline_image and decode_image_mask on the real Xref (all pass, byte for byte, DCT and JPX included;
+# not replayed there: the 7 cases with a FlateDecode filter, the operator-list walk, and the twin test file itself).
+
+## native/core/crates/mixdog-pdf/src/lib.rs
+
+Add after `pub mod embed;`:
+
+    pub mod image;
+
+No Cargo change: the module uses only what the crate has (tracing, mixdog-pdf-codec through crate::codec, crate::color).
+Dev-dependencies of tests/twin_images.rs (mixdog-office-base test-support, mixdog-testkit, serde_json) are already there.
+
+## native/core/fixtures/MANIFEST.json
+
+Index the new set `office-images` (native/core/fixtures/office-images/{golden.json,MANIFEST.json}, written by
+benchmarks/rust-core/recorders/record-office-images.mjs) with the manifest tool that built the other entries.
+
+## Who calls it
+
+crate::image has no caller yet. The operator-list consumers (the renderer task, the image extraction of pdf-analysis) call:
+  image::decode_image(xref, resources, &ImageRef.source, is_inline)        for Op::PaintImage (resources: the content stream's; read only when is_inline)
+  image::decode_small_inline_image(xref, Some(resources), &InlineImage.source)  for Op::PaintInlineImage
+  image::decode_image_mask(xref, &ImageRef.source)                          for Op::PaintImageMask
+  ImageData::to_rgba() for the renderer and ImageData::extraction_channels() for extractPdfImages (pdfImageBuffer).
+Op::PaintImage does not say whether the image was inline: the caller that walks a content stream knows (pdf.js passes isInline to buildImage).

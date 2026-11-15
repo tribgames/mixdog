@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-images.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 978650,
+      "path": "golden.json",
+      "sha256": "81da30b0b091110b4a3ca11bcca04f98b6ad8e85c08e3a83156d945aa76855ea"
+    }
+  ],
+  "product": {
+    "appsSha256": "affb7bc9f7731381d4d7bf4dcb570b73c6ff1582366623685a5f2c60108867cc",
+    "commit": "c5312f184298b02ddab0343bb392d15529fca1e7",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5268,
+    "refComparison": {
+      "closestCommit": "c5312f184298b02ddab0343bb392d15529fca1e7",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "bffdefbc2469519d184c43845ff536fadf27ebdf4eaea0f91a47a3e208c5c56f",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-images.mjs",
+  "set": "office-images",
+  "totalBytes": 978650
+}
