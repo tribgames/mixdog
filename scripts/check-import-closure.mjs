@@ -219,6 +219,13 @@ function main(argv) {
     for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) if (line.trim() && !line.startsWith('#')) deletes.push(line.trim().replace(/\\/g, '/'));
   }
   const result = check(tree, deletes);
+  // The two shipped pptx skill scripts are kept byte for byte (mixdog-skill-scripts shipped.rs pins their digests) and the
+  // core runs their native versions on the Rust Office engine (mixdogd skill-run installs SkillOfficeEngine), so the Node
+  // Office engine they import is gone on purpose. They are named, not failed; any other missing import fails.
+  const nativeScripts = new Set(['src/defaults/skills/pptx/scripts/source-extract.mjs', 'src/defaults/skills/pptx/scripts/qc-pages.mjs']);
+  const runNatively = result.missing.filter((m) => nativeScripts.has(m.from) && m.resolved.startsWith('src/runtime/office/'));
+  result.missing = result.missing.filter((m) => !runNatively.includes(m));
+  result.runNatively = runNatively;
   if (argv.includes('--json')) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   else {
     process.stdout.write(
@@ -227,6 +234,7 @@ function main(argv) {
     for (const m of result.unresolved) process.stdout.write(`unresolved ${m.from} imports ${m.spec}
 `);
     for (const m of result.missing) process.stdout.write(`MISSING ${m.from} imports ${m.spec} (${m.resolved})\n`);
+    for (const m of result.runNatively) process.stdout.write(`native ${m.from} imports ${m.spec} (the core runs this script natively)\n`);
     for (const h of result.reachedDeletes) process.stdout.write(`REACHED ${h.file} is imported by ${h.importers.join(', ')}\n`);
   }
   process.exitCode = result.missing.length || result.reachedDeletes.length ? 1 : 0;
