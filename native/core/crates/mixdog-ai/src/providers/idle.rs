@@ -15,6 +15,7 @@ use std::time::Duration;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::StreamTimeoutPhase;
@@ -43,9 +44,15 @@ impl IdleWatch {
         self.deadline = self.window.map(Deadline::after);
     }
 
-    /// The window has not been started yet.
-    pub(crate) fn unarmed(&self) -> bool {
-        self.deadline.is_none()
+    /// Starts the window again when `events` carry output (text, reasoning, tool deltas), or, once output started it,
+    /// an item boundary (`meaningful()` / `lifecycle()`, `openai-oauth-http-sse.mjs`; `reportLifecycle`,
+    /// `openai-compat-stream.mjs`). Keepalives and metadata never do: before the first output a model may think silently
+    /// longer than the window.
+    pub(crate) fn note(&mut self, events: &[StreamEvent]) {
+        let armed = self.deadline.is_some();
+        if events.iter().any(|event| output(event) || (armed && boundary(event))) {
+            self.rearm();
+        }
     }
 
     /// `read`, or `Err` when the window ended first.
@@ -73,21 +80,22 @@ impl IdleWatch {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Stalled;
 
-/// Whether `events` are semantic progress (text, reasoning and tool deltas, item boundaries): server keepalives and
-/// metadata never count (`meaningful()`, `openai-http-sse-watchdogs.mjs`).
-pub(crate) fn progressed(events: &[StreamEvent]) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            event,
-            StreamEvent::ItemStart { .. }
-                | StreamEvent::TextDelta(_)
-                | StreamEvent::ReasoningDelta(_)
-                | StreamEvent::ToolCallStart { .. }
-                | StreamEvent::ToolCallArgsDelta { .. }
-                | StreamEvent::ToolCallDone(_)
-                | StreamEvent::Progress(_)
-        )
-    })
+/// Model output: a text, reasoning or tool delta, or the progress a decoder reports for one.
+fn output(event: &StreamEvent) -> bool {
+    matches!(
+        event,
+        StreamEvent::TextDelta(_)
+            | StreamEvent::ReasoningDelta(_)
+            | StreamEvent::ToolCallStart { .. }
+            | StreamEvent::ToolCallArgsDelta { .. }
+            | StreamEvent::ToolCallDone(_)
+            | StreamEvent::Progress(ProgressKind::Text | ProgressKind::Reasoning | ProgressKind::Tool)
+    )
+}
+
+/// An item boundary: progress only after output.
+fn boundary(event: &StreamEvent) -> bool {
+    matches!(event, StreamEvent::ItemStart { .. } | StreamEvent::Progress(ProgressKind::Semantic))
 }
 
 #[cfg(test)]
@@ -154,10 +162,19 @@ mod tests {
         assert_eq!(watch.read(slow).await, Ok(7));
     }
 
-    #[test]
-    fn keepalives_are_not_progress() {
-        assert!(!progressed(&[StreamEvent::ProviderKeepalive]));
-        assert!(progressed(&[StreamEvent::ProviderKeepalive, StreamEvent::TextDelta("a".into())]));
+    #[tokio::test(start_paused = true)]
+    async fn output_starts_the_window_and_item_boundaries_only_follow_it() {
+        let boundary = || StreamEvent::Progress(ProgressKind::Semantic);
+        let mut watch = IdleWatch::new(Some(15_000.0), "x");
+        watch.note(&[StreamEvent::ProviderKeepalive, boundary()]);
+        assert!(watch.deadline.is_none(), "keepalives and an item boundary before output start nothing");
+        watch.note(&[StreamEvent::ProviderKeepalive, StreamEvent::TextDelta("a".into())]);
+        let first = watch.deadline.expect("output starts the window");
+        mixdog_rt::time::sleep(Duration::from_secs(1)).await;
+        watch.note(&[StreamEvent::ProviderKeepalive]);
+        assert_eq!(watch.deadline, Some(first), "a keepalive does not move it");
+        watch.note(&[boundary()]);
+        assert!(watch.deadline > Some(first), "after output an item boundary does");
     }
 
     #[test]
