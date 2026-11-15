@@ -64,7 +64,7 @@ fn session_answer(input: &Value) -> Value {
     if let Some(source) = text(input, "html") {
         mixdog_fsio::write(&Unlaned, &html, source).expect("write html");
     }
-    if let Some(bytes) = decode(input, "pdf") {
+    if let Some(bytes) = decode(input, "pdf").filter(|_| text(input, "output") != Some("")) {
         mixdog_fsio::write(&Unlaned, &output, bytes).expect("write pdf");
     }
     let output_text = if text(input, "output") == Some("") { String::new() } else { output.display().to_string() };

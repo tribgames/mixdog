@@ -69,6 +69,8 @@ pub mod xlsx_formula_audit;
 pub mod xlsx_assertions;
 pub mod docx_tracked_edits;
 pub mod docx_operations;
+pub mod docx_edits;
+pub mod docx;
 pub mod validation;
 pub mod snapshot;
 pub mod soffice;

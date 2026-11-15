@@ -18,6 +18,7 @@ use mixdog_office_pdf::RenderPagesOptions;
 use mixdog_office_pdf::RenderedImage;
 use mixdog_office_pdf::render_pdf_pages;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use serde_json::Map;
 use serde_json::Value;

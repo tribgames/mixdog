@@ -2,7 +2,10 @@
 //! the composition brief a script or an HTML deck opens with (`brief`), read back as information (the slide plan,
 //! the directions, the fact sheet) and held against the saved deck by the review and by the author gates; the review
 //! artifacts (`review_artifacts`: the receipt and the labelled contact sheet of `contact_sheet`) and the note of which
-//! HTML a session's file was built from (`source_drift`).
+//! HTML a session's file was built from (`source_drift`). `docx_build` is the Word HTML builder (`authoring/docx-html-build.mjs`: the flow
+//! `measure_docx` read from the browser becomes WordprocessingML written block by block on the portable writer) and
+//! `docx_html_runner` the Word HTML runner (`authoring/docx-html-runner.mjs`: measure, photograph the captures, print the same HTML
+//! as the review reference, build, keep `<document>.mixdog-source.html` and the page images of the print).
 
 pub mod brief;
 pub mod contact_sheet;
@@ -22,3 +25,5 @@ pub mod normalize;
 pub mod receipt;
 pub mod pptx_build;
 pub mod pptx_html_runner;
+pub mod docx_build;
+pub mod docx_html_runner;
