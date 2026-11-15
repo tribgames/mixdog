@@ -1452,6 +1452,9 @@ fn no_timer_exists_in_the_provider_sources() {
         concat!("Instant::", "now"),
     ];
     for (name, source) in sources {
+        // The rule is for what ships: a module's trailing test module may drive the idle watchdog under a paused clock.
+        let source = source.split("
+#[cfg(test)]").next().unwrap_or(source);
         for needle in forbidden {
             assert!(!source.contains(needle), "{name} uses {needle}");
         }
