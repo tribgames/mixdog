@@ -30,7 +30,7 @@ fn closed() -> Failure {
     Failure::new("ClosedAfterConnectTLS", "Unexpected close")
 }
 
-fn quote(value: &str) -> Result<String, Failure> {
+pub(crate) fn quote(value: &str) -> Result<String, Failure> {
     if value.contains(['\r', '\n', '\0']) {
         return Err(Failure::new("InvalidStringValue", "Unquotable character in IMAP string value"));
     }
@@ -47,14 +47,14 @@ fn quote(value: &str) -> Result<String, Failure> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
+pub(crate) enum Status {
     Ok,
     No,
     Bad,
 }
 
-struct Reply {
-    status: Status,
+pub(crate) struct Reply {
+    pub(crate) status: Status,
     /// The tagged line, as imapflow reports it in `err.response`.
     line: String,
     /// The human text after the status and any response code (`err.responseText`).
@@ -63,7 +63,7 @@ struct Reply {
 }
 
 impl Reply {
-    fn refusal(&self, authentication: bool) -> Failure {
+    pub(crate) fn refusal(&self, authentication: bool) -> Failure {
         Failure {
             code: String::new(),
             response: Some(self.line.clone()),
@@ -93,7 +93,7 @@ fn text_of(rest: &str) -> String {
 }
 
 /// `{n}` ending a line: an IMAP literal follows.
-fn literal_size(line: &str) -> Option<(usize, usize)> {
+pub(crate) fn literal_size(line: &str) -> Option<(usize, usize)> {
     let body = line.strip_suffix('}')?;
     let open = body.rfind('{')?;
     let digits = body[open + 1..].trim_end_matches('+');
@@ -141,7 +141,7 @@ struct IdInfo {
     name: Option<String>,
 }
 
-struct Session {
+pub(crate) struct Session {
     wire: Wire,
     caps: HashSet<String>,
     next_tag: u32,
@@ -151,7 +151,7 @@ struct Session {
 }
 
 impl Session {
-    fn has(&self, capability: &str) -> bool {
+    pub(crate) fn has(&self, capability: &str) -> bool {
         self.caps.contains(&capability.to_ascii_uppercase())
     }
 
@@ -209,6 +209,57 @@ impl Session {
                     self.set_capabilities(list);
                 }
                 return Ok(Reply { status, line: line.clone(), text: text_of(text), untagged });
+            }
+        }
+    }
+
+    /// One response as the server sent it, literals in place: the lines of the response with each
+    /// literal's bytes after its marker, the break after the last line dropped.
+    async fn raw_response(&mut self) -> Result<Vec<u8>, Failure> {
+        let mut out = Vec::new();
+        loop {
+            let Some(line) = self.wire.line().await? else { return Err(closed()) };
+            out.extend_from_slice(&line);
+            let size = literal_size(&String::from_utf8_lossy(&line)).map(|(size, _)| size);
+            let Some(size) = size else { return Ok(out) };
+            out.extend_from_slice(b"\r\n");
+            let Some(data) = self.wire.exact(size).await? else { return Err(closed()) };
+            out.extend_from_slice(&data);
+        }
+    }
+
+    /// Sends one tagged command made of `parts` (each ends where the server must answer `+` before the next is
+    /// sent; the last carries the line break) and collects the untagged responses as raw bytes. The reply is
+    /// returned whatever its status: the caller decides what a refusal means.
+    pub(crate) async fn run_raw(&mut self, parts: Vec<Vec<u8>>) -> Result<(Reply, Vec<Vec<u8>>), Failure> {
+        let tag = format!("{:X}", self.next_tag);
+        self.next_tag += 1;
+        let mut parts = parts.into_iter();
+        let mut first = format!("{tag} ").into_bytes();
+        first.extend(parts.next().unwrap_or_default());
+        self.wire.send(&first).await?;
+        let mut untagged = Vec::new();
+        let prefix = format!("{tag} ").into_bytes();
+        loop {
+            let response = self.raw_response().await?;
+            if let Some(rest) = response.strip_prefix(b"* ") {
+                untagged.push(rest.to_vec());
+            } else if response.starts_with(b"+") {
+                let Some(next) = parts.next() else {
+                    return Err(Failure::new("EPROTOCOL", "Unexpected continuation request"));
+                };
+                self.wire.send(&next).await?;
+            } else if let Some(rest) = response.strip_prefix(prefix.as_slice()) {
+                let rest = String::from_utf8_lossy(rest).into_owned();
+                let (word, text) = rest.split_once(' ').unwrap_or((rest.as_str(), ""));
+                let status = match word.to_ascii_uppercase().as_str() {
+                    "OK" => Status::Ok,
+                    "NO" => Status::No,
+                    "BAD" => Status::Bad,
+                    _ => continue,
+                };
+                let line = String::from_utf8_lossy(&response).into_owned();
+                return Ok((Reply { status, line, text: text_of(text), untagged: Vec::new() }, untagged));
             }
         }
     }
@@ -376,12 +427,13 @@ impl Session {
     }
 
     /// LOGOUT, then close; the server's answer, or the lack of one, is no failure.
-    async fn logout(&mut self) {
+    pub(crate) async fn logout(&mut self) {
         let _ = timeout(LOGOUT_TIMEOUT, self.simple("LOGOUT")).await;
     }
 }
 
-pub async fn verify(leg: &Leg<'_>, email: &str, password: &str) -> Result<(), Failure> {
+/// `connect()` of imapflow: the greeting and the session set-up, logged in.
+pub(crate) async fn open(leg: &Leg<'_>, email: &str, password: &str) -> Result<Session, Failure> {
     let deadline = Instant::now() + leg.timeouts.connection;
     let io = connect(leg.target, leg.tls, deadline, "CONNECT_TIMEOUT", "Failed to establish connection in required time").await?;
     let wire = Wire::new(io, leg.timeouts.socket, ("ETIMEOUT", "Socket timeout"), None, MAX_PENDING);
@@ -399,6 +451,11 @@ pub async fn verify(leg: &Leg<'_>, email: &str, password: &str) -> Result<(), Fa
     let greeted = timeout(leg.timeouts.greeting, session.greeting()).await.map_err(|_| greeting_timeout())??;
     session.authenticated = greeted;
     session.setup(email, password).await?;
+    Ok(session)
+}
+
+pub async fn verify(leg: &Leg<'_>, email: &str, password: &str) -> Result<(), Failure> {
+    let mut session = open(leg, email, password).await?;
     session.logout().await;
     Ok(())
 }
