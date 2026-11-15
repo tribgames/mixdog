@@ -13,8 +13,6 @@ export interface RelayProcess {
   readonly port: number;
   /** `http://127.0.0.1:<port>`: also the Origin a browser page served by this relay presents. */
   readonly origin: string;
-  /** What the process wrote so far, one entry per line of either stream. */
-  output(): readonly string[];
   /** Ends the process and removes its scratch directory. */
   stop(): Promise<void>;
 }
@@ -123,5 +121,5 @@ export async function startRelay(runtime: RelayRuntime, options: StartRelayOptio
     await stop();
     throw new Error(`the ${runtime} relay ${started === 'exited' ? 'exited' : 'printed no listening line'} before listening: ${lines.join(' | ')}`);
   }
-  return { runtime, port: seen.port, origin: `http://127.0.0.1:${seen.port}`, output: () => lines, stop };
+  return { runtime, port: seen.port, origin: `http://127.0.0.1:${seen.port}`, stop };
 }

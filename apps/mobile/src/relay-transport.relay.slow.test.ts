@@ -89,7 +89,6 @@ class DesktopLeg {
   readonly frames: Array<Record<string, any>> = [];
   readonly requests: Array<{ clientId: string; message: any }> = [];
   readonly opened: Array<{ clientId: string; browserClientId?: string }> = [];
-  closed: { code: number; reason: string } | null = null;
   private readonly sessions = new Map<string, { challenge: RelayE2EEChallenge; channel?: RelayE2EEChannel }>();
   private readonly ws: WsSocket;
   private queue: Promise<void> = Promise.resolve();
@@ -105,9 +104,6 @@ class DesktopLeg {
     this.ws.on('message', (data) => {
       // Handled in arrival order: the E2EE steps are asynchronous.
       this.queue = this.queue.then(() => this.handle(data.toString('utf8'))).catch(() => undefined);
-    });
-    this.ws.on('close', (code, reason) => {
-      this.closed = { code, reason: reason.toString('utf8') };
     });
     this.ws.on('error', () => undefined);
   }
@@ -149,8 +145,8 @@ class DesktopLeg {
     this.ws.send(JSON.stringify(frame));
   }
 
-  frame(type: string, after = 0): Promise<Record<string, any>> {
-    return until(() => this.frames.slice(after).find((frame) => frame.type === type), `a ${type} frame`);
+  frame(type: string): Promise<Record<string, any>> {
+    return until(() => this.frames.find((frame) => frame.type === type), `a ${type} frame`);
   }
 
   close(): void {
@@ -159,10 +155,6 @@ class DesktopLeg {
 
   terminate(): void {
     this.ws.terminate();
-  }
-
-  get ended(): boolean {
-    return this.closed !== null;
   }
 }
 
@@ -204,7 +196,7 @@ class RawPhone {
 function phoneConnector(relay: RelayProcess, identity: RelayE2EEServerIdentity, token: () => string, sockets: WsSocket[]) {
   const ends: Array<{ code: number; reason: string; info: CloseInfo }> = [];
   const readies: Array<Readonly<Record<string, unknown>>> = [];
-  const stages = { reused: 0, dialing: 0 };
+  const stages = { reused: 0 };
   const createSocket = (url: string): RelaySocket => {
     const ws = new WebSocket(url, { headers: { Origin: relay.origin } });
     sockets.push(ws);
@@ -237,9 +229,6 @@ function phoneConnector(relay: RelayProcess, identity: RelayE2EEServerIdentity, 
     ready: (hello) => readies.push(hello),
     reused: () => {
       stages.reused += 1;
-    },
-    dialing: () => {
-      stages.dialing += 1;
     },
   });
   return { connector, ends, readies, stages };
