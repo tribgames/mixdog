@@ -295,8 +295,45 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// The kill points are spread over this many tests (every point in exactly one: `step % PARTS == part`), each in a work
+/// directory of its own with its own uninterrupted run to compare with, so nextest runs them beside everything else.
+const PARTS: usize = 8;
+
+/// Whether the kill point `step` is `part`'s.
+fn in_part(step: usize, part: usize) -> bool {
+    step % PARTS == part
+}
+
 #[test]
-fn crash_matrix_over_gen2() {
+fn the_kill_points_are_split_over_the_parts_exactly_once() {
+    for step in 0..10_000 {
+        assert_eq!((0..PARTS).filter(|part| in_part(step, *part)).count(), 1, "step {step}");
+    }
+}
+
+macro_rules! crash_matrix_parts {
+    ($($name:ident = $part:expr),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                crash_matrix_over_gen2($part);
+            }
+        )*
+    };
+}
+
+crash_matrix_parts!(
+    crash_matrix_over_gen2_part0 = 0,
+    crash_matrix_over_gen2_part1 = 1,
+    crash_matrix_over_gen2_part2 = 2,
+    crash_matrix_over_gen2_part3 = 3,
+    crash_matrix_over_gen2_part4 = 4,
+    crash_matrix_over_gen2_part5 = 5,
+    crash_matrix_over_gen2_part6 = 6,
+    crash_matrix_over_gen2_part7 = 7,
+);
+
+fn crash_matrix_over_gen2(part: usize) {
     mixdog_store::fsio::elide_syncs();
     let scratch = tempfile::tempdir().expect("scratch dir");
     let (base, template) = (scratch.path().join("run"), scratch.path().join("template"));
@@ -322,7 +359,12 @@ fn crash_matrix_over_gen2() {
     assert_all_moved(&base);
     let (want, want_profile) = (tree_digest(&roots), digest_of(&base.join("profile")));
 
+    let mut ran = 0;
     for (stop_at, step) in steps.iter().enumerate() {
+        if !in_part(stop_at, part) {
+            continue;
+        }
+        ran += 1;
         fresh();
         assert_eq!(child(&base, Some(stop_at), None), Some(KILLED), "step {stop_at} ({step}) was not reached");
         migrator(&roots, MigrateOptions { workers: 1, fault: None, verified: None })
@@ -333,4 +375,6 @@ fn crash_matrix_over_gen2() {
         assert!(diff.is_empty(), "after a kill in step {stop_at} ({step}): {diff:?}");
         assert_eq!(digest_of(&base.join("profile")), want_profile, "profile after a kill in step {stop_at} ({step})");
     }
+    assert_eq!(ran, (0..steps.len()).filter(|step| in_part(*step, part)).count());
+    eprintln!("part {part}: {ran} of {} kill points", steps.len());
 }

@@ -24,6 +24,20 @@ const { holdMixyDialogOpen, onMixyDialogRequest, publishMixyStatus, resetMixySta
 
 test.after(() => dom.window.close());
 
+// The tour measures how long a control has been missing on `performance.now`: a test that checks what it does when that time has
+// passed moves that clock instead of waiting the time out (the frames that read it still run).
+let clockSkew = 0;
+const realNow = performance.now.bind(performance);
+performance.now = () => realNow() + clockSkew;
+test.after(() => { performance.now = realNow; });
+test.afterEach(() => {
+  clockSkew = 0;
+});
+async function elapse(ms) {
+  clockSkew += ms;
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+}
+
 async function settle() {
   await act(async () => {
     for (let index = 0; index < 6; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -477,7 +491,7 @@ test('the delegation stop lights where a session tab shows and sets its mode', a
   await click(button('Next'));
   await click(button('Next'));
   assert.equal(tourCount(), '3/4');
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1400)));
+  await elapse(1400);
   assert.equal(tourCount(), '3/4', 'not skipped');
   const hole = () => document.querySelector('.starter-tour-hole');
   assert.equal(hole()?.style.left, '394px', 'the route label');
@@ -579,7 +593,7 @@ test('an add-project form that never opens does not strand the tour', async (t) 
   await click(add);
   await settle();
   assert.equal(document.querySelector('.starter-tour-card'), null);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 2700)));
+  await elapse(2700);
   assert.equal(tourCount(), '3/3');
 });
 
@@ -589,7 +603,7 @@ test('a stop whose control never appears is skipped instead of dimming an empty 
   await click(pill());
   await click(steps()[2]);
   assert.equal(tourCount(), '1/4');
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 2700)));
+  await elapse(2700);
   assert.equal(tourCount(), '2/4');
 });
 

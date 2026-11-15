@@ -25,33 +25,77 @@ pub fn preferred_port() -> u16 {
     }
 }
 
-/// A throwaway cluster in a temp directory.
+/// What a test's database lives in.
+enum Home {
+    /// A cluster of the test's own, in `dir`: for a test of a cluster's start, its files or its recovery.
+    Own,
+    /// A database of the cluster every test of the run shares (`shared_pg`), dropped with the test.
+    Shared { port: u16, database: String },
+}
+
+/// A database for a test: its own in the run's shared cluster ([`TestPg::start`]), or a throwaway cluster in a temp directory
+/// ([`TestPg::start_own`]). `dir` is the cluster's profile directory of an own cluster and a scratch directory of a shared one.
 pub struct TestPg {
     pub cluster: PgCluster,
     pub dir: TempDir,
     runtime: PathBuf,
+    home: Home,
+    // A runner that forbids supervisor breakaway uses the former per-test cluster,
+    // serialised across those fallback processes for its entire lifetime.
+    fallback_guard: Option<std::fs::File>,
 }
 
 impl TestPg {
+    fn runtime_dir() -> PathBuf {
+        PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"))
+    }
+
+    /// A database of its own in the shared cluster (made from the template in milliseconds, so tests run in parallel).
     pub async fn start() -> Self {
-        let runtime = PathBuf::from(
-            std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"),
-        );
+        let runtime = Self::runtime_dir();
+        let dir = tempfile::tempdir().expect("temp dir");
+        let Some(shared) = super::shared_pg::acquire(&runtime) else {
+            let guard = super::shared_pg::owned_fallback_lock(&runtime);
+            let mut own = Self::start_own().await;
+            own.fallback_guard = Some(guard);
+            return own;
+        };
+        let database = format!("t{}", uuid::Uuid::new_v4().simple());
+        super::shared_pg::create_database(shared.port, &database).await;
+        let cluster = PgCluster::over(PgRuntime::new(&runtime), &shared.profile, shared.port, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests());
+        Self { cluster, dir, runtime, home: Home::Shared { port: shared.port, database }, fallback_guard: None }
+    }
+
+    /// A cluster of its own in a temp directory.
+    pub async fn start_own() -> Self {
+        let runtime = Self::runtime_dir();
         let dir = tempfile::tempdir().expect("temp dir");
         let preferred = preferred_port();
         let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
             .await
             .expect("postgres starts");
-        Self { cluster, dir, runtime }
+        Self { cluster, dir, runtime, home: Home::Own, fallback_guard: None }
+    }
+
+    /// This test's database, for a child process that opens the same one.
+    pub fn database(&self) -> &str {
+        match &self.home {
+            Home::Own => crate::memory::pg::db::DATABASE,
+            Home::Shared { database, .. } => database,
+        }
     }
 
     pub async fn db(&self, schema: Schema) -> Db {
-        Db::open(&self.cluster, schema).await.expect("db opens")
+        match &self.home {
+            Home::Own => Db::open(&self.cluster, schema).await.expect("db opens"),
+            Home::Shared { port, database } => Db::open_in(*port, database, schema).expect("db opens"),
+        }
     }
 
     /// A kill of the postmaster (an immediate stop: no checkpoint, crash recovery at the next
     /// start), then a start on the same data directory.
     pub async fn kill_and_restart(&mut self) {
+        assert!(matches!(self.home, Home::Own), "only a cluster of the test's own is killed");
         self.stop_immediate();
         self.cluster = PgCluster::ensure(PgRuntime::new(&self.runtime), self.dir.path(), self.cluster.port(), mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
             .await
@@ -60,6 +104,10 @@ impl TestPg {
 
     #[allow(clippy::disallowed_methods, reason = "test teardown: reads the stopped cluster's pid file")]
     fn stop_immediate(&self) {
+        if let Home::Shared { port, database } = &self.home {
+            super::shared_pg::drop_database(*port, database.clone());
+            return;
+        }
         let mut stop = Command::new(self.runtime.join("bin").join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }));
         stop.args(["stop", "-m", "immediate", "-w", "-D"])
             .arg(self.cluster.data_dir())

@@ -20,6 +20,7 @@ mod recall_cancel;
 mod reindex;
 mod sensitive;
 mod service;
+mod shared_pg;
 mod session_search;
 mod session_search_golden;
 pub mod support;
