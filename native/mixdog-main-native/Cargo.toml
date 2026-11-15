@@ -21,6 +21,11 @@ napi-derive = "=3.6.3"
 # The rules themselves; the crate takes only mixdog-js and url (no tokio, no hyper, no workspace-hack).
 mixdog-browser-rules = { path = "../core/crates/mixdog-browser-rules" }
 
+# The same patched crates as the core workspace (native/core/Cargo.toml [patch.crates-io]): mixdog-browser-rules reaches
+# mixdog-js, whose locale comparison calls the patched ICU collator, and a standalone workspace does not inherit the core's patches.
+[patch.crates-io]
+icu_collator = { path = "../core/vendor/icu_collator" }
+
 [build-dependencies]
 napi-build = "=2.4.1"
 
