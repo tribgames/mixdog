@@ -268,3 +268,27 @@ async fn a_repeated_op_runs_the_checks_once() {
     assert_eq!(first, again);
     assert_eq!(rig.sources.notices.lock().unwrap().len(), 1);
 }
+
+/// The script runtime's version is known only from the install's metadata: absent it, the row
+/// says so; a known version is judged against the package's requirement.
+#[test]
+fn the_node_row_reads_the_runtime_metadata() {
+    let row = |node: Value| {
+        let verdict = report_node(&node).expect("the node row is a verdict");
+        (verdict.level, verdict.detail)
+    };
+    let unknown = "Node.js script runtime version unavailable";
+    for node in [json!({ "version": null, "engines": "^22.19.0 || >=24.0.0" }), json!({ "engines": ">=22.0.0" })] {
+        let (level, detail) = row(node);
+        assert!(level == Level::Warn);
+        assert_eq!(detail, unknown);
+    }
+    let (level, detail) = row(json!({ "version": "22.20.0", "engines": "^22.19.0 || >=24.0.0" }));
+    assert!(level == Level::Ok);
+    assert_eq!(detail, "v22.20.0 · requires node ^22.19.0 || >=24.0.0");
+    let (level, _) = row(json!({ "version": "20.1.0", "engines": ">=22.0.0" }));
+    assert!(level == Level::Fail);
+    let (level, detail) = row(json!({ "version": "22.20.0", "engines": null }));
+    assert!(level == Level::Warn);
+    assert_eq!(detail, "v22.20.0 · engine requirement unavailable");
+}

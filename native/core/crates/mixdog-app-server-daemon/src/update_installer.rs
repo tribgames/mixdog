@@ -56,8 +56,7 @@ impl StagedInstaller {
         Self { config, lane, proxy, exec, dev }
     }
 
-    /// The user's npm run with `args`, never through a shell this code starts (an `npm.cmd` shim
-    /// is started by Windows' own batch handling).
+    /// The user's Node runs npm-cli.js directly; the production resolver never returns a shell shim.
     fn npm_spec(&self, npm: &blocking::NpmCommand, args: &[String]) -> ExecSpec {
         let mut spec = ExecSpec::new(npm.program.to_string_lossy(), &self.config.data_dir);
         spec.args = npm.lead.iter().cloned().chain(args.iter().cloned()).collect();
@@ -139,7 +138,7 @@ impl UpdateInstaller for StagedInstaller {
         let npm = mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| blocking::resolve_npm(lane, &blocking::NpmEnv::process()))
             .await
             .map_err(|error| error.to_string())?
-            .ok_or_else(|| "npm unresolved — staging skipped".to_owned());
+            .ok_or_else(|| "npm-cli.js unresolved — staging skipped".to_owned());
         let outcome = match npm {
             Ok(npm) => self.install(&npm, &version, &verdir, &cancel).await,
             Err(error) => Err(error),
@@ -368,16 +367,39 @@ exit 3
         staged(&config, &npm, "9.9.9").await.unwrap();
     }
 
-    /// With no `node` on `PATH` the user's `npm` shim is what runs; with nothing on it there is
-    /// no npm and staging is skipped.
+    /// A shell shim alone must not turn the original shell-less staging into a shell spawn.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_npm_shim_on_path_is_what_runs() {
+    async fn an_npm_shim_without_node_is_not_executed() {
         let dir = tempfile::tempdir().unwrap();
-        let npm = fake_npm(dir.path()).await;
+        let _npm = fake_npm(dir.path()).await;
         let found = resolved(blocking::NpmEnv { exec_path: None, path: dir.path().as_os_str().to_owned() }).await;
-        assert_eq!(found, Some(npm));
+        assert_eq!(found, None);
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(resolved(blocking::NpmEnv { exec_path: None, path: empty.path().as_os_str().to_owned() }).await, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn npm_execpath_precedes_adjacent_cli_and_no_shell_fallback_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = dir.path().join(if cfg!(windows) { "node.exe" } else { "node" });
+        put(&node, "").await;
+        let _shim = fake_npm(dir.path()).await;
+        let env = || blocking::NpmEnv { exec_path: None, path: dir.path().as_os_str().to_owned() };
+        assert_eq!(resolved(env()).await, None);
+        let adjacent = dir.path().join("node_modules").join("npm").join("bin").join("npm-cli.js");
+        let explicit = dir.path().join("explicit/npm-cli.js");
+        put(&adjacent, "").await;
+        put(&explicit, "").await;
+        let mut supplied = env();
+        supplied.exec_path = Some(explicit.clone());
+        assert_eq!(resolved(supplied).await, Some(blocking::NpmCommand {
+            program: node.clone(), lead: vec![explicit.to_string_lossy().into_owned()],
+        }));
+        let mut missing = env();
+        missing.exec_path = Some(dir.path().join("missing/npm-cli.js"));
+        assert_eq!(resolved(missing).await, Some(blocking::NpmCommand {
+            program: node, lead: vec![adjacent.to_string_lossy().into_owned()],
+        }));
     }
 
     /// With only a `node` on `PATH`, npm's `npm-cli.js` beside it is run by that node.
@@ -587,12 +609,6 @@ pub(crate) mod blocking {
         None
     }
 
-    /// The first `npm` shim on `PATH` that runs as it is (`npm.cmd` on Windows).
-    fn shim_program(lane: &InLane<MaintenanceIo>, env: &NpmEnv) -> Option<PathBuf> {
-        let name = if cfg!(windows) { "npm.cmd" } else { "npm" };
-        path_dirs(env).into_iter().map(|dir| dir.join(name)).find(|candidate| present(lane, candidate))
-    }
-
     /// `npmCliJsPath` beside a `node` (Windows, Unix and Homebrew layouts).
     fn cli_beside(lane: &InLane<MaintenanceIo>, node: &Path) -> Option<PathBuf> {
         let mut exec_dirs = Vec::new();
@@ -615,8 +631,8 @@ pub(crate) mod blocking {
 
     /// The user's npm. With a `node` on `PATH`, `npmCliJsPath`'s order, run by that node: the
     /// `npm-cli.js` named by `npm_execpath`, the one beside the node (Windows, Unix and Homebrew
-    /// layouts), the one behind the `npm` shim. Else the `npm` shim itself. `None` when none of
-    /// these exists.
+    /// layouts), the one behind the `npm` shim. A shim is only a lookup hint: never execute it.
+    /// Without both a system Node and npm-cli.js, staging is skipped.
     pub fn resolve_npm(lane: &InLane<MaintenanceIo>, env: &NpmEnv) -> Option<NpmCommand> {
         if let Some(node) = node_on_path(lane, env) {
             let exec = env.exec_path.clone().filter(|path| path.to_string_lossy().to_lowercase().ends_with("npm-cli.js") && present(lane, path));
@@ -624,7 +640,7 @@ pub(crate) mod blocking {
                 return Some(NpmCommand { program: node, lead: vec![cli.to_string_lossy().into_owned()] });
             }
         }
-        shim_program(lane, env).map(|shim| NpmCommand { program: shim, lead: Vec::new() })
+        None
     }
 
     /// `new URL(text).href` for the registry URLs npm answers with.
