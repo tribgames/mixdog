@@ -25,11 +25,9 @@ export const rendererInputs = [
   join(relayDir, 'scripts', 'stage-web.mjs'),
 ];
 
-const relayInputs = [
-  join(relayDir, 'server.mjs'),
-  join(relayDir, 'package.json'),
-  join(relayDir, 'package-lock.json'),
-  join(relayDir, 'lib'),
+export const relayInputs = [
+  join(repoRoot, 'native', 'core', 'crates', 'mixdog-relay'),
+  join(repoRoot, 'native', 'core', 'Cargo.lock'),
   join(relayDir, 'deploy'),
 ];
 

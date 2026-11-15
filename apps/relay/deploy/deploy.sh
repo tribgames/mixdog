@@ -3,7 +3,10 @@
 #   curl -fsSL <raw url>/deploy.sh | bash -s relay.example.com
 # or: scp -r apps/relay root@vps: && bash relay/deploy/deploy.sh relay.example.com
 #
-# Does: node 22 install, mixdog-relay user, /opt/mixdog-relay code, Let's
+# The uploaded directory holds the relay binary (mixdog-relay), deploy/, the
+# optional renderer/ and the optional mobile-release.json: no runtime is installed.
+#
+# Does: mixdog-relay user, /opt/mixdog-relay binary, Let's
 # Encrypt cert (standalone, port 80 must be free), systemd unit on :443 with
 # in-process TLS, renew hook that restarts the service.
 set -euo pipefail
@@ -11,24 +14,25 @@ set -euo pipefail
 DOMAIN="${1:?usage: deploy.sh <relay-domain>}"
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-if ! command -v node >/dev/null || [[ "$(node -v | cut -c2-3)" -lt 22 ]]; then
-	curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-	apt-get install -y nodejs
-fi
+[[ -f "$SRC_DIR/mixdog-relay" ]] || {
+	echo "[deploy] $SRC_DIR/mixdog-relay (the relay binary) is missing from the upload" >&2
+	exit 1
+}
 
 id -u mixdog-relay >/dev/null 2>&1 || useradd --system --home /var/lib/mixdog-relay --shell /usr/sbin/nologin mixdog-relay
 mkdir -p /opt/mixdog-relay /var/lib/mixdog-relay
-cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" /opt/mixdog-relay/
-# Shared HTTP helpers the server imports (also used by the desktop LAN bridge).
-rm -rf /opt/mixdog-relay/lib
-cp -r "$SRC_DIR/lib" /opt/mixdog-relay/lib
+install -m 0755 -o root -g root "$SRC_DIR/mixdog-relay" /opt/mixdog-relay/mixdog-relay
+rm -rf /opt/mixdog-relay/deploy
+cp -r "$SRC_DIR/deploy" /opt/mixdog-relay/deploy
+if [[ -f "$SRC_DIR/mobile-release.json" ]]; then
+	cp "$SRC_DIR/mobile-release.json" /opt/mixdog-relay/mobile-release.json
+fi
 # Optional web app: run `npm run stage:web` before copying this directory and
 # the relay serves the staged renderer over https.
 if [[ -d "$SRC_DIR/renderer" ]]; then
 	rm -rf /opt/mixdog-relay/renderer
 	cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer
 fi
-cd /opt/mixdog-relay && npm ci --omit=dev --no-audit --no-fund
 chown -R mixdog-relay:mixdog-relay /var/lib/mixdog-relay
 
 if [[ ! -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
