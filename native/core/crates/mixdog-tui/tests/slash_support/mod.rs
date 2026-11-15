@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use mixdog_term::paste::{PastedImage, PromptContent, PromptPart};
+use mixdog_term::paste::{PastedImage, PromptContent, PromptPart, build_prompt_content_with_images};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::slash::host::{
@@ -33,6 +33,9 @@ pub struct Fake {
     pub provider: Option<TextPrompt>,
     pub settings: Option<TextPrompt>,
     pub images: BTreeMap<u64, PastedImage>,
+    /// The ids of the scenario holders that carry no `type: "image"`: Node builds no image part for those (it filters on
+    /// the type), and the recording kept the text alone. The Rust holder is an image by construction.
+    pub untyped_images: BTreeSet<u64>,
     pub texts: BTreeMap<u64, String>,
     pub open_fails: Vec<String>,
     pub doctor_fails: Option<String>,
@@ -163,6 +166,18 @@ fn ids_json(ids: Option<&BTreeSet<u64>>) -> Value {
 }
 
 impl Fake {
+    /// The content as the Node code built it: without the image parts of the holders it ignores (see `untyped_images`).
+    fn content_as_node_built_it(&self, content: &PromptContent) -> Value {
+        let PromptContent::Parts(parts) = content else { return content_json(content) };
+        if self.untyped_images.is_empty() {
+            return content_json(content);
+        }
+        let Some(PromptPart::Text(text)) = parts.first() else { return content_json(content) };
+        let typed: BTreeMap<u64, PastedImage> =
+            self.images.iter().filter(|(id, _)| !self.untyped_images.contains(id)).map(|(id, image)| (*id, image.clone())).collect();
+        content_json(&build_prompt_content_with_images(text, &typed))
+    }
+
     pub fn new() -> Self {
         Self {
             state: SlashState {
@@ -468,10 +483,12 @@ impl SlashHost for Fake {
         &mut self,
         method: &str,
         content: &PromptContent,
-        options: &SubmitOptions,
+        options: Option<&SubmitOptions>,
     ) -> Result<Value, String> {
-        self.committed = options.on_committed.clone();
-        self.log.push(json!(["submit", method, content_json(content), options_json(options)]));
+        self.committed = options.and_then(|options| options.on_committed.clone());
+        let shown = self.content_as_node_built_it(content);
+        let options = options.map_or_else(|| json!({"committed": false}), options_json);
+        self.log.push(json!(["submit", method, shown, options]));
         if method == "submit" {
             return Ok(self.submit_result.clone().unwrap_or(json!(true)));
         }
@@ -504,6 +521,9 @@ pub fn fake_from_spec(spec: &Value) -> Fake {
     fake.settings = spec.get("settingsPrompt").filter(|prompt| !prompt.is_null()).map(prompt_from);
     for (id, image) in spec.get("pastedImages").and_then(Value::as_object).into_iter().flatten() {
         let id: u64 = id.parse().unwrap_or(0);
+        if image.get("type").and_then(Value::as_str) != Some("image") {
+            fake.untyped_images.insert(id);
+        }
         fake.images.insert(
             id,
             PastedImage {

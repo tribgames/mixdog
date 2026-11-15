@@ -205,6 +205,11 @@ mod tests {
         lines.iter().map(|line| mixdog_termtext::strip_ansi(&line.0).into_owned()).collect()
     }
 
+    /// The rows without the cells a band is padded with to its right edge (a band is a background: its rows are blank-filled).
+    fn trimmed(lines: &[Line]) -> Vec<String> {
+        text(lines).into_iter().map(|row| row.trim_end().to_owned()).collect()
+    }
+
     #[test]
     fn an_item_is_its_lines_and_the_count_is_its_height() {
         let lines = render_item(&json!({ "kind": "assistant", "id": "a", "text": "one\n\ntwo" }), &ItemCtx::new(40));
@@ -234,13 +239,14 @@ mod tests {
 
     #[test]
     fn a_completion_row_draws_the_hint_in_its_own_line_and_a_blank_hint_draws_nothing() {
-        let mut ctx = ItemCtx::new(40);
+        // Wide enough for the copy: the hint takes its 24 cells and the copy is cut to what is left.
+        let mut ctx = ItemCtx::new(60);
         ctx.right_message = "next".to_owned();
         let done = text(&render_item(&json!({ "kind": "turndone", "elapsedMs": 12000 }), &ctx));
         assert_eq!(done.len(), 2);
-        assert!(done[1].starts_with("\u{25c8} Thought for 12s") && done[1].ends_with("next"));
+        assert!(done[1].starts_with("\u{25c8} Thought for 12s") && done[1].trim_end().ends_with("next"));
         ctx.right_message = " \n ".to_owned();
-        let blank = text(&render_item(&json!({ "kind": "user", "text": "hi" }), &ctx));
+        let blank = trimmed(&render_item(&json!({ "kind": "user", "text": "hi" }), &ctx));
         assert_eq!(blank, ["", "  hi"]);
     }
 
@@ -268,7 +274,7 @@ mod tests {
     #[test]
     fn the_queue_and_the_ansi_text_render_to_their_own_rows() {
         let queued = render_queued_commands(&[json!({ "id": "a", "text": "queued" })], 30, false);
-        assert_eq!(text(&queued), ["  queued"]);
+        assert_eq!(trimmed(&queued), ["  queued"]);
         assert!(render_queued_commands(&[], 30, false).is_empty());
         let ansi = render_ansi_text("\x1b[1mBold\x1b[22m plain", Color::Default, 20);
         assert_eq!(text(&ansi), ["Bold plain"]);
@@ -298,10 +304,10 @@ mod tests {
 
     #[test]
     fn user_notice_and_assistant_components_render_as_lines() {
-        assert_eq!(text(&render_user_message(Some("hello"), false, 30, None)), ["", "  hello"]);
-        assert_eq!(text(&render_notice("hello", Some("warn"), 30)), ["", "  \u{b7} hello"]);
+        assert_eq!(trimmed(&render_user_message(Some("hello"), false, 30, None)), ["", "  hello"]);
+        assert_eq!(trimmed(&render_notice("hello", Some("warn"), 30)), ["", "  \u{b7} hello"]);
         assert_eq!(text(&render_assistant_message("hello", false, 30, None, 0)).len(), 2);
-        assert_eq!(text(&render_turn_done(5000.0, "done", 0.0, "Thought", 0, None, 40)), ["\u{25c8} Response complete"]);
-        assert!(text(&render_status_done("Done", "", 0, Some(("next step", "info", 12.0)), 60))[0].ends_with("next step"));
+        assert_eq!(trimmed(&render_turn_done(5000.0, "done", 0.0, "Thought", 0, None, 40)), ["\u{25c8} Response complete"]);
+        assert!(text(&render_status_done("Done", "", 0, Some(("next step", "info", 12.0)), 60))[0].trim_end().ends_with("next step"));
     }
 }

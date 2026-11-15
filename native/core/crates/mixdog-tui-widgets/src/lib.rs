@@ -147,16 +147,24 @@ pub(crate) type Modes = (TextWrap, TextWrap);
 
 pub(crate) fn split_row(left: &str, right: &str, width: usize, modes: Modes, justify: Justify) -> Split {
     let (left_basis, right_basis) = (basis(left, width, modes.0), basis(right, width, modes.1));
-    let (left_cells, right_cells, right_x) = if left_basis + right_basis <= width {
-        (left_basis, right_basis, if justify == Justify::Between { width - right_basis } else { left_basis })
+    let (left_cells, right_cells, right_x, rows) = if left_basis + right_basis <= width {
+        let rows = fitted_rows(left, left_basis, modes.0).max(fitted_rows(right, right_basis, modes.1));
+        (left_basis, right_basis, if justify == Justify::Between { width - right_basis } else { left_basis }, rows)
     } else {
         // Yoga compares with a tolerance of 1e-4 when it decides whether an edge is on a whole cell.
         let share = left_basis as f64 * width as f64 / (left_basis + right_basis) as f64;
         let right_x = ((share + 1e-4).floor() as usize).min(width);
-        ((share - 1e-4).ceil() as usize, width - right_x, right_x)
+        // The height of a row is the taller text measured at the width Yoga gave it, which is the fraction itself; the
+        // text is then painted in the whole cells it is laid out in (see above).
+        let rows = measured_rows(left, share, modes.0).max(measured_rows(right, width as f64 - share, modes.1));
+        ((share - 1e-4).ceil() as usize, width - right_x, right_x, rows)
     };
-    let rows = fitted_rows(left, left_cells, modes.0).max(fitted_rows(right, right_cells, modes.1)).max(1);
-    Split { left_cells, right_x, right_cells, rows }
+    Split { left_cells, right_x, right_cells, rows: rows.max(1) }
+}
+
+/// The rows an Ink `<Text>` is measured at in a (fractional) `width`.
+fn measured_rows(text: &str, width: f64, mode: TextWrap) -> u16 {
+    mixdog_termtext::wrap::wrap_text_fractional(text, width, mode).split('\n').count() as u16
 }
 
 /// Paints a [`split_row`] with its two texts and returns its rows.

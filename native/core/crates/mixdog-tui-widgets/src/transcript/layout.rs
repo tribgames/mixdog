@@ -2,7 +2,7 @@
 //! of boxes (`flexDirection="column"` with an optional `gap`). Each knows its exact row count before it paints, which
 //! is what the transcript window needs instead of an estimate.
 
-use mixdog_term::frame::{Rect, Style};
+use mixdog_term::frame::{Color, Rect, Style};
 use mixdog_term::paint::{Painter, TextWrap};
 
 /// One transcript component laid out: how many rows it takes and how it paints itself with its top-left cell at `(x, y)`.
@@ -38,7 +38,25 @@ impl TextBox {
     }
 
     pub(crate) fn paint(&self, painter: &mut Painter, x: i32, y: i32) {
-        if self.rows > 0 {
+        if self.rows == 0 {
+            return;
+        }
+        if crate::text_width(&self.text) <= self.width {
+            // Ink wraps only a text wider than its box: one that fits is drawn as it is, a carriage return included. The
+            // `\r` of a `\r\n` is outside the color: chalk closes the color before a `\r\n` and opens it again after.
+            for (offset, line) in self.text.split('\n').enumerate() {
+                let row = y + offset as i32;
+                match line.strip_suffix('\r') {
+                    Some(body) => {
+                        let advanced = painter.line(x, row, body, self.style);
+                        painter.line(x + advanced as i32, row, "\r", Style { fg: Color::Default, ..self.style });
+                    }
+                    None => {
+                        painter.line(x, row, line, self.style);
+                    }
+                }
+            }
+        } else {
             painter.text(x, y, &self.text, self.style, self.width, self.mode);
         }
     }
