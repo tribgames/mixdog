@@ -1023,6 +1023,24 @@ pub fn wrap_lines(text: &str, width: usize, hard: bool) -> Vec<String> {
     if lines.is_empty() { vec![String::new()] } else { lines }
 }
 
+/// The display width of UTF-16 units, as Node measures a string that may hold half of a surrogate pair: such a half
+/// is a cluster of its own and takes no cell (string-width counts `\p{Surrogate}` as zero), so the width is that of the
+/// well-formed runs between the halves.
+fn width_of_units(units: &[u16], wide: bool) -> usize {
+    let mut total = 0;
+    let mut run = String::new();
+    for decoded in char::decode_utf16(units.iter().copied()) {
+        match decoded {
+            Ok(c) => run.push(c),
+            Err(_) => {
+                total += display_width_with(&run, wide);
+                run.clear();
+            }
+        }
+    }
+    total + display_width_with(&run, wide)
+}
+
 /// `hardWrapAnsiLines(text, width)` under the display-width policy `wide`.
 pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<String> {
     let max = columns.max(1);
@@ -1031,11 +1049,32 @@ pub fn hard_wrap_ansi_lines_with(text: &str, columns: usize, wide: bool) -> Vec<
     }
     let mut out = Vec::new();
     for soft_line in wrap_lines(text, max, true) {
+        if soft_line.chars().any(|c| c.len_utf16() == 2) {
+            // The Node code cuts at UTF-16 units (the longest prefix that fits, at least one unit), so a cut can
+            // fall inside a surrogate pair and leave a half on each side. A Rust string cannot hold a half, and
+            // Node writes one to a terminal as U+FFFD: each half is that in the lines.
+            let mut units: Vec<u16> = soft_line.encode_utf16().collect();
+            while !units.is_empty() && width_of_units(&units, wide) > max {
+                let mut take = 1;
+                for at in 1..=units.len() {
+                    if width_of_units(&units[..at], wide) <= max {
+                        take = at;
+                    } else {
+                        break;
+                    }
+                }
+                out.push(String::from_utf16_lossy(&units[..take]));
+                units.drain(..take);
+            }
+            if !units.is_empty() {
+                out.push(String::from_utf16_lossy(&units));
+            }
+            continue;
+        }
         let mut rest: &str = &soft_line;
         while !rest.is_empty() && display_width_with(rest, wide) > max {
             // The longest prefix, at a character boundary, whose width fits (the first prefix that does not fit ends
-            // the search); at least one character. The Node code cuts at UTF-16 units and can leave half of a
-            // surrogate pair on each side of a cut; a Rust string cannot hold that, so a cut is always whole characters.
+            // the search); at least one character.
             let mut take = rest.chars().next().map_or(0, char::len_utf8);
             for (at, ch) in rest.char_indices() {
                 let end = at + ch.len_utf8();
@@ -1070,6 +1109,13 @@ mod tests {
 
     fn hard(text: &str, columns: usize) -> String {
         wrap_ansi(text, columns, WrapOptions { hard: true, ..WrapOptions::default() })
+    }
+
+    #[test]
+    fn a_hard_cut_falls_between_the_units_of_a_pair_as_node_cuts() {
+        // A half of a pair takes no cell; each half is the replacement character in the lines.
+        assert_eq!(hard_wrap_ansi_lines_with("\u{1F642}a", 1, false), ["\u{FFFD}", "\u{FFFD}", "a"]);
+        assert_eq!(hard_wrap_ansi_lines_with("\u{1F642}\u{1F642}", 2, false), ["\u{1F642}", "\u{1F642}"]);
     }
 
     #[test]
