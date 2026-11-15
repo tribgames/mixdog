@@ -332,6 +332,388 @@ impl<T> AnswerWatch<T> {
         }
     }
 
+    /// The turn `generation` of `session_id` is still the one watched, and the session is still idle.
+    fn current(&self, session_id: &str, generation: u64) -> bool {
+        (self.enabled)() && self.pending.get(session_id).is_some_and(|entry| entry.generation == generation) && self.tracker.is_idle(session_id)
+    }
+
+    fn schedule(&self, session_id: &str, generation: u64, delay_ms: u64) {
+        let wake = self.wake.clone();
+        let session_id = session_id.to_owned();
+        drop(tokio::spawn(async move {
+            mixdog_rt::time::sleep(Duration::from_millis(delay_ms)).await;
+            wake(WatchWake::Deliver { session_id, generation });
+        }));
+    }
+
+    /// At most one answer read in flight: a burst of completions queues behind it instead of piling reads onto the store.
+    fn pump(&mut self) {
+        while !self.reading {
+            let Some((session_id, generation)) = self.queue.pop_front() else { return };
+            if !self.current(&session_id, generation) {
+                if self.pending.get(&session_id).is_some_and(|entry| entry.generation == generation) {
+                    self.pending.remove(&session_id);
+                }
+                continue;
+            }
+            let Some(entry) = self.pending.get(&session_id) else { continue };
+            let started_at = entry.end.started_at;
+            self.reading = true;
+            let answers = self.answers.clone();
+            let wake = self.wake.clone();
+            drop(tokio::spawn(async move {
+                let result = match mixdog_rt::time::timeout(READ_DEADLINE, answers.read(&session_id, started_at)).await {
+                    Ok(result) => result,
+                    Err(_) => Err(AnswerReadError::Failed(format!(
+                        "final answer read timed out after {} ms",
+                        READ_DEADLINE.as_millis()
+                    ))),
+                };
+                wake(WatchWake::Read { session_id, generation, result });
+            }));
+        }
+    }
+
+    fn settle(
+        &mut self,
+        session_id: &str,
+        generation: u64,
+        result: Result<Option<FinalAnswer>, AnswerReadError>,
+    ) -> Option<Settled<T>> {
+        let answer = match result {
+            Err(AnswerReadError::SessionMissing) => {
+                // Terminal: the record is gone, so no retry can ever succeed.
+                if self.pending.get(session_id).is_some_and(|entry| entry.generation == generation) {
+                    (self.report)("cancelled", session_id, json!({ "sessionId": session_id, "reason": "session-missing" }));
+                    self.pending.remove(session_id);
+                }
+                return None;
+            }
+            Err(AnswerReadError::Failed(error)) => {
+                (self.report)("read-failed", session_id, json!({ "sessionId": session_id, "error": error }));
+                if !self.current(session_id, generation) {
+                    return None;
+                }
+                let entry = self.pending.get_mut(session_id)?;
+                entry.failures += 1;
+                if entry.failures >= READ_FAILURE_LIMIT {
+                    (self.report)("cancelled", session_id, json!({ "sessionId": session_id, "reason": "read-failed" }));
+                    self.pending.remove(session_id);
+                    return None;
+                }
+                let delay = (STABILIZE_MS << (entry.failures - 1)).min(READ_RETRY_MAX_MS);
+                self.schedule(session_id, generation, delay);
+                return None;
+            }
+            Ok(answer) => answer,
+        };
+        // The read may cross a new turn, an archive or a restart: idleness alone cannot identify the turn that was asked.
+        if !self.current(session_id, generation) {
+            return None;
+        }
+        let entry = self.pending.get_mut(session_id)?;
+        entry.failures = 0;
+        let started_at = entry.end.started_at;
+        // A turn answered by a reaction alone raises no notification.
+        if answer.as_ref().is_some_and(|answer| answer.reacted && answer.at >= started_at) {
+            self.pending.remove(session_id);
+            (self.report)("suppressed", session_id, json!({ "sessionId": session_id, "reason": "reaction" }));
+            return None;
+        }
+        let ready = answer
+            .filter(|answer| answer.at >= started_at && !(answer.status == FinalAnswerStatus::Done && answer.text.trim().is_empty()));
+        let Some(answer) = ready else {
+            if !entry.waiting_reported {
+                entry.waiting_reported = true;
+                (self.report)("waiting-answer", session_id, json!({ "sessionId": session_id }));
+            }
+            let delay = if entry.end.lead_finished { ANSWER_POLL_MS } else { STABILIZE_MS };
+            self.schedule(session_id, generation, delay);
+            return None;
+        };
+        let Watch { detail, .. } = self.pending.remove(session_id)?;
+        // A turn the user cancelled is no news; one that failed is an error notification.
+        let (failed, text) = match answer.status {
+            FinalAnswerStatus::Cancelled => {
+                (self.report)("suppressed", session_id, json!({ "sessionId": session_id, "reason": "cancelled" }));
+                return None;
+            }
+            FinalAnswerStatus::Done if is_routine_quiet_reply(&answer.text) => {
+                (self.report)("suppressed", session_id, json!({ "sessionId": session_id, "reason": "routine-quiet" }));
+                return None;
+            }
+            FinalAnswerStatus::Failed => (true, String::new()),
+            FinalAnswerStatus::Done => (false, answer.text),
+        };
+        Some(Settled { session_id: session_id.to_owned(), detail, failed, text })
+    }
+}
+
+// ---- a server's notifier
+
+/// What the notifier shows and decides with.
+pub struct NotifierEnv {
+    pub connection_id: String,
+    pub server_name: String,
+    pub sink: Arc<dyn NotifySink>,
+    pub prefs: Arc<dyn NotifyPrefs>,
+    pub focus: Arc<dyn WindowFocusSource>,
+    pub texts: Arc<dyn NotifyTexts>,
+}
+
+/// What the notifier reads.
+pub struct NotifierSources {
+    pub sessions: watch::Receiver<Vec<SessionSummaryLite>>,
+    pub agent_pool: watch::Receiver<Vec<AgentRowLite>>,
+    /// The approvals and questions the server holds (a thread's state does not carry them).
+    pub approvals: watch::Receiver<Vec<PendingApproval>>,
+    pub view: watch::Receiver<LinkViewState>,
+    pub answers: Arc<dyn FinalAnswers>,
+}
+
+/// The running notifier of one link; dropping it stops it and closes the toasts of the server that are still showing.
+pub struct ServerNotifier {
+    task: JoinHandle<()>,
+    sink: Arc<dyn NotifySink>,
+    connection_id: String,
+}
+
+impl ServerNotifier {
+    /// Starts notifying for `link`. Must be called inside a tokio runtime.
+    pub fn attach(
+        link: &Arc<ServerLink>,
+        sink: Arc<dyn NotifySink>,
+        prefs: Arc<dyn NotifyPrefs>,
+        focus: Arc<dyn WindowFocusSource>,
+        texts: Arc<dyn NotifyTexts>,
+    ) -> ServerNotifier {
+        let env = NotifierEnv { connection_id: link.id().to_owned(), server_name: link.name().to_owned(), sink, prefs, focus, texts };
+        let sources = NotifierSources {
+            sessions: link.feed().sessions(),
+            agent_pool: link.feed().agent_pool(),
+            approvals: link.feed().pending_approvals(),
+            view: link.view(),
+            answers: Arc::new(LinkAnswers(link.clone())),
+        };
+        Self::start(env, sources)
+    }
+
+    pub(crate) fn start(env: NotifierEnv, sources: NotifierSources) -> ServerNotifier {
+        let (sink, connection_id) = (env.sink.clone(), env.connection_id.clone());
+        ServerNotifier { task: tokio::spawn(run(env, sources)), sink, connection_id }
+    }
+}
+
+impl Drop for ServerNotifier {
+    fn drop(&mut self) {
+        self.task.abort();
+        self.sink.close(&self.connection_id);
+    }
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_millis() as i64).unwrap_or(0)
+}
+
+/// `max` characters, the last of them an ellipsis when the text was cut.
+fn clip(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let mut clipped: String = text.chars().take(max.saturating_sub(1)).collect();
+    clipped.push('…');
+    clipped
+}
+
+/// The OS gets bounded text, one line for the title.
+pub fn bounded_notification(title: &str, body: &str) -> (String, String) {
+    let one_line = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    (clip(&one_line, NOTIFICATION_TITLE_CHARS), clip(body.trim(), NOTIFICATION_BODY_CHARS))
+}
+
+fn named(template: &str, name: &str) -> String {
+    template.replacen("{{name}}", name, 1)
+}
+
+/// What a server session's finished turn is told under.
+struct Turn {
+    conversation: Conversation,
+    title: String,
+}
+
+/// A turn ready to be told: its answer was read.
+struct Completion {
+    session_id: String,
+    conversation: Conversation,
+    title: String,
+    event: Event,
+    preview: String,
+}
+
+fn row_working(row: &SessionSummaryLite) -> bool {
+    [row.summary.working, row.summary.lead_working, row.summary.agent_working].contains(&Some(true))
+}
+
+fn conversation_of(row: &SessionSummaryLite) -> Conversation {
+    let summary = &row.summary;
+    let origin = match summary.source_type.as_deref() {
+        Some("schedule") => Some(Origin::Schedule),
+        Some("webhook") => Some(Origin::Webhook),
+        _ => None,
+    };
+    let fields = SessionFields {
+        agent_home: summary.agent_home.clone(),
+        agent_room_id: summary.agent_room.as_ref().and_then(|room| room.get("id")).and_then(Value::as_str).map(str::to_owned),
+        task_agent: summary.task_agent.as_deref().is_some_and(|agent| !agent.is_empty()),
+        agent_mode: summary.session_mode.as_deref() == Some("agent"),
+        origin,
+        run_owner: None,
+    };
+    Conversation::of(&row.id, &fields)
+}
+
+/// A session's notification title: a room's own name, else its title.
+fn notification_title_of(row: &SessionSummaryLite) -> String {
+    let room = row.summary.agent_room.as_ref().and_then(|room| room.get("name")).and_then(Value::as_str).unwrap_or_default();
+    let text = [room, &row.title, &row.preview].into_iter().find(|text| !text.is_empty()).unwrap_or("Mixdog");
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.is_empty() { "Mixdog".to_owned() } else { clip(&one_line, SESSION_TITLE_CHARS) }
+}
+
+enum Wake {
+    /// The final-answer watcher's own timers and reads.
+    Watch(WatchWake),
+    /// The link has been down long enough to tell.
+    LinkLost(u64),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Status {
+    Connected,
+    Reconnecting,
+    Lost,
+    Paused,
+}
+
+struct Notifier {
+    env: NotifierEnv,
+    wake: mpsc::UnboundedSender<Wake>,
+    server_label: String,
+    watch: AnswerWatch<Turn>,
+    sessions: Vec<SessionSummaryLite>,
+    pending_work: HashSet<String>,
+    /// Completions whose answer was read but whose delivery could not be decided (the preferences were unreadable): offered again
+    /// at the next roster or agent event.
+    held: HashMap<String, Completion>,
+    titles: HashMap<String, String>,
+    conversations: HashMap<String, Conversation>,
+    /// The approvals already told (or already showing when the notifier started), for as long as the server holds them: one the
+    /// server no longer holds is forgotten, and told again if it comes back as a new request.
+    told: VecDeque<RequestId>,
+    /// The preferences could not be read at the last try: reported when reads start failing, not again until one succeeds.
+    prefs_failing: Cell<bool>,
+    lost_timer: Option<u64>,
+    lost_shown: bool,
+    previous: Status,
+}
+
+impl Notifier {
+    fn label(&self, title: &str) -> String {
+        format!("{} · {}", self.server_label, title)
+    }
+
+    /// A session title as people read it: the attachment placeholder in this PC's language.
+    fn session_title_label(&self, title: &str) -> String {
+        let kind = match title.trim().to_lowercase().as_str() {
+            "[image]" => AttachmentKind::Image,
+            "[video]" => AttachmentKind::Video,
+            "[file]" => AttachmentKind::File,
+            _ => return title.to_owned(),
+        };
+        self.env.texts.attachment_label(kind)
+    }
+
+    /// This PC's preferences, or `None` when they cannot be read.
+    fn read_prefs(&self, what: &str) -> Option<PreferencesView> {
+        match self.env.prefs.view() {
+            Ok(view) => {
+                self.prefs_failing.set(false);
+                Some(view)
+            }
+            Err(error) => {
+                if !self.prefs_failing.replace(true) {
+                    tracing::warn!(connection = %self.env.connection_id, what, %error, "notification preferences could not be read");
+                }
+                None
+            }
+        }
+    }
+
+    /// `sound`: the toast carries this PC's sound (a session's final answer; nothing else sounds).
+    fn show(&self, title: &str, body: &str, session_id: Option<&str>, sound: bool) {
+        if !self.env.sink.supported() {
+            return;
+        }
+        let (title, body) = bounded_notification(title, body);
+        let params = HostNotificationShowParams {
+            title,
+            body,
+            thread_id: session_id.map(Into::into),
+            sound: sound.then(|| ToastStyle::SOUND.to_owned()),
+            volume: None,
+            connection_id: Some(self.env.connection_id.clone()),
+            label: Some(self.server_label.clone()),
+        };
+        if let Err(error) = self.env.sink.show(params) {
+            tracing::warn!(connection = %self.env.connection_id, %error, "server notification failed");
+        }
+    }
+
+    /// Whether this PC's preferences, mutes, quiet hours and what is on screen let `event` of `conversation` through; `None` when
+    /// the preferences could not be read, so nothing was decided.
+    fn allowed(&self, session_id: &str, event: Event, conversation: &Conversation) -> Option<bool> {
+        if !self.env.sink.supported() {
+            return Some(false);
+        }
+        let view = self.read_prefs("session")?;
+        let now = now_ms();
+        let decision = decide(&DecisionInput {
+            event,
+            conversation,
+            view: &view,
+            now_ms: now,
+            clock: LocalClock::at(now),
+            foreground: self.env.focus.session_on_screen(&self.env.connection_id, session_id),
+            desktop_active: false,
+        });
+        if let Decision::Skip(reason) = decision {
+            tracing::debug!(connection = %self.env.connection_id, session = session_id, ?reason, "server notification suppressed");
+        }
+        Some(decision == Decision::Notify)
+    }
+
+    // -- sessions and final answers
+
+    fn on_sessions(&mut self, sessions: Vec<SessionSummaryLite>) {
+        // Each emission is the complete session list, so a session absent from it is gone: rebuild.
+        self.titles.clear();
+        self.conversations.clear();
+        for session in &sessions {
+            let title = [&session.title, &session.preview].into_iter().find(|text| !text.is_empty());
+            self.titles.insert(session.id.clone(), title.cloned().unwrap_or_else(|| self.env.server_name.clone()));
+            self.conversations.insert(session.id.clone(), conversation_of(session));
+        }
+        self.sessions = sessions;
+        self.observe();
+    }
+
+    fn on_agent_pool(&mut self, agents: &[AgentRowLite]) {
+        // Background work settling with no new Lead turn means the answer the Lead already gave was the final one.
+        let rows: Vec<Value> = agents.iter().map(|agent| agent.row.clone()).collect();
+        self.pending_work = sessions_with_pending_work(&rows);
+        self.observe();
+    }
+
     fn observe(&mut self) {
         let now = now_ms();
         let mut present = HashSet::new();
