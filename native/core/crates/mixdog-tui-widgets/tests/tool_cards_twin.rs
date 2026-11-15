@@ -106,8 +106,13 @@ fn the_tool_cards_draw_what_the_node_component_draws() {
     let wide = golden["ambiguousWide"].as_bool().unwrap();
     let (mut frames, mut functions) = (0, 0);
     let mut failures: Vec<String> = Vec::new();
+    // The recorder sets the theme before each frame case (`basic` unless the case names one) and never for a function
+    // case: those ran under whichever theme the frame before them left, and their recording carries its colors.
+    mixdog_tui_style::set_theme("basic");
     for case in &cases {
-        mixdog_tui_style::set_theme(case.get("theme").and_then(Value::as_str).unwrap_or("basic"));
+        if case["kind"].as_str() == Some("frame") {
+            mixdog_tui_style::set_theme(case.get("theme").and_then(Value::as_str).unwrap_or("basic"));
+        }
         let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match case["kind"].as_str().unwrap() {
             "frame" => frame_case(wide, case),
             _ => fn_case(case),
