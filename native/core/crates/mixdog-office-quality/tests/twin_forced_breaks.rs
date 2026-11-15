@@ -59,13 +59,13 @@ fn session_answer(input: &Value) -> Value {
     let html = dir.path().join("doc.html");
     let output = dir.path().join(text(input, "output").unwrap_or("preview.pdf"));
     if let Some(bytes) = decode(input, "docx") {
-        std::fs::write(&target, bytes).expect("write docx");
+        mixdog_fsio::write(&Unlaned, &target, bytes).expect("write docx");
     }
     if let Some(source) = text(input, "html") {
-        std::fs::write(&html, source).expect("write html");
+        mixdog_fsio::write(&Unlaned, &html, source).expect("write html");
     }
     if let Some(bytes) = decode(input, "pdf") {
-        std::fs::write(&output, bytes).expect("write pdf");
+        mixdog_fsio::write(&Unlaned, &output, bytes).expect("write pdf");
     }
     let output_text = if text(input, "output") == Some("") { String::new() } else { output.display().to_string() };
     let session = BreakSession {
