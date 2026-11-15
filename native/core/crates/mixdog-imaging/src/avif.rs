@@ -20,6 +20,7 @@ use rav1d::include::dav1d::headers::Dav1dSequenceHeader;
 use rav1d::include::dav1d::picture::Dav1dPicture;
 use rav1d::src::lib::dav1d_close;
 use rav1d::src::lib::dav1d_data_create;
+use rav1d::src::lib::dav1d_data_unref;
 use rav1d::src::lib::dav1d_default_settings;
 use rav1d::src::lib::dav1d_get_picture;
 use rav1d::src::lib::dav1d_open;
@@ -56,6 +57,17 @@ impl Drop for Picture {
     }
 }
 
+/// Data handed to dav1d; what it has not consumed is released when this is dropped, on every path.
+struct Data(Dav1dData);
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        // SAFETY: the data is either default (dav1d ignores an empty one) or came from `dav1d_data_create` and
+        // was partly or wholly consumed by `dav1d_send_data`; what is left is unreferenced exactly once, here.
+        unsafe { dav1d_data_unref(Some(NonNull::from(&mut self.0))) };
+    }
+}
+
 /// An open decoder.
 struct Decoder(Option<Dav1dContext>);
 
@@ -81,17 +93,20 @@ impl Decoder {
 
     /// Decodes the one picture of an AV1 still-image item.
     fn decode(&self, item: &[u8]) -> Result<Picture, ImagingError> {
-        let mut data = Dav1dData::default();
+        if item.is_empty() {
+            return Err(broken("the AV1 item is empty"));
+        }
+        let mut data = Data(Dav1dData::default());
         // SAFETY: `data` is valid to write; the call allocates `item.len()` bytes that dav1d owns.
-        let buffer = unsafe { dav1d_data_create(Some(NonNull::from(&mut data)), item.len()) };
+        let buffer = unsafe { dav1d_data_create(Some(NonNull::from(&mut data.0)), item.len()) };
         let Some(buffer) = NonNull::new(buffer) else { return Err(ImagingError::environment("cannot allocate AV1 data")) };
         // SAFETY: `buffer` was allocated for exactly `item.len()` bytes and does not overlap `item`.
         unsafe { std::ptr::copy_nonoverlapping(item.as_ptr(), buffer.as_ptr(), item.len()) };
         let mut picture = Picture(Dav1dPicture::default());
         for _ in 0..64 {
-            if data.sz > 0 {
+            if data.0.sz > 0 {
                 // SAFETY: the context is open and `data` is valid to read and write.
-                let sent = unsafe { dav1d_send_data(self.0, Some(NonNull::from(&mut data))) }.0;
+                let sent = unsafe { dav1d_send_data(self.0, Some(NonNull::from(&mut data.0))) }.0;
                 if sent != 0 && sent != -EAGAIN {
                     return Err(broken("the AV1 data is not decodable"));
                 }
