@@ -257,15 +257,13 @@ async fn call(addr: SocketAddr, method: &str, target: &str, headers: &[(&str, St
 fn dechunk(raw: &str) -> String {
     let mut out = String::new();
     let mut rest = raw;
-    while let Some((size, tail)) = rest.split_once("
-") {
+    while let Some((size, tail)) = rest.split_once("\r\n") {
         let Ok(size) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16) else { break };
         if size == 0 || tail.len() < size {
             break;
         }
         out.push_str(&tail[..size]);
-        rest = tail[size..].strip_prefix("
-").unwrap_or("");
+        rest = tail[size..].strip_prefix("\r\n").unwrap_or("");
     }
     out
 }
