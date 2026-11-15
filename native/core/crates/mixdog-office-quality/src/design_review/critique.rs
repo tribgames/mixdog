@@ -51,16 +51,15 @@ fn as_template(value: &str) -> String {
 /// A template answer is not a review: one sentence with the slide number swapped in, or the same three questions asked
 /// of every slide, says nothing about the page it judges.
 fn repeated_critique_issue(entries: &[Entry], total: f64) -> Option<Value> {
-    let count = entries.len() as f64;
+    // Both readings are held against the page count, not the entries: a critique that misses a page is not a repeat.
     let notes: Vec<String> = entries.iter().map(|entry| as_template(&entry.note)).filter(|note| !note.is_empty()).collect();
-    let distinct_notes = distinct(&notes);
-    let repeated_notes = total > 1.0 && notes.len() as f64 == count && distinct_notes as f64 != count;
+    let repeated_notes = total > 1.0 && notes.len() as f64 == total && distinct(&notes) as f64 != total;
     let check_sets: Vec<String> = entries
         .iter()
         .map(|entry| utf16_sorted(entry.checks.iter().map(|(item, _)| as_template(item)).collect()).join(" | "))
         .filter(|set| !set.is_empty())
         .collect();
-    let repeated_checks = total > 1.0 && check_sets.len() as f64 == count && distinct(&check_sets) == 1;
+    let repeated_checks = total > 1.0 && check_sets.len() as f64 == total && distinct(&check_sets) == 1;
     if !repeated_notes && !repeated_checks {
         return None;
     }
@@ -255,6 +254,10 @@ mod tests {
         let repeated = review_pptx_visual_critique(&json!({ "critique": [same(1), same(2)], "pageCount": 2 }));
         assert_eq!(repeated["issues"][0]["code"], "visual_critique_repeated_note");
         assert!(repeated["issues"][0]["message"].as_str().expect("message").starts_with("Each slide needs its own critique note and its own checks"));
+        // A page with no critique is reported as missing, never as a repeat of the pages that have one.
+        let partial = review_pptx_visual_critique(&json!({ "critique": [same(1), same(2)], "pageCount": 3 }));
+        let codes: Vec<&str> = partial["issues"].as_array().expect("issues").iter().map(|issue| issue["code"].as_str().expect("code")).collect();
+        assert_eq!(codes, ["visual_critique_missing_slide"]);
     }
 
     #[test]
