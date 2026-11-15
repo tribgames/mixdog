@@ -1,0 +1,37 @@
+# nr-office-design-templates: what the wiring applies for the templates module of mixdog-office-design.
+# (No protocol rows, no daemon service, no SERVICE_PENDING change: the module is pure functions and has no caller yet.
+#  No new crate and no new dependency edge: the module uses mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-ooxml, mixdog-rt,
+#  which crates/mixdog-office-design/Cargo.toml already lists. Cargo.lock and the workspace hack need no change.)
+
+# 1. native/core/crates/mixdog-office-design/src/lib.rs, after the line `pub mod library;` add:
+pub mod templates;
+
+# 2. native/core/fixtures/MANIFEST.json, "sets" (keep the list sorted by set name; after "office-tabular" or wherever
+#    "office-templates" falls):
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-templates.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-templates/MANIFEST.json",
+      "manifestSha256": "025272f4169408426b19b68613740b055be899d9fb91e88c6ea58d42215e44d5",
+      "recorder": "benchmarks/rust-core/recorders/record-office-templates.mjs",
+      "set": "office-templates",
+      "totalBytes": 2695047
+    },
+
+# 3. For the callers of the design library (nr-office-design-library's `Context`): pass `&templates::OfficeTemplateIndexer`
+#    as `Context::indexer` (it is the `TemplateIndexer` that `indexOfficeTemplates` is). `templates::index_office_templates`
+#    and `templates::inspect_office_template` are the direct forms.
+
+# 4. For the porters of src/runtime/office/core/office-actions-batch.mjs and office-sessions.mjs:
+#    - `templates::expand_template_page_operations(proof, format, &operations, &mut carriers, &mut snapshot)` is
+#      `expandTemplatePageOperations`; `snapshot(path)` must answer `snapshotPortableOoxml(path, 'pptx')` (the deck snapshot
+#      reader of the pptx port, which this module does not own); the fill reads the sidecar `<path>.mixdog.json` itself.
+#    - `templates::create_pptx_slide_selection(lane, source, &slides, output)` is `createPptxSlideSelection` (the
+#      `replace_slides` batch source).
+#    - `templates::annotate_pptx_snapshot_roles(&mut document)` is `annotatePptxSnapshotRoles` (office-sessions snapshot read).
+#    - `templates::select_template_page` and `templates::template_page_fill` are the page choice and the fill.
+
+# 5. Packaging: the packaged templates sit in crates/mixdog-office-design/assets/templates (mixdog-executive.pptx,
+#    mixdog-executive.mixdog-edit.pptx, mixdog-executive.pptx.mixdog.json, copied byte for byte from
+#    src/runtime/office/design/library/templates). `Environment::process()` reads them from `assets/templates` beside the
+#    executable, so the packaging task that ships the Rust runtime copies that folder next to it.
