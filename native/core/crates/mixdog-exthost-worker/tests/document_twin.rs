@@ -75,10 +75,12 @@ async fn a_pdf_previews_in_place_and_the_root_and_type_are_guarded() {
     let call = |method: &'static str, params: Value, paths: Vec<&Path>| {
         let pool = &pool;
         let root_text = root_text.clone();
+        let paths: Vec<PathBuf> = paths.into_iter().map(Path::to_path_buf).collect();
         async move {
             let mut full = json!({"root": root_text, "cacheRoot": base.join(".cache").to_string_lossy()});
             full.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
-            ask(pool, method, full, &paths).await
+            let approved: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+            ask(pool, method, full, &approved).await
         }
     };
 

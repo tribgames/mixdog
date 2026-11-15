@@ -184,6 +184,18 @@ impl Package {
         Self::load_with(bytes, false)
     }
 
+    /// `JSZip.loadAsync(readFile(path))` as a caller that does not go through the package reader's error clean-up sees
+    /// it: jszip's own wording for a file with no end-of-central-directory record keeps the hint it appends.
+    pub fn load_unchecked_raw_error(bytes: &[u8]) -> Result<Self, String> {
+        Self::load_unchecked(bytes).map_err(|message| {
+            if message == "Can't find end of central directory" {
+                format!("{message} : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html")
+            } else {
+                message
+            }
+        })
+    }
+
     fn load_with(bytes: &[u8], check_crc: bool) -> Result<Self, String> {
         if bytes.len() < 22 {
             return Err(no_end_of_central_directory(bytes));
@@ -303,7 +315,35 @@ impl Package {
             writer.start_file(entry.name.as_str(), options).map_err(|error| error.to_string())?;
             writer.write_all(&entry.data).map_err(|error| error.to_string())?;
         }
-        writer.finish().map(Cursor::into_inner).map_err(|error| error.to_string())
+        let mut bytes = writer.finish().map(Cursor::into_inner).map_err(|error| error.to_string())?;
+        as_written_for_dos(&mut bytes);
+        Ok(bytes)
+    }
+}
+
+/// What `platform: 'DOS'` writes where the `zip` crate writes a Unix archive: the entries are made by the DOS platform,
+/// the version needed to extract is 10 in the local header and the central entry, and the external attributes of a file
+/// are 0 (a folder has the DOS directory flag, 0x10), not the Unix mode in the high half.
+fn as_written_for_dos(bytes: &mut [u8]) {
+    let read16 = |bytes: &[u8], at: usize| usize::from(u16::from_le_bytes([bytes[at], bytes[at + 1]]));
+    let read32 = |bytes: &[u8], at: usize| u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+    let Some(end) = (0..bytes.len().saturating_sub(21)).rev().find(|at| bytes[*at..*at + 4] == *b"PK\x05\x06") else { return };
+    let count = read16(bytes, end + 10);
+    let mut at = read32(bytes, end + 16);
+    for _ in 0..count {
+        if at + 46 > bytes.len() || bytes[at..at + 4] != *b"PK\x01\x02" {
+            return;
+        }
+        let (name_length, extra_length, comment_length) = (read16(bytes, at + 28), read16(bytes, at + 30), read16(bytes, at + 32));
+        let folder = bytes[at + 46 + name_length - 1] == b'/';
+        bytes[at + 4..at + 6].copy_from_slice(&20_u16.to_le_bytes());
+        bytes[at + 6..at + 8].copy_from_slice(&10_u16.to_le_bytes());
+        bytes[at + 38..at + 42].copy_from_slice(&(if folder { 0x10_u32 } else { 0 }).to_le_bytes());
+        let local = read32(bytes, at + 42);
+        if local + 6 <= bytes.len() && bytes[local..local + 4] == *b"PK\x03\x04" {
+            bytes[local + 4..local + 6].copy_from_slice(&10_u16.to_le_bytes());
+        }
+        at += 46 + name_length + extra_length + comment_length;
     }
 }
 

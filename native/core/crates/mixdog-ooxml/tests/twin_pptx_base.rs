@@ -325,83 +325,6 @@ fn snapshot(package: &Package) -> Value {
     json!({ "names": package.names(), "parts": parts })
 }
 
-const EMBEDDED: &str = "<an embedded workbook, compared by its entries>";
-
-/// An embedded workbook is a zip whose bytes carry the wall-clock stamp of the run that wrote them and the compressor's
-/// own deflate (JSZip's pako there, the `zip` crate here), so its bytes are not compared one by one: the recording kept
-/// them as UTF-8-decoded text (every byte of 0x80 and above a replacement character, or merged with its neighbours), and
-/// the entries are compared as far as that text shows them. For every entry of ours, in order, the recorded text has its
-/// local header (signature, the flags and the method, the CRC-32 of the uncompressed bytes and their size wherever
-/// the header's bytes are readable as they were written, the name), and the end record counts the same entries. A header
-/// that differs is a different workbook: the CRC-32 stands for the uncompressed bytes.
-fn embedded_matches(recorded: &str, ours: &[u8]) -> Result<(), String> {
-    let text: Vec<char> = recorded.chars().collect();
-    let read16 = |at: usize| usize::from(u16::from_le_bytes([ours[at], ours[at + 1]]));
-    let read32 = |at: usize| u32::from_le_bytes([ours[at], ours[at + 1], ours[at + 2], ours[at + 3]]) as usize;
-    let mut cursor = 0;
-    let mut from = 0;
-    let mut count = 0;
-    while ours.len() >= cursor + 30 && ours[cursor..cursor + 4] == *b"PK\x03\x04" {
-        let (name_length, extra_length, packed) = (read16(cursor + 26), read16(cursor + 28), read32(cursor + 18));
-        let name = String::from_utf8_lossy(&ours[cursor + 30..cursor + 30 + name_length]).into_owned();
-        let name_chars: Vec<char> = name.chars().collect();
-        let Some(start) = (from..text.len().saturating_sub(3)).find(|at| text[*at..*at + 4] == ['P', 'K', '\u{3}', '\u{4}']) else {
-            return Err(format!("the recording has no local header for `{name}` (entry {count})"));
-        };
-        // Bytes of 0x80 and above in the 26 fixed bytes may have merged: the name follows 30 characters on, or a few fewer.
-        let Some(shift) = (0..=4usize).find(|shift| {
-            let at = start + 30 - shift;
-            at + name_chars.len() <= text.len() && text[at..at + name_chars.len()] == name_chars[..]
-        }) else {
-            return Err(format!("entry {count} of the recording is not `{name}`: its header reads {:?}", text[start..(start + 40).min(text.len())].iter().collect::<String>()));
-        };
-        // The version needed to extract is not compared: JSZip writes 10 for every entry, the `zip` crate 20 for a deflated one,
-        // and no reader reads a difference. The flags and the method are.
-        for (index, byte) in ours[cursor + 6..cursor + 10].iter().enumerate() {
-            if text[start + 6 + index] != char::from(*byte) {
-                return Err(format!("`{name}`: flags or method byte {index} is {byte}, recorded {:?}", text[start + 6 + index]));
-            }
-        }
-        // The core properties carry the moment the workbook was written (created and modified), so their checksum and size are the run's.
-        if shift == 0 && name != "docProps/core.xml" {
-            for position in (14..18).chain(22..26) {
-                let (byte, shown) = (ours[cursor + position], text[start + position]);
-                let agrees = if byte < 0x80 { shown == char::from(byte) } else { shown == '\u{fffd}' };
-                if !agrees {
-                    return Err(format!("`{name}`: header byte {position} (CRC-32 or size) is {byte}, recorded {shown:?}"));
-                }
-            }
-        }
-        from = start + 30 - shift + name_chars.len();
-        cursor += 30 + name_length + extra_length + packed;
-        count += 1;
-    }
-    let end = (0..text.len().saturating_sub(3)).rev().find(|at| text[*at..*at + 4] == ['P', 'K', '\u{5}', '\u{6}']);
-    match end {
-        Some(at) if text.get(at + 10) == Some(&char::from(u8::try_from(count).expect("a small workbook"))) => Ok(()),
-        _ => Err(format!("the recording's end record does not count {count} entries")),
-    }
-}
-
-/// The recorded snapshot and ours with every embedded workbook of ours compared by [`embedded_matches`] and put out of
-/// both: what is left is compared byte for byte.
-fn settle_embedded(recorded: &Value, produced: &Value, package: &Package) -> (Value, Value) {
-    let (mut recorded, mut produced) = (recorded.clone(), produced.clone());
-    let names: Vec<String> = produced["parts"].as_object().map(|parts| parts.keys().cloned().collect()).unwrap_or_default();
-    for name in names {
-        let (Some(ours), Some(theirs)) = (produced["parts"][&name].as_str(), recorded["parts"][&name].as_str()) else { continue };
-        if name.ends_with(".xlsx") && ours.starts_with("PK\u{3}\u{4}") && theirs.starts_with("PK\u{3}\u{4}") {
-            let bytes = package.file(&name).expect("the part");
-            if let Err(reason) = embedded_matches(theirs, bytes) {
-                panic!("{name}: {reason}");
-            }
-            produced["parts"][&name] = Value::from(EMBEDDED);
-            recorded["parts"][&name] = Value::from(EMBEDDED);
-        }
-    }
-    (recorded, produced)
-}
-
 fn every_output_equals_the_recording() {
     let golden = golden();
     let pure_cases = list(&golden["pure"]);
@@ -431,7 +354,7 @@ fn every_output_equals_the_recording() {
         }
         let produced = zip.as_ref().map_or(Value::Null, snapshot);
         let (expected, produced) = match &zip {
-            Some(package) => settle_embedded(&sequence["snapshot"], &produced, package),
+            Some(package) => twin::settle_embedded(&sequence["snapshot"], &produced, |name| package.file(name).map(<[u8]>::to_vec)),
             None => (sequence["snapshot"].clone(), produced),
         };
         twin::assert_matches(&format!("{name}, the deck"), &expected, &produced);

@@ -64,7 +64,8 @@ pub struct TextContent {
 /// honouring the document's `ignore_errors`. One loader serves every page of the document, so a font that several
 /// pages use is made once.
 pub fn font_loader(document: &Document) -> FontLoader {
-    FontLoader::new("d0", document.options().ignore_errors)
+    FontLoader::new(document.doc_id(), document.options().ignore_errors)
+        .with_system_fonts(document.options().use_system_fonts)
 }
 
 impl Page {

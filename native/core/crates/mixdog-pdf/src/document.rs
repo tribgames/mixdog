@@ -95,14 +95,25 @@ pub struct Document {
     options: OpenOptions,
     state: RefCell<State>,
     num_pages: i64,
+    doc_id: String,
 }
 
+/// pdf.js's `getDocument` numbering of the documents of a process (`d0`, `d1`, ...): the loaded name of a font is made
+/// from it (`g_d1_f2`), so what a document names its fonts depends on how many were opened before it.
+static NEXT_DOCUMENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl Document {
+    /// This document's id: `d` and its number among the documents opened by the process.
+    pub fn doc_id(&self) -> &str {
+        &self.doc_id
+    }
+
     /// Opens `bytes`: the header and the cross-reference data, the decryption with `options.password`, then the
     /// checks of the first and last page (`PDFManager.initDocument`). A table that cannot be used, or an entry
     /// that leads to another object, makes the reader index the whole file and check again (`loadDocument(true)`).
     /// Failures are pdf.js's exceptions: [`wrap_reason`] gives their name, code and message.
     pub fn open(bytes: impl Into<Arc<[u8]>>, options: &OpenOptions) -> Result<Document> {
+        let doc_id = format!("d{}", NEXT_DOCUMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         let guard = Guard::new(options.cancel.clone(), options.budget);
         let xref = Xref::open(
             bytes.into(),
@@ -120,6 +131,7 @@ impl Document {
             options: options.clone(),
             state: RefCell::new(State::default()),
             num_pages: 0,
+            doc_id,
         };
         match document.init(false) {
             Ok(()) => {}

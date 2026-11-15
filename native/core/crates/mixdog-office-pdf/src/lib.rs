@@ -28,4 +28,5 @@ pub use analysis::tables::{
 };
 pub use document::{AnalysisError, PdfSource, open_pdf, selected_pages};
 pub use limits::MAX_PDF_ANALYSIS_PAGES;
+pub use render::{RenderPagesOptions, RenderedImage, RenderedPages, render_pdf_pages};
 pub use search::{Rect, SearchMatch, SearchOptions, SearchResult, find_pdf_text};
