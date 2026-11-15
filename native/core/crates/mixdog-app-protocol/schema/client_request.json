@@ -2148,6 +2148,21 @@
       },
       "type": "object"
     },
+    "ConfigGetSettingsSnapshotParams": {
+      "description": "Params of `config/getSettingsSnapshot`: `options` is `{ heavy }` (default on: adds the MCP, plugin and skill status).",
+      "properties": {
+        "options": {
+          "default": null
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ConfigGetSystemShellParams": {
       "description": "Params of `config/getSystemShell`.",
       "properties": {
@@ -12076,6 +12091,26 @@
       ],
       "type": "object"
     },
+    "ThreadRememberPromptHistoryParams": {
+      "description": "Params of `thread/rememberPromptHistory`.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "text",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadRequestWorktreeParams": {
       "description": "Params of `thread/requestWorktree`.",
       "properties": {
@@ -12114,6 +12149,18 @@
         "input",
         "opId"
       ],
+      "type": "object"
+    },
+    "ThreadRestoreTranscriptParams": {
+      "description": "Params of `thread/restoreOlderTranscript` and `thread/restoreNewerTranscript`.",
+      "properties": {
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ThreadResumeParams": {
@@ -12459,6 +12506,40 @@
         "opId",
         "value"
       ],
+      "type": "object"
+    },
+    "ThreadSetProgressHintParams": {
+      "description": "Params of `thread/setProgressHint`.",
+      "properties": {
+        "percent": {
+          "description": "A finite number is rounded and held in 0..=100.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "Absent or empty: the hint is cleared.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tone": {
+          "description": "`info` when not sent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ThreadSetToolModeParams": {
@@ -15936,6 +16017,121 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadPushNoticeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session configure action `setProgressHint`: the sticky hint line of the input row (the runtime section's `progressHint`); an empty text clears it.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/setProgressHint"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSetProgressHintParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session configure action `rememberPromptHistory`: the text joins the up-arrow history of the thread's folder; answers whether there was a text to keep.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/rememberPromptHistory"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRememberPromptHistoryParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session configure action `restoreOlderTranscript`: answers false, the core keeps the whole log (page with `thread/items/list`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/restoreOlderTranscript"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRestoreTranscriptParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session configure action `restoreNewerTranscript`: as `thread/restoreOlderTranscript`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/restoreNewerTranscript"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRestoreTranscriptParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read; a row that cannot be read is null.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "config/getSettingsSnapshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConfigGetSettingsSnapshotParams"
         }
       },
       "required": [

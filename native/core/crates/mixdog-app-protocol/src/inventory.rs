@@ -2416,7 +2416,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "getSettingsSnapshot",
-        Target::Deleted("caller-less action (DS §17.1)"),
+        Target::Method("config/getSettingsSnapshot"),
     ),
     (
         InventoryList::Actions,
@@ -3025,7 +3025,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "rememberPromptHistory",
-        Target::Deleted("caller-less action (DS §17.1)"),
+        Target::Method("thread/rememberPromptHistory"),
     ),
     (
         InventoryList::Actions,
@@ -3100,12 +3100,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "restoreNewerTranscript",
-        Target::Deleted("caller-less action (DS §17.1)"),
+        Target::Method("thread/restoreNewerTranscript"),
     ),
     (
         InventoryList::Actions,
         "restoreOlderTranscript",
-        Target::Deleted("caller-less action (DS §17.1)"),
+        Target::Method("thread/restoreOlderTranscript"),
     ),
     (
         InventoryList::Actions,
@@ -3420,7 +3420,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Actions,
         "setProgressHint",
-        Target::Deleted("caller-less action (DS §17.1)"),
+        Target::Method("thread/setProgressHint"),
     ),
     (
         InventoryList::Actions,
