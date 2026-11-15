@@ -925,6 +925,59 @@ mod tests {
         assert_eq!(card["remember"], json!({ "kinds": ["upload"] }));
     }
 
+    /// The case of the live checks `bc-upload-approval` and `bc-submit-approval`: a page of this PC's loopback server and a file
+    /// inside the session's folder. Neither is a grant and neither is a reason to ask: a bot's own session is asked, with the file
+    /// named and the submit said, and the same steps of a task or a coding session ask nobody (`approval-dialog.ts`).
+    #[tokio::test]
+    async fn a_loopback_page_and_a_file_of_the_sessions_folder_are_no_grant_and_only_a_bots_own_session_is_asked() {
+        fn upload(session: &str) -> BrowserApprovalPrompt {
+            let mut upload = step(session, &[Upload]);
+            upload.action = "upload".to_owned();
+            upload.url = "http://127.0.0.1:5173/app".to_owned();
+            upload.target = "p1-s1-e1".to_owned();
+            upload.receiver_origin = "http://127.0.0.1:5173".to_owned();
+            upload.paths = vec!["/proj/live-upload.txt".to_owned()];
+            upload.files = vec![BrowserApprovalFile { name: "live-upload.txt".to_owned(), path: "/proj/live-upload.txt".to_owned(), size: 16, outside: false }];
+            upload
+        }
+        fn submit(session: &str) -> BrowserApprovalPrompt {
+            let mut submit = step(session, &[Submit]);
+            submit.action = "type".to_owned();
+            submit.url = "http://127.0.0.1:5173/app".to_owned();
+            submit.target = "p1-s1-e1\nSubmit form".to_owned();
+            submit
+        }
+        let rig = rig();
+        // A bot's home chat: each step raises its card.
+        for prompt in [upload(MARKETER), submit(MARKETER)] {
+            let (shown, outcome) = rig.ask(prompt, decided(true, None, None)).await;
+            assert!(shown && allowed(&outcome));
+        }
+        let asked = rig.ctx.gate.asked();
+        assert_eq!(asked.len(), 2);
+        assert_eq!((asked[0].payload["action"].as_str(), asked[0].action_kind), (Some("upload"), Some(ActionKind::BrowserUpload)));
+        let card = &asked[0].payload["request"];
+        assert_eq!((card["origin"].as_str(), card["receiverOrigin"].as_str()), (Some("http://127.0.0.1:5173"), Some("http://127.0.0.1:5173")));
+        let files = card["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!((files[0]["name"].as_str(), files[0]["path"].as_str()), (Some("live-upload.txt"), Some("/proj/live-upload.txt")));
+        assert_eq!((files[0]["size"].as_i64(), files[0]["outside"].as_bool()), (Some(16), Some(false)));
+        assert_eq!(card["remember"], json!({ "kinds": ["upload"] }));
+        assert_eq!((asked[1].payload["action"].as_str(), asked[1].action_kind), (Some("type"), Some(ActionKind::BrowserSubmit)));
+        let card = &asked[1].payload["request"];
+        assert_eq!(card["target"].as_str(), Some("p1-s1-e1\nSubmit form"));
+        assert_eq!(card["remember"], json!({ "kinds": ["submit"] }));
+        assert!(card.get("files").is_none());
+        // A task session and a coding session: the same steps run with no card.
+        for session in ["sess_task", "sess_coding"] {
+            for prompt in [upload(session), submit(session)] {
+                let (shown, outcome) = rig.ask(prompt, decided(false, None, None)).await;
+                assert!(!shown && allowed(&outcome), "{session}");
+            }
+        }
+        assert_eq!(rig.ctx.gate.asked().len(), 2);
+    }
+
     #[tokio::test]
     async fn a_failed_audit_write_never_blocks_a_step_under_allow_all_actions() {
         let (flaky, rig) = flaky_rig();

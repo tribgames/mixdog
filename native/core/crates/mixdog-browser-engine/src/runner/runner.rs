@@ -2607,6 +2607,7 @@ mod tests {
     use crate::refs::ref_set::tests::payload;
     use crate::types::BrowserApprovalPrompt;
     use crate::types::FileFacts;
+    use mixdog_app_protocol::v2::browser_engine::BrowserApprovalRememberKind;
     use mixdog_app_protocol::v2::browser_engine::BrowserPreconditionReason;
     use mixdog_app_protocol::v2::browser_engine::BrowserUserInputReason;
 
@@ -3273,6 +3274,182 @@ mod tests {
         assert_eq!((read.session_life.as_str(), read.unattended, read.unattended_agent.as_str()), ("life-1", true, "bot"));
         let bare = approval_command(&thread(), &json!({"action": "press", "key": "Enter"}), "p1:1");
         assert_eq!((bare.step.key.as_str(), bare.step.describe.as_str()), ("Enter", "p1:1"));
+    }
+
+    /// An approval port that records what it was asked and answers every step the same way.
+    struct Asked {
+        prompts: Mutex<Vec<BrowserApprovalPrompt>>,
+        allow: bool,
+    }
+
+    impl Asked {
+        fn answering(allow: bool) -> Arc<Self> {
+            Arc::new(Self { prompts: Mutex::default(), allow })
+        }
+
+        fn prompts(&self) -> Vec<BrowserApprovalPrompt> {
+            self.prompts.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl ApprovalPort for Asked {
+        async fn ask(&self, prompt: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
+            self.prompts.lock().unwrap().push(prompt);
+            Ok(if self.allow { ApprovalAnswer::Allow { remember: crate::types::Remember::Once } } else { ApprovalAnswer::Deny { reason: String::new() } })
+        }
+    }
+
+    /// A disk on which every path is a regular file of 16 bytes that is its own canonical path.
+    struct EveryFile;
+
+    #[async_trait]
+    impl FilePort for EveryFile {
+        async fn stat(&self, path: &Path) -> FileFacts {
+            FileFacts { exists: true, is_file: true, size: 16, canonical: Some(path.to_path_buf()), modified: Some(SystemTime::UNIX_EPOCH) }
+        }
+
+        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(run_dir.to_path_buf())
+        }
+    }
+
+    fn engine_asking(host: &Arc<FakeHost>, approvals: &Arc<Asked>, approval_policy: ActionPolicy) -> BrowserEngine {
+        BrowserEngine::new(
+            host.clone(),
+            EnginePorts {
+                mirror: Arc::new(Mirror::new()),
+                hold: Arc::new(UserHold::new()),
+                approvals: approvals.clone(),
+                takeover: Arc::new(Takeovers(None)),
+                blobs: Arc::new(NoBlobs),
+                files: Arc::new(EveryFile),
+                secrets: Arc::new(Masks),
+                approval_policy,
+                urls: UrlPolicy::default(),
+                frame_dir: PathBuf::from("frames"),
+            },
+        )
+    }
+
+    /// A page of this PC's own loopback server.
+    const LOOPBACK_PAGE: &str = "http://127.0.0.1:5173/app";
+
+    fn loopback_facts(seq: u64) -> Value {
+        let mut facts = page_facts("p1", seq);
+        facts["url"] = json!(LOOPBACK_PAGE);
+        facts
+    }
+
+    fn resolved_on_loopback(session: &str) -> Expect {
+        let row = json!({"pageId": "p1", "tabId": "v1", "sessionId": session, "background": false, "facts": loopback_facts(1)});
+        Expect::ok("host/browser/pages/resolve", json!({"page": row, "leaseId": "lease-1"}))
+    }
+
+    fn no_payment_evidence() -> Expect {
+        Expect::ok("host/browser/page/eval", json!({"value": false, "facts": loopback_facts(2)}))
+    }
+
+    async fn run_in(engine: &BrowserEngine, session: &str, action: &str, input: Value) -> Result<ToolReply, ToolError> {
+        let input = input.as_object().cloned().unwrap_or_default();
+        engine.run(&ThreadId::from(session), action, &input, &CancellationToken::new()).await.map_err(|failure| failure.error)
+    }
+
+    /// What the host was asked, by wire name, without the hooks asked around every command.
+    fn asked_of(host: &FakeHost) -> Vec<String> {
+        host.calls().into_iter().map(|call| call.method).filter(|method| method != "host/browser/signIn" && method != "host/browser/turn").collect()
+    }
+
+    /// The sessions a step is handed to the port from: a bot's home chat, its room seat, a task session and a coding session. For
+    /// which of them a person is asked is the port's rule (`approval-dialog.ts`: a bot's own session only), never the engine's.
+    const ASKING_SESSIONS: [&str; 4] = ["sess_home_ann", "sess_rmem_room01_ann", "sess_task", "s1"];
+
+    #[tokio::test]
+    async fn a_submit_is_handed_to_the_approval_port_before_anything_is_dispatched_on_a_loopback_page_too_from_every_session() {
+        for session in ASKING_SESSIONS {
+            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback(session), no_payment_evidence()]));
+            let approvals = Asked::answering(false);
+            let engine = engine_asking(&host, &approvals, ActionPolicy::from_env(None, None, None, is_action));
+            let command = json!({"ref": "p1-s1-e1", "text": "live-submit hunter2", "submit": true});
+            let denied = run_in(&engine, session, "type", command).await.expect_err("the person said no");
+            assert_eq!(denied.message_for_model, browser_not_approved(""), "{session}");
+            assert_eq!(denied.code, ToolErrorCode::PermissionDenied, "{session}");
+            let prompts = approvals.prompts();
+            assert_eq!(prompts.len(), 1, "{session}: asked once");
+            let prompt = &prompts[0];
+            assert_eq!(prompt.kinds, [BrowserApprovalRememberKind::Submit], "{session}");
+            assert_eq!((prompt.action.as_str(), prompt.url.as_str()), ("type", LOOPBACK_PAGE), "{session}");
+            assert_eq!((prompt.session_id.as_str(), prompt.thread_id.as_ref().map(ThreadId::as_str)), (session, Some(session)), "{session}");
+            // The card names the target and that the form is submitted, never what was typed.
+            assert_eq!(prompt.target, "p1-s1-e1\nSubmit form", "{session}");
+            assert!(prompt.paths.is_empty() && prompt.files.is_empty() && prompt.receiver_origin.is_empty(), "{session}");
+            assert!(!prompt.payment && !prompt.unattended && prompt.session_life.is_empty(), "{session}");
+            // The page was resolved and read for payment evidence; nothing was typed or submitted.
+            assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/page/eval"], "{session}");
+            host.finish().expect("no call beyond the script");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_upload_is_handed_to_the_approval_port_with_its_files_before_they_move_whatever_folder_they_are_in_from_every_session() {
+        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
+        for session in ASKING_SESSIONS {
+            let receiver = Expect::ok("host/browser/upload/receiver", json!({"key": "frame-1", "url": LOOPBACK_PAGE, "facts": loopback_facts(2)}))
+                .with_params(json!({"pageId": "p1", "snapshotId": "p1-s1", "ref": "p1-s1-e1"}));
+            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback(session), receiver]));
+            let approvals = Asked::answering(false);
+            let engine = engine_asking(&host, &approvals, ActionPolicy::from_env(None, None, None, is_action));
+            let denied = run_in(&engine, session, "upload", json!({"ref": "p1-s1-e1", "paths": [file]})).await.expect_err("the person said no");
+            assert_eq!(denied.message_for_model, browser_not_approved(""), "{session}");
+            let prompts = approvals.prompts();
+            assert_eq!(prompts.len(), 1, "{session}: asked once");
+            let prompt = &prompts[0];
+            assert_eq!(prompt.kinds, [BrowserApprovalRememberKind::Upload], "{session}");
+            assert_eq!((prompt.action.as_str(), prompt.url.as_str(), prompt.target.as_str()), ("upload", LOOPBACK_PAGE, "p1-s1-e1"), "{session}");
+            assert_eq!((prompt.session_id.as_str(), prompt.thread_id.as_ref().map(ThreadId::as_str)), (session, Some(session)), "{session}");
+            assert_eq!(prompt.paths, [file.clone()], "{session}");
+            let named: Vec<(&str, &str, i64, bool)> = prompt.files.iter().map(|file| (file.name.as_str(), file.path.as_str(), file.size, file.outside)).collect();
+            assert_eq!(named, [("live-upload.txt", file.as_str(), 16, false)], "{session}");
+            assert_eq!(prompt.receiver_origin, "http://127.0.0.1:5173", "{session}");
+            assert!(!prompt.payment, "{session}: an upload reads no payment evidence");
+            // The receiving frame was read for the card; the files never reached the page.
+            assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/upload/receiver"], "{session}");
+            host.finish().expect("no call beyond the script");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_step_that_neither_submits_posts_nor_uploads_goes_on_with_no_question_and_the_operators_opt_out_asks_none() {
+        // The port of this test denies whatever it is asked, so a step that was asked ends as not approved. A step that was not
+        // asked goes on to the action itself, which refuses the ref of a snapshot this page never took (an upload reads its
+        // element first).
+        const WENT_ON: &str = "ref p1-s1-e1 is not from the latest snapshot; take a fresh snapshot first";
+        let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
+        let default = || ActionPolicy::from_env(None, None, None, is_action);
+        // `MIXDOG_BROWSER_CONFIRM_SUBMIT=0`: the operator turned the default asks off.
+        let opted_out = || ActionPolicy::from_env(None, None, Some("0"), is_action);
+        let steps: [(&str, Value, ActionPolicy); 5] = [
+            // Typing with no submit, and a click or a hover on a ref (a control's name is read from a `target` only, as
+            // `action-approval.ts` reads it: a ref names no send or post control).
+            ("type", json!({"ref": "p1-s1-e1", "text": "live"}), default()),
+            ("click", json!({"ref": "p1-s1-e1"}), default()),
+            ("hover", json!({"ref": "p1-s1-e1"}), default()),
+            ("type", json!({"ref": "p1-s1-e1", "text": "live", "submit": true}), opted_out()),
+            ("upload", json!({"ref": "p1-s1-e1", "paths": [file]}), opted_out()),
+        ];
+        for (action, command, policy) in steps {
+            let host = Arc::new(FakeHost::scripted(vec![resolved_on_loopback("sess_home_ann")]));
+            let approvals = Asked::answering(false);
+            let engine = engine_asking(&host, &approvals, policy);
+            let outcome = run_in(&engine, "sess_home_ann", action, command.clone()).await.map(|reply| reply.text).map_err(|error| error.message_for_model);
+            assert!(approvals.prompts().is_empty(), "{action} {command} asked");
+            match action {
+                // The upload went on to read the element it hands the files to (which this script does not answer); no receiving
+                // frame was read for a card.
+                "upload" => assert_eq!(asked_of(&host), ["host/browser/pages/resolve", "host/browser/ref/call"], "{action} {command}: {outcome:?}"),
+                _ => assert_eq!(outcome, Err(WENT_ON.to_owned()), "{action} {command}"),
+            }
+        }
     }
 
     #[test]
