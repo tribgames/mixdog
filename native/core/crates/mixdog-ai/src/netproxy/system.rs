@@ -485,10 +485,10 @@ impl SystemProxy {
                 return self.fallback_route(origin);
             };
             let resolver = Arc::clone(&entry.resolver);
-            if let Some((route, expires)) = state.routes.get(origin) {
-                if *expires > Instant::now() {
-                    return route.clone();
-                }
+            if let Some((route, expires)) = state.routes.get(origin)
+                && *expires > Instant::now()
+            {
+                return route.clone();
             }
             match state.lookups.get(origin) {
                 Some((_, pending)) => pending.clone(),

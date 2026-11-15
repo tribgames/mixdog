@@ -115,6 +115,7 @@ impl ImageFitter {
     /// body holds it: a tool's images inside `tool_result`, results merged into one user message, no system message.
     /// Each step (queueing on the lane included) is under [`PREPARATION`]; its expiry reads as a machine that cannot
     /// resize, at the step that did not come back.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn fit_wire(&self, request: &ModelRequest, mut wire: WireRequest) -> Result<WireRequest, ProviderError> {
         if !wire.body.windows(IMAGE_TYPE.len()).any(|w| w == IMAGE_TYPE) {
             return Ok(wire);
@@ -130,6 +131,7 @@ impl ImageFitter {
         PREPARATION.bound_head(self.on_lane(job)).await.ok().flatten()
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn fit_body(&self, thread: &ThreadId, body: Vec<u8>) -> Result<Vec<u8>, ProviderError> {
         let parsed = self
             .step(move || match serde_json::from_slice::<Value>(&body) {
@@ -195,6 +197,7 @@ impl ImageFitter {
     }
 
     /// The resized form of one image block; `None` when it is already as it should be sent.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn image(&self, thread: &ThreadId, path: &str, part: &Value) -> Result<Option<ResizedImage>, ProviderError> {
         let source = &part["source"];
         let Some(data) = source.get("data").and_then(Value::as_str).filter(|d| !d.is_empty() && d.len() <= MAX_INPUT_BASE64) else {

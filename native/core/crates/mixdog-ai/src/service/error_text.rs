@@ -186,10 +186,10 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
     if matches!(presentation.kind, "image-size" | "payload-size" | "request" | "model-unavailable" | "tool-schema") {
         return presentation.summary;
     }
-    if has_typed_evidence(error) && presentation.kind != "unknown" {
-        if let Some(line) = kind_line(&presentation.provider_kind, presentation.retry_after_ms) {
-            return line;
-        }
+    if has_typed_evidence(error) && presentation.kind != "unknown"
+        && let Some(line) = kind_line(&presentation.provider_kind, presentation.retry_after_ms)
+    {
+        return line;
     }
     let surface = options.surface.as_str();
     let subject = subject_for_surface(surface);
@@ -319,22 +319,22 @@ pub fn err_text(error: &ErrorView) -> String {
 fn err_text_json(value: &Value) -> String {
     match value {
         Value::Object(map) => {
-            if let Some(Value::String(m)) = map.get("message") {
-                if !m.is_empty() {
-                    return m.clone();
-                }
+            if let Some(Value::String(m)) = map.get("message")
+                && !m.is_empty()
+            {
+                return m.clone();
             }
             for key in ["error", "reason"] {
-                if let Some(v) = map.get(key) {
-                    if !v.is_null() {
-                        return err_text_json(v);
-                    }
+                if let Some(v) = map.get(key)
+                    && !v.is_null()
+                {
+                    return err_text_json(v);
                 }
             }
-            if let Some(Value::String(t)) = map.get("type") {
-                if !t.is_empty() {
-                    return format!("{t} event");
-                }
+            if let Some(Value::String(t)) = map.get("type")
+                && !t.is_empty()
+            {
+                return format!("{t} event");
             }
             let json = value.to_string();
             if json != "{}" && json != "null" {
@@ -487,10 +487,10 @@ fn status_transport_kind(input: &TransportInput) -> Option<Verdict> {
     if let Some(c) = re!(r"\b(?:API|HTTP(?: fallback)?)\s+(50[234]|52[1-4])\b").captures(&input.message) {
         return verdict("unavailable", "", c[1].parse().unwrap_or(0));
     }
-    if input.chain {
-        if let Some(close) = input.ws_close_code.filter(|c| WS_LOST_CLOSE_CODES.contains(c)) {
-            return verdict("lost", format!("WS {close}"), 0);
-        }
+    if input.chain
+        && let Some(close) = input.ws_close_code.filter(|c| WS_LOST_CLOSE_CODES.contains(c))
+    {
+        return verdict("lost", format!("WS {close}"), 0);
     }
     None
 }
@@ -673,26 +673,26 @@ fn legacy_kind(clean: &str) -> Option<&'static str> {
 /// `classify`: the verdict and whether it is typed (wording must not override a typed one).
 fn classify(view: &ErrorView, raw: &str, clean: &str) -> (Descriptor, bool) {
     let has_typed_fields = view.is_object && (view.status > 0 || !view.code.is_empty() || view.retry_after_ms > 0);
-    if !has_typed_fields {
-        if let Some(kind) = legacy_kind(clean) {
-            let wait = re!(r"(?i)retryAfter=([0-9]+)(ms|s|m)\b").captures(raw).and_then(|c| {
-                let n: u64 = c[1].parse().ok()?;
-                Some(n * match c[2].to_lowercase().as_str() {
-                    "ms" => 1,
-                    "s" => 1000,
-                    _ => 60_000,
-                })
-            });
-            return (Descriptor { kind: kind.into(), retry_after_ms: wait.filter(|w| *w > 0), ..Descriptor::unknown() }, false);
-        }
+    if !has_typed_fields
+        && let Some(kind) = legacy_kind(clean)
+    {
+        let wait = re!(r"(?i)retryAfter=([0-9]+)(ms|s|m)\b").captures(raw).and_then(|c| {
+            let n: u64 = c[1].parse().ok()?;
+            Some(n * match c[2].to_lowercase().as_str() {
+                "ms" => 1,
+                "s" => 1000,
+                _ => 60_000,
+            })
+        });
+        return (Descriptor { kind: kind.into(), retry_after_ms: wait.filter(|w| *w > 0), ..Descriptor::unknown() }, false);
     }
     let mut descriptor = view.descriptor.clone().unwrap_or_else(Descriptor::unknown);
     let typed = view.is_object && descriptor.kind != "unknown";
-    if descriptor.kind == "unknown" {
-        if let Some(kind) = legacy_kind(clean) {
-            descriptor.kind = kind.into();
-            return (descriptor, false);
-        }
+    if descriptor.kind == "unknown"
+        && let Some(kind) = legacy_kind(clean)
+    {
+        descriptor.kind = kind.into();
+        return (descriptor, false);
     }
     (descriptor, typed)
 }
@@ -847,10 +847,10 @@ fn extract_json_error(text: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(value).ok()?;
     let map = parsed.as_object()?;
     for key in ["error", "message"] {
-        if let Some(Value::String(s)) = map.get(key) {
-            if !js_trim(s).is_empty() {
-                return Some(s.clone());
-            }
+        if let Some(Value::String(s)) = map.get(key)
+            && !js_trim(s).is_empty()
+        {
+            return Some(s.clone());
         }
     }
     match map.get("error") {

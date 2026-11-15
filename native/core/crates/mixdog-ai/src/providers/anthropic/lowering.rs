@@ -464,7 +464,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
             };
             let mut block = json!({
                 "type": "tool_result",
-                "tool_use_id": message.tool_call_id.as_deref().map(&wire_id).unwrap_or_default(),
+                "tool_use_id": message.tool_call_id.as_deref().map(wire_id).unwrap_or_default(),
                 "content": wire_to_json(content),
             });
             if message.is_error {

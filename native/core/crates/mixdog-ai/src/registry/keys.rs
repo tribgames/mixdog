@@ -414,6 +414,7 @@ impl ProviderKey {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current(&self) -> Result<String, ProviderError> {
         let key = match &self.origin {
             Origin::Provider { provider, config } => {
@@ -429,6 +430,7 @@ impl ProviderKey {
         if key.is_empty() { Err(missing_key(self.name())) } else { Ok(key) }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn reloaded(&self) -> Result<String, ProviderError> {
         let key = match &self.origin {
             Origin::Provider { provider, config } => self.store.reload(provider, config).await,

@@ -360,6 +360,7 @@ pub fn decide(
     let Some(state) = state.filter(|s| !s.cache_name.is_empty()) else {
         return Decision { can_attach: false, can_reuse: false };
     };
+    #[allow(clippy::manual_clamp, reason = "max then min deliberately maps a NaN TTL to 10000; clamp would preserve NaN and change cache reuse")]
     let headroom_ms = (tuning.ttl_seconds * 250.0).max(10_000.0).min(360_000.0);
     let live_ms = state.cache_expires_at as f64 - now_ms as f64;
     let iters_since_create = f64::from(current_iter) - f64::from(state.cache_created_at_iter);

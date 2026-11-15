@@ -299,6 +299,7 @@ impl ProviderAdapter for CompatAdapter {
 impl CompatAdapter {
     /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
     /// Responses wire rides the same account as its Chat wire.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let request = match &self.configured_effort {
             Some(effort) if request.options.effort.is_none() => {
@@ -392,6 +393,7 @@ impl WireRouting for CompatAdapter {
 /// `GET {url}` as JSON. A refused request keeps the provider's own reason
 /// with the request key redacted from it; a reachable endpoint that answers
 /// something else is `null`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(super) async fn fetch_json(
     http: &dyn HttpSend,
     profile: &CompatProfile,
@@ -417,6 +419,7 @@ pub(super) async fn fetch_json(
     fetch_listing(http, profile, url, headers, key).await
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn fetch_listing(
     http: &dyn HttpSend,
     profile: &CompatProfile,

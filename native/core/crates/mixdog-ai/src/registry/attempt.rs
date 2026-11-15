@@ -10,6 +10,7 @@ use crate::broker::AttemptSink;
 
 /// What the consumer of a send hears.
 #[derive(Clone, PartialEq, Debug)]
+#[allow(clippy::large_enum_variant, reason = "Keep the public StreamEvent forwarding contract by value without an extra allocation for each streamed event")]
 pub enum Attempted {
     Event(StreamEvent),
     /// The attempt failed and a retry begins: everything heard since the

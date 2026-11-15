@@ -37,6 +37,7 @@ fn path_id(id: &str) -> String {
 }
 
 /// The HTTP request of a Claude send to the location base `base`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn wire(caps: &CapsLookup, request: &ModelRequest, model: &VertexModel, base: &str) -> Result<WireRequest, ProviderError> {
     let (mut body, tool_search) = vertex_body(caps, request, &model.id)?;
     body.shift_remove("model");

@@ -424,10 +424,10 @@ impl OAuthUsage {
         let now = now_ms();
         {
             let mut c = self.caches();
-            if let Some(last) = c.last_warn.get(key).copied().filter(|l| *l != 0) {
-                if now - last < WARN_TTL_MS {
-                    return;
-                }
+            if let Some(last) = c.last_warn.get(key).copied().filter(|l| *l != 0)
+                && now - last < WARN_TTL_MS
+            {
+                return;
             }
             c.last_warn.insert(key.to_owned(), now);
         }
@@ -555,10 +555,10 @@ impl OAuthUsage {
         // endpoint is down: keep it, and let richer expiry details replace it.
         let account = auth.account_id.clone().unwrap_or_default();
         let embedded = normalize_codex_reset_credits(data.get("rate_limit_reset_credits"), &account, now);
-        if let Some(resolved) = credits.ok().flatten().or(embedded) {
-            if let Some(o) = usage.as_object_mut() {
-                o.insert("resetCredits".into(), resolved);
-            }
+        if let Some(resolved) = credits.ok().flatten().or(embedded)
+            && let Some(o) = usage.as_object_mut()
+        {
+            o.insert("resetCredits".into(), resolved);
         }
         Ok(Some(usage))
     }
@@ -708,10 +708,10 @@ impl OAuthUsage {
     /// credential the server refuses even after a forced refresh cannot vouch
     /// for the reading it last produced: the recorded quota goes with it.
     async fn usage_after_failure(&self, err: &UsageError, provider: &str, account_id: &str) -> Option<Value> {
-        if err.auth_rejection() && ACCOUNT_PROVIDERS.contains(&provider) {
-            if let Err(e) = self.deps.store.clear_quota_state(provider, account_id).await {
-                self.log(&format!("Account usage could not be cleared: {e}"));
-            }
+        if err.auth_rejection() && ACCOUNT_PROVIDERS.contains(&provider)
+            && let Err(e) = self.deps.store.clear_quota_state(provider, account_id).await
+        {
+            self.log(&format!("Account usage could not be cleared: {e}"));
         }
         self.warn_throttled(
             &format!("oauth-usage:{provider}"),

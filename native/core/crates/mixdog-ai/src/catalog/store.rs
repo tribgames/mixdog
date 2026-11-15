@@ -270,6 +270,7 @@ impl ProviderCatalog {
     /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
     /// caller waits at most the deadline; the operation runs on until it
     /// settles, and while it overran a deadline nobody asks the provider again.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
         let provider = source.provider().clone();
         // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and

@@ -183,6 +183,7 @@ impl AccountedAdapter {
     }
 
     /// One request of the inner provider (an attempt, or its re-issue of a spent send) under the send's accounting.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn accounted(&self, request: Arc<ModelRequest>, reissue: bool) -> Result<Box<dyn ModelStream>, ProviderError> {
         let accounting = self.open(&request).await;
         let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));

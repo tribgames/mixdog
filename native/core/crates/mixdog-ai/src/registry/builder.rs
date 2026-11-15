@@ -7,6 +7,9 @@
 //! managed runtime (`BuilderEnv::local`): its server, and so its endpoint, starts on a send
 //! (`providers::local::RegisteredAdapter`).
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type GatewayEngines = (Vec<(Wire, Arc<dyn ProviderAdapter>)>, WirePick, bool);
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -292,10 +295,10 @@ fn read_gcloud_project(dir: &std::path::Path, named: String) -> Option<String> {
         if let Some(inner) = trimmed.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
             section = inner.trim().to_lowercase();
         }
-        if section == "core" {
-            if let Some(value) = trimmed.strip_prefix("project").map(str::trim_start).and_then(|t| t.strip_prefix('=')) {
-                return Some(value.trim().to_owned());
-            }
+        if section == "core"
+            && let Some(value) = trimmed.strip_prefix("project").map(str::trim_start).and_then(|t| t.strip_prefix('='))
+        {
+            return Some(value.trim().to_owned());
         }
     }
     None
@@ -378,6 +381,7 @@ struct StoredKey {
 }
 
 impl FileKey {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn read(&self) -> Result<String, ProviderError> {
         match self.file.load::<StoredKey>().await {
             Probe::Present(stored) => {
@@ -587,6 +591,7 @@ fn custom_model_wires(
 struct OpenCodeKey(OpenCodeGoAuth);
 
 impl OpenCodeKey {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn token(&self, force: bool) -> Result<String, ProviderError> {
         match self.0.ensure_fresh(force).await {
             Ok(credentials) => Ok(credentials.access_token),
@@ -904,7 +909,7 @@ impl DefaultProviderBuilder {
         };
         let rows: Arc<dyn CachedModelInfo> = account.clone();
         let untuned = |_: &mut AnthropicConfig| {};
-        let (engines, pick, session_header): (Vec<(Wire, Arc<dyn ProviderAdapter>)>, WirePick, bool) = match name {
+        let (engines, pick, session_header): GatewayEngines = match name {
             "xai" => (vec![(Wire::Responses, responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
             "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
             "deepseek" => {
@@ -1498,7 +1503,9 @@ struct OAuthEngines {
     rotation: Arc<std::sync::OnceLock<AccountRotation>>,
     built: std::sync::Mutex<HashMap<String, Arc<dyn ProviderAdapter>>>,
     /// One build at a time: two sends that reach a new account together share its engine.
-    building: tokio::sync::Mutex<()>,
+    // This protects no data: a single FIFO permit serializes asynchronous engine construction.
+    // The separate std Mutex above protects the map only during short synchronous access.
+    building: tokio::sync::Semaphore,
 }
 
 impl OAuthEngines {
@@ -1535,7 +1542,7 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         if let Some(engine) = self.existing(account) {
             return Ok(engine);
         }
-        let _one = self.building.lock().await;
+        let _one = self.building.acquire().await.expect("the private engine-build semaphore is never closed");
         if let Some(engine) = self.existing(account) {
             return Ok(engine);
         }
@@ -1588,7 +1595,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
             images: self.images.clone(),
             rotation: self.account_rotation.clone(),
             built: std::sync::Mutex::default(),
-            building: tokio::sync::Mutex::new(()),
+            building: tokio::sync::Semaphore::new(1),
         });
         Ok(Arc::new(super::key_pool::KeyPoolAdapter::with_engines(name, built, engines)))
     }

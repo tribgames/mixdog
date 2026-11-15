@@ -120,6 +120,7 @@ pub fn token_failure(status: u16, body: &[u8], what: &str) -> ProviderError {
     err
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn parse_token_grant(body: &[u8], what: &str) -> Result<TokenGrant, ProviderError> {
     let value: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let Some(access_token) = value.get("access_token").and_then(Value::as_str).filter(|t| !t.is_empty()) else {

@@ -114,6 +114,7 @@ impl MetadataAuth {
         cached.as_ref().filter(|m| (self.now_ms)() + REFRESH_SKEW_MS < m.expires_at_ms).map(|m| m.token.clone())
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn mint(&self) -> Result<Minted, ProviderError> {
         let now = (self.now_ms)();
         let response = self

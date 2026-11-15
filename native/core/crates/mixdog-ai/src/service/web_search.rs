@@ -83,7 +83,7 @@ pub fn native_web_search_tool(args: &Value, tool_type: &str, family: &str) -> Va
             let mut tool = Map::new();
             tool.insert("type".into(), json!("web_search_20250305"));
             tool.insert("name".into(), json!("web_search"));
-            tool.insert("max_uses".into(), number_value(max.min(10.0).max(1.0)));
+            tool.insert("max_uses".into(), number_value(max.clamp(1.0, 10.0)));
             if !domains.is_empty() {
                 tool.insert("allowed_domains".into(), json!(domains));
             }
