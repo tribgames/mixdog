@@ -141,7 +141,6 @@ impl AgentMessage {
             effort: None,
             ui_diff: None,
             tool_meta: None,
-            tool_meta: None,
             stored: None,
         }
     }
