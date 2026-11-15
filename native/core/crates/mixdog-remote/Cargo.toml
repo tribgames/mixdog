@@ -48,6 +48,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
+# The interop test runs the leg against the Rust relay started in-process as well as the Node relay.
+mixdog-relay = { workspace = true }
 # WP-WEBRTC tests
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "test-util"] }
