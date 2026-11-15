@@ -1,5 +1,5 @@
 //! `doctor`: the statuses of `/doctor` that no domain answers (`tui/app/doctor.mjs` check table).
-//! Each asks the service Node asks: the JS runtime (the embedded engine that runs skill scripts), the provider setup, the route, the channel
+//! Each asks the service Node asks: the Node runtime retained for user scripts, the provider setup, the route, the channel
 //! worker and setup, the hook bus, the session-log migration, the bridge files and the live
 //! session surface.
 
@@ -41,17 +41,18 @@ pub trait HooksStatus: Send + Sync {
     async fn status(&self) -> Value;
 }
 
-/// The JS runtime of the install: the embedded engine that runs skill scripts (no process is
-/// started to ask it; the composition hands over the engine's own name and version).
+/// Version of the script-only Node supplied by trusted launch/bundle metadata.
+/// Missing metadata stays unknown; doctor never executes the interpreter to discover it.
 #[derive(Debug, Clone)]
-pub struct EmbeddedRuntime {
-    pub name: String,
-    pub version: String,
+pub struct ScriptRuntime {
+    pub version: Option<String>,
 }
 
 pub struct DoctorInputs {
     pub data_dir: PathBuf,
-    pub runtime: EmbeddedRuntime,
+    pub runtime: ScriptRuntime,
+    /// The installed package whose engines.node defines the requirement.
+    pub package_root: PathBuf,
     pub io: InteractiveIo,
     pub providers: Arc<dyn ProviderSetup>,
     pub routes: Arc<dyn CompactionHost>,
@@ -72,9 +73,19 @@ impl DaemonDoctorHost {
     }
 }
 
-/// The `nodeRuntime` row: the engine's version, and no engine requirement to check it against.
-fn runtime_row(runtime: &EmbeddedRuntime) -> Value {
-    json!({ "name": runtime.name, "version": runtime.version, "engines": Value::Null })
+/// Keep the reference {version, engines} shape; null version means metadata is unavailable.
+fn runtime_row(runtime: &ScriptRuntime, engines: Option<String>) -> Value {
+    let version = runtime.version.as_deref().filter(|version| !version.trim().is_empty());
+    json!({ "version": version, "engines": engines })
+}
+
+/// Read the installed package requirement without executing any product JavaScript.
+async fn read_engines(io: InteractiveIo, package_root: &Path) -> Result<Option<String>, ProbeFailed> {
+    let path = package_root.join("package.json");
+    let bytes = on_lane(io, &CancellationToken::new(), move |_lane| read_content(&path)).await.map_err(|_| ProbeFailed)?;
+    let Ok(Some(bytes)) = bytes else { return Ok(None) };
+    let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    Ok(parsed.get("engines").and_then(|e| e.get("node")).and_then(Value::as_str).map(str::to_owned))
 }
 
 /// `readMigrationProgress`: the progress record, a fresh one when the file is missing; `Err`
@@ -144,7 +155,8 @@ fn session_log_status(data_dir: &Path, lane: &mixdog_rt::InLane<InteractiveIo>) 
 #[async_trait]
 impl DoctorHost for DaemonDoctorHost {
     async fn node_runtime(&self) -> Probe {
-        Ok(Some(runtime_row(&self.inputs.runtime)))
+        let engines = read_engines(self.inputs.io, &self.inputs.package_root).await?;
+        Ok(Some(runtime_row(&self.inputs.runtime, engines)))
     }
     async fn provider_setup(&self) -> Probe {
         self.inputs.providers.get(false, false, false, false).await.map(Some).map_err(|_| ProbeFailed)
@@ -214,11 +226,31 @@ mod tests {
         }
     }
 
-    /// The runtime row is the embedded engine's own name and version, in the `{version, engines}`
-    /// shape with no engine requirement, and nothing is spawned to ask for it.
     #[test]
-    fn the_runtime_row_is_the_embedded_engines() {
-        let row = runtime_row(&EmbeddedRuntime { name: "engine".into(), version: "1.2.3".into() });
-        assert_eq!(row, json!({ "name": "engine", "version": "1.2.3", "engines": null }));
+    fn runtime_metadata_keeps_nodes_version_and_requirement_shape() {
+        let recording = golden();
+        let node = &recording["nodeRuntime"];
+        let version = node["version"].as_str().unwrap().to_owned();
+        let engines = node["engines"].as_str().map(str::to_owned);
+        assert_eq!(runtime_row(&ScriptRuntime { version: Some(version) }, engines),
+            json!({ "version": node["version"], "engines": node["engines"] }));
+        for version in [None, Some(String::new()), Some("  ".to_owned())] {
+            assert_eq!(runtime_row(&ScriptRuntime { version }, Some(">=22".into())),
+                json!({ "version": null, "engines": ">=22" }));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_engine_requirement_is_the_package_jsons() {
+        let recording = golden();
+        let node = &recording["nodeRuntime"];
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), node["packageJson"].as_str().unwrap()).unwrap();
+        let io = mixdog_rt::testing::tokens().interactive_io;
+        assert_eq!(read_engines(io, dir.path()).await.unwrap().as_deref(), node["engines"].as_str());
+        std::fs::write(dir.path().join("package.json"), "not json").unwrap();
+        assert_eq!(read_engines(io, dir.path()).await.unwrap(), None);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(read_engines(io, empty.path()).await.unwrap(), None);
     }
 }
