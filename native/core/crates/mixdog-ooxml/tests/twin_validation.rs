@@ -39,6 +39,16 @@ fn registry(golden: &Value) -> Registry {
     let mut registry = Registry::new();
     let dir = twin::repo_root().join("native/core/fixtures/office-measure");
     for (alias, faces) in golden["faces"].as_object().expect("faces") {
+        // The recording was made on Windows, where the canvas set "Calibri" in the system's own face (not the fixture face
+        // registered under that name): the same files are registered here.
+        if alias == "Calibri" {
+            let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")).map(std::path::PathBuf::from).expect("the Windows directory");
+            for file in ["calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf"] {
+                let path = root.join("Fonts").join(file);
+                registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("the recording used the system Calibri, which is not readable here ({}): {error}", path.display()));
+            }
+            continue;
+        }
         for face in list(faces) {
             let path = dir.join(text(&face["file"]));
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
@@ -71,7 +81,7 @@ fn first_difference(expected: &str, produced: &str) -> String {
 fn recorded_text(outcome: Result<Value, String>, work: &str) -> Value {
     match outcome {
         Ok(value) => json!({ "result": serde_json::to_string(&value).expect("the answer as JSON") }),
-        Err(error) => json!({ "error": error.replace(work, "$DIR").replace('\\', "/") }),
+        Err(error) => json!({ "error": (if work.is_empty() { error } else { error.replace(work, "$DIR") }).replace('\\', "/") }),
     }
 }
 
@@ -105,7 +115,21 @@ fn issues(golden: &Value, measurer: &TextMeasurer<'_, Unlaned>, dir: &Path, work
         let review = |document: &Value| -> Vec<Value> {
             let recorded = &case["structure"];
             assert!(!recorded.is_null(), "{what}: the review ran where the recording has none");
-            twin::assert_matches(&format!("{what}: the deck the structure review was handed"), &recorded["document"], document);
+            // The review annotates the deck it is handed in place (a `slot` on a shape, a `role` on a slide: the induction of
+            // `annotatePptxSnapshotRoles`), and the recording kept the deck after the review: what the snapshot made is
+            // what is compared.
+            let mut handed = recorded["document"].clone();
+            for slide in handed["slides"].as_array_mut().into_iter().flatten() {
+                if let Some(slide) = slide.as_object_mut() {
+                    slide.remove("role");
+                }
+                for shape in slide["shapes"].as_array_mut().into_iter().flatten() {
+                    if let Some(shape) = shape.as_object_mut() {
+                        shape.remove("slot");
+                    }
+                }
+            }
+            twin::assert_matches(&format!("{what}: the deck the structure review was handed"), &handed, document);
             list(&recorded["findings"]).to_vec()
         };
         let outcome = issues_portable_ooxml(&Unlaned, measurer, &review, &path, format, &case["options"]);

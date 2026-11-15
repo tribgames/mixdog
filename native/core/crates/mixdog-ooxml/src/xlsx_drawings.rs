@@ -214,7 +214,7 @@ pub fn add_worksheet_image<P: ReadProof>(proof: &P, zip: &mut Package, sheet: &S
     let drawing_xml = zip.text(&drawing.part);
     let anchor_count = count_drawing_anchors(&drawing_xml);
     let anchor = image_anchor_xml(&embed_id, anchor_count, op, image_placement_size(op, &media.data))?;
-    zip.set(&drawing.part, drawing_xml.replacen("</xdr:wsDr>", &anchor, 1));
+    zip.set(&drawing.part, drawing_xml.replacen("</xdr:wsDr>", &format!("{anchor}</xdr:wsDr>"), 1));
     zip.set(&sheet.path, fitted.xml);
     let mut rest = vec![("changed", Value::Bool(true)), ("sheet", Value::from(sheet.name.as_str())), ("image", Value::from(media.part))];
     if op.get("cell").is_some_and(truthy) {

@@ -46,6 +46,11 @@ fn registry(golden: &Value) -> Registry {
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         }
     }
+    // The recording was made on Windows: the canvas set the Hangul of a label in the system Malgun Gothic, the one face the
+    // recording measured outside the fixture faces. The same file is registered here.
+    let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")).map(std::path::PathBuf::from).expect("the Windows directory");
+    let path = root.join("Fonts").join("malgun.ttf");
+    registry.register_file(&Unlaned, &path, Some("Malgun Gothic")).unwrap_or_else(|error| panic!("the recording used the system Malgun Gothic, which is not readable here ({}): {error}", path.display()));
     registry
 }
 
