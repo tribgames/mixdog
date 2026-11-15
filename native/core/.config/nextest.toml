@@ -195,3 +195,10 @@ test-group = 'tag-gates'
 [[profile.default.overrides]]
 filter = 'package(mixdog-cli) & binary(exec_cli_replay) & test(=the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case)'
 slow-timeout = { period = "60s", terminate-after = 6 }
+
+# The relay twin binary runs every scenario of its suites (identity, legs, data, web, services) against Node and against Rust, each scenario
+# twice on Node first; the legs suite alone has a 65 s scenario (a 45 s offline window no option shortens) and three services scenarios wait
+# out a 30 s relay timeout. The three tests take 5 to 15 minutes of wall time by design.
+[[profile.default.overrides]]
+filter = 'package(mixdog-relay) & binary(twin)'
+slow-timeout = { period = "120s", terminate-after = 10 }

@@ -23,9 +23,47 @@ use super::hub::Hub;
 /// The future a handler returns.
 pub type HandlerFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
+/// Work a handler starts that must not overtake the frames already read with the one that started it. Node answers every frame
+/// of one read before any promise it started settles; the leg that drives its socket polls this work only when no frame is
+/// ready. A leg nobody drives (a handle used directly) runs it at once on its own task.
+#[derive(Default)]
+pub struct Later {
+    driven: std::sync::atomic::AtomicBool,
+    queue: Mutex<Vec<HandlerFuture>>,
+}
+
+impl Later {
+    /// The leg loop polls the work handed to [`Self::run`].
+    pub fn drive(&self) {
+        self.driven.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The leg loop has ended: nothing more is polled by it.
+    pub fn release(&self) -> Vec<HandlerFuture> {
+        self.driven.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.take()
+    }
+
+    /// Starts `work` after the frames that are ready.
+    pub fn run(&self, name: &'static str, work: HandlerFuture) {
+        if self.driven.load(std::sync::atomic::Ordering::SeqCst) {
+            self.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(work);
+        } else {
+            mixdog_rt::spawn(name, mixdog_rt::TaskClass::Work, work);
+        }
+    }
+
+    /// What the handlers handed over since the last call.
+    pub fn take(&self) -> Vec<HandlerFuture> {
+        std::mem::take(&mut *self.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+}
+
 /// One frame of a desktop leg, handed to the handler of its type.
 #[derive(Clone)]
 pub struct LegCall {
+    /// Work that follows the frames already read.
+    pub later: Arc<Later>,
     pub hub: Arc<Hub>,
     /// The device the leg authenticated as.
     pub device_id: String,

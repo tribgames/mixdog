@@ -458,6 +458,25 @@ impl WsPeer {
         self.conn.write(bytes);
     }
 
+    /// Answers the pings that have arrived while no step reads this connection (a step blocked on an HTTP answer),
+    /// as a WebSocket client that reads in the background does, so a relay that sweeps for silent legs does not cut it.
+    /// The answered pings are not events of the transcript; every other byte stays for the step that reads it.
+    pub fn keepalive(&mut self) {
+        while self.conn.pull(Instant::now()) {}
+        let mut kept = Vec::with_capacity(self.conn.buf.len());
+        let mut at = 0;
+        while let Ok(Some((_, op, payload, used))) = parse_frame(&self.conn.buf[at..]) {
+            if op == 9 {
+                self.conn.write(encode_frame(true, 10, &payload, None));
+            } else {
+                kept.extend_from_slice(&self.conn.buf[at..at + used]);
+            }
+            at += used;
+        }
+        kept.extend_from_slice(&self.conn.buf[at..]);
+        self.conn.buf = kept;
+    }
+
     /// The next event, or `None` when nothing came before `deadline`.
     pub fn next(&mut self, deadline: Instant) -> Result<Option<WsEvent>, String> {
         loop {
