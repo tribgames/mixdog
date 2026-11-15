@@ -363,11 +363,12 @@ pub fn snapshot_pdf<P: ReadProof>(
     let returned = pages.len();
     let mut result = Map::new();
     result.insert("format".to_owned(), json!("pdf"));
-    result.insert("truncated".to_owned(), json!(truncated));
     result.insert("pageCount".to_owned(), page_count.map_or(Value::Null, |count| json!(count)));
+    result.insert("truncated".to_owned(), json!(truncated));
     result.insert("pages".to_owned(), Value::Array(pages));
-    result.insert("fieldCount".to_owned(), json!(fields.len()));
+    let field_count = fields.len();
     result.insert("fields".to_owned(), Value::Array(fields));
+    result.insert("fieldCount".to_owned(), json!(field_count));
     result.insert("attachmentCount".to_owned(), json!(attachments.len()));
     result.insert("attachments".to_owned(), Value::Array(attachments));
     result.insert("outlineCount".to_owned(), json!(outline.len()));
@@ -380,8 +381,9 @@ pub fn snapshot_pdf<P: ReadProof>(
             metadata_of(&structure)
         },
     );
-    result.insert("ocrRequired".to_owned(), json!(!likely_scanned.is_empty()));
+    let ocr_required = !likely_scanned.is_empty();
     result.insert("likelyScannedPages".to_owned(), Value::Array(likely_scanned));
+    result.insert("ocrRequired".to_owned(), json!(ocr_required));
     result.insert("encrypted".to_owned(), json!(encrypted));
     if encrypted {
         result.insert("passwordRequired".to_owned(), json!(password_required));
