@@ -322,7 +322,7 @@ async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_
     ];
     let redacted = Mask.redact_messages("masked", &secret);
     for kill_after in [ScrubStep::Owed, ScrubStep::Rewritten, ScrubStep::WalRemoved] {
-        let mut pg = TestPg::start().await;
+        let mut pg = TestPg::start_own().await;
         let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
         db.append("masked", &secret).await.expect("plain rows");
         db.replace_rows("masked", &secret, &redacted, &|text| Mask.redact_text("masked", text)).await.expect("M1");

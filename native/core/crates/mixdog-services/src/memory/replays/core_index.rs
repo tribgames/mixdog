@@ -46,7 +46,7 @@ mod pg {
     use crate::memory::replays::core_management::pg::{
         label_uuids, page_value, round_trip, statements,
     };
-    use crate::memory::replays::pg::{ReplayPg, memory_db};
+    use crate::memory::replays::pg::{ReplayPg, memory_db_own as memory_db};
     use crate::memory::replays::{case, int, object, same, string};
 
     const DEADLINE: Duration = Duration::from_secs(60);
