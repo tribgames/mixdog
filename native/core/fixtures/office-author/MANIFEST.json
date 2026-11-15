@@ -1,0 +1,18 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-author.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 31884,
+      "path": "golden.json",
+      "sha256": "5086ea6d45722042e1663bf0ac71b853866c2c04f3822ad01d3e31e2c2e4665f"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "export"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-author.mjs",
+  "set": "office-author",
+  "totalBytes": 31884
+}
