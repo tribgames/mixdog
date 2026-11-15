@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 use mixdog_js::JsRegex;
 use mixdog_termtext::display_width;
+use mixdog_termtext::lone;
 use mixdog_termtext::grapheme::{byte_to_utf16, utf16_to_byte};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -25,7 +26,7 @@ fn units(text: &str) -> Vec<Unit<'_>> {
     text.graphemes(true)
         .map(|segment| {
             let start = at;
-            at += mixdog_js::utf16_len(segment);
+            at += mixdog_termtext::lone::utf16_len(segment);
             Unit { start, end: at, segment }
         })
         .collect()
@@ -44,7 +45,7 @@ fn safe_width(width: usize) -> usize {
 
 /// The length of `text` in UTF-16 units.
 pub fn len16(text: &str) -> usize {
-    mixdog_js::utf16_len(text)
+    mixdog_termtext::lone::utf16_len(text)
 }
 
 fn clamp_offset(text: &str, offset: usize) -> usize {
@@ -64,15 +65,15 @@ pub fn slice16_from(text: &str, from: usize) -> &str {
 }
 
 /// `text.slice(0, from) + insert + text.slice(to)` by UTF-16 offsets. A cut inside a surrogate pair leaves its half in the
-/// result, and two halves that meet join into the pair they make; a half left alone reads as U+FFFD, as it does when Node
-/// encodes the string.
+/// result, and two halves that meet join into the pair they make; a half left alone stays a lone surrogate, carried as
+/// [`mixdog_termtext::lone`] carries it (zero cells wide, one unit long).
 pub fn splice16(text: &str, from: usize, to: usize, insert: &str) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
+    let units = lone::to_units(text);
     let (from, to) = (from.min(units.len()), to.min(units.len()));
     let mut out: Vec<u16> = units[..from].to_vec();
-    out.extend(insert.encode_utf16());
+    out.extend(lone::to_units(insert));
     out.extend_from_slice(&units[to..]);
-    String::from_utf16_lossy(&out)
+    lone::from_units(&out)
 }
 
 /// The offsets of a live selection.

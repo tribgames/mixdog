@@ -17,7 +17,7 @@ impl Draft {
     /// A draft with the caret after its last character.
     pub fn at_end(value: impl Into<String>) -> Self {
         let value = value.into();
-        let cursor = mixdog_js::utf16_len(&value);
+        let cursor = mixdog_termtext::lone::utf16_len(&value);
         Self { value, cursor, selection_anchor: None }
     }
 
@@ -27,6 +27,6 @@ impl Draft {
 
     /// The length of the value in UTF-16 units.
     pub fn len16(&self) -> usize {
-        mixdog_js::utf16_len(&self.value)
+        mixdog_termtext::lone::utf16_len(&self.value)
     }
 }
