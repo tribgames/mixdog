@@ -352,9 +352,10 @@ fn a_background_chart_without_a_window_handle_closes_its_window_and_is_refused()
         log.put(6, member, i4(-32000));
     }
     log.put(6, "WindowState", i4(2));
-    log.get(6, "HWND", i4(0));
+    // The application frame is the window that is hidden, so its handle is read first, then the window's.
     log.get(5, "HWND", i4(0));
     log.get(5, "Hwnd", i4(0));
+    log.get(6, "HWND", i4(0));
     log.call(6, "Close", vec![], empty());
     let fake = log.fake();
     let answer = apply_in(&World::new(), &fake.object(1), &json!({"op": "add_chart", "slide": 1, "series": [{"name": "S", "values": [1]}]}), false);
@@ -380,7 +381,7 @@ fn a_background_chart_window_that_hides_lets_the_chart_be_made() {
         log.put(6, member, i4(-32000));
     }
     log.put(6, "WindowState", i4(2));
-    log.get(6, "HWND", i4(77));
+    log.get(5, "HWND", i4(77));
     // The chart: AddChart2, no series asked for, no title (HasTitle is set and cleared), the plot's own settings and no data to close.
     log.get(3, "Shapes", obj(7));
     log.call(7, "AddChart2", vec![i4(-1), i4(51), r4(72.0), r4(72.0), r4(480.0), r4(280.0)], obj(8));

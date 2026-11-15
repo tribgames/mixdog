@@ -113,7 +113,8 @@ impl Log {
 
     /// The calls of `Initialize-OwnedOfficeApplication` and of `New-HiddenApplication`.
     fn initialize(&mut self, app: u64, format: &str, visible: bool) {
-        self.put(app, "DisplayAlerts", i4(0));
+        // PowerPoint takes ppAlertsNone (1), not 0, for no alerts.
+        self.put(app, "DisplayAlerts", i4(if format == "pptx" { 1 } else { 0 }));
         self.put(app, "AutomationSecurity", i4(3));
         if format != "pptx" {
             self.put(app, "Visible", b(visible));
