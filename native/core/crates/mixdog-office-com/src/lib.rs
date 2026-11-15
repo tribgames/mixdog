@@ -9,7 +9,9 @@
 //! Answers are the hosts' JSON, as `serde_json::Value`, with the transport's own failures in the same shape.
 
 mod cleanup;
+pub mod com;
 pub mod identity;
+pub mod platform;
 mod oneshot;
 mod route;
 mod scripts;
