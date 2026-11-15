@@ -463,11 +463,70 @@ fn has_end_of_image(bytes: &[u8]) -> bool {
     false
 }
 
+const JPEG_BOGUS_LENGTH: &str = "VipsJpeg: Bogus marker length";
+
+/// Whether a marker libjpeg's `jpeg_read_header` checks by its length (SOF0/1/2/9/10, DRI, and the first SOS) says a
+/// length its content does not have: libjpeg stops with "Bogus marker length" there. Markers are walked as
+/// `read_markers` walks them; anything else it would refuse first (an unsupported SOF, SOS before SOF, an empty image,
+/// a stream that runs out) gives no verdict here.
+fn has_bogus_marker_length(bytes: &[u8]) -> bool {
+    let length_at = |at: usize| bytes.get(at..at + 2).map(|pair| usize::from(u16::from_be_bytes([pair[0], pair[1]])));
+    let mut at = 2;
+    let mut saw_sof = false;
+    while at + 1 < bytes.len() {
+        if bytes[at] != 0xFF {
+            return false;
+        }
+        let marker = bytes[at + 1];
+        match marker {
+            0xFF => at += 1,
+            0xD8 | 0x01 | 0xD0..=0xD7 => at += 2,
+            0xD9 => return false,
+            _ => {
+                let Some(length) = length_at(at + 2) else { return false };
+                match marker {
+                    0xC0 | 0xC1 | 0xC2 | 0xC9 | 0xCA => {
+                        let Some(fields) = bytes.get(at + 4..at + 10) else { return false };
+                        let (height, width, components) = (u16::from_be_bytes([fields[1], fields[2]]), u16::from_be_bytes([fields[3], fields[4]]), fields[5]);
+                        if height == 0 || width == 0 || components == 0 {
+                            return false;
+                        }
+                        if length != 8 + 3 * usize::from(components) {
+                            return true;
+                        }
+                        saw_sof = true;
+                    }
+                    0xC3 | 0xC5..=0xC7 | 0xC8 | 0xCB | 0xCD..=0xCF => return false,
+                    0xDA => {
+                        let Some(&components) = bytes.get(at + 4) else { return false };
+                        return saw_sof && (length != 6 + 2 * usize::from(components) || !(1..=4).contains(&components));
+                    }
+                    0xDD => {
+                        if length != 4 {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 4 + length.saturating_sub(2);
+            }
+        }
+    }
+    false
+}
+
 fn decode_jpeg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
     // A truncated or damaged stream is an error, as it is for sharp (which fails on libjpeg warnings).
     let options = DecoderOptions::default().set_strict_mode(true).set_max_width(usize::from(u16::MAX)).set_max_height(usize::from(u16::MAX));
     let mut header = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
-    header.decode_headers().map_err(|error| jpeg_error(&error, Stage::Header))?;
+    let headers = header.decode_headers();
+    if let Err(error @ (DecodeErrors::HuffmanDecode(_) | DecodeErrors::DqtError(_))) = &headers {
+        return Err(jpeg_error(error, Stage::Header));
+    }
+    if has_bogus_marker_length(bytes) {
+        return Err(ImagingError::invalid(corrupt_header(JPEG_BOGUS_LENGTH)));
+    }
+    headers.map_err(|error| jpeg_error(&error, Stage::Header))?;
     let info = header.info().ok_or_else(|| corrupt(Format::Jpeg, Stage::Header))?;
     let (width, height) = (u32::from(info.width), u32::from(info.height));
     if width == 0 || height == 0 {
@@ -601,6 +660,16 @@ mod tests {
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="1in" height="1in"/>"#;
         let decoded = decode(svg, DECODE_PIXEL_LIMIT).unwrap();
         assert_eq!((decoded.width, decoded.height), (72, 72));
+    }
+
+    #[test]
+    fn a_scan_header_of_the_wrong_length_is_libjpegs_bogus_marker_length() {
+        // SOF0 (8x8, one component), then an SOS whose length (0x00FF) is not 6 + 2 * its one component.
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00];
+        bytes.extend_from_slice(&[0xFF, 0xDA, 0x00, 0xFF, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]);
+        assert!(has_bogus_marker_length(&bytes));
+        bytes[17..19].copy_from_slice(&[0x00, 0x08]);
+        assert!(!has_bogus_marker_length(&bytes));
     }
 
     #[test]
