@@ -100,8 +100,10 @@ pub fn pptx_review_artifacts<P: WriteProof>(
     if let Some(receipt) = receipt_of(session, receipts, preview, &images) {
         result.insert("receipt".to_owned(), receipt);
     }
-    let output = preview.get("output").and_then(Value::as_str).unwrap_or_default();
-    if let Ok(Some(sheet)) = write_contact_sheet(proof, registry, note, &images, output, DEFAULT_WIDTH) {
+    // A preview without a string `output` has nowhere to put the sheet (Node's `extname` throws and the sheet is skipped).
+    if let Some(output) = preview.get("output").and_then(Value::as_str)
+        && let Ok(Some(sheet)) = write_contact_sheet(proof, registry, note, &images, output, DEFAULT_WIDTH)
+    {
         attach_sheet(&mut result, &sheet, preview, images.len());
     }
     Value::Object(result)
@@ -230,6 +232,16 @@ mod tests {
         let result = review(&ReviewSession::default(), &Fixed::new(None), &broken);
         assert!(result.get("contactSheet").is_none());
         assert_eq!(result["_images"].as_array().expect("images").len(), 3);
+    }
+
+    #[test]
+    fn a_preview_without_an_output_gets_no_sheet() {
+        let dir = tempfile::tempdir().expect("dir");
+        let mut nowhere = preview(dir.path(), 5, Some(5));
+        nowhere.as_object_mut().expect("object").remove("output");
+        let result = review(&ReviewSession::default(), &Fixed::new(None), &nowhere);
+        assert!(result.get("contactSheet").is_none());
+        assert_eq!(result["_images"].as_array().expect("images").len(), 5);
     }
 
     #[test]
