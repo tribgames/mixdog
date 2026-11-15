@@ -2005,6 +2005,12 @@
       }
      }
     }
+   },
+   "config/getSettingsSnapshot": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/tui_client_methods.rs heavy (reads only the truthiness of `heavy`)",
+     "fields": []
+    }
    }
   },
   "notification": {
@@ -2475,7 +2481,9 @@
     "request agent/saveLeadPersona /text",
     "request agent/setLeadCreated /description",
     "request instructions/saveInstructionFile /input/body",
-    "request thread/pushNotice /text"
+    "request thread/pushNotice /text",
+    "request thread/rememberPromptHistory /text",
+    "request thread/setProgressHint /text"
    ]
   },
   {
@@ -3276,6 +3284,7 @@
     "request thread/inheritancePreflight /selection/model",
     "request thread/inheritancePreflight /selection/provider",
     "request thread/pushNotice /level",
+    "request thread/setProgressHint /tone",
     "request thread/start /draft/route/effort",
     "request thread/start /draft/route/model",
     "request thread/start /draft/route/modelParameters/*",
@@ -4022,6 +4031,7 @@
     "request config/getReactionSettings /threadId",
     "request config/getRecapSettings /threadId",
     "request config/getSessionTitleSettings /threadId",
+    "request config/getSettingsSnapshot /threadId",
     "request config/getSystemShell /threadId",
     "request config/getTheme /threadId",
     "request config/getToolModuleSettings /threadId",
@@ -4619,11 +4629,15 @@
     "request thread/reapplyTurnChanges /checkpointId",
     "request thread/reapplyTurnChanges /opId",
     "request thread/reapplyTurnChanges /threadId",
+    "request thread/rememberPromptHistory /opId",
+    "request thread/rememberPromptHistory /threadId",
     "request thread/requestWorktree /input/txId",
     "request thread/requestWorktree /opId",
     "request thread/requestWorktree /threadId",
     "request thread/resizeImage /opId",
     "request thread/resizeImage /threadId",
+    "request thread/restoreNewerTranscript /threadId",
+    "request thread/restoreOlderTranscript /threadId",
     "request thread/resume /resumeFrom/epoch",
     "request thread/resume /threadId",
     "request thread/revertTurnChanges /checkpointId",
@@ -4649,6 +4663,7 @@
     "request thread/setOrchestrationMode /threadId",
     "request thread/setOutputStyle /opId",
     "request thread/setOutputStyle /threadId",
+    "request thread/setProgressHint /threadId",
     "request thread/setToolMode /opId",
     "request thread/setToolMode /threadId",
     "request thread/setWorkflow /opId",

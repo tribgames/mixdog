@@ -2626,6 +2626,21 @@
       },
       "type": "object"
     },
+    "ConfigGetSettingsSnapshotParams": {
+      "description": "Params of `config/getSettingsSnapshot`: `options` is `{ heavy }` (default on: adds the MCP, plugin and skill status).",
+      "properties": {
+        "options": {
+          "default": null
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ConfigGetSystemShellParams": {
       "description": "Params of `config/getSystemShell`.",
       "properties": {
@@ -19217,6 +19232,26 @@
       ],
       "type": "object"
     },
+    "ThreadRememberPromptHistoryParams": {
+      "description": "Params of `thread/rememberPromptHistory`.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "text",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadRequestWorktreeParams": {
       "description": "Params of `thread/requestWorktree`.",
       "properties": {
@@ -19255,6 +19290,18 @@
         "input",
         "opId"
       ],
+      "type": "object"
+    },
+    "ThreadRestoreTranscriptParams": {
+      "description": "Params of `thread/restoreOlderTranscript` and `thread/restoreNewerTranscript`.",
+      "properties": {
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ThreadResumeParams": {
@@ -19818,6 +19865,40 @@
         "opId",
         "value"
       ],
+      "type": "object"
+    },
+    "ThreadSetProgressHintParams": {
+      "description": "Params of `thread/setProgressHint`.",
+      "properties": {
+        "percent": {
+          "description": "A finite number is rounded and held in 0..=100.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "Absent or empty: the hint is cleared.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tone": {
+          "description": "`info` when not sent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ThreadSetToolModeParams": {
@@ -23494,6 +23575,12 @@
       },
       "result": true
     },
+    "config/getSettingsSnapshot": {
+      "params": {
+        "$ref": "#/definitions/ConfigGetSettingsSnapshotParams"
+      },
+      "result": true
+    },
     "config/getSystemShell": {
       "params": {
         "$ref": "#/definitions/ConfigGetSystemShellParams"
@@ -26143,6 +26230,12 @@
       },
       "result": true
     },
+    "thread/rememberPromptHistory": {
+      "params": {
+        "$ref": "#/definitions/ThreadRememberPromptHistoryParams"
+      },
+      "result": true
+    },
     "thread/requestWorktree": {
       "params": {
         "$ref": "#/definitions/ThreadRequestWorktreeParams"
@@ -26152,6 +26245,18 @@
     "thread/resizeImage": {
       "params": {
         "$ref": "#/definitions/ThreadResizeImageParams"
+      },
+      "result": true
+    },
+    "thread/restoreNewerTranscript": {
+      "params": {
+        "$ref": "#/definitions/ThreadRestoreTranscriptParams"
+      },
+      "result": true
+    },
+    "thread/restoreOlderTranscript": {
+      "params": {
+        "$ref": "#/definitions/ThreadRestoreTranscriptParams"
       },
       "result": true
     },
@@ -26220,6 +26325,12 @@
     "thread/setOutputStyle": {
       "params": {
         "$ref": "#/definitions/ThreadSetOutputStyleParams"
+      },
+      "result": true
+    },
+    "thread/setProgressHint": {
+      "params": {
+        "$ref": "#/definitions/ThreadSetProgressHintParams"
       },
       "result": true
     },

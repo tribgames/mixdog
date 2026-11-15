@@ -233,9 +233,16 @@ pub(crate) fn list_lookahead(indent: usize) -> &'static ListLookahead {
 }
 
 /// The regex that reads the next item of a list whose first bullet is `bull` (`-`, `*`, `+`, or digits and `.` or `)`).
-pub(crate) fn item_rule(bull: &str) -> Re {
+/// It depends on the bullet's last character and on whether digits come before it, so each of the few is compiled once.
+pub(crate) fn item_rule(bull: &str) -> &'static Re {
+    static RULES: LazyLock<std::sync::Mutex<std::collections::HashMap<(bool, char), &'static Re>>> =
+        LazyLock::new(Default::default);
     let mut chars = bull.chars();
     let last = chars.next_back().unwrap_or('-');
-    let pattern = if bull.chars().count() > 1 { format!(r"\d{{1,9}}\{last}") } else { format!(r"\{last}") };
-    Re::new(&format!("^( {{0,3}}{pattern})((?:[\t ][^\n]*)?(?:\n|$))"), "")
+    let ordered = bull.chars().count() > 1;
+    let mut rules = RULES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *rules.entry((ordered, last)).or_insert_with(|| {
+        let pattern = if ordered { format!(r"\d{{1,9}}\{last}") } else { format!(r"\{last}") };
+        Box::leak(Box::new(Re::new(&format!("^( {{0,3}}{pattern})((?:[\t ][^\n]*)?(?:\n|$))"), "")))
+    })
 }

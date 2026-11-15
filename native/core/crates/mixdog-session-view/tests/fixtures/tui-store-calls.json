@@ -544,7 +544,10 @@
     "app/prompt-submit/settings-prompts.mjs"
    ],
    "siteCount": 1,
-   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "project/read"
+   }
   },
   {
    "name": "isRemoteSession",
