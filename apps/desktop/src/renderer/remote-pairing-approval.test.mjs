@@ -306,7 +306,7 @@ test('a boot whose saved sign-in vanished asks the user instead of filing a clai
 });
 
 /** The approval loop against a fake relay; `poll` answers each claim poll. */
-async function runApproval(t, poll, { support, deviceId = 'abc', installed = false } = {}) {
+async function runApproval(t, poll, { support, deviceId = 'abc', installed = false, quickPoll = false } = {}) {
   const claims = [];
   const supportCalls = [];
   const fetchCalls = [];
@@ -341,6 +341,14 @@ async function runApproval(t, poll, { support, deviceId = 'abc', installed = fal
     globals: { fetch: fakeFetch },
   });
   if (installed) window.localStorage.setItem('mixdog.directBrowser', '1');
+  if (quickPoll) {
+    // The screen's two-second poll interval is not what the test checks (the answers, the re-claim, the deadline are): it ticks at once.
+    const realSetTimeout = window.setTimeout;
+    window.setTimeout = (fn, ms, ...rest) => realSetTimeout(fn, ms === 2_000 ? 0 : ms, ...rest);
+    t.after(() => {
+      window.setTimeout = realSetTimeout;
+    });
+  }
   const { createRemotePairingScreen } = await import('./remote-pairing-screen.ts');
   let accepted = 0;
   createRemotePairingScreen({
@@ -400,7 +408,8 @@ test('an installed surface still asks directly, and without a deviceId still rep
 
 test('a claim the relay no longer knows is filed again on its own', async (t) => {
   const run = await runApproval(t, async (path, approved) =>
-    path === '/claim/c1' ? { status: 'unknown' } : approved()
+    path === '/claim/c1' ? { status: 'unknown' } : approved(),
+    { quickPoll: true }
   );
   await until(() => run.accepted() === 1);
   assert.equal(run.claims.length, 2, 'one automatic re-claim');
@@ -423,7 +432,7 @@ test('a page that thaws past the poll deadline still polls once more', async (t)
       return { status: 'pending' };
     }
     return approved();
-  });
+  }, { quickPoll: true });
   await until(() => run.accepted() === 1);
   assert.equal(polls, 2);
   assert.notEqual(run.document.querySelector('.mxp-title')?.textContent, 'Request expired');

@@ -8,6 +8,24 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import puppeteer from 'puppeteer-core';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
 
+// One Chrome for the file's browser checks (each check has a page of its own): starting a browser per check was a second of each.
+let browserLaunch;
+const sharedBrowser = () =>
+  (browserLaunch ??= puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  }));
+test.after(async () => {
+  if (browserLaunch) await (await browserLaunch).close();
+});
+
+async function isolatedPage(t) {
+  const browser = await sharedBrowser();
+  const context = await browser.createBrowserContext();
+  t.after(() => context.close());
+  return context.newPage();
+}
+
 // The Goal renders as a segment of the composer island; these fixtures give
 // it that frame.
 const islandFrame = (markup) =>
@@ -17,12 +35,7 @@ const islandFrame = (markup) =>
 // geometry: in the open Goal tab all three controls remain visible in one
 // row under the task list, regardless of drawer overflow or a narrow pane.
 test('Goal tab controls stay in one visible row under the task list', async (t) => {
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await isolatedPage(t);
   const css = (
     await Promise.all(
       ['./desktop/15-composer.css', './desktop/22-markdown.css'].map((path) =>
@@ -128,12 +141,7 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
 // The open Goal tab's pill rule must not beat the pill's [hidden]: the
 // approval card and a flash take the island over, Goal included.
 test('approval and flash modes hide the Goal pill even with the Goal tab open', async (t) => {
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await isolatedPage(t);
   const css = (
     await Promise.all(
       ['./desktop/15-composer.css', './desktop/22-markdown.css', './desktop/27-search-review.css'].map((path) =>
@@ -167,12 +175,7 @@ test('approval and flash modes hide the Goal pill even with the Goal tab open', 
 // The empty-island gate must count every kind of content: a quota panel or
 // the expanded files list alone still shows the island.
 test('an island carrying only the quota panel or the expanded files list stays visible', async (t) => {
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await isolatedPage(t);
   const css = (
     await Promise.all(
       ['./desktop/15-composer.css', './desktop/27-search-review.css'].map((path) =>
@@ -211,12 +214,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
     write: false,
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await isolatedPage(t);
   const tasks = [
     {
       status: 'in_progress',
@@ -399,12 +397,7 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
       )
     )
   ).join('\n');
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await isolatedPage(t);
   await page.setViewport({ width: 900, height: 800 });
   await page.setContent(`<!doctype html><html><head><style>
     :root {

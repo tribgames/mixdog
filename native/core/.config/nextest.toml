@@ -157,14 +157,16 @@ test-group = 'migration-recorded'
 filter = 'package(mixdog-migrate) & (test(/^desktop_profile::tests::(a_late_pass_killed_at_every_point|a_late_pass_started_with_a_profile|the_crash_matrix)/) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 slow-timeout = { period = "60s", terminate-after = 6 }
 
-# Every test of mixdog-services' `memory::tests` (documented there as the end-to-end suite over a
-# temporary Postgres cluster) and of `memory::thread_search::tests` starts its own initdb + postmaster
-# (about 4 s and a dozen processes each, fsync-bound). Started together, the postmasters of a run are
-# still in recovery when the tests connect, and shutdowns of the stack queue behind the same disk;
-# one cluster at a time is the load a single test was verified under. Matching the module paths
-# keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
+# The tests of mixdog-services' `memory::tests`, `memory::thread_search::tests` and the memory replays that need only a database
+# share one Postgres cluster across the test processes (`memory/tests/shared_pg.rs`: started by the first of them, a database per
+# test made from a template, stopped by its own supervisor when no test holds it), so they run in parallel with everything else.
+# The tests that start a cluster of their own (a stack's opening with `initdb` and a postmaster, a cluster killed and restarted,
+# the cluster's log read for the statements it received) stay in this group: one cluster of their own at a time, the load a single
+# one was verified under (the postmasters of a run still in recovery when the tests connect, shutdowns queueing behind the same
+# disk). A test added to those modules shares the cluster unless it names `TestPg::start_own` or a stack; add it here then.
+# The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/) | test(/^memory::replays::\w+::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests|session_project_tests)::/) | test(/^lead_request_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::boot::/) | test(=memory::tests::service::the_first_recall_on_a_fresh_profile_answers_as_node) | test(=memory::tests::session_search::a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops) | test(/^memory::replays::core_index::pg::/) | test(/^memory::replays::service_lifecycle::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests|session_project_tests)::/) | test(/^lead_request_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
 test-group = 'pg-cluster'
 
 # The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked

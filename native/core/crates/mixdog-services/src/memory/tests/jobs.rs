@@ -324,7 +324,7 @@ async fn kill_ingest_at(parent: &str, pg: &TestPg, k: u64, file: &Path, work: &P
         .args(["--exact", &format!("memory::tests::jobs::{parent}"), "--include-ignored", "--nocapture", "--test-threads=1"])
         .env("MIXDOG_KILL_CHILD", "1")
         .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
-        .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
+        .env("MIXDOG_KILL_PG_DATABASE", pg.database())
         .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
         .env("MIXDOG_KILL_FILE", file)
         .env("MIXDOG_KILL_WORK", work)
@@ -349,11 +349,8 @@ const RESTART_NOW: i64 = 1_772_600_767_890;
 /// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`).
 async fn restart_kill_child() {
     let var = |name: &str| std::env::var_os(name).unwrap_or_else(|| panic!("{name} is set by the parent"));
-    let runtime = PathBuf::from(var("MIXDOG_PG_RUNTIME"));
     let port: u16 = var("MIXDOG_KILL_PG_PORT").to_string_lossy().parse().expect("a port");
-    let processes = crate::tidy::process::Processes::for_tests();
-    let cluster = crate::memory::pg::cluster::PgCluster::over(crate::memory::pg::cluster::PgRuntime::new(&runtime), Path::new(&var("MIXDOG_KILL_PG_PROFILE")), port, mixdog_rt::testing::tokens().durability_io, processes);
-    let db = Db::open(&cluster, Schema::Memory).await.expect("the parent's database");
+    let db = Db::open_in(port, &var("MIXDOG_KILL_PG_DATABASE").to_string_lossy(), Schema::Memory).expect("the parent's database");
     let ingest = TranscriptIngest::new(db, io(), Arc::new(|| RESTART_NOW));
     ingest.load_transcript_offsets().await;
     ingest.ingest_transcript_file(Path::new(&var("MIXDOG_KILL_FILE")), Some(Path::new(&var("MIXDOG_KILL_WORK")))).await.expect("the ingest");

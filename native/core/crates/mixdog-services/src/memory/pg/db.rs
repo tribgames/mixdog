@@ -178,7 +178,12 @@ async fn bootstrap(cluster: &PgCluster) -> Result<()> {
     })
     .await?;
     admin.close();
-    let setup = build_pool(config(cluster.port(), DATABASE, None), 1)?;
+    bootstrap_schemas(cluster.port(), DATABASE).await
+}
+
+/// The extension and the schemas of `database` (idempotent, serialised by the cluster advisory lock of first-boot DDL).
+async fn bootstrap_schemas(port: u16, database: &str) -> Result<()> {
+    let setup = build_pool(config(port, database, None), 1)?;
     with_cluster_lock(&setup, LOCK_SCHEMA_BOOTSTRAP, async |client| {
         client
             .batch_execute(
@@ -223,6 +228,20 @@ impl Db {
         let path = format!("{}, public", schema.name());
         let pool = build_pool(config(cluster.port(), DATABASE, Some(&path)), POOL_SIZE)?;
         Ok(Self { pool: PoolSource::Open(pool), schema })
+    }
+
+    /// A handle over `database` of the cluster on `port`, which already holds the extension and the schemas of a bootstrap
+    /// (a database made from the shared test cluster's template): no cluster start, no bootstrap.
+    #[cfg(test)]
+    pub(crate) fn open_in(port: u16, database: &str, schema: Schema) -> Result<Self> {
+        let path = format!("{}, public", schema.name());
+        Ok(Self { pool: PoolSource::Open(build_pool(config(port, database, Some(&path)), POOL_SIZE)?), schema })
+    }
+
+    /// What `open` makes of a new cluster's `database`: the extension and the schemas.
+    #[cfg(test)]
+    pub(crate) async fn bootstrap_database(port: u16, database: &str) -> Result<()> {
+        bootstrap_schemas(port, database).await
     }
 
     /// An open handle whose pool has not connected (a pool connects at its first use).

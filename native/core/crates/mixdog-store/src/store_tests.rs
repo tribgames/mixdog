@@ -494,12 +494,17 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     let env = Env::new();
     let mut w = env.create("s1", None).await;
     // ~70 MiB of history in ~2 MiB batches: checkpoints every 1 MiB and one rotation.
-    let mut n = 0;
+    let (mut n, mut built, mut committed) = (0, std::time::Duration::ZERO, std::time::Duration::ZERO);
     while env.dir("s1").join(log_name(1)).metadata().is_err() || n < 340 {
+        let at = std::time::Instant::now();
         let batch = (0..10).map(|i| big_item(&format!("i{}", n + i))).collect();
+        built += at.elapsed();
         n += 10;
+        let at = std::time::Instant::now();
         w = env.commit(w, batch).await.0;
+        committed += at.elapsed();
     }
+    eprintln!("{n} items: built in {built:?}, committed in {committed:?}");
     drop(w);
     let files = list_logs(&env.dir("s1")).unwrap();
     assert_eq!(files, [0, 1]);
@@ -515,7 +520,9 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     .unwrap();
     assert!(matches!(first.frames[0].0, crate::schema::record::Record::Checkpoint(_)));
 
+    let at = std::time::Instant::now();
     let opened = env.reopen("s1").await;
+    eprintln!("reopened in {:?}", at.elapsed());
     assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, n as u64));
     // Independent of history length: the reverse scan window plus the frame before it.
     assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);

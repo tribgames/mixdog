@@ -486,6 +486,35 @@ mod tests {
     /// one command, and shutdown ends the parked one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
+        warm_standby(None).await;
+    }
+
+    /// The runs of sized commands of the recording (cold from A, cold from B, warm from B), each replayed in its own test (a
+    /// process of its own, so what a run does to the environment is no other's): the replay of the whole recording ran them
+    /// beside each other in one test, which took as long as the longest of them plus the rest.
+    const STANDBY_RUNS: usize = 4;
+
+    macro_rules! standby_runs {
+        ($($name:ident = $run:expr),* $(,)?) => {
+            $(
+                #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+                async fn $name() {
+                    warm_standby(Some($run)).await;
+                }
+            )*
+        };
+    }
+
+    standby_runs!(
+        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_0 = 0,
+        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_1 = 1,
+        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_2 = 2,
+        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_3 = 3,
+    );
+
+    /// `None`: the first calls, the last (which changes this process's environment) and the end of the parked standby at
+    /// shutdown. `Some(run)`: that run of sized commands (the two calls that bring it to a standby parked for B, then its own).
+    async fn warm_standby(only_run: Option<usize>) {
         use mixdog_core_api::domain::process::ProcessEvent;
         use mixdog_core_api::domain::process::ProcessManager;
         let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-warm-standby/golden.json")).unwrap();
@@ -503,24 +532,19 @@ mod tests {
         assert!(sized.chunks(3).all(|run| run.len() == 3 && ["A", "B", "B"].iter().zip(run).all(|(ws, i)| calls[*i].1["ws"] == *ws)));
         assert!(calls[1].1["ws"] == "A" && calls[1].1["parked"] == false && calls[4].1["ws"] == "B" && calls[4].1["taken"] == false);
         assert!(!calls[last].1["setAfterPark"].is_null());
-        let runs: Vec<_> = sized
-            .chunks(3)
-            .map(|run| {
-                let calls: Vec<(usize, serde_json::Value)> = [1, 4].iter().chain(run).map(|i| calls[*i].clone()).collect();
-                tokio::spawn(async move {
-                    let rig = rig().await;
-                    let replayed = replay_standby(&rig, &calls).await;
-                    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-                    replayed
-                })
-            })
-            .collect();
+        assert_eq!(sized.chunks(3).count(), STANDBY_RUNS, "a test for each run of the recording");
+        if let Some(run) = only_run {
+            let run = sized.chunks(3).nth(run).expect("the run is in the recording");
+            let calls: Vec<(usize, serde_json::Value)> = [1, 4].iter().chain(run).map(|i| calls[*i].clone()).collect();
+            let rig = rig().await;
+            let (wrong, _) = replay_standby(&rig, &calls).await;
+            rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+            assert!(wrong.is_empty(), "{wrong:#?}");
+            return;
+        }
         let rig = rig().await;
         let (mut wrong, used) = replay_standby(&rig, &calls[..first]).await;
         assert!(used.len() >= 2 && used[0] != used[1], "each standby runs one command: {used:?}");
-        for run in runs {
-            wrong.extend(run.await.unwrap().0);
-        }
         wrong.extend(replay_standby(&rig, &calls[last..]).await.0);
         assert!(wrong.is_empty(), "{wrong:#?}");
         let parked = rig.parked().await;
