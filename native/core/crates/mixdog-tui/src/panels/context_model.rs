@@ -371,7 +371,9 @@ fn row(value: &str, label: &str, description: String) -> Value {
 fn context_rows(m: &Metrics) -> Vec<Value> {
     let window = m.window_tokens;
     let messages_tokens = tokens_of(field(m.messages, "estimatedTokens"));
-    let reasoning = tokens_num(number_or_zero(path(m.messages, &["semantic", "reasoning", "tokens"])));
+    // `fmt(x || 0)` and `pct(x || 0, window)` get the raw value, so one that is not a number reads as `NaN` there (`pct`
+    // shows `NaN%`, `fmt` shows `0`).
+    let reasoning = Some(number_or_zero(path(m.messages, &["semantic", "reasoning", "tokens"])));
     let built_in = tokens_num(m.built_in_tool_schema_tokens);
     let usage = |key: &str| tokens_of(field(m.usage, key));
     let messages = |key: &str| tokens_of(field(m.messages, key));
