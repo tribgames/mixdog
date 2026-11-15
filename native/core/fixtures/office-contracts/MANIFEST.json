@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-contracts.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1193572,
+      "path": "golden.json",
+      "sha256": "075666e2746c694eed8b819f59a327a5cd56f9b0de6705eb7428818ed9e6ca76"
+    }
+  ],
+  "product": {
+    "appsSha256": "d1aea7c62bb46724eb2c95a32d6f2ad5d493b65f6ab06f7d5c766d317ffe9123",
+    "commit": "0708b5b0e078fb069c376ff8d88698451a6cd6e2",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5272,
+    "refComparison": {
+      "closestCommit": "0708b5b0e078fb069c376ff8d88698451a6cd6e2",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "bffdefbc2469519d184c43845ff536fadf27ebdf4eaea0f91a47a3e208c5c56f",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-contracts.mjs",
+  "set": "office-contracts",
+  "totalBytes": 1193572
+}
