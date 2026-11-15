@@ -1,0 +1,57 @@
+# nr-office-ooxml-validation: integration fragment
+
+Two modules join the crate mixdog-ooxml (native/core/crates/mixdog-ooxml): validation (issues_portable_ooxml, remove_orphan_package_parts,
+picture_description_issues, StructureReview: the findings list of a portable file, the package cleaner and the picture description rule of
+portable-validation.mjs) and snapshot (snapshot_portable_ooxml and the re-exports portable-snapshot.mjs made: append_docx_block,
+docx_body_model, snapshot_docx, snapshot_xlsx, snapshot_pptx, FULL_READ_CELL_LIMIT). No protocol method, service or SERVICE_PENDING name
+belongs to this task. Nothing was compiled (cargo was not run): the modules need the three lines below.
+
+## native/core/crates/mixdog-ooxml/src/lib.rs
+
+After `pub mod xlsx_assertions;` (the last module line), add:
+
+    pub mod validation;
+    pub mod snapshot;
+
+(and, in the module list of the crate documentation, they are the Node files portable-validation.mjs and portable-snapshot.mjs.)
+
+## native/core/crates/mixdog-ooxml/Cargo.toml
+
+In [dependencies], add (an existing [workspace.dependencies] entry; mixdog-raster depends on neither mixdog-ooxml nor the office crates, so
+the edge closes no cycle). It gives the blank-picture check what sharp's channel statistics gave Node (decode, then the alpha band's
+maximum):
+
+    mixdog-raster = { workspace = true }
+
+native/core/Cargo.lock: the mixdog-ooxml package gains `"mixdog-raster"` in its dependency list (regenerate with the offline --locked
+build's own lock update; no crate outside the workspace is added).
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, after the entry of office-text-metrics (keep the list sorted by set name), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-validation.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-validation/MANIFEST.json",
+      "manifestSha256": "72f95d94aa321005666ce1891c7f3a3f0cc03a12f52189a0195edd86202d0bf6",
+      "recorder": "benchmarks/rust-core/recorders/record-office-validation.mjs",
+      "set": "office-validation",
+      "totalBytes": 293955
+    }
+
+(Recompute manifestSha256 and totalBytes from the committed MANIFEST.json and golden.json if the tool that keeps this file reformats them.)
+
+## For the task that ports reviewOfficeStructure (the quality crate)
+
+issues_portable_ooxml takes the deck's structure review as a parameter (`structure_review: &dyn Fn(&Value) -> Vec<Value>`), because the
+quality crate that holds reviewOfficeStructure depends on mixdog-ooxml. The caller passes a closure over its own review (the deck snapshot
+in, the findings out; this module drops the review's low_contrast findings, as Node's does). A caller that has no deck to review passes
+`&|_| Vec::new()`.
+
+## Not compiled
+
+Written without cargo (the wave is compiled by the lead). The first build of mixdog-ooxml and
+`cargo test -p mixdog-ooxml --test twin_validation` is the check; the twin test replays the recording and needs no Node
+(twin_live_validation, ignored, re-records through Node). The recording was made once with `node benchmarks/rust-core/recorders/record-office-validation.mjs --tree C:/Project/mixdog`
+(read only) from a scratch checkout; fixture faces come from native/core/fixtures/office-measure.
