@@ -26,6 +26,7 @@ pub mod tool_jpeg;
 
 pub use cache::CacheStats;
 pub use cache::image_resize_cache_stats;
+pub use color::rgb_to_srgb;
 pub use decode::DECODE_PIXEL_LIMIT;
 pub use decode::DEFAULT_PIXEL_LIMIT;
 pub use decode::Decoded;
