@@ -25,6 +25,9 @@ use super::process::ProcessManager;
 use crate::turn_review::TurnReviewApi;
 use mixdog_protocol::ToolCallId;
 
+// A private name for the existing callback type; no wrapper or allocation change.
+type ToolNotifyCallback = dyn Fn(&str, &JsonValue) -> bool + Send + Sync;
+
 /// Tool annotations as published in `tool-schemas.json`.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ToolAnnotations {
@@ -262,7 +265,7 @@ pub enum CapLimit {
 /// worker turn's own queue). `false` means the receiver declined, and the completion falls back
 /// to the owner's default delivery.
 #[derive(Clone)]
-pub struct ToolNotify(pub Arc<dyn Fn(&str, &JsonValue) -> bool + Send + Sync>);
+pub struct ToolNotify(pub Arc<ToolNotifyCallback>);
 
 impl ToolNotify {
     pub fn deliver(&self, text: &str, meta: &JsonValue) -> bool {
