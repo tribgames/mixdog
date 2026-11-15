@@ -760,6 +760,9 @@ impl RunError {
     }
 }
 
+/// A future behind a box, for the calls whose future is too large to be kept in the frame of the poll that awaits it.
+type BoxedFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 /// A command that did not answer: what the tool fails with, and the timing row of the part of the command that ran (`None` where it
 /// failed before it took its place, an invalid request).
 #[derive(Debug)]
@@ -1035,10 +1038,18 @@ impl Inner {
     async fn execute(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
         // Keep the large action-dispatch future out of every enclosing queue/scope future.
         // The production executor uses a 2 MB stack, as does the browser ceiling regression.
-        match Box::pin(self.execute_resolved(thread, turn, prepared, ctx, timer)).await {
+        match self.execute_resolved_boxed(thread, turn, prepared, ctx, timer).await {
             Err(RunError::Reply(reply)) => Ok(reply),
             other => other,
         }
+    }
+
+    /// `execute_resolved` behind a box that is made here, in a frame that is gone when this returns: the call that builds a large
+    /// future leaves it in the frame of whoever called, so boxing at the call site still keeps its whole size on the stack of every
+    /// poll above it. The caller holds the pointer only.
+    #[inline(never)]
+    fn execute_resolved_boxed<'a>(self: &'a Arc<Self>, thread: &'a ThreadId, turn: u64, prepared: Prepared, ctx: &'a RunContext, timer: &'a Arc<CommandTimer>) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.execute_resolved(thread, turn, prepared, ctx, timer))
     }
 
     async fn execute_resolved(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
@@ -1078,8 +1089,8 @@ impl Inner {
             if let Some(blocked) = page.dialog_block(action) {
                 return Ok(blocked);
             }
-            let reply = page.act(action, command, expected, has_screenshot_options).await?;
-            page.after_command(action, background, placement, &hints, reply).await
+            let reply = page.act_boxed(action, command, expected, has_screenshot_options).await?;
+            page.after_command_boxed(action, background, placement, &hints, reply).await
         }
         .await;
         let reply = match worked {
@@ -1795,6 +1806,18 @@ impl PageCtx {
         }
     }
 
+    /// `act` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
+    #[inline(never)]
+    fn act_boxed<'a>(&'a self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.act(action, command, expected, has_screenshot_options))
+    }
+
+    /// `after_command` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
+    #[inline(never)]
+    fn after_command_boxed<'a>(&'a self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &'a SignInHints, reply: ToolReply) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.after_command(action, background, placement, hints, reply))
+    }
+
     /// The action itself, on a page no dialog blocks for it.
     async fn act(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
         let internal = command.get("internalStep") == Some(&Value::Bool(true));
@@ -1827,91 +1850,206 @@ impl PageCtx {
             baseline: baseline.clone(),
             report_baseline: report_baseline.clone(),
         };
+        // Every arm that awaits is its own boxed call: a debug frame keeps a slot for each future the function builds, and the whole
+        // match in this frame held about a megabyte on the stack of the worker thread (2 MB) for any action.
         match action {
             Action::Open => Ok(navigation::open(self.background)),
-            Action::Snapshot => self.snapshot_action(&command).await,
-            Action::Locate => self.locate_action(&command).await,
-            Action::Read => {
-                let precondition = self.page_precondition();
-                let redact = |text: &str| self.redact(text);
-                Ok(observe::read(&self.observe_call(Some(&precondition)), &command, &redact).await?)
-            }
-            Action::Extract => {
-                let precondition = self.page_precondition();
-                Ok(observe::extract(&self.observe_call(Some(&precondition)), &command).await?)
-            }
+            Action::Snapshot => self.snapshot_boxed(&command).await,
+            Action::Locate => self.locate_boxed(&command).await,
+            Action::Read => self.read_boxed(&command).await,
+            Action::Extract => self.extract_boxed(&command).await,
             Action::Status => Ok(self.with_ledgers(|ledgers| diagnostics::status(&facts, ledgers))),
             Action::Console => Ok(self.with_ledgers(|ledgers| diagnostics::console(ledgers, &command))?),
-            Action::Network => self.network_action(&command).await,
-            Action::Wait => {
-                let report = WaitSnapshot { page: self, command: &command };
-                Ok(self.timer.phase(Phase::Wait, flow::wait(&self.settle_page(), &self.cancel, &command, &report)).await?)
-            }
-            Action::Navigate | Action::Back => self.navigate_action(action, &command, &options(true, &baseline)).await,
-            Action::Evaluate => self.evaluate_action(&command, expected.is_some(), has_screenshot_options, &options(true, &baseline)).await,
-            Action::Emulate => {
-                let input = command.as_object().cloned().unwrap_or_default();
-                let applied = crate::actions::emulation::emulate(&self.call(), &input).await?;
-                self.invalidate();
-                let snapshot = self.settled(&command, &options(true, &baseline)).await?;
-                Ok(emulation::configured_reply(&applied, snapshot))
-            }
-            Action::Cookies => {
-                let input = command.as_object().cloned().unwrap_or_default();
-                Ok(page::cookies(&self.call(), &facts.url, &input).await?)
-            }
-            Action::Storage => {
-                let input = command.as_object().cloned().unwrap_or_default();
-                let redact = |text: &str| self.redact(text);
-                let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
-                let outcome = page::storage(&self.call(), &ctx, &input).await?;
-                if outcome.invalidates_refs {
-                    self.invalidate();
-                }
-                Ok(outcome.reply)
-            }
-            Action::Intercept => Ok(page::intercept(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?),
-            Action::InitScript => Ok(page::init_script(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?),
-            Action::Performance => {
-                let input = command.as_object().cloned().unwrap_or_default();
-                Ok(page::performance(&self.call(), &*self.inner.ports.files, &input, || self.reload_and_settle()).await?)
-            }
-            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => {
-                let output = {
-                    let mut cx = ActionContext { host: self.host(), page: self, command: &command, cancel: &self.cancel, recovery: &mut recovery, effect_baseline: &mut baseline };
-                    match action {
-                        Action::Click => pointer::click(&mut cx).await,
-                        Action::Hover => pointer::hover(&mut cx).await,
-                        Action::Drag => pointer::drag(&mut cx).await,
-                        Action::Press => pointer::press(&mut cx).await,
-                        Action::Scroll => pointer::scroll(&mut cx).await,
-                        _ => sequence(&mut cx, &SequenceSteps { page: self }).await,
-                    }
-                }?;
-                self.gesture_reply(output, &command, &recovery, &options(true, &baseline)).await
-            }
+            Action::Network => self.network_boxed(&command).await,
+            Action::Wait => self.wait_boxed(&command).await,
+            Action::Navigate | Action::Back => self.navigate_boxed(action, &command, &options(true, &baseline)).await,
+            Action::Evaluate => self.evaluate_boxed(&command, expected.is_some(), has_screenshot_options, &options(true, &baseline)).await,
+            Action::Emulate => self.emulate_boxed(&command, &options(true, &baseline)).await,
+            Action::Cookies => self.cookies_boxed(&command, &facts.url).await,
+            Action::Storage => self.storage_boxed(&command).await,
+            Action::Intercept => self.intercept_boxed(&command).await,
+            Action::InitScript => self.init_script_boxed(&command).await,
+            Action::Performance => self.performance_boxed(&command).await,
+            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => self.gesture_boxed(action, &command, &mut recovery, &mut baseline, &options).await,
             Action::Fill | Action::Type | Action::Select | Action::HandleDialog => {
-                let mut form = FormCtx { page: self, command: &command, recovery: &mut recovery, baseline: &mut baseline, expected: &expected, preexisting, report_baseline: &report_baseline };
-                let reply = match action {
-                    Action::Fill => forms::fill(&mut form).await,
-                    Action::Type => forms::type_text(&mut form).await,
-                    Action::Select => forms::select(&mut form).await,
-                    _ => forms::handle_dialog(&mut form).await,
-                };
-                Ok(reply?)
+                self.form_boxed(action, &command, &mut recovery, &mut baseline, &expected, preexisting, &report_baseline).await
             }
-            Action::Upload => {
-                let paths: Vec<String> = command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
-                let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
-                let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
-                let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
-                let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, &facts, approved.as_ref(), self.token()).await?;
-                self.invalidate();
-                let output = ActionOutput { lead: format!("{}\n\n", outcome.summary()), decorate_recovery: true, input: Vec::new() };
-                self.gesture_reply(output, &command, &recovery, &options(true, &baseline)).await
-            }
+            Action::Upload => self.upload_boxed(&command, &facts, approved.as_ref(), &mut recovery, &mut baseline, &options).await,
             Action::ListTabs | Action::CloseTab | Action::Downloads | Action::Hide => Err(RunError::Failed(format!("{} addresses the session, not a page", action.name()))),
         }
+    }
+
+    // The boxed arms of `act`: each builds its future in a frame that is gone when it returns (see `execute_resolved_boxed`).
+
+    #[inline(never)]
+    fn snapshot_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.snapshot_action(command))
+    }
+
+    #[inline(never)]
+    fn locate_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.locate_action(command))
+    }
+
+    #[inline(never)]
+    fn network_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.network_action(command))
+    }
+
+    #[inline(never)]
+    fn navigate_boxed<'a>(&'a self, action: Action, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.navigate_action(action, command, options))
+    }
+
+    #[inline(never)]
+    fn evaluate_boxed<'a>(&'a self, command: &'a Value, has_postcondition: bool, has_screenshot_options: bool, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(self.evaluate_action(command, has_postcondition, has_screenshot_options, options))
+    }
+
+    #[inline(never)]
+    fn read_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let precondition = self.page_precondition();
+            let redact = |text: &str| self.redact(text);
+            Ok(observe::read(&self.observe_call(Some(&precondition)), command, &redact).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn extract_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let precondition = self.page_precondition();
+            Ok(observe::extract(&self.observe_call(Some(&precondition)), command).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn wait_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let report = WaitSnapshot { page: self, command };
+            Ok(self.timer.phase(Phase::Wait, flow::wait(&self.settle_page(), &self.cancel, command, &report)).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn emulate_boxed<'a>(&'a self, command: &'a Value, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            let applied = crate::actions::emulation::emulate(&self.call(), &input).await?;
+            self.invalidate();
+            let snapshot = self.settled(command, options).await?;
+            Ok(emulation::configured_reply(&applied, snapshot))
+        })
+    }
+
+    #[inline(never)]
+    fn cookies_boxed<'a>(&'a self, command: &'a Value, url: &'a str) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            Ok(page::cookies(&self.call(), url, &input).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn storage_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            let redact = |text: &str| self.redact(text);
+            let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
+            let outcome = page::storage(&self.call(), &ctx, &input).await?;
+            if outcome.invalidates_refs {
+                self.invalidate();
+            }
+            Ok::<ToolReply, RunError>(outcome.reply)
+        })
+    }
+
+    #[inline(never)]
+    fn intercept_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move { Ok(page::intercept(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
+    }
+
+    #[inline(never)]
+    fn init_script_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move { Ok(page::init_script(&self.call(), &command.as_object().cloned().unwrap_or_default()).await?) })
+    }
+
+    #[inline(never)]
+    fn performance_boxed<'a>(&'a self, command: &'a Value) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let input = command.as_object().cloned().unwrap_or_default();
+            Ok(page::performance(&self.call(), &*self.inner.ports.files, &input, || self.reload_and_settle()).await?)
+        })
+    }
+
+    #[inline(never)]
+    fn gesture_boxed<'a, F>(&'a self, action: Action, command: &'a Value, recovery: &'a mut RefRecoveryContext, baseline: &'a mut Option<RefSet>, options: &'a F) -> BoxedFuture<'a, Result<ToolReply, RunError>>
+    where
+        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
+    {
+        Box::pin(async move {
+            let output = {
+                let mut cx = ActionContext { host: self.host(), page: self, command, cancel: &self.cancel, recovery: &mut *recovery, effect_baseline: &mut *baseline };
+                match action {
+                    Action::Click => pointer::click(&mut cx).await,
+                    Action::Hover => pointer::hover(&mut cx).await,
+                    Action::Drag => pointer::drag(&mut cx).await,
+                    Action::Press => pointer::press(&mut cx).await,
+                    Action::Scroll => pointer::scroll(&mut cx).await,
+                    _ => sequence(&mut cx, &SequenceSteps { page: self }).await,
+                }
+            }?;
+            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
+        })
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn form_boxed<'a>(
+        &'a self,
+        action: Action,
+        command: &'a Value,
+        recovery: &'a mut RefRecoveryContext,
+        baseline: &'a mut Option<RefSet>,
+        expected: &'a Option<Postcondition>,
+        preexisting: bool,
+        report_baseline: &'a Option<RefSet>,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+        Box::pin(async move {
+            let mut form = FormCtx { page: self, command, recovery, baseline, expected, preexisting, report_baseline };
+            let reply = match action {
+                Action::Fill => forms::fill(&mut form).await,
+                Action::Type => forms::type_text(&mut form).await,
+                Action::Select => forms::select(&mut form).await,
+                _ => forms::handle_dialog(&mut form).await,
+            };
+            Ok::<ToolReply, RunError>(reply?)
+        })
+    }
+
+    #[inline(never)]
+    fn upload_boxed<'a, F>(
+        &'a self,
+        command: &'a Value,
+        facts: &'a PageFacts,
+        approved: Option<&'a Binding>,
+        recovery: &'a mut RefRecoveryContext,
+        baseline: &'a mut Option<RefSet>,
+        options: &'a F,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>>
+    where
+        F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
+    {
+        Box::pin(async move {
+            let paths: Vec<String> = command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
+            let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
+            let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
+            let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
+            let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, facts, approved, self.token()).await?;
+            self.invalidate();
+            let output = ActionOutput { lead: format!("{}\n\n", outcome.summary()), decorate_recovery: true, input: Vec::new() };
+            self.gesture_reply(output, command, recovery, &options(true, baseline)).await
+        })
     }
 
     async fn snapshot_action(&self, command: &Value) -> Result<ToolReply, RunError> {
@@ -2759,8 +2897,10 @@ mod tests {
         let timing = failure.timing.expect("the command held its lane");
         assert!(timing.command_ms >= 0.0 && timing.command_ms >= timing.snapshot_ms);
 
-        let invalid = json!({"includeScreenshot": true}).as_object().cloned().unwrap_or_default();
-        let failure = engine.run(&thread(), "snapshot", &invalid, &CancellationToken::new()).await.expect_err("an unknown field");
+        // Screenshot options on a gesture without includeScreenshot are refused before the command takes its place
+        // (`screenshotOptionsError`); a field a snapshot does not take is the bridge's refusal, not the engine's.
+        let invalid = json!({"fullPage": true}).as_object().cloned().unwrap_or_default();
+        let failure = engine.run(&thread(), "click", &invalid, &CancellationToken::new()).await.expect_err("screenshot options without includeScreenshot");
         assert!(failure.timing.is_none(), "an invalid request never took its place");
     }
 
