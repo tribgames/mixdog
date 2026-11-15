@@ -1,0 +1,114 @@
+# nr-office-formula-lib-stats-distributions
+
+## Registration: root-owned functions/mod.rs
+
+Add (retain all existing declarations):
+
+    mod jstat;
+    mod distributions;
+
+Append `distributions::FUNCTIONS,` to TABLES. jstat is a private kernel module,
+not a second registry. No workspace/Cargo/dependency change is needed.
+
+The installed namespace has 43 distinct distribution functions and 85 callable
+export paths, including aliases' own properties (BINOMDIST.RANGE, CHIDIST.RT,
+FDIST.RT, FINV.RT, TDIST.2T/RT, TINV.2T). The recorder enumerates function identities
+and the actual export namespace. The twin requires every alias to resolve to its
+canonical function pointer, not a fabricated compatibility wrapper.
+
+## Reuse prerequisites: root-owned statistical.rs visibility only
+
+Expose the already-implemented elementary reductions to sibling modules:
+
+    fn jsum(array: &[f64]) -> f64
+    -> pub(super) fn jsum(array: &[f64]) -> f64
+
+    fn mean(array: &[f64]) -> f64
+    -> pub(super) fn mean(array: &[f64]) -> f64
+
+T.TEST uses that reverse-order jStat mean. Poisson CDF builds its increasing-k
+terms, then uses that same reverse-order jsum. Do not replace either by AVERAGE,
+whose installed implementation adds forward. If mixed-NaN replay exposes operand
+selection in the shared jsum, fix it once using shared math::add, not a duplicate
+sum kernel in this task. The new modules cannot typecheck before this visibility
+change; this is an explicit prerequisite, not an implemented stub.
+
+Other reuse: engineering::erf (the existing jStat Chebyshev polynomial),
+engineering::int32, shared V8 math/radix and production registry COMBIN/SUM/
+AVERAGE/STDEV.S. These are already in the task base. The local numeric carrier N
+only routes +/* to shared V8 add/mul while retaining the source expression order;
+all transcendental operations call mixdog-js. No platform-libm approximation or
+second erf polynomial was introduced.
+
+jStat.factorial/combination are deliberately distinct from formulajs FACT/COMBIN:
+the former use gammafn/gammaln and the 170 threshold. BINOM.DIST.RANGE and
+HYPGEOM.DIST call the actual formulajs COMBIN through the registry, whereas
+jStat's binomial/negative-binomial PDF uses its gamma-based combination.
+The installed HYPGEOM.DIST does not reach jStat.hypgeom; it has its own COMBIN
+formula. Installed T.DIST dispatches 1/2 to one/two-tailed CDF, not a PDF. No
+unreachable jStat sampling APIs or unrelated distribution kernels were added.
+
+## Source-derived kernels
+
+Original node_modules/jstat 1.9.6 dist/jstat.js:
+- gammaln, gammafn, gammap/lowRegGamma, factorial/factorialln/combination,
+  betafn/betaln/betacf, gammapinv, ibeta/ibetainv, erfcinv.
+- beta, centralF, chi-square, exponential, gamma, lognormal, normal, student-t,
+  binomial (including its separate uncapped betinc), negative binomial, Poisson.
+Original formulajs 4.6.1 wrappers retain argument-count and typeof gates, error
+ordering, truthy cumulative selection, T.INV.2T bounds-before-error, CHISQ.TEST's
+own recurrence/rounding, PROB's sorted-index quirk and Z.TEST's nested reparsing.
+ibeta's observable Bool(false) is retained by F.DIST; negbin.pdf's invalid-count
+Bool(false) and BINOM.INV/PROB Undefined results are not coerced to numeric outputs.
+
+## Separate fixture set: do not overwrite descriptive statistics
+
+Recorder: benchmarks/rust-core/recorders/record-office-stats-distributions.mjs
+Set: native/core/fixtures/office-stats-distributions/
+Files: golden.json, MANIFEST.json, LICENSE.formulajs, LICENSE.jstat.
+Original office-stats recorder/fixtures (3,226 descriptive cases) are untouched.
+Root indexes this new set separately in native/core/fixtures/MANIFEST.json, or
+uses a combined inventory referencing BOTH sets. Never replace the earlier set.
+The new per-set manifest records source SHA-256s, version, 85 export paths,
+43 bodies, 6,044 returned-value/exception cases and golden/license byte hashes.
+
+Executed reference command (original node_modules read-only):
+node benchmarks/rust-core/recorders/record-office-stats-distributions.mjs --tree C:/Project/mixdog --write
+Without --write the recorder prints JSON only. Every original call is under a
+200ms VM bound; an unexpected timeout aborts recording instead of becoming an
+expected numeric/error result. Types, strings, booleans, undefined, errors,
+exceptions and f64 bits (including NaN/sign/payload) are compared exactly.
+No ULP allowance or normalization is present.
+
+Explicit nontermination evidence: BINOM.INV(+Infinity,0.3,0.8) exceeded a separate
+50ms VM probe. It is metadata, never an unbounded Rust replay or an invented error.
+Ten alias/parameter-domain omissions are explicitly listed for infinite upper
+bounds in BINOM.INV, BINOM.DIST.RANGE, HYPGEOM/NEGBINOM/POISSON cumulative loops.
+The implementation keeps the source loop conditions and original fixed limits:
+betacf 100, ibetainv 10, gammapinv 12, erfcinv 2, and source-derived lowRegGamma
+ITMAX including its JS ToInt32 semantics. No arbitrary production cap is added.
+These potentially unbounded synchronous functions must remain inside the owned
+ext-worker process/cancellation boundary described by the financial task, not a
+daemon thread or an in-process unit test of known nonterminating input.
+
+## Required root validation
+
+No cargo/build/Rust test/application/commit/download was run. Rustfmt parsed the
+source; original Node recording is not proof that the Rust twin passes.
+After registration and reduction visibility changes:
+- every_distribution_and_legacy_property_alias_is_registered
+- every_distribution_result_equals_original_bits_types_and_errors
+- twin_live_stats_distributions (ignored opt-in Node rerecord)
+- existing descriptive, engineering, math and engine suites, then offline clippy.
+Any numerical mismatch remains a blocker until diagnosed; none is waived here.
+
+## Pending shared Utf16 integration
+
+All numeric inputs use common parse_number/to_js_number/flatten coercions, not a
+blanket raw-string refusal. This task base predates Value::Utf16. On integration:
+- distributions.rs::row_length must recognize raw string code-unit length for
+  CHISQ.TEST's first-row length comparison (use is_text/text_units).
+- tests/twin_stats_distributions.rs::encode is exhaustive and needs a Utf16 arm;
+  decoder should accept raw code-unit fixtures through Value::from_utf16.
+- jstat.rs contains no Value string matches and passes only Number to engineering::erf.
+No shared Value/coerce/math file was copied or edited by this task.
