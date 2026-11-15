@@ -124,7 +124,8 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn system_now_ms() -> i64 {
+/// Epoch milliseconds of the system clock: what the log stamps its lines with.
+pub fn system_now_ms() -> i64 {
     mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
