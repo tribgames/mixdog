@@ -1,0 +1,18 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-open-create.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 344052,
+      "path": "golden.json",
+      "sha256": "58ea1d56761b4aea0f012d6ecf1a0c8675364a3ba3d954b386aa4f04277a79fc"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "export"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-open-create.mjs",
+  "set": "office-open-create",
+  "totalBytes": 344052
+}
