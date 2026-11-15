@@ -188,6 +188,10 @@ mod tests {
             "let [(a)] = 1",
             "f() &&= 1",
             "`\\u`",
+            "x = { (a) }",
+            "class A { (a) }",
+            "[{ (a) }] = []",
+            "\"use strict\"; class A { [010]() {} }",
         ] {
             bad(source);
         }
