@@ -50,7 +50,18 @@
 // The relay's own console output also reaches stdout/stderr unchanged.
 // The host closes the relay (relay.close()) when stdin ends and exits 0; a
 // start failure prints '[relay] failed to start: <message>' to stderr and exits 1.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -128,6 +139,22 @@ export function installRelay({ treeRoot, installBase, mobileRelease }) {
   return { root, versions };
 }
 
+/** Deletes an install made by installRelay. The node_modules link is unlinked
+ *  first: a recursive delete that entered the junction (Node 24's rmSync does)
+ *  would delete the tree's packages it points at. When the link cannot be
+ *  unlinked nothing is deleted. */
+export function removeInstall(root) {
+  const link = join(root, 'node_modules');
+  let linked = false;
+  try {
+    linked = Boolean(lstatSync(link));
+  } catch {
+    /* no link */
+  }
+  if (linked) unlinkSync(link);
+  rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+}
+
 function splitConfig(config) {
   const options = {};
   const host = {};
@@ -159,7 +186,7 @@ async function main(argv) {
     process.exit(1);
   }
   recordTwin({ versions: install.versions });
-  const cleanUp = () => rmSync(install.root, { recursive: true, force: true, maxRetries: 3 });
+  const cleanUp = () => removeInstall(install.root);
   let relay;
   try {
     const { startRelay } = await import(pathToFileURL(join(install.root, 'server.mjs')).href);
