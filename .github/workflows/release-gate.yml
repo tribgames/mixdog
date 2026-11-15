@@ -14,6 +14,7 @@ on:
       - ".github/actions/**"
       - "apps/desktop/**"
       - "apps/relay/**"
+      - "apps/mobile/src/**"
       - "native/**"
       - "scripts/**"
       - "src/**"
@@ -31,6 +32,7 @@ on:
       - ".github/actions/**"
       - "apps/desktop/**"
       - "apps/relay/**"
+      - "apps/mobile/src/**"
       - "native/**"
       - "scripts/**"
       - "src/**"
@@ -155,7 +157,7 @@ jobs:
           else
             echo "computer=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq '^apps/relay/' /tmp/changed; then
+          if grep -Eq '^apps/relay/|^apps/mobile/src/|^native/core/crates/(mixdog-relay|mixdog-remote)/' /tmp/changed; then
             echo "relay=true" >> "$GITHUB_OUTPUT"
           else
             echo "relay=false" >> "$GITHUB_OUTPUT"
@@ -707,6 +709,46 @@ jobs:
       - name: Run the relay test lane
         run: npm test --prefix apps/relay
 
+  # The Rust relay beside the Node one: its own suites, the twin suites that drive
+  # both runtimes with the same traffic (they spawn apps/relay/server.mjs, so node
+  # and the relay's node_modules are installed here), and the relay interop tests
+  # of mixdog-remote, so a release cannot ship with the two runtimes disagreeing.
+  relay-rust:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
+    timeout-minutes: 60
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_BUILD_JOBS: "3"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/relay/package-lock.json
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - name: Install the Node relay's packages (the twin and interop suites run it)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci --prefix apps/relay --prefer-offline --no-audit --no-fund && exit 0
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
+      # The nextest release the local runs use (`native/core/.config/nextest.toml` profiles), as its prebuilt binary.
+      - name: cargo-nextest
+        run: curl -fsSL "https://get.nexte.st/0.9.151/linux" | tar -xzf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+      - name: Relay suites and twins
+        run: cargo nextest run --manifest-path native/core/Cargo.toml --locked -p mixdog-relay --features test-support
+      - name: Relay interop of the remote leg
+        run: cargo nextest run --manifest-path native/core/Cargo.toml --locked -p mixdog-remote -E 'test(/relay/)'
+      - name: Build the relay as it ships
+        run: cargo build --release --locked --manifest-path native/core/Cargo.toml -p mixdog-relay
+
   patch:
     needs: changes
     if: needs.changes.outputs.patch == 'true'
@@ -962,7 +1004,7 @@ jobs:
 
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, mobile-scripts, rust-core, rust-core-lane-listing, rust-core-macos, rust-core-windows]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, relay-rust, patch, graph, browser-import, secure-desktop, mobile-scripts, rust-core, rust-core-lane-listing, rust-core-macos, rust-core-windows]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -976,6 +1018,7 @@ jobs:
           DESKTOP: ${{ needs.desktop.result }}
           DESKTOP_TESTS: ${{ needs.desktop-tests.result }}
           RELAY: ${{ needs.relay.result }}
+          RELAY_RUST: ${{ needs.relay-rust.result }}
           PATCH: ${{ needs.patch.result }}
           GRAPH: ${{ needs.graph.result }}
           BROWSER_IMPORT: ${{ needs.browser-import.result }}
@@ -994,6 +1037,7 @@ jobs:
           [[ "$DESKTOP" == success || "$DESKTOP" == skipped ]]
           [[ "$DESKTOP_TESTS" == success || "$DESKTOP_TESTS" == skipped ]]
           [[ "$RELAY" == success || "$RELAY" == skipped ]]
+          [[ "$RELAY_RUST" == success || "$RELAY_RUST" == skipped ]]
           [[ "$PATCH" == success || "$PATCH" == skipped ]]
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]
           [[ "$BROWSER_IMPORT" == success || "$BROWSER_IMPORT" == skipped ]]
