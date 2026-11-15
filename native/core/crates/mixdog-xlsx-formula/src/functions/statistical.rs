@@ -60,14 +60,14 @@ fn number_or_num(value: f64) -> Value {
     }
 }
 // jStat.sum/mean/sumsqerr run from the end, unlike formulajs' forward loops.
-fn jsum(array: &[f64]) -> f64 {
+pub(super) fn jsum(array: &[f64]) -> f64 {
     let mut sum = 0.0;
     for &x in array.iter().rev() {
         sum += x;
     }
     sum
 }
-fn mean(array: &[f64]) -> f64 {
+pub(super) fn mean(array: &[f64]) -> f64 {
     jsum(array) / array.len() as f64
 }
 fn jstdev(array: &[f64]) -> f64 {
