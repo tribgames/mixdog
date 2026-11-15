@@ -6,7 +6,7 @@
 //! tests of the PowerShell host (cells, a typed-text case, a block, styles, a merge, widths, panes, a chart, page setup, a header),
 //! and the workbook is read back through the registered reader. The twin comparison with the PowerShell host (responses equal after
 //! normalisation, the saved file equal after OOXML normalisation, wall time not above the host's) is the recorded scenario set of
-//! `recorder/scenarios/excel-edit.json`.
+//! `tests/scenarios/excel-edit.json`.
 #![cfg(windows)]
 
 use std::path::PathBuf;
