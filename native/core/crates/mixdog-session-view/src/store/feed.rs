@@ -1,6 +1,7 @@
-//! What the store hears on the thread feed that the fold does not keep: the runtime notifications that ask this UI to do something
-//! (`notification-router.mjs` `ui-open` and `update-notice`, Node's `uiActions`). The fold itself is the reducer's; this wrapper
-//! lets the notification pass to it unchanged and tells the store's subscribers.
+//! What the store hears on the thread feed that the fold does not keep: the runtime notification that asks this UI to open a settings
+//! surface (`notification-router.mjs` `ui-open`, Node's `uiActions`). The fold itself is the reducer's; this wrapper lets the
+//! notification pass to it unchanged and tells the store's subscribers. (The updater's `update-notice` is the app feed's `notice`
+//! section entry `update-ready`: the store reads it there.)
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -34,39 +35,33 @@ impl StoreFeed {
         self.events.subscribe()
     }
 
+    /// Whether anyone listens: a standing notice is told once there is someone to tell it to.
+    pub(super) fn has_subscribers(&self) -> bool {
+        self.events.receiver_count() > 0
+    }
+
     /// The thread reducer to connect with: the session fold, observed.
     pub fn reducer(self: &Arc<Self>) -> Arc<dyn ThreadReducer> {
         Arc::new(Observing { feed: Arc::clone(self) })
     }
 
-    /// `notificationPlan` (`notification-plan.mjs`) for the two kinds that reach this UI: the command of a `ui-open` (without its leading
-    /// slash, lower-cased; none is ignored) and the sentence of an `update-notice`.
+    /// `notificationPlan` (`notification-plan.mjs`) for the `ui-open` that reaches this UI: its command without its leading slash,
+    /// lower-cased (none is ignored).
     fn observe(&self, notification: &RpcNotification) {
         if notification.method != "thread/notification" {
             return;
         }
         let Some(params) = notification.params.as_ref() else { return };
         let meta = &params["meta"];
-        let text = params["content"].as_str().unwrap_or_default().trim();
-        match meta["kind"].as_str() {
-            Some("ui-open") => {
-                let command = meta["command"].as_str().unwrap_or_default().trim().trim_start_matches('/').to_lowercase();
-                if command.is_empty() {
-                    return;
-                }
-                let seq = self.ui_open_seq.fetch_add(1, Ordering::AcqRel) + 1;
-                self.emit(StoreEvent::UiOpenRequest { command, seq });
-            }
-            Some("update-notice") => {
-                let version = meta["version"].as_str().unwrap_or_default().trim();
-                let text = if version.is_empty() { text.to_owned() } else { format!("mixdog v{version} ready \u{2014} restart to apply.") };
-                if !text.is_empty() {
-                    let level = if meta["tone"] == "warn" { "warn" } else { "info" };
-                    self.emit(StoreEvent::Notice { text, level: level.to_owned() });
-                }
-            }
-            _ => {}
+        if meta["kind"] != "ui-open" {
+            return;
         }
+        let command = meta["command"].as_str().unwrap_or_default().trim().trim_start_matches('/').to_lowercase();
+        if command.is_empty() {
+            return;
+        }
+        let seq = self.ui_open_seq.fetch_add(1, Ordering::AcqRel) + 1;
+        self.emit(StoreEvent::UiOpenRequest { command, seq });
     }
 }
 
@@ -124,12 +119,6 @@ mod tests {
                 StoreEvent::UiOpenRequest { command: "settings".to_owned(), seq: 2 },
             ]
         );
-    }
-
-    #[test]
-    fn an_update_notice_is_a_notice_with_the_version_sentence() {
-        let events = heard(&[notification(json!({ "kind": "update-notice", "version": "1.5.0", "tone": "warn" }), "x")]);
-        assert_eq!(events, vec![StoreEvent::Notice { text: "mixdog v1.5.0 ready \u{2014} restart to apply.".to_owned(), level: "warn".to_owned() }]);
     }
 
     #[test]
