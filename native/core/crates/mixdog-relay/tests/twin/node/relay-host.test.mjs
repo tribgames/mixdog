@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { createFeedbackSender, createNativePushFake, createWebPushFetch } from './fakes.mjs';
-import { findTreeRoot, resolvePackages } from './relay-host.mjs';
+import { findTreeRoot, removeInstall, resolvePackages } from './relay-host.mjs';
 
 const HOST = join(dirname(fileURLToPath(import.meta.url)), 'relay-host.mjs');
 const LISTENING = /^\[relay\] http listening on :(\d+) \(renderer: none\)$/u;
@@ -59,6 +59,11 @@ test('the host prints versions then the CLI listening line, serves /healthz, and
     assert.equal(await host.exited, 0);
   } finally {
     host.child.kill();
+    await host.exited;
+    // A host killed before its own clean-up leaves its install, link included.
+    for (const entry of readdirSync(scratch)) {
+      if (entry.startsWith('relay-twin-')) removeInstall(join(scratch, entry));
+    }
     rmSync(scratch, { recursive: true, force: true });
   }
 });
@@ -102,4 +107,21 @@ test('the fakes record every call and answer the script', async () => {
   assert.equal(records[0].mail.attachments[0].bytes, 3);
   assert.equal(records[2].call, 'close');
   assert.equal(records[4].bodyBase64, 'AQI=');
+});
+
+test('removing an install unlinks its node_modules link and leaves the packages it points at', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'relay-host-test-'));
+  try {
+    const packages = join(scratch, 'packages');
+    mkdirSync(join(packages, 'ws'), { recursive: true });
+    writeFileSync(join(packages, 'ws', 'package.json'), '{}');
+    const root = join(scratch, 'relay-twin-x');
+    mkdirSync(root);
+    symlinkSync(packages, join(root, 'node_modules'), 'junction');
+    removeInstall(root);
+    assert.equal(existsSync(root), false);
+    assert.equal(existsSync(join(packages, 'ws', 'package.json')), true);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });

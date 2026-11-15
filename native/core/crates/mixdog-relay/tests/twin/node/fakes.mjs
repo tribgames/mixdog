@@ -2,7 +2,8 @@
 // writes every call as one stdout line '[twin] <json>' (see relay-host.mjs for
 // the line shapes) and answers what the scenario scripted in its `answers`
 // list: the n-th call takes the n-th answer, the last answer repeats, and an
-// empty list means success.
+// empty list means success. Any answer may carry `delayMs`, the time the fake
+// waits before answering (webPushFetch rejects meanwhile when the sender aborts).
 import { createHash } from 'node:crypto';
 
 /** One '[twin] <json>' stdout line. */
@@ -94,7 +95,15 @@ export function createWebPushFetch(spec = {}) {
       bodyBytes: body.length,
       bodyBase64: body.toString('base64'),
     });
-    const answer = await next();
+    // An answer delayed past the sender's timeout rejects as fetch does on abort.
+    const { signal } = init;
+    const aborted = new Promise((_, reject) => {
+      const abort = () => reject(signal.reason ?? new Error('This operation was aborted'));
+      if (signal?.aborted) abort();
+      else signal?.addEventListener('abort', abort, { once: true });
+    });
+    aborted.catch(() => {});
+    const answer = signal ? await Promise.race([next(), aborted]) : await next();
     if (answer.throw !== undefined) throw rejection(answer);
     return { status: Number.isInteger(answer.status) ? answer.status : 201 };
   };
