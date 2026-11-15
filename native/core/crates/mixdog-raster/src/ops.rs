@@ -755,20 +755,24 @@ fn median9(mut v: [u8; 9]) -> u8 {
 }
 
 /// `trim({ threshold })`: the box of pixels that differ from the top-left pixel by more than `threshold` in a band, as
-/// libvips's `find_trim` finds it for sharp: the image (colour and alpha bands alike) is smoothed by a 3 x 3 median
-/// first, so a speck of one pixel is no content and a faint edge of a shadow over a transparent corner is. An image with
-/// nothing different is returned whole.
+/// sharp finds it with libvips's `find_trim`: once over the colour (flattened against the top-left pixel's colour) and,
+/// when there is alpha, once more over the alpha band alone, the two boxes combined. Each search smooths its bands by a
+/// 3 x 3 median first, so a speck of one pixel is no content and a faint shadow over a transparent corner is. An image
+/// with nothing different is returned whole.
 pub fn trim(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
     let first = &image.rgba()[..4];
     let background = [first[0], first[1], first[2], first[3]];
     let (w, h) = (image.width() as usize, image.height() as usize);
-    let data = image.rgba();
+    let flat = image.flatten([first[0], first[1], first[2]]);
+    let (colour, alpha) = (flat.rgba(), image.rgba());
+    let bands = if image.has_alpha() { 4 } else { 3 };
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0usize, 0usize);
     for y in 0..h {
         let rows = [y.saturating_sub(1), y, (y + 1).min(h - 1)];
         for x in 0..w {
             let columns = [x.saturating_sub(1), x, (x + 1).min(w - 1)];
-            let differs = (0..4).any(|c| {
+            let differs = (0..bands).any(|c| {
+                let data = if c < 3 { colour } else { alpha };
                 let mut window = [0u8; 9];
                 for (r, row) in rows.iter().enumerate() {
                     for (k, column) in columns.iter().enumerate() {
