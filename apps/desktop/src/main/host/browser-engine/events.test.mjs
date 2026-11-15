@@ -228,3 +228,68 @@ test('what is queued for a page that closed is dropped at the flush: no seq is t
   events.flush('p1');
   assert.equal(sent.length, 1);
 });
+
+/** The router over an intercept rule table that records the type each paused request was matched on. */
+function interceptHarness(engine) {
+  const state = new BrowserGuestStateStore();
+  const matched = [];
+  const route = createBrowserCdpEventRouter({
+    state,
+    engine: { active: () => engine, carries: () => true, forward: () => {} },
+    sendCdp: async () => ({}),
+    targetDetached: () => undefined,
+    matchInterceptRule: (_guest, _url, type) => {
+      matched.push(type);
+      return undefined;
+    },
+    permissionRefused: () => undefined,
+    initializeTargetSession: async () => undefined,
+    lifetimeSignal: () => new AbortController().signal,
+  });
+  const guest = { isDestroyed: () => false };
+  const request = { url: 'https://example.test/api/ping' };
+  const sent = (requestId, type, sessionId) =>
+    route(guest, {}, 'Network.requestWillBeSent', { requestId, type, request }, sessionId);
+  const paused = (networkId, resourceType, sessionId) =>
+    route(
+      guest,
+      {},
+      'Fetch.requestPaused',
+      { requestId: `pause-${networkId}`, networkId, resourceType, request, responseStatusCode: 200 },
+      sessionId
+    );
+  return { state, guest, route, matched, sent, paused };
+}
+
+test('a paused request is matched on its Network type in engine mode as in host mode: a fetch() the Fetch domain calls XHR is a fetch', () => {
+  for (const engine of [true, false]) {
+    const h = interceptHarness(engine);
+    h.sent('r1', 'Fetch');
+    h.sent('r1', 'XHR', 'child-session');
+    h.paused('r1', 'XHR');
+    h.paused('r1', 'XHR', 'child-session');
+    h.paused('unrecorded', 'Document');
+    assert.deepEqual(h.matched, ['fetch', 'xhr', 'Document'], engine ? 'engine lane' : 'host mode');
+  }
+});
+
+test('engine mode keeps a request type only while the request is in flight, and never the request itself', () => {
+  const h = interceptHarness(true);
+  const types = h.state.for(h.guest).requestTypes;
+  h.sent('r1', 'Fetch');
+  h.sent('r2', 'Fetch');
+  h.route(h.guest, {}, 'Network.responseReceived', { requestId: 'r2', type: 'XHR', response: {} }, undefined);
+  assert.deepEqual([types.get('r1'), types.get('r2'), types.size], ['fetch', 'xhr', 2]);
+  h.route(h.guest, {}, 'Network.loadingFinished', { requestId: 'r1' }, undefined);
+  h.route(h.guest, {}, 'Network.loadingFailed', { requestId: 'r2', errorText: 'net::ERR_ABORTED' }, undefined);
+  assert.equal(types.size, 0);
+  h.paused('r1', 'XHR');
+  assert.deepEqual(h.matched, ['XHR'], 'a finished request has no Network identity left: the pause speaks for itself');
+  // The request ledger stays the core's: the host records none of it in this lane.
+  assert.equal(h.state.for(h.guest).network.pendingCount, 0);
+  // Requests whose end never arrives do not pile up.
+  for (let i = 0; i < 2_500; i++) h.sent(`leak-${i}`, 'Image');
+  assert.equal(types.size, 2_000);
+  assert.equal(types.get('leak-0'), undefined);
+  assert.equal(types.get('leak-2499'), 'image');
+});

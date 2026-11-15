@@ -109,6 +109,48 @@ function responseData(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
+/** Requests whose type is remembered at once; past it the oldest is dropped. */
+const MAX_INFLIGHT_REQUEST_TYPES = 2_000;
+
+/**
+ * The Network-domain resource type of each request in flight, by target
+ * session and request id. With the core driving the browser the request
+ * ledger is the core's (the page's Network events are forwarded, not recorded
+ * here), while a paused request is still answered by this host: its intercept
+ * rule is matched on the type the request's Network identity names, which
+ * this keeps for exactly as long as the request is on its way.
+ */
+export class InflightRequestTypes {
+  readonly #types = new Map<string, string>();
+
+  /** Follows one Network event of the page. */
+  follow(method: string, params: Record<string, unknown>, sessionId?: string): void {
+    const requestId = String(params.requestId || '');
+    if (!requestId) return;
+    const key = scopedRequestId(sessionId, requestId);
+    if (method === 'Network.requestWillBeSent') {
+      // A redirect sends the same request again: its entry moves to the newest end.
+      this.#types.delete(key);
+      this.#types.set(key, String(params.type || 'other').toLowerCase());
+      if (this.#types.size > MAX_INFLIGHT_REQUEST_TYPES) {
+        this.#types.delete(this.#types.keys().next().value as string);
+      }
+    } else if (method === 'Network.responseReceived') {
+      if (params.type && this.#types.has(key)) this.#types.set(key, String(params.type).toLowerCase());
+    } else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+      this.#types.delete(key);
+    }
+  }
+
+  get(cdpRequestId: string, sessionId?: string): string | undefined {
+    return this.#types.get(scopedRequestId(sessionId, cdpRequestId));
+  }
+
+  get size(): number {
+    return this.#types.size;
+  }
+}
+
 export class BrowserNetworkLedger {
   readonly #requests = new Map<string, BrowserNetworkRequest>();
   readonly #inflight = new Map<string, BrowserNetworkRequest>();
