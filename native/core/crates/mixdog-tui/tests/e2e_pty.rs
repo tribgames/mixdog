@@ -81,7 +81,10 @@ fn numbered_rows(grid: &VtGrid) -> Vec<(u16, u32)> {
 
 fn boot(workspace: &Workspace) -> TuiSession {
     let session = TuiSession::spawn(workspace, COLUMNS, ROWS);
-    session.wait_until("the first frame: banner, prompt and statusline", BOOT, |grid| any_row(grid, "mixdog coding agent") && frame_ready(grid));
+    // An empty session opens on the project list (`useProjectPickerBoot`): the folder the run started in is its first row.
+    session.wait_until("the first frame: banner and the project list", BOOT, |grid| any_row(grid, "mixdog coding agent") && any_row(grid, "Choose a project."));
+    session.send("\r");
+    session.wait_until("the prompt and the statusline after the project is entered", BOOT, frame_ready);
     session
 }
 
