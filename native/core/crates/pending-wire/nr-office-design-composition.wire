@@ -1,0 +1,39 @@
+# nr-office-design-composition: what the wiring applies for the composition system, the design system and the native
+# design of the crate mixdog-office-design.
+# (No protocol rows, no daemon service, no SERVICE_PENDING change, no Cargo edge: the modules are pure and use only
+# dependencies the crate already has - mixdog-js, mixdog-office-base, serde_json. They have no caller yet.)
+
+# 1. native/core/crates/mixdog-office-design/src/lib.rs, the list of modules (kept sorted by the neighbours already
+#    there): add `pub mod composition;` after the line `pub mod art_direction;`, and add
+#    `pub mod design_system;` after the line `pub mod creative_director;`, and add `pub mod native_design;` after the
+#    line `pub mod discipline;`. The crate doc comment sentence "... and the one reading of a preset table
+#    (`table_input`)." gains: ", the composition planner (`composition`), the expansion of an operation list and the
+#    PDF design (`design_system`) and the native design receipt (`native_design`)". The modules read the crate-private
+#    helpers `prop`, `opt_prop`, `text`, `first_text`, `first_truthy` and `array_of` that lib.rs already defines.
+
+# 2. native/core/fixtures/MANIFEST.json, "sets" (keep the list sorted by set name; after "office-colour" ... i.e. at the
+#    place "office-composition" sorts to):
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-composition.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-composition/MANIFEST.json",
+      "manifestSha256": "6662c5c61f0bd4165832f6c2313deeb7a9f3e450579854e73c024b9ef4de38ee",
+      "recorder": "benchmarks/rust-core/recorders/record-office-composition.mjs",
+      "set": "office-composition",
+      "totalBytes": 3728171
+    },
+
+# 3. For the later tasks of the track (the design library caller, the office actions batch, the PDF session, the review
+#    that reads a batch's compositions): the modules export
+#      composition::resolve_office_composition_context(format, &input, recent: Option<&Value>) -> tokens::CompositionContext
+#        (what tokens::resolve_office_design takes; callers that start from a request use design_system::resolve_office_design);
+#      composition::plan_office_composition(format, &operation, &design, &mut CompositionUsage) -> Value
+#        (CompositionUsage = HashMap<String, usize>: one per operation batch);
+#      composition::summarize_office_compositions(format, Option<&Value>) -> Value;
+#      composition::review_office_composition_sequence(format, compositions, recent, allow_repetition) -> Value;
+#      design_system::{resolve_office_design(format, &request, library), expand_office_design_operations(&ExpandRequest),
+#        apply_pdf_design(&blocks, &design_request, library), office_design_catalog};
+#      native_design::{uses_native_office_design, native_office_design, native_design_receipt}.
+#    expand_office_design_operations answers { operations, semantic, design, content, composition } as Node's
+#    expandOfficeDesignOperations does; ExpandRequest.snapshot_version is `Number(snapshotVersion || 0)` (the caller
+#    applies the `|| 0`), and a non-array `operations` is an empty list.
