@@ -24,7 +24,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_util::sync::CancellationToken;
 
-/// The relay a case runs against; dropping it stops it.
+/// The relay a case runs against; `stop` closes it (dropping it kills a Node relay).
 enum Relay {
     Node { child: Child, port: u16, _data: tempfile::TempDir },
     Rust { running: mixdog_relay::server::RunningRelay, port: u16, _data: tempfile::TempDir },
