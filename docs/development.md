@@ -63,7 +63,6 @@ npm install
 npm test                       # discovered fast-lane tests
 npm test -- src/runtime/office  # narrow to one path
 npm run test:slow              # *.slow.test.mjs
-npm run test:live              # built-artifact or live-system checks
 ```
 
 For desktop development, install the root dependencies above, then:
