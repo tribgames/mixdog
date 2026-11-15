@@ -27,6 +27,11 @@ path = "tests/still_twin.rs"
 required-features = ["test-support"]
 
 [[test]]
+name = "pdf_twin"
+path = "tests/pdf_twin.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "pool_e2e"
 path = "tests/pool_e2e.rs"
 required-features = ["test-support"]
@@ -45,8 +50,10 @@ mixdog-imaging = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-office-base = { workspace = true }
 mixdog-ooxml-text = { workspace = true }
+mixdog-pdf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "io-util", "io-std", "fs", "macros"] }
 tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
@@ -67,6 +74,5 @@ mixdog-exthost = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
-sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time"] }
