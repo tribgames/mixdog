@@ -584,15 +584,13 @@ fn expand_tabs(line: &str) -> String {
     expanded
 }
 
-fn signed(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
-}
-
 /// `exec(string, columns, options)`: one line (no newline in it).
 ///
-/// `ge_columns` is what a `rowLength >= columns` comparison measures against: the columns themselves for a whole width,
-/// and one more for a fractional one (a length is a whole number, so `length >= 33.68` is `length >= 34`).
-fn exec(text: &str, columns: usize, ge_columns: usize, options: WrapOptions) -> String {
+/// `columns` is the whole cells a row may take and `measured` the width as Node was given it, a fraction when Yoga measured
+/// the text at one: a `rowLength >= columns` comparison is against its ceiling (a length is a whole number, so
+/// `length >= 33.68` is `length >= 34`), and the hard-wrap break counts divide by it as Node does.
+fn exec(text: &str, columns: usize, measured: f64, options: WrapOptions) -> String {
+    let ge_columns = measured.ceil() as usize;
     if options.trim && js_trim_start(js_trim_end(text)).is_empty() {
         return String::new();
     }
@@ -636,11 +634,11 @@ fn exec(text: &str, columns: usize, ge_columns: usize, options: WrapOptions) -> 
             // Zero columns: the Node code divides by zero, both counts are Infinity or NaN and the comparison is
             // false, so no row is started here.
             if columns > 0 {
-                let remaining = signed(columns) - signed(row_length);
-                let width = signed(word.width);
-                let per_row = signed(columns);
-                let breaks_starting_this_line = 1 + (width - remaining - 1).div_euclid(per_row);
-                let breaks_starting_next_line = (width - 1).div_euclid(per_row);
+                // JavaScript numbers: `Math.floor((lengths[index] - remainingColumns - 1) / columns)`.
+                let remaining = measured - row_length as f64;
+                let width = word.width as f64;
+                let breaks_starting_this_line = 1.0 + ((width - remaining - 1.0) / measured).floor();
+                let breaks_starting_next_line = ((width - 1.0) / measured).floor();
                 if breaks_starting_next_line < breaks_starting_this_line {
                     rows.push(String::new());
                     row_length = 0;
@@ -690,15 +688,15 @@ fn normalize_text(text: &str) -> String {
 
 /// `wrapAnsi(text, columns, options)`: each line (lines end at `\n` or `\r\n`) wrapped on its own.
 pub fn wrap_ansi(text: &str, columns: usize, options: WrapOptions) -> String {
-    wrap_ansi_ge(text, columns, columns, options)
+    wrap_ansi_measured(text, columns, columns as f64, options)
 }
 
-/// [`wrap_ansi`] with the threshold of the `>=` comparisons given (see `exec`).
-fn wrap_ansi_ge(text: &str, columns: usize, ge_columns: usize, options: WrapOptions) -> String {
+/// [`wrap_ansi`] at the width Node was given, which may be a fraction (see `exec`).
+fn wrap_ansi_measured(text: &str, columns: usize, measured: f64, options: WrapOptions) -> String {
     normalize_text(text)
         .replace("\r\n", "\n")
         .split('\n')
-        .map(|line| exec(&expand_tabs(line), columns, ge_columns, options))
+        .map(|line| exec(&expand_tabs(line), columns, measured, options))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -950,7 +948,7 @@ pub fn wrap_text_fractional(text: &str, max_width: f64, mode: WrapMode) -> Strin
         _ => return wrap_text(text, floor, mode),
     };
     let wide = process_policy();
-    let wrapped = wrap_ansi_ge(text, floor, floor + 1, WrapOptions { trim: false, hard: true, word_wrap });
+    let wrapped = wrap_ansi_measured(text, floor, max_width, WrapOptions { trim: false, hard: true, word_wrap });
     enforce_display_width(wrapped, floor, Enforce::Reflow, wide)
 }
 
