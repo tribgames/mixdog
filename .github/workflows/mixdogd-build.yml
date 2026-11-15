@@ -1,18 +1,29 @@
-# Builds mixdogd, the Rust core, for every target a desktop package carries:
-# the app's own core (Windows x64, macOS and Linux per arch) and the four server cores
-# the SSH install uploads (Linux x64/arm64, macOS x64/arm64) — apps/desktop/scripts/
-# stage-core.mjs stages them all into every package from native/core/target/<target>/
-# release (the .github/actions/stage-mixdogd action lays the artifacts out that way).
-# Linux is built inside manylinux_2_28 (glibc 2.28) like the other Linux native tools,
-# so the package's glibc floor does not follow the runner's. Mixdog's Google OAuth client
-# is embedded by the crate's build script from the two secrets (both or neither).
-# The two Linux legs also build mixdog-relay (the relay server, a program of its own that is not
-# staged into any package) and upload it as the mixdog-relay-<target> artifact after a smoke start.
+# Builds every program of every platform ONCE per run, for the targets a desktop package or the npm package carries:
+#   mixdogd and mixdog-askpass  the core and its ssh helper: the mixdogd-<target> artifact. The desktop packages carry the
+#                               app's own core (Windows x64, macOS and Linux per arch) and the four server cores the SSH
+#                               install uploads (Linux x64/arm64, macOS x64/arm64): apps/desktop/scripts/stage-core.mjs
+#                               stages them all into every package from native/core/target/<target>/release (the
+#                               .github/actions/stage-mixdogd action lays the artifacts out that way). The npm package
+#                               takes both from the same artifact.
+#   mixdog                      the terminal program (crate mixdog-entry): the mixdog-entry-<target> artifact, for the npm
+#                               platform packages (scripts/stage-npm-native.mjs). Its name does not match mixdogd-*, so the
+#                               desktop jobs do not download it.
+#   mixdog-relay                the relay server (a program of its own that is not staged into any package), built on the
+#                               Linux x64 leg only, in the same container and target directory as the core so the crates they
+#                               share compile once, and uploaded as mixdog-relay-x86_64-unknown-linux-gnu after a smoke start.
+#                               The production box is x64: no arm64 relay is built, nothing downloads one.
+# Windows on Arm has no leg: the x64 programs run there (scripts/npm-platforms.mjs).
+# Linux is built inside manylinux_2_28 (glibc 2.28) like the other Linux native tools, so the package's glibc floor does not
+# follow the runner's. Mixdog's Google OAuth client is embedded by the crate's build script from the two secrets (both or
+# neither). The release profile (native/core/Cargo.toml) strips and thin-LTO links. Compiled crates are cached with sccache
+# (GitHub cache backend), per target and toolchain; the cache is not keyed on Cargo.lock, which Deploy rewrites on every
+# release, and a crate whose inputs did not change is a hit whatever the workspace version is.
+# Each program starts once on its own OS before it is uploaded (the x86_64 macOS leg cannot run its own binary).
 # Called once per run: the artifact names are unique per run.
 name: mixdogd-build
 
 on:
-  # A run from any commit produces the relay binaries without a release (artifacts only, nothing is deployed).
+  # A run from any commit produces the programs and the relay binary without a release (artifacts only, nothing is deployed).
   workflow_dispatch:
     inputs:
       ref:
@@ -57,6 +68,10 @@ jobs:
     env:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+      # The container legs set the wrapper inside the container (linux-build-core-old-glibc.sh).
+      RUSTC_WRAPPER: ${{ !matrix.image && 'sccache' || '' }}
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_VERSION: mixdogd-${{ matrix.target }}-rust1.99.1-v1
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -71,6 +86,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           targets: ${{ matrix.target }}
+      # The compiled crates. The container legs mount this static binary into the container.
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Cache cargo registry
         if: ${{ !matrix.image }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -80,37 +97,43 @@ jobs:
             ~/.cargo/git
           key: mixdogd-cargo-${{ matrix.target }}-${{ hashFiles('native/core/Cargo.lock') }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
-      - name: Build mixdogd
+      # The container's CARGO_HOME registry and git directories live on the runner, so the container can be thrown away.
+      - name: Cache cargo registry (container)
+        if: ${{ matrix.image }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-registry
+            ${{ runner.temp }}/cargo-git
+          key: mixdogd-cargo-${{ matrix.target }}-${{ hashFiles('native/core/Cargo.lock') }}
+          restore-keys: mixdogd-cargo-${{ matrix.target }}-
+      # One cargo invocation per program, one target directory: the crates they share compile once, and the features
+      # each binary is built with stay its own.
+      - name: Build the programs
         if: ${{ !matrix.image }}
         run: |
           cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
+          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-entry --bin mixdog --target ${{ matrix.target }}
           mkdir -p out
-          cp "native/core/target/${{ matrix.target }}/release/mixdogd${{ matrix.exe }}" "native/core/target/${{ matrix.target }}/release/mixdog-askpass${{ matrix.exe }}" out/
-      - name: Build mixdogd (glibc 2.28)
+          release="native/core/target/${{ matrix.target }}/release"
+          cp "$release/mixdogd${{ matrix.exe }}" "$release/mixdog-askpass${{ matrix.exe }}" "$release/mixdog${{ matrix.exe }}" out/
+          sccache --show-stats
+      # The Linux legs build in one container (the core, the terminal program and the relay): the script
+      # runs the cargo invocations and leaves the programs in out/.
+      - name: Build the programs (glibc 2.28)
         if: ${{ matrix.image }}
         run: |
-          mkdir -p out
+          mkdir -p out "$RUNNER_TEMP/cargo-registry" "$RUNNER_TEMP/cargo-git"
           docker run --rm -e MIXDOG_GOOGLE_OAUTH_CLIENT_ID -e MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
-            -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
+            -e SCCACHE_GHA_ENABLED -e SCCACHE_GHA_VERSION -e ACTIONS_CACHE_URL -e ACTIONS_RESULTS_URL -e ACTIONS_RUNTIME_TOKEN -e ACTIONS_CACHE_SERVICE_V2 \
+            -e MIXDOG_BUILD_RELAY=${{ matrix.relay && '1' || '' }} \
+            -v "$PWD:/w" -v "$RUNNER_TEMP/cargo-registry:/root/.cargo/registry" -v "$RUNNER_TEMP/cargo-git:/root/.cargo/git" \
+            -v "$(command -v sccache):/usr/local/bin/sccache:ro" \
+            ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
           test "${PIPESTATUS[0]}" -eq 0
           rm out/build.log
-      # The relay is built apart from the core so the artifact the packages stage stays what it was.
-      # Same container, same --locked --release build; it needs no Google OAuth client.
-      - name: Build mixdog-relay (glibc 2.28)
-        if: ${{ matrix.relay }}
-        run: |
-          mkdir -p out
-          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash -c '
-            set -euo pipefail
-            dnf install -y cmake pkgconf-pkg-config
-            curl -fsSL -o /tmp/rustup-init.sh https://sh.rustup.rs
-            sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.99.1
-            export PATH=$HOME/.cargo/bin:$PATH
-            export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
-            CARGO_TARGET_DIR=/tmp/target-relay cargo build --locked --release --manifest-path /w/native/core/Cargo.toml -p mixdog-relay --bin mixdog-relay
-            cp /tmp/target-relay/release/mixdog-relay /w/out/
-          '
-          test -x out/mixdog-relay
+          test -x out/mixdogd && test -x out/mixdog-askpass && test -x out/mixdog
+          if [ -n "${{ matrix.relay }}" ]; then test -x out/mixdog-relay; fi
       # Both runners execute their own architecture. No renderer is configured; the port is the one the system picks.
       - name: The relay starts and answers /healthz
         if: ${{ matrix.relay }}
@@ -140,14 +163,25 @@ jobs:
           if [ "$status" -ne 0 ]; then cat "$log"; fi
           exit "$status"
       # The release workflow stages these into packages whose version is the
-      # package.json one; stage-core.mjs checks the same on the host binary.
-      - name: The core reports the release version
+      # package.json one; stage-core.mjs checks the same on the host binary. Every
+      # program starts here, on its own OS, before it is uploaded: the core reports
+      # the version, the terminal program prints its usage (it has no version flag),
+      # the ssh helper refuses a start with no endpoint (exit 2).
+      - name: Every program starts and the core reports the release version
         if: ${{ matrix.run_version }}
         run: |
           reported=$(out/mixdogd${{ matrix.exe }} --version | awk '{print $NF}')
           expected=$(node -p "require('./package.json').version")
           echo "mixdogd reports $reported, release $expected"
           test "$reported" = "$expected"
+          usage=$(out/mixdog${{ matrix.exe }} --help)
+          usage=${usage%%$'\n'*}
+          echo "mixdog --help: $usage"
+          case "$usage" in mixdog*) ;; *) echo "mixdog --help does not begin with its name"; exit 1 ;; esac
+          status=0
+          env -u MIXDOG_ASKPASS_ENDPOINT -u MIXDOG_ASKPASS_TOKEN out/mixdog-askpass${{ matrix.exe }} prompt >/dev/null 2>&1 || status=$?
+          echo "mixdog-askpass with no endpoint exits $status"
+          test "$status" -eq 2
       # The client is compiled into the binary; a release build without it would
       # ship with no built-in Google sign-in. Nothing is printed.
       - name: The core embeds the Google OAuth client
@@ -159,6 +193,12 @@ jobs:
           path: |
             out/mixdogd${{ matrix.exe }}
             out/mixdog-askpass${{ matrix.exe }}
+          if-no-files-found: error
+          retention-days: 2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mixdog-entry-${{ matrix.target }}
+          path: out/mixdog${{ matrix.exe }}
           if-no-files-found: error
           retention-days: 2
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

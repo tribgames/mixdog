@@ -136,6 +136,16 @@ dbg_macro = "deny"
 debug = false
 incremental = false
 
+# The programs mixdogd-build.yml ships (mixdogd, mixdog, mixdog-askpass, mixdog-relay) are release builds: the symbol
+# tables are stripped and the code is thin-LTO linked, which is what makes one npm package per platform a few tens of
+# megabytes instead of the hundreds a debug-sized binary weighs. codegen-units stays at cargo's release default (16):
+# one unit would cost a multiple of the wall time of a cold build for a few percent of size. Nothing reads a symbol
+# table of these binaries (the build id kept by the Linux link argument is a note, not a symbol).
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 16
+
 # Registry and git dependencies are compiled optimised; the workspace's own crates stay unoptimised, so an edit
 # rebuilds as fast as before. A dependency is compiled once per checkout and never again on an edit, while the
 # tests spend their processor time inside them (SQLite, sha2, serde_json, tokio). Measured 2026-11-10 on five
