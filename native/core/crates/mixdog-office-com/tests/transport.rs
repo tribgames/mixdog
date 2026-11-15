@@ -29,11 +29,13 @@ fn scratch() -> PathBuf {
     dir
 }
 
-/// A transport whose hosts are the stand-in; `grace_ms` is how long it waits for a host it asked to end.
+/// A transport whose hosts are the stand-in, on the host command line for every format (no format is routed to the Rust
+/// host program); `grace_ms` is how long it waits for a host it asked to end.
 fn office(grace_ms: u64) -> (OfficeCom, PathBuf) {
     let dir = scratch();
     let mut config = OfficeComConfig::new(dir.clone(), mixdog_rt::testing::tokens())
-        .with_host_command(PathBuf::from(env!("CARGO_BIN_EXE_fake-office-host")), Vec::<OsString>::new());
+        .with_host_command(PathBuf::from(env!("CARGO_BIN_EXE_fake-office-host")), Vec::<OsString>::new())
+        .with_rust_host_formats(&[]);
     config.drain_grace = Duration::from_millis(grace_ms);
     (OfficeCom::new(config), dir)
 }
