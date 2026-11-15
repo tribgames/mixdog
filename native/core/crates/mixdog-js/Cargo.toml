@@ -8,11 +8,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+flate2 = { workspace = true }
 rand = { workspace = true }
-regress = { workspace = true }
+regress = { workspace = true, features = ["utf16"] }
 icu_collator = { workspace = true }
 icu_locale_core = { workspace = true }
-sys-locale = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }

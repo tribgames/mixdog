@@ -434,6 +434,15 @@
       "totalBytes": 360488
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-js-date-string.mjs",
+      "fileCount": 14,
+      "manifest": "js-date-string/MANIFEST.json",
+      "manifestSha256": "f7abade5c2c963b74368942a77d4f012c98e0fa83920999345736a43d8db1783",
+      "recorder": "benchmarks/rust-core/recorders/record-js-date-string.mjs",
+      "set": "js-date-string",
+      "totalBytes": 12751193
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
       "fileCount": 1,
       "manifest": "js-math-primitives/MANIFEST.json",
@@ -441,6 +450,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
       "set": "js-math-primitives",
       "totalBytes": 2899691
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-js-utf16-bridges.mjs",
+      "fileCount": 1,
+      "manifest": "js-utf16-bridges/MANIFEST.json",
+      "manifestSha256": "a3b37e17aad752975b937bbeb6cc4c995ba62eb7d83234786021006d1b27c92e",
+      "recorder": "benchmarks/rust-core/recorders/record-js-utf16-bridges.mjs",
+      "set": "js-utf16-bridges",
+      "totalBytes": 6527035
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ladder-rows.mjs --tree <tree>",

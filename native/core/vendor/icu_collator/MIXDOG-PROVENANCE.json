@@ -1,0 +1,25 @@
+{
+  "package": "icu_collator",
+  "version": "2.4.0",
+  "source": "existing local Cargo cache; no download",
+  "registryArchiveSha256": "24cb0205c419b2036da3f9082964905d6849b3f2130dd4a517940c45899a544b",
+  "upstreamFiles": {
+    "src/elements.rs": "5161852ab92ce9d993da7fdbe8392937d728bccd9b629839df4ea6f3be8629ff",
+    "src/comparison.rs": "2c9751e935c7168eb929d2cb0320929f3b425af0745e54642a3cb931353d91f9",
+    "src/lib.rs": "d66e436a29a04f20952dd6967ffc17f93c96ea22f54aa03b8d7383b9a15a0ff7",
+    "Cargo.toml": "bb2a1b7e7eb39fbfd828178909351803720fcf9cf8b90f848ed65ee98729b646",
+    "LICENSE": "f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2"
+  },
+  "scope": "Only elements.rs and comparison.rs adapted; existing valid-string APIs unchanged.",
+  "patchedFiles": {
+    "src/elements.rs": "e113254630e366384ff9dcb97aab65d59403536e7e481349000859096a702a7c",
+    "src/comparison.rs": "697c61dfd26938ca9d37483fb1c634697f558f208a88947b0dbc80750c444367"
+  },
+  "compiledData": {
+    "package": "icu_collator_data",
+    "version": "2.4.0",
+    "cldr": "49.0.0",
+    "unicode": "18.0.0",
+    "unchanged": true
+  }
+}

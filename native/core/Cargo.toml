@@ -94,6 +94,7 @@ exclude = [
     "crates/mixdog-graph",
     "crates/mixdog-secure-desktop",
     "vendor/fancy-regex",
+    "vendor/icu_collator",
 ]
 
 [workspace.package]
@@ -340,3 +341,4 @@ libwebp-sys = "=0.9.6"
 # The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps
 # (native/core/vendor/fancy-regex/MIXDOG.md): an MCP output schema's pattern ends when its call is cancelled.
 fancy-regex = { path = "vendor/fancy-regex" }
+icu_collator = { path = "vendor/icu_collator" }
