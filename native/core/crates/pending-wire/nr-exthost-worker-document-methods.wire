@@ -14,7 +14,31 @@ hakari prints if it asks) and the test target `document_twin`.
 No name to remove: this task registers worker methods, not a protocol service (the document/* service is mixdog-exthost's
 DocumentService, which already sends these four calls to the pool).
 
+## Route (native/core/crates/mixdog-app-server-daemon/src/compose.rs, fn native_ext_methods) [added in review]
+
+The routed pool sends every name in `native_ext_methods()` to the Rust worker. Until the document engine below is
+registered, the Rust worker answers OFFICE_PREVIEW_UNAVAILABLE for every conversion and every page render and skips the
+font provisioning after an install, while the script worker still does all of it. So the document.* methods stay with the
+script worker, as image.* do. Replace `native_ext_methods` and its doc comment with:
+
+    /// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole
+    /// (AVIF and HEIF have no decoder yet), the document methods until the office-pdf document engine is registered in the
+    /// worker (nr-office-pdf-preview): the list decides the route, nothing else does.
+    pub fn native_ext_methods() -> Vec<&'static str> {
+        mixdog_exthost_worker::native_methods()
+            .into_iter()
+            .filter(|method| !method.starts_with("image.") && !method.starts_with("document."))
+            .collect()
+    }
+
+The wiring of nr-office-pdf-preview, which registers the engine, removes the `&& !method.starts_with("document.")` term.
+
 ## Registration of the engine (the office-pdf track's preview task, nr-office-pdf-preview, which is not in the tree yet)
+
+Review notes: `Extension` is a plain `fn(&mut Registry)`, so the engine is built inside it, not captured
+(`|registry| document::register_with(registry, Arc::new(<engine>::new()))`). The font provisioner already exists in Rust in
+mixdog-app-server-daemon (domain_seams/office_fonts.rs, `prepareOfficeFonts`); the engine's `prepare_fonts` must reach that
+one (moved to a crate the worker can depend on), not a second copy.
 
 `document.preview` of a convertible type and every `document.previewPages` need documentPreviewPdf / documentPreviewPages and the
 font provisioner, none of which exists in Rust at this point. `register_document_methods` registers the four methods over an
