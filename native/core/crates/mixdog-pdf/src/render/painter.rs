@@ -300,8 +300,20 @@ pub(super) struct OptionalContentConfig {
 
 impl OptionalContentConfig {
     /// The default configuration of the catalog's `OCProperties` (`Catalog.optionalContentConfig`): the base state, the
-    /// `ON` and `OFF` lists, and a group whose `Usage` `View` state is off.
+    /// `ON` and `OFF` lists, and a group whose `Usage` `View` state is off. A configuration that cannot be read is no
+    /// configuration (every group visible), said at warn level; a cancellation or a limit is not swallowed.
     pub(super) fn read(document: &Document) -> Result<Self> {
+        match Self::read_catalog(document) {
+            Ok(config) => Ok(config),
+            Err(error) if error.is_fatal() => Err(error),
+            Err(error) => {
+                tracing::warn!("Unable to read optional content config: {}", error.message());
+                Ok(Self::default())
+            }
+        }
+    }
+
+    fn read_catalog(document: &Document) -> Result<Self> {
         let xref = document.xref();
         let Some(root) = xref.root() else {
             return Ok(Self::default());
@@ -321,8 +333,11 @@ impl OptionalContentConfig {
         for item in listed.iter() {
             let Obj::Ref(reference) = item else { continue };
             let id = reference.to_string();
-            if let Obj::Dict(group) = xref.fetch(*reference, false)?
-                && let Obj::Dict(usage) = xref.get(&group, "Usage")?
+            // `#readOptionalContentGroup` reads the entry as a dictionary: anything else fails the whole configuration.
+            let Obj::Dict(group) = xref.fetch(*reference, false)? else {
+                return Err(PdfError::format(format!("the optional content group {id} is not a dictionary")));
+            };
+            if let Obj::Dict(usage) = xref.get(&group, "Usage")?
                 && let Obj::Dict(view) = xref.get(&usage, "View")?
                 && matches!(xref.get(&view, "ViewState")?, Obj::Name(state) if &*state == "OFF")
             {
@@ -407,23 +422,26 @@ impl OptionalContentConfig {
                 if let Some(expression) = expression {
                     return self.evaluate(expression);
                 }
-                let mut states = Vec::with_capacity(ids.len());
-                for id in ids {
-                    match self.state(id) {
-                        Some(state) => states.push(state),
-                        None => return true,
-                    }
-                }
-                match policy.as_deref() {
-                    None | Some("AnyOn") => states.iter().any(|on| *on),
-                    Some("AllOn") => states.iter().all(|on| *on),
-                    Some("AnyOff") => states.iter().any(|on| !*on),
-                    Some("AllOff") => states.iter().all(|on| !*on),
+                // The groups are read in order and the answer is given at the first one that decides it, so a group
+                // the file does not list makes the content visible only when it is met before that one.
+                let (decides_on, answer, otherwise) = match policy.as_deref() {
+                    None | Some("AnyOn") => (true, true, false),
+                    Some("AllOn") => (false, false, true),
+                    Some("AnyOff") => (false, true, false),
+                    Some("AllOff") => (true, false, true),
                     Some(other) => {
                         tracing::warn!("Unknown optional content policy {other}.");
-                        true
+                        return true;
+                    }
+                };
+                for id in ids {
+                    match self.state(id) {
+                        None => return true,
+                        Some(state) if state == decides_on => return answer,
+                        Some(_) => {}
                     }
                 }
+                otherwise
             }
         }
     }
@@ -753,6 +771,8 @@ impl<'a> Painter<'a> {
         if let Some(b) = bbox {
             let clip = rect_path(f64::from(b[0]), f64::from(b[1]), f64::from(b[2]), f64::from(b[3]));
             self.canvas.clip_path2d(&clip, FillRule::Winding);
+            // `endPath` after the box: a `W` left pending before `Do` is consumed by the empty path.
+            self.pending_clip = None;
         }
     }
 
@@ -980,6 +1000,14 @@ mod tests {
         assert!(!config.is_visible(Some(&OptionalContent::Group { id: Some("2R".to_owned()) })));
         // A group the file does not list is visible.
         assert!(config.is_visible(Some(&OptionalContent::Group { id: Some("9R".to_owned()) })));
+        // In a membership it makes the content visible only when it is met before the group that decides.
+        let ordered = |ids: [&str; 2]| OptionalContent::Membership {
+            ids: ids.map(str::to_owned).to_vec(),
+            policy: Some("AllOn".to_owned()),
+            expression: None,
+        };
+        assert!(!config.is_visible(Some(&ordered(["2R", "9R"]))));
+        assert!(config.is_visible(Some(&ordered(["9R", "2R"]))));
         let expression = OptionalContent::Membership {
             ids: Vec::new(),
             policy: None,
