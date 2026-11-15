@@ -5336,10 +5336,14 @@ name = "mixdog-office"
 version = "1.5.0"
 dependencies = [
  "indexmap",
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-office-base",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]

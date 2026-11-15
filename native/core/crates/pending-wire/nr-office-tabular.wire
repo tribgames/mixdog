@@ -1,0 +1,96 @@
+# nr-office-tabular: the CSV/TSV backend of the office engine (module mixdog-office::tabular)
+
+## native/core/crates/mixdog-office/src/lib.rs
+After `pub mod capabilities;` add:
+
+    pub mod tabular;
+
+(the module's doc comment in lib.rs may add: "[`tabular`] is the CSV/TSV backend: parse, serialise, snapshot, operations, validation.")
+
+## native/core/crates/mixdog-office/Cargo.toml
+`[dependencies]`, after the `indexmap` line (alphabetical by the file's own order is not kept; any place is fine):
+
+    mixdog-fsio = { workspace = true }
+    mixdog-js = { workspace = true }
+    mixdog-office-base = { workspace = true }
+
+`[dev-dependencies]`, next to `sha2 = { workspace = true }`:
+
+    tempfile = { workspace = true }
+    # The helpers of the twin tests (`twin`: locate the Node source, run a recorder, load a golden), behind the feature test-support.
+    mixdog-office-base = { workspace = true, features = ["test-support"] }
+
+(`mixdog-office-base`, `mixdog-js`, `mixdog-fsio` are workspace members and `[workspace.dependencies]` entries already; check that
+`mixdog-office-base = { path = "crates/mixdog-office-base" }` is in native/core/Cargo.toml `[workspace.dependencies]`, and add it if
+it is not. Cargo.lock gains the edges mixdog-office -> mixdog-fsio, mixdog-js, mixdog-office-base and the dev edge tempfile.)
+mixdog-workspace-hack's feature unification needs no change (every crate named is already built by it).
+
+## native/core/fixtures/MANIFEST.json
+Add the set to `sets` (keep the file's alphabetical order by `set`, after "office-startup" or wherever "office-tabular" sorts):
+
+    node benchmarks/rust-core/recorders/verify-manifests.mjs  reads it; the entry is
+    { "command": "node benchmarks/rust-core/recorders/record-office-tabular.mjs --tree <tree>", "fileCount": 1,
+      "manifest": "office-tabular/MANIFEST.json", "manifestSha256": <sha256 of native/core/fixtures/office-tabular/MANIFEST.json>,
+      "recorder": "benchmarks/rust-core/recorders/record-office-tabular.mjs", "set": "office-tabular", "totalBytes": 106205 }
+
+(the other office sets, office-shared among them, were not indexed there by their tasks; if the lead's wiring indexes none of them,
+leave this out as they do.)
+
+## compose_flip.rs SERVICE_PENDING
+Nothing: this task registers no protocol method and no service. The module is a library the Office tool's service (a later task of
+the office track) calls: `tabular::{create, snapshot, apply_batch, validate, issues}` take a `ReadProof`/`WriteProof` of
+mixdog-fsio, a `&dyn mixdog_office_base::write_note::WriteNote` (the call's ledger: noted before every write) and JSON operations and
+options, and answer JSON values with Node's exact key order and texts; `Format::from_name("csv" | "tsv")` picks the format and
+`tabular::csv_cell` is `csvCell` of office-actions-read.mjs for the PDF table export.
+
+
+## Corrective implementation (pending fresh Node recording and compiled review)
+
+The guessed 120,000-item spread cap is removed. Array.from's ToLength/ordinary
+Array length bound remains. insert_empty reserves the full Vec capacity with
+try_reserve, appends default empty entries, then rotates the existing suffix;
+there is no argument spread, intermediate insertion array or quadratic sequence
+of middle inserts. A failed reservation returns Invalid array length before that
+vector changes; an error anywhere in a batch leaves the file and WriteNote untouched.
+
+The original V8 argument-stack failure is contextual, not a portable data bound.
+Bounded original-expression probes accepted 120001 and 122000 arguments and threw
+Maximum call stack size exceeded at 125000 on this Node run. No replacement guessed
+cap is introduced. Above the tested old-supported range, this stackless backend
+can accept operations the original spread would fail; exact engine-stack resource
+failure parity is NOT claimed. Heap/resource exhaustion is likewise not a stable
+cross-runtime semantic threshold. Do not label those extended counts Node-verified.
+
+snapshot/issues now distinguish explicit Value::Null (the original TypeErrors on
+'sheet'/'range') from omitted options. Callers MUST represent omitted options with
+an empty JSON object, not Null. Reads still happen before option-property access,
+so an absent file wins with ENOENT. Twin run_step makes this distinction.
+
+New deterministic regression tests:
+- inserts_above_the_old_guessed_cap_keep_every_existing_cell (120001/122000 rows and columns)
+- explicit_null_options_fail_after_reading_and_omitted_options_are_an_object
+- bom_only_and_failed_batch_preserve_bytes_and_write_note_order
+The note captures actual pre-write bytes; failed batches make no note call.
+
+The Node recorder now includes bounded insertion, omitted/null, missing-file,
+BOM-only and failed-batch scenarios. Long file outputs now carry SHA-256 plus
+length. The existing four length-only wide-row read steps are replayed against
+their complete initial bytes, so old fixtures do not retain a length-only escape.
+
+IMPORTANT: the worktree already had a deleted tracked
+benchmarks/rust-core/recorders/lib/common.mjs before this corrective task. That
+unrelated deletion is preserved and was not restored/staged/reset. Therefore the
+updated recorder was NOT executed and existing golden.json/MANIFEST.json are
+unchanged; no new oracle outputs have been fabricated. Root must run the updated
+recorder from its full integration tree and refresh the set/root manifest hashes
+and totalBytes. The old index size above describes the old recorded set only.
+
+No Cargo/build/Rust test/app/commit was run. After registration, dependencies and
+fresh recording, run the unit regressions and twin_tabular offline, then clippy.
+
+## Root integration status
+
+Library export and dependency edges applied in mig/int. Fresh original recording
+contains 84 scenarios, replayed exactly together with unit regressions (28 tests).
+Large file outputs compare SHA-256 and byte length. No product office.run routing
+activation or Node removal was performed by this integration.

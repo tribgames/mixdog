@@ -1,0 +1,2646 @@
+{
+  "note": "Recorded from the Node CSV/TSV backend (runtime/office/core/tabular.mjs); tests/twin_tabular.rs replays it.",
+  "scenarios": [
+    {
+      "name": "plain crlf",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "6e616d652c7174792c6e6f74650d0a666f6f2c312c610d0a6261722c322c620d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"name\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"qty\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"note\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"foo\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"bar\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"2\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"b\"}]}]}",
+          "fileHex": "6e616d652c7174792c6e6f74650d0a666f6f2c312c610d0a6261722c322c620d0a"
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":3,\"columns\":3,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "6e616d652c7174792c6e6f74650d0a666f6f2c312c610d0a6261722c322c620d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "6e616d652c7174792c6e6f74650d0a666f6f2c312c610d0a6261722c322c620d0a"
+        }
+      ]
+    },
+    {
+      "name": "plain lf without trailing newline",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620a632c64",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"d\"}]}]}",
+          "fileHex": "612c620a632c64"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "B2",
+              "value": "x"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B2\"}]",
+          "fileHex": "612c620d0a632c780d0a"
+        }
+      ]
+    },
+    {
+      "name": "cr line ends",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d632c640d",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"d\"}]}]}",
+          "fileHex": "612c620d632c640d"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "e",
+                "f"
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":3}]",
+          "fileHex": "612c620d0a632c640d0a652c660d0a"
+        }
+      ]
+    },
+    {
+      "name": "mixed line ends and a blank line",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "610d0a620a630d0d64",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":5,\"columns\":1,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A5]\",\"ref\":\"A5\",\"row\":5,\"column\":1,\"value\":\"d\"}]}]}",
+          "fileHex": "610d0a620a630d0d64"
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":5,\"columns\":1,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "610d0a620a630d0d64"
+        }
+      ]
+    },
+    {
+      "name": "quoted fields",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "22612c62222c2273617920222268692222222c226c696e650a627265616b220d0a2278222c792c227a220d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a,b\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"say \\\"hi\\\"\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"line\\nbreak\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"x\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"y\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"z\"}]}]}",
+          "fileHex": "22612c62222c2273617920222268692222222c226c696e650a627265616b220d0a2278222c792c227a220d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "D1",
+              "value": "q\"r"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"D1\"}]",
+          "fileHex": "22612c62222c2273617920222268692222222c226c696e650a627265616b222c2271222272220d0a782c792c7a0d0a"
+        }
+      ]
+    },
+    {
+      "name": "quote inside an unquoted field",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "6122622c630d0a226422652c660d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\\\"b\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"de\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"f\"}]}]}",
+          "fileHex": "6122622c630d0a226422652c660d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A3",
+              "value": "g"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A3\"}]",
+          "fileHex": "2261222262222c630d0a64652c660d0a670d0a"
+        }
+      ]
+    },
+    {
+      "name": "unterminated quote",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c226f70656e0d0a622c63",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"open\\r\\nb,c\"}]}]}",
+          "fileHex": "612c226f70656e0d0a622c63"
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":1,\"columns\":2,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612c226f70656e0d0a622c63"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "612c226f70656e0d0a622c63"
+        }
+      ]
+    },
+    {
+      "name": "empty quoted file",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "2222",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "2222"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A1",
+              "value": "k"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A1\"}]",
+          "fileHex": "6b0d0a"
+        }
+      ]
+    },
+    {
+      "name": "only a newline",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "B1",
+              "value": "k"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B1\"}]",
+          "fileHex": "2c6b0d0a"
+        }
+      ]
+    },
+    {
+      "name": "byte-order mark and Hangul",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "efbbbfec9db4eba6842cec8898eb9f890d0aec82aceab3bc2c330d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"이름\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"수량\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"사과\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"3\"}]}]}",
+          "fileHex": "efbbbfec9db4eba6842cec8898eb9f890d0aec82aceab3bc2c330d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "B2",
+              "value": "4"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B2\"}]",
+          "fileHex": "efbbbfec9db4eba6842cec8898eb9f890d0aec82aceab3bc2c340d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "배",
+                5
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":3}]",
+          "fileHex": "efbbbfec9db4eba6842cec8898eb9f890d0aec82aceab3bc2c340d0aebb0b02c350d0a"
+        }
+      ]
+    },
+    {
+      "name": "byte-order mark only",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "efbbbf",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "efbbbf"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "a"
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":1}]",
+          "fileHex": "efbbbf610d0a"
+        }
+      ]
+    },
+    {
+      "name": "byte-order mark kept on an unchanged ASCII edit",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "efbbbf612c620d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "clear_cell",
+              "cell": "A1"
+            }
+          ],
+          "result": "[{\"op\":\"clear_cell\",\"changed\":true,\"cell\":\"A1\"}]",
+          "fileHex": "efbbbf2c620d0a"
+        }
+      ]
+    },
+    {
+      "name": "tsv with tabs and quotes",
+      "file": "data.tsv",
+      "format": "tsv",
+      "initial": "61096220630922640965220d0a3109227361792022227822222209330d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"tsv\",\"path\":\"<dir>/data.tsv\",\"delimiter\":\"\\t\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b c\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"d\\te\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"say \\\"x\\\"\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"3\"}]}]}",
+          "fileHex": "61096220630922640965220d0a3109227361792022227822222209330d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "D2",
+              "value": "with,comma"
+            },
+            {
+              "op": "set_cell",
+              "cell": "E2",
+              "value": "with\ttab"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"D2\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"E2\"}]",
+          "fileHex": "61096220630922640965220d0a31092273617920222278222222093309776974682c636f6d6d6109227769746809746162220d0a"
+        }
+      ]
+    },
+    {
+      "name": "tsv keeps commas plain",
+      "file": "data.tsv",
+      "format": "tsv",
+      "initial": "612c6209630d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"tsv\",\"path\":\"<dir>/data.tsv\",\"delimiter\":\"\\t\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a,b\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"c\"}]}]}",
+          "fileHex": "612c6209630d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "B1",
+              "value": "x,y"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B1\"}]",
+          "fileHex": "612c6209782c790d0a"
+        }
+      ]
+    },
+    {
+      "name": "empty file ascii",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": ""
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "a",
+                1,
+                null,
+                true
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":1}]",
+          "fileHex": "612c312c2c747275650d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "b"
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":2}]",
+          "fileHex": "612c312c2c747275650d0a620d0a"
+        }
+      ]
+    },
+    {
+      "name": "empty file Hangul",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "한글"
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":1}]",
+          "fileHex": "efbbbfed959ceab8800d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "B2",
+              "value": "z"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B2\"}]",
+          "fileHex": "efbbbfed959ceab8800d0a2c7a0d0a"
+        }
+      ]
+    },
+    {
+      "name": "empty file nothing written",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "clear_cell",
+              "cell": "A1"
+            }
+          ],
+          "result": "[{\"op\":\"clear_cell\",\"changed\":false,\"cell\":\"A1\"}]",
+          "fileHex": ""
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":0,\"columns\":0,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": ""
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": ""
+        }
+      ]
+    },
+    {
+      "name": "new file created then filled",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": null,
+      "steps": [
+        {
+          "kind": "create",
+          "result": "null",
+          "fileHex": ""
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": ""
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:B2",
+              "values": [
+                [
+                  "é",
+                  1
+                ],
+                [
+                  "b",
+                  2
+                ]
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"set_range\",\"changed\":true,\"range\":\"A1:B2\"}]",
+          "fileHex": "efbbbfc3a92c310d0a622c320d0a"
+        }
+      ]
+    },
+    {
+      "name": "new file without Hangul",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": null,
+      "steps": [
+        {
+          "kind": "create",
+          "result": "null",
+          "fileHex": ""
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_formula",
+              "cell": "A1",
+              "formula": "=SUM(B1:B3)"
+            }
+          ],
+          "result": "[{\"op\":\"set_formula\",\"changed\":true,\"cell\":\"A1\"}]",
+          "fileHex": "3d53554d2842313a4233290d0a"
+        }
+      ]
+    },
+    {
+      "name": "missing file",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": null,
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "error": "ENOENT: no such file or directory, open '<dir>/data.csv'",
+          "fileHex": null
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A1",
+              "value": "x"
+            }
+          ],
+          "error": "ENOENT: no such file or directory, open '<dir>/data.csv'",
+          "fileHex": null
+        },
+        {
+          "kind": "validate",
+          "error": "ENOENT: no such file or directory, open '<dir>/data.csv'",
+          "fileHex": null
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "error": "ENOENT: no such file or directory, open '<dir>/data.csv'",
+          "fileHex": null
+        }
+      ]
+    },
+    {
+      "name": "set_cell and set_formula",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": " c2 ",
+              "value": "x"
+            },
+            {
+              "op": "set_cell",
+              "cell": "E5",
+              "value": null
+            },
+            {
+              "op": "set_cell",
+              "cell": "A9",
+              "value": 1.5
+            },
+            {
+              "op": "set_cell",
+              "cell": "B9",
+              "value": [
+                1,
+                [
+                  2,
+                  3
+                ]
+              ]
+            },
+            {
+              "op": "set_cell",
+              "cell": "C9",
+              "value": {
+                "a": 1
+              }
+            },
+            {
+              "op": "set_cell",
+              "cell": "D9",
+              "value": false
+            },
+            {
+              "op": "set_cell",
+              "cell": "F9",
+              "value": 1e+21
+            },
+            {
+              "op": "set_cell",
+              "cell": "G9"
+            },
+            {
+              "op": "set_formula",
+              "cell": "H9",
+              "formula": "=A1+B1"
+            },
+            {
+              "op": "set_formula",
+              "cell": "I9"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"C2\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"E5\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A9\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B9\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"C9\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"D9\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"F9\"},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"G9\"},{\"op\":\"set_formula\",\"changed\":true,\"cell\":\"H9\"},{\"op\":\"set_formula\",\"changed\":true,\"cell\":\"I9\"}]",
+          "fileHex": "68312c68322c68330d0a312c322c780d0a342c352c360d0a0d0a2c2c2c2c0d0a0d0a0d0a0d0a312e352c22312c322c33222c5b6f626a656374204f626a6563745d2c66616c73652c2c31652b32312c2c3d41312b42312c0d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":9,\"columns\":9,\"cellCount\":15,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"h1\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"h3\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"2\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"x\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"6\"},{\"path\":\"/sheet[data]/cell[A9]\",\"ref\":\"A9\",\"row\":9,\"column\":1,\"value\":\"1.5\"},{\"path\":\"/sheet[data]/cell[B9]\",\"ref\":\"B9\",\"row\":9,\"column\":2,\"value\":\"1,2,3\"},{\"path\":\"/sheet[data]/cell[C9]\",\"ref\":\"C9\",\"row\":9,\"column\":3,\"value\":\"[object Object]\"},{\"path\":\"/sheet[data]/cell[D9]\",\"ref\":\"D9\",\"row\":9,\"column\":4,\"value\":\"false\"},{\"path\":\"/sheet[data]/cell[F9]\",\"ref\":\"F9\",\"row\":9,\"column\":6,\"value\":\"1e+21\"},{\"path\":\"/sheet[data]/cell[H9]\",\"ref\":\"H9\",\"row\":9,\"column\":8,\"value\":\"=A1+B1\",\"formula\":\"=A1+B1\"}]}]}",
+          "fileHex": "68312c68322c68330d0a312c322c780d0a342c352c360d0a0d0a2c2c2c2c0d0a0d0a0d0a0d0a312e352c22312c322c33222c5b6f626a656374204f626a6563745d2c66616c73652c2c31652b32312c2c3d41312b42312c0d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "B2:D3",
+              "values": [
+                [
+                  "a",
+                  "b"
+                ],
+                [
+                  "c"
+                ]
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"set_range\",\"changed\":true,\"range\":\"B2:D3\"}]",
+          "fileHex": "68312c68322c68330d0a312c612c622c0d0a342c632c2c0d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "F1",
+              "values": [
+                [
+                  "only"
+                ]
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"set_range\",\"changed\":true,\"range\":\"F1\"}]",
+          "fileHex": "68312c68322c68332c2c2c6f6e6c790d0a312c612c622c0d0a342c632c2c0d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A5:B5",
+              "values": [
+                [
+                  "p",
+                  "q",
+                  "extra"
+                ]
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"set_range\",\"changed\":true,\"range\":\"A5:B5\"}]",
+          "fileHex": "68312c68322c68332c2c2c6f6e6c790d0a312c612c622c0d0a342c632c2c0d0a0d0a702c710d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":5,\"columns\":6,\"cellCount\":11,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"h1\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"h3\"},{\"path\":\"/sheet[data]/cell[F1]\",\"ref\":\"F1\",\"row\":1,\"column\":6,\"value\":\"only\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A5]\",\"ref\":\"A5\",\"row\":5,\"column\":1,\"value\":\"p\"},{\"path\":\"/sheet[data]/cell[B5]\",\"ref\":\"B5\",\"row\":5,\"column\":2,\"value\":\"q\"}]}]}",
+          "fileHex": "68312c68322c68332c2c2c6f6e6c790d0a312c612c622c0d0a342c632c2c0d0a0d0a702c710d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range with a string for values",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:B1",
+              "values": "xy"
+            }
+          ],
+          "result": "[{\"op\":\"set_range\",\"changed\":true,\"range\":\"A1:B1\"}]",
+          "fileHex": "782c2c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range without values",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:B2"
+            }
+          ],
+          "error": "Cannot read properties of undefined (reading '0')",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range with a short outer list",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:B3",
+              "values": [
+                [
+                  "a",
+                  "b"
+                ]
+              ]
+            }
+          ],
+          "error": "Cannot read properties of undefined (reading '0')",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range with null values",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:A2",
+              "values": null
+            }
+          ],
+          "error": "Cannot read properties of null (reading '0')",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range without a range",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "Invalid XLSX range: undefined",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "set_range too large",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:Z10000",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "XLSX range contains 260000 cells; maximum is 100000",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "append_row forms",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "a",
+                2,
+                null,
+                {
+                  "k": 1
+                },
+                [
+                  3,
+                  4
+                ]
+              ]
+            },
+            {
+              "op": "append_row"
+            },
+            {
+              "op": "append_row",
+              "values": null
+            },
+            {
+              "op": "append_row",
+              "values": 0
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":4},{\"op\":\"append_row\",\"changed\":true,\"row\":5},{\"op\":\"append_row\",\"changed\":true,\"row\":6},{\"op\":\"append_row\",\"changed\":true,\"row\":7}]",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a612c322c2c5b6f626a656374204f626a6563745d2c22332c34220d0a0d0a0d0a0d0a"
+        }
+      ]
+    },
+    {
+      "name": "append_row with a string",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": "abc"
+            }
+          ],
+          "error": "(operation.values || []).map is not a function",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "append_row with an object",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": {
+                "a": 1
+              }
+            }
+          ],
+          "error": "(operation.values || []).map is not a function",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "clear_cell",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "clear_cell",
+              "cell": "A1"
+            },
+            {
+              "op": "clear_cell",
+              "cell": "A1"
+            },
+            {
+              "op": "clear_cell",
+              "cell": "Z99"
+            },
+            {
+              "op": "clear_cell",
+              "cell": "c3"
+            }
+          ],
+          "result": "[{\"op\":\"clear_cell\",\"changed\":true,\"cell\":\"A1\"},{\"op\":\"clear_cell\",\"changed\":false,\"cell\":\"A1\"},{\"op\":\"clear_cell\",\"changed\":false,\"cell\":\"Z99\"},{\"op\":\"clear_cell\",\"changed\":true,\"cell\":\"C3\"}]",
+          "fileHex": "2c68322c68330d0a312c322c330d0a342c352c0d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":7,\"cells\":[{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"h3\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"2\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"3\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"5\"}]}]}",
+          "fileHex": "2c68322c68330d0a312c322c330d0a342c352c0d0a"
+        }
+      ]
+    },
+    {
+      "name": "replace_text",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "6161612c42616e616e610d0a63612c640d0a2c610d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "replace_text",
+              "find": "a",
+              "replace": "x"
+            },
+            {
+              "op": "replace_text",
+              "find": "zzz",
+              "replace": "x"
+            },
+            {
+              "op": "replace_text",
+              "find": ""
+            },
+            {
+              "op": "replace_text",
+              "find": "xx",
+              "replace": "$&$1"
+            },
+            {
+              "op": "replace_text",
+              "find": "x"
+            },
+            {
+              "op": "replace_text",
+              "find": 5,
+              "replace": 6
+            },
+            {
+              "op": "replace_text",
+              "find": 0,
+              "replace": "q"
+            }
+          ],
+          "result": "[{\"op\":\"replace_text\",\"changed\":true,\"count\":8},{\"op\":\"replace_text\",\"changed\":false,\"count\":0},{\"op\":\"replace_text\",\"changed\":false,\"count\":0},{\"op\":\"replace_text\",\"changed\":true,\"count\":1},{\"op\":\"replace_text\",\"changed\":true,\"count\":6},{\"op\":\"replace_text\",\"changed\":false,\"count\":0},{\"op\":\"replace_text\",\"changed\":false,\"count\":0}]",
+          "fileHex": "242624312c426e6e0d0a632c640d0a2c0d0a"
+        }
+      ]
+    },
+    {
+      "name": "replace_text across quoting",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "replace_text",
+              "find": "a",
+              "replace": "x,\"y\"\nz"
+            }
+          ],
+          "result": "[{\"op\":\"replace_text\",\"changed\":true,\"count\":1}]",
+          "fileHex": "22782c22227922220a7a222c620d0a"
+        }
+      ]
+    },
+    {
+      "name": "replace_text with a null replacement",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "6162632c6162640d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "replace_text",
+              "find": "ab",
+              "replace": null
+            }
+          ],
+          "result": "[{\"op\":\"replace_text\",\"changed\":true,\"count\":2}]",
+          "fileHex": "632c640d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_rows and delete_rows",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": 2
+            },
+            {
+              "op": "insert_rows",
+              "row": 1,
+              "count": 2
+            },
+            {
+              "op": "insert_rows",
+              "row": 99,
+              "count": 0
+            },
+            {
+              "op": "insert_rows",
+              "row": 1.7,
+              "count": 1.2
+            }
+          ],
+          "result": "[{\"op\":\"insert_rows\",\"changed\":true,\"row\":2,\"count\":1},{\"op\":\"insert_rows\",\"changed\":true,\"row\":1,\"count\":2},{\"op\":\"insert_rows\",\"changed\":true,\"row\":99,\"count\":0},{\"op\":\"insert_rows\",\"changed\":true,\"row\":1.7,\"count\":1.2}]",
+          "fileHex": "0d0a0d0a0d0a68312c68322c68330d0a0d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":7,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A4]\",\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"h1\"},{\"path\":\"/sheet[data]/cell[B4]\",\"ref\":\"B4\",\"row\":4,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[C4]\",\"ref\":\"C4\",\"row\":4,\"column\":3,\"value\":\"h3\"},{\"path\":\"/sheet[data]/cell[A6]\",\"ref\":\"A6\",\"row\":6,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B6]\",\"ref\":\"B6\",\"row\":6,\"column\":2,\"value\":\"2\"},{\"path\":\"/sheet[data]/cell[C6]\",\"ref\":\"C6\",\"row\":6,\"column\":3,\"value\":\"3\"},{\"path\":\"/sheet[data]/cell[A7]\",\"ref\":\"A7\",\"row\":7,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B7]\",\"ref\":\"B7\",\"row\":7,\"column\":2,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[C7]\",\"ref\":\"C7\",\"row\":7,\"column\":3,\"value\":\"6\"}]}]}",
+          "fileHex": "0d0a0d0a0d0a68312c68322c68330d0a0d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "delete_rows",
+              "row": 1,
+              "count": 3
+            },
+            {
+              "op": "delete_rows",
+              "row": 9
+            },
+            {
+              "op": "delete_rows",
+              "row": 2,
+              "count": 0
+            },
+            {
+              "op": "delete_rows",
+              "row": -1
+            }
+          ],
+          "result": "[{\"op\":\"delete_rows\",\"changed\":true,\"row\":1,\"count\":3},{\"op\":\"delete_rows\",\"changed\":false,\"row\":9,\"count\":0},{\"op\":\"delete_rows\",\"changed\":false,\"row\":2,\"count\":0},{\"op\":\"delete_rows\",\"changed\":true,\"row\":-1,\"count\":1}]",
+          "fileHex": "68312c68322c68330d0a0d0a342c352c360d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"h1\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"h3\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"6\"}]}]}",
+          "fileHex": "68312c68322c68330d0a0d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "rows with odd numbers",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": "x"
+            },
+            {
+              "op": "insert_rows",
+              "row": null,
+              "count": null
+            },
+            {
+              "op": "insert_rows",
+              "count": 2
+            },
+            {
+              "op": "insert_rows",
+              "row": "2",
+              "count": "1"
+            },
+            {
+              "op": "delete_rows",
+              "row": -2,
+              "count": 1
+            },
+            {
+              "op": "delete_rows",
+              "row": "x"
+            },
+            {
+              "op": "delete_rows"
+            },
+            {
+              "op": "delete_rows",
+              "row": 1,
+              "count": -3
+            },
+            {
+              "op": "delete_rows",
+              "row": 1,
+              "count": "all"
+            }
+          ],
+          "result": "[{\"op\":\"insert_rows\",\"changed\":true,\"row\":null,\"count\":1},{\"op\":\"insert_rows\",\"changed\":true,\"row\":0,\"count\":1},{\"op\":\"insert_rows\",\"changed\":true,\"row\":null,\"count\":2},{\"op\":\"insert_rows\",\"changed\":true,\"row\":2,\"count\":1},{\"op\":\"delete_rows\",\"changed\":true,\"row\":-2,\"count\":1},{\"op\":\"delete_rows\",\"changed\":true,\"row\":null,\"count\":1},{\"op\":\"delete_rows\",\"changed\":true,\"row\":null,\"count\":1},{\"op\":\"delete_rows\",\"changed\":false,\"row\":1,\"count\":0},{\"op\":\"delete_rows\",\"changed\":false,\"row\":1,\"count\":0}]",
+          "fileHex": "0d0a0d0a68312c68322c68330d0a0d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_rows with an impossible count",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": 1,
+              "count": 10000000000
+            }
+          ],
+          "error": "Invalid array length",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_rows with an infinite count",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": 1,
+              "count": "Infinity"
+            }
+          ],
+          "error": "Invalid array length",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_columns and delete_columns",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c622c630d0a310d0a0d0a342c352c362c370d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": 2
+            },
+            {
+              "op": "insert_columns",
+              "column": 1,
+              "count": 2
+            },
+            {
+              "op": "insert_columns",
+              "column": 99,
+              "count": 1
+            }
+          ],
+          "result": "[{\"op\":\"insert_columns\",\"changed\":true,\"column\":2,\"count\":1},{\"op\":\"insert_columns\",\"changed\":true,\"column\":1,\"count\":2},{\"op\":\"insert_columns\",\"changed\":true,\"column\":99,\"count\":1}]",
+          "fileHex": "2c2c612c2c622c632c0d0a2c2c312c2c0d0a2c2c2c2c0d0a2c2c342c2c352c362c372c0d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":4,\"columns\":8,\"cellCount\":8,\"cells\":[{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[E1]\",\"ref\":\"E1\",\"row\":1,\"column\":5,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[F1]\",\"ref\":\"F1\",\"row\":1,\"column\":6,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[C4]\",\"ref\":\"C4\",\"row\":4,\"column\":3,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[E4]\",\"ref\":\"E4\",\"row\":4,\"column\":5,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[F4]\",\"ref\":\"F4\",\"row\":4,\"column\":6,\"value\":\"6\"},{\"path\":\"/sheet[data]/cell[G4]\",\"ref\":\"G4\",\"row\":4,\"column\":7,\"value\":\"7\"}]}]}",
+          "fileHex": "2c2c612c2c622c632c0d0a2c2c312c2c0d0a2c2c2c2c0d0a2c2c342c2c352c362c372c0d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "delete_columns",
+              "column": 1,
+              "count": 2
+            },
+            {
+              "op": "delete_columns",
+              "column": 9
+            },
+            {
+              "op": "delete_columns",
+              "column": 2,
+              "count": 0
+            },
+            {
+              "op": "delete_columns",
+              "column": -1
+            }
+          ],
+          "result": "[{\"op\":\"delete_columns\",\"changed\":true,\"column\":1,\"count\":2},{\"op\":\"delete_columns\",\"changed\":true,\"column\":9,\"count\":1},{\"op\":\"delete_columns\",\"changed\":true,\"column\":2,\"count\":0},{\"op\":\"delete_columns\",\"changed\":true,\"column\":-1,\"count\":1}]",
+          "fileHex": "612c2c622c0d0a312c0d0a2c0d0a342c2c352c362c0d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":4,\"columns\":5,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[A4]\",\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[C4]\",\"ref\":\"C4\",\"row\":4,\"column\":3,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[D4]\",\"ref\":\"D4\",\"row\":4,\"column\":4,\"value\":\"6\"}]}]}",
+          "fileHex": "612c2c622c0d0a312c0d0a2c0d0a342c2c352c362c0d0a"
+        }
+      ]
+    },
+    {
+      "name": "columns with odd numbers",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c622c630d0a312c320d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": "x"
+            },
+            {
+              "op": "delete_columns"
+            },
+            {
+              "op": "insert_columns",
+              "column": 0,
+              "count": 1
+            },
+            {
+              "op": "delete_columns",
+              "column": 2.5,
+              "count": 1.5
+            },
+            {
+              "op": "insert_columns",
+              "column": -1
+            }
+          ],
+          "result": "[{\"op\":\"insert_columns\",\"changed\":true,\"column\":null,\"count\":1},{\"op\":\"delete_columns\",\"changed\":true,\"column\":null,\"count\":1},{\"op\":\"insert_columns\",\"changed\":true,\"column\":0,\"count\":1},{\"op\":\"delete_columns\",\"changed\":true,\"column\":2.5,\"count\":1.5},{\"op\":\"insert_columns\",\"changed\":true,\"column\":-1,\"count\":1}]",
+          "fileHex": "612c2c2c630d0a2c312c320d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_columns on an empty sheet with a huge count",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": 1,
+              "count": 10000000000
+            }
+          ],
+          "result": "[{\"op\":\"insert_columns\",\"changed\":true,\"column\":1,\"count\":10000000000}]",
+          "fileHex": ""
+        }
+      ]
+    },
+    {
+      "name": "insert_columns with an impossible count",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": 1,
+              "count": 10000000000
+            }
+          ],
+          "error": "Invalid array length",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "unsupported operation",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A1",
+              "value": "x"
+            },
+            {
+              "op": "merge_cells"
+            }
+          ],
+          "error": "CSV backend does not support operation: merge_cells",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "operation without an op",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "cell": "A1"
+            }
+          ],
+          "error": "CSV backend does not support operation: ",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "operation of another type",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            "set_cell"
+          ],
+          "error": "CSV backend does not support operation: ",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "null operation",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            null
+          ],
+          "error": "Cannot read properties of null (reading 'op')",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "invalid cells",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A0",
+              "value": 1
+            }
+          ],
+          "error": "Invalid XLSX cell reference: A0",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "XFE1",
+              "value": 1
+            }
+          ],
+          "error": "XLSX column must be between A and XFD: XFE1",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A1048577",
+              "value": 1
+            }
+          ],
+          "error": "XLSX row must be between 1 and 1048576: A1048577",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "",
+              "value": 1
+            }
+          ],
+          "error": "Invalid XLSX cell reference: ",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": 0,
+              "value": 1
+            }
+          ],
+          "error": "Invalid XLSX cell reference: 0",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": null,
+              "value": 1
+            }
+          ],
+          "error": "Invalid XLSX cell reference: null",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "clear_cell",
+              "cell": "a-1"
+            }
+          ],
+          "error": "Invalid XLSX cell reference: a-1",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "invalid ranges",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "B2:A1",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "XLSX range start must not follow range end: B2:A1",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "Invalid XLSX range: ",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": "A1:B2:C3",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "Invalid XLSX cell reference: A1:B2:C3",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_range",
+              "range": ":A1",
+              "values": [
+                [
+                  1
+                ]
+              ]
+            }
+          ],
+          "error": "Invalid XLSX cell reference: :A1",
+          "fileHex": "68312c68322c68330d0a312c322c330d0a342c352c360d0a"
+        }
+      ]
+    },
+    {
+      "name": "an empty batch rewrites the file",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620a632c64",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [],
+          "result": "[]",
+          "fileHex": "612c620d0a632c640d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"d\"}]}]}",
+          "fileHex": "612c620d0a632c640d0a"
+        }
+      ]
+    },
+    {
+      "name": "a batch applied in order",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68322c68330d0a312c322c330d0a342c352c360d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "x"
+              ]
+            },
+            {
+              "op": "insert_rows",
+              "row": 1
+            },
+            {
+              "op": "set_cell",
+              "cell": "A1",
+              "value": "top"
+            },
+            {
+              "op": "delete_columns",
+              "column": 3
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":4},{\"op\":\"insert_rows\",\"changed\":true,\"row\":1,\"count\":1},{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A1\"},{\"op\":\"delete_columns\",\"changed\":true,\"column\":3,\"count\":1}]",
+          "fileHex": "746f700d0a68312c68320d0a312c320d0a342c350d0a780d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":5,\"columns\":2,\"cellCount\":8,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"top\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"h1\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"h2\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"1\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"2\"},{\"path\":\"/sheet[data]/cell[A4]\",\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"4\"},{\"path\":\"/sheet[data]/cell[B4]\",\"ref\":\"B4\",\"row\":4,\"column\":2,\"value\":\"5\"},{\"path\":\"/sheet[data]/cell[A5]\",\"ref\":\"A5\",\"row\":5,\"column\":1,\"value\":\"x\"}]}]}",
+          "fileHex": "746f700d0a68312c68320d0a312c320d0a342c350d0a780d0a"
+        }
+      ]
+    },
+    {
+      "name": "a far cell",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "C3",
+              "value": "x"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"C3\"}]",
+          "fileHex": "0d0a0d0a2c2c780d0a"
+        }
+      ]
+    },
+    {
+      "name": "snapshot range",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": "B1:C3"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"x\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"-3\"}]}]}",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": "a2"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": "D1:E5"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": "bad"
+          },
+          "error": "Invalid XLSX cell reference: bad",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": 5
+          },
+          "error": "Invalid XLSX cell reference: 5",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": ""
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"x\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"=1+1\",\"formula\":\"=1+1\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"-3\"}]}]}",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "range": null
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"x\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"=1+1\",\"formula\":\"=1+1\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"-3\"}]}]}",
+          "fileHex": "612c622c630d0a2c782c0d0a3d312b312c2c2d330d0a"
+        }
+      ]
+    },
+    {
+      "name": "snapshot paging",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c622c630d0a642c652c660d0a672c682c690d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2000,\"returned\":9,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": 2,
+            "limit": 3
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":2,\"limit\":3,\"returned\":3,\"total\":9,\"nextOffset\":5}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": 7,
+            "limit": 3
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":7,\"limit\":3,\"returned\":2,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": 8,
+            "limit": 3
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":8,\"limit\":3,\"returned\":1,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": 100
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":100,\"limit\":2000,\"returned\":0,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": -4,
+            "limit": 0
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2000,\"returned\":9,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": 1.5,
+            "limit": 2.5
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":1.5,\"limit\":2.5,\"returned\":3,\"total\":9,\"nextOffset\":4.5}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": "x",
+            "limit": "y"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2000,\"returned\":9,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "offset": "2",
+            "limit": "1",
+            "range": "A1:B3"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":6,\"cells\":[{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data!A1:B3\",\"offset\":2,\"limit\":1,\"returned\":1,\"total\":6,\"nextOffset\":3}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": "Infinity"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":null,\"returned\":9,\"total\":9,\"nextOffset\":null}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": -3
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":1,\"returned\":1,\"total\":9,\"nextOffset\":1}}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": "true",
+            "offset": 3,
+            "limit": 1
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}]}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": 1,
+            "offset": 3,
+            "limit": 1
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}]}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "offset": 3,
+            "limit": 1
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":3,\"columns\":3,\"cellCount\":9,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[C1]\",\"ref\":\"C1\",\"row\":1,\"column\":3,\"value\":\"c\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"d\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"e\"},{\"path\":\"/sheet[data]/cell[C2]\",\"ref\":\"C2\",\"row\":2,\"column\":3,\"value\":\"f\"},{\"path\":\"/sheet[data]/cell[A3]\",\"ref\":\"A3\",\"row\":3,\"column\":1,\"value\":\"g\"},{\"path\":\"/sheet[data]/cell[B3]\",\"ref\":\"B3\",\"row\":3,\"column\":2,\"value\":\"h\"},{\"path\":\"/sheet[data]/cell[C3]\",\"ref\":\"C3\",\"row\":3,\"column\":3,\"value\":\"i\"}]}]}",
+          "fileHex": "612c622c630d0a642c652c660d0a672c682c690d0a"
+        }
+      ]
+    },
+    {
+      "name": "snapshot sheet names",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": "DATA"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": "data"
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": "other"
+          },
+          "error": "CSV sheet not found: other",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": ""
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": 5
+          },
+          "error": "CSV sheet not found: 5",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": [
+              "data"
+            ]
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "sheet": "Data "
+          },
+          "error": "CSV sheet not found: Data ",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "the working copy of a file is named for the file",
+      "file": "Report 2026.mixdog-edit.csv",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/Report 2026.mixdog-edit.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[Report 2026]\",\"name\":\"Report 2026\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[Report 2026]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "a file name in capitals",
+      "file": "REPORT.MIXDOG-EDIT.CSV",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/REPORT.MIXDOG-EDIT.CSV\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[REPORT]\",\"name\":\"REPORT\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[REPORT]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "a dotted file name",
+      "file": "a.b.c.csv",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/a.b.c.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[a.b.c]\",\"name\":\"a.b.c\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[a.b.c]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "a file named for its extension",
+      "file": ".csv",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[.csv]\",\"name\":\".csv\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[.csv]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "a file named only the edit mark",
+      "file": ".mixdog-edit.csv",
+      "format": "csv",
+      "initial": "610d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/.mixdog-edit.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[CSV]\",\"name\":\"CSV\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[CSV]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"}]}]}",
+          "fileHex": "610d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "610d0a"
+        }
+      ]
+    },
+    {
+      "name": "a Hangul file name",
+      "file": "매출.csv",
+      "format": "csv",
+      "initial": "eab0800d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/매출.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[매출]\",\"name\":\"매출\",\"rows\":1,\"columns\":1,\"cellCount\":1,\"cells\":[{\"path\":\"/sheet[매출]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"가\"}]}]}",
+          "fileHex": "eab0800d0a"
+        }
+      ]
+    },
+    {
+      "name": "a tsv file name",
+      "file": "sheet.mixdog-edit.tsv",
+      "format": "tsv",
+      "initial": "6109620d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"tsv\",\"path\":\"<dir>/sheet.mixdog-edit.tsv\",\"delimiter\":\"\\t\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[sheet]\",\"name\":\"sheet\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[sheet]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[sheet]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"}]}]}",
+          "fileHex": "6109620d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"tsv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "6109620d0a"
+        }
+      ]
+    },
+    {
+      "name": "a tsv file without an extension",
+      "file": "noext",
+      "format": "tsv",
+      "initial": "6109620d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"tsv\",\"path\":\"<dir>/noext\",\"delimiter\":\"\\t\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[noext]\",\"name\":\"noext\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[noext]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[noext]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"}]}]}",
+          "fileHex": "6109620d0a"
+        }
+      ]
+    },
+    {
+      "name": "ragged rows",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c622c630d0a312c320d0a332c342c350d0a362c372c382c390d0a0d0a",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":5,\"columns\":4,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612c622c630d0a312c320d0a332c342c350d0a362c372c382c390d0a0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":3,\"issues\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[2]\",\"message\":\"Row has 2 column(s); the file's rows are 3 wide.\"},{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 4 column(s); the file's rows are 3 wide. An unquoted separator inside a value splits it into an extra column.\"},{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[5]\",\"message\":\"Row has 1 column(s); the file's rows are 3 wide.\"}]}",
+          "fileHex": "612c622c630d0a312c320d0a332c342c350d0a362c372c382c390d0a0d0a"
+        }
+      ]
+    },
+    {
+      "name": "ragged: a tie goes to the first row",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d0a312c322c330d0a",
+      "steps": [
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[2]\",\"message\":\"Row has 3 column(s); the file's rows are 2 wide. An unquoted separator inside a value splits it into an extra column.\"}]}",
+          "fileHex": "612c620d0a312c322c330d0a"
+        }
+      ]
+    },
+    {
+      "name": "ragged: a tie without the first width goes to the wider",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "610d0a312c320d0a332c342c350d0a362c370d0a382c392c31300d0a",
+      "steps": [
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":3,\"issues\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[1]\",\"message\":\"Row has 1 column(s); the file's rows are 3 wide.\"},{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[2]\",\"message\":\"Row has 2 column(s); the file's rows are 3 wide.\"},{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 2 column(s); the file's rows are 3 wide.\"}]}",
+          "fileHex": "610d0a312c320d0a332c342c350d0a362c370d0a382c392c31300d0a"
+        }
+      ]
+    },
+    {
+      "name": "ragged: one wide row among many",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "68312c68320d0a312c320d0a332c340d0a352c362c370d0a382c390d0a",
+      "steps": [
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 3 column(s); the file's rows are 2 wide. An unquoted separator inside a value splits it into an extra column.\"}]}",
+          "fileHex": "68312c68320d0a312c320d0a332c340d0a352c362c370d0a382c390d0a"
+        }
+      ]
+    },
+    {
+      "name": "formula-like values",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a",
+      "steps": [
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":11,\"issues\":[{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A2]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B3]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A4]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B4]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A5]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B5]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A6]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B6]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A7]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A8]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B8]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"}]}",
+          "fileHex": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {
+            "range": "A2:A3"
+          },
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[A2]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"}]}",
+          "fileHex": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {
+            "range": "B1:B9"
+          },
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":5,\"issues\":[{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B3]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B4]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B5]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B6]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"},{\"severity\":\"warning\",\"code\":\"formula_like_value\",\"path\":\"/sheet[data]/cell[B8]\",\"message\":\"Value may execute as a formula when opened by spreadsheet software.\"}]}",
+          "fileHex": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {
+            "range": "bad"
+          },
+          "error": "Invalid XLSX cell reference: bad",
+          "fileHex": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {
+            "range": "Z1:Z2"
+          },
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "612c620d0a3d53554d284131292c2b310d0a2d352c2d6162630d0a40782c203d310d0a2b2c2d0d0a2d496e66696e6974792c2b496e66696e6974790d0a2d307831302c3165330d0a2d20352c3d0d0a"
+        }
+      ]
+    },
+    {
+      "name": "invalid utf-8",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612cff0d0a622c630d0a",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":2,\"columns\":2,\"invalidEncoding\":true,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612cff0d0a622c630d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":false,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"error\",\"code\":\"invalid_utf8\",\"path\":\"/\",\"message\":\"File contains invalid UTF-8 replacement characters.\"}]}",
+          "fileHex": "612cff0d0a622c630d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"�\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"c\"}]}]}",
+          "fileHex": "612cff0d0a622c630d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A2",
+              "value": "x"
+            }
+          ],
+          "result": "[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A2\"}]",
+          "fileHex": "612cefbfbd0d0a782c630d0a"
+        }
+      ]
+    },
+    {
+      "name": "truncated utf-8 sequence",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612ce2820d0a",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":1,\"columns\":2,\"invalidEncoding\":true,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612ce2820d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"�\"}]}]}",
+          "fileHex": "612ce2820d0a"
+        }
+      ]
+    },
+    {
+      "name": "nul bytes",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d0a63002c64000d0a",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":2,\"columns\":2,\"invalidEncoding\":false,\"nulBytes\":2,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612c620d0a63002c64000d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":false,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"error\",\"code\":\"nul_byte\",\"path\":\"/\",\"message\":\"File contains 2 NUL byte(s).\"}]}",
+          "fileHex": "612c620d0a63002c64000d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":2,\"columns\":2,\"cellCount\":4,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"},{\"path\":\"/sheet[data]/cell[A2]\",\"ref\":\"A2\",\"row\":2,\"column\":1,\"value\":\"c\\u0000\"},{\"path\":\"/sheet[data]/cell[B2]\",\"ref\":\"B2\",\"row\":2,\"column\":2,\"value\":\"d\\u0000\"}]}]}",
+          "fileHex": "612c620d0a63002c64000d0a"
+        }
+      ]
+    },
+    {
+      "name": "the replacement character itself",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612cefbfbd0d0a",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":1,\"columns\":2,\"invalidEncoding\":true,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": "612cefbfbd0d0a"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":false,\"format\":\"csv\",\"issueCount\":1,\"issues\":[{\"severity\":\"error\",\"code\":\"invalid_utf8\",\"path\":\"/\",\"message\":\"File contains invalid UTF-8 replacement characters.\"}]}",
+          "fileHex": "612cefbfbd0d0a"
+        }
+      ]
+    },
+    {
+      "name": "the widest sheet",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": {
+        "wide": 16384
+      },
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":1,\"columns\":16384,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileLength": 87195,
+          "fileSha256": "219e5225cf01ec74f547e9a008f8e107969a4012eda9c735cb17b6ae23cc299e"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileLength": 87195,
+          "fileSha256": "219e5225cf01ec74f547e9a008f8e107969a4012eda9c735cb17b6ae23cc299e"
+        }
+      ]
+    },
+    {
+      "name": "one column too wide",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": {
+        "wide": 16385
+      },
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":1,\"columns\":16385,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileLength": 87201,
+          "fileSha256": "6d48d757a76a9b856315de84032ffabfded97ebe5c5453768e2876c04a9be648"
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":false,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileLength": 87201,
+          "fileSha256": "6d48d757a76a9b856315de84032ffabfded97ebe5c5453768e2876c04a9be648"
+        }
+      ]
+    },
+    {
+      "name": "an empty file validates",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "",
+      "steps": [
+        {
+          "kind": "validate",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"rows\":0,\"columns\":0,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileHex": ""
+        },
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": ""
+        },
+        {
+          "kind": "snapshot",
+          "options": {},
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": ""
+        }
+      ]
+    },
+    {
+      "name": "issues on a blank row",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "610d0a0d0a620d0a",
+      "steps": [
+        {
+          "kind": "issues",
+          "options": {},
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "610d0a0d0a620d0a"
+        }
+      ]
+    },
+    {
+      "name": "insert_rows 120001 preserves existing rows",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "66697273740d0a6c6173740d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": 2,
+              "count": 120001
+            }
+          ],
+          "result": "[{\"op\":\"insert_rows\",\"changed\":true,\"row\":2,\"count\":120001}]",
+          "fileLength": 240015,
+          "fileSha256": "61f1831b7e0d6982ba19879db3f252243ac20772942db3cdb23de6f95af9853a"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": 2
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":120003,\"columns\":1,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"first\"},{\"path\":\"/sheet[data]/cell[A120003]\",\"ref\":\"A120003\",\"row\":120003,\"column\":1,\"value\":\"last\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2,\"returned\":2,\"total\":2,\"nextOffset\":null}}",
+          "fileLength": 240015,
+          "fileSha256": "61f1831b7e0d6982ba19879db3f252243ac20772942db3cdb23de6f95af9853a"
+        }
+      ]
+    },
+    {
+      "name": "insert_columns 120001 preserves existing cells",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "66697273742c6c6173740d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": 2,
+              "count": 120001
+            }
+          ],
+          "result": "[{\"op\":\"insert_columns\",\"changed\":true,\"column\":2,\"count\":120001}]",
+          "fileLength": 120013,
+          "fileSha256": "5f40674f95680e0e3e03f1b2f21500ae462971154e9cd9a8a33aa28874b0df7b"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": 2
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":120003,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"first\"},{\"path\":\"/sheet[data]/cell[FUMM1]\",\"ref\":\"FUMM1\",\"row\":1,\"column\":120003,\"value\":\"last\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2,\"returned\":2,\"total\":2,\"nextOffset\":null}}",
+          "fileLength": 120013,
+          "fileSha256": "5f40674f95680e0e3e03f1b2f21500ae462971154e9cd9a8a33aa28874b0df7b"
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":1,\"columns\":120003,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileLength": 120013,
+          "fileSha256": "5f40674f95680e0e3e03f1b2f21500ae462971154e9cd9a8a33aa28874b0df7b"
+        }
+      ]
+    },
+    {
+      "name": "insert_rows 122000 preserves existing rows",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "66697273740d0a6c6173740d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_rows",
+              "row": 2,
+              "count": 122000
+            }
+          ],
+          "result": "[{\"op\":\"insert_rows\",\"changed\":true,\"row\":2,\"count\":122000}]",
+          "fileLength": 244013,
+          "fileSha256": "fcba92259bfb084645ef2f3403b309d362c2a188c5d4d542bb185bdc291a5cf3"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": 2
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":122002,\"columns\":1,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"first\"},{\"path\":\"/sheet[data]/cell[A122002]\",\"ref\":\"A122002\",\"row\":122002,\"column\":1,\"value\":\"last\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2,\"returned\":2,\"total\":2,\"nextOffset\":null}}",
+          "fileLength": 244013,
+          "fileSha256": "fcba92259bfb084645ef2f3403b309d362c2a188c5d4d542bb185bdc291a5cf3"
+        }
+      ]
+    },
+    {
+      "name": "insert_columns 122000 preserves existing cells",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "66697273742c6c6173740d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "insert_columns",
+              "column": 2,
+              "count": 122000
+            }
+          ],
+          "result": "[{\"op\":\"insert_columns\",\"changed\":true,\"column\":2,\"count\":122000}]",
+          "fileLength": 122012,
+          "fileSha256": "1c1c3eacc9c204c150f8ae1e934dba9b5041a00373cd76670556a703f7fec505"
+        },
+        {
+          "kind": "snapshot",
+          "options": {
+            "paged": true,
+            "limit": 2
+          },
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":122002,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"first\"},{\"path\":\"/sheet[data]/cell[FXLJ1]\",\"ref\":\"FXLJ1\",\"row\":1,\"column\":122002,\"value\":\"last\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"data\",\"offset\":0,\"limit\":2,\"returned\":2,\"total\":2,\"nextOffset\":null}}",
+          "fileLength": 122012,
+          "fileSha256": "1c1c3eacc9c204c150f8ae1e934dba9b5041a00373cd76670556a703f7fec505"
+        },
+        {
+          "kind": "validate",
+          "result": "{\"ok\":false,\"format\":\"csv\",\"rows\":1,\"columns\":122002,\"invalidEncoding\":false,\"nulBytes\":0,\"validation\":\"utf8-delimited-structure\"}",
+          "fileLength": 122012,
+          "fileSha256": "1c1c3eacc9c204c150f8ae1e934dba9b5041a00373cd76670556a703f7fec505"
+        }
+      ]
+    },
+    {
+      "name": "explicit null options differ from omitted options",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "612c620d0a",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"a\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"b\"}]}]}",
+          "fileHex": "612c620d0a"
+        },
+        {
+          "kind": "issues",
+          "result": "{\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[]}",
+          "fileHex": "612c620d0a"
+        },
+        {
+          "kind": "snapshot",
+          "options": null,
+          "error": "Cannot read properties of null (reading 'sheet')",
+          "fileHex": "612c620d0a"
+        },
+        {
+          "kind": "issues",
+          "options": null,
+          "error": "Cannot read properties of null (reading 'range')",
+          "fileHex": "612c620d0a"
+        }
+      ]
+    },
+    {
+      "name": "read error precedes null options",
+      "file": "absent.csv",
+      "format": "csv",
+      "initial": null,
+      "steps": [
+        {
+          "kind": "snapshot",
+          "options": null,
+          "error": "ENOENT: no such file or directory, open '<dir>/absent.csv'",
+          "fileHex": null
+        },
+        {
+          "kind": "issues",
+          "options": null,
+          "error": "ENOENT: no such file or directory, open '<dir>/absent.csv'",
+          "fileHex": null
+        }
+      ]
+    },
+    {
+      "name": "BOM-only survives edit and deleting every row",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "efbbbf",
+      "steps": [
+        {
+          "kind": "snapshot",
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "efbbbf"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "append_row",
+              "values": [
+                "가"
+              ]
+            }
+          ],
+          "result": "[{\"op\":\"append_row\",\"changed\":true,\"row\":1}]",
+          "fileHex": "efbbbfeab0800d0a"
+        },
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "delete_rows",
+              "row": 1
+            }
+          ],
+          "result": "[{\"op\":\"delete_rows\",\"changed\":true,\"row\":1,\"count\":1}]",
+          "fileHex": "efbbbf"
+        },
+        {
+          "kind": "snapshot",
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":0,\"columns\":0,\"cellCount\":0,\"cells\":[]}]}",
+          "fileHex": "efbbbf"
+        }
+      ]
+    },
+    {
+      "name": "failed batch does not publish earlier mutations",
+      "file": "data.csv",
+      "format": "csv",
+      "initial": "efbbbf66697273742c6c6173740d0a",
+      "steps": [
+        {
+          "kind": "apply",
+          "operations": [
+            {
+              "op": "set_cell",
+              "cell": "A1",
+              "value": "changed"
+            },
+            {
+              "op": "unknown"
+            }
+          ],
+          "error": "CSV backend does not support operation: unknown",
+          "fileHex": "efbbbf66697273742c6c6173740d0a"
+        },
+        {
+          "kind": "snapshot",
+          "result": "{\"format\":\"csv\",\"path\":\"<dir>/data.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[data]\",\"name\":\"data\",\"rows\":1,\"columns\":2,\"cellCount\":2,\"cells\":[{\"path\":\"/sheet[data]/cell[A1]\",\"ref\":\"A1\",\"row\":1,\"column\":1,\"value\":\"first\"},{\"path\":\"/sheet[data]/cell[B1]\",\"ref\":\"B1\",\"row\":1,\"column\":2,\"value\":\"last\"}]}]}",
+          "fileHex": "efbbbf66697273742c6c6173740d0a"
+        }
+      ]
+    }
+  ]
+}
