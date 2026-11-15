@@ -110,3 +110,13 @@ in the tree or the registry source (line ends normalised to LF); none was fetche
 |---|---|---|---|---|---|
 | `rav1d` (pure-Rust AV1 decoder, dav1d port; features `bitdepth_8`, `bitdepth_16`, no assembler) | crates.io, local Cargo cache | =1.1.0 | BSD-2-Clause: `rav1d-BSD-2-Clause.txt` | `native/core/crates/mixdog-imaging` (dependency, module `src/avif.rs`) | no (owner-approved) |
 | `avif-parse` (AVIF/ISOBMFF item extraction) | crates.io, local Cargo cache | =2.1.0 | MPL-2.0: `avif-parse-MPL-2.0.txt` | `native/core/crates/mixdog-imaging` (dependency) | no (owner-approved) |
+
+
+## Cairo stroke visibility source translation (2026-11-16)
+
+- Source: <https://cairographics.org/releases/cairo-1.18.6.tar.xz>
+- Archive SHA-256: `1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4`.
+- Read source: `cairo-compositor.c`, `cairo-pen.c`, and `cairo-matrix.c`; only the pen-collapse and transformed major-axis calculations are translated into `native/core/crates/mixdog-raster/src/svg/cairo_pen.rs`.
+- No new native library, crate or runtime dependency. The source archive is inspection material, not shipped.
+- Original dual-license notices are retained in the helper. Full LGPL-2.1 and MPL-1.1 texts are in the crate's `licenses/` and root `LICENSES/cairo/`; `NOTICE.md` identifies the source, modifications and covered-source location for binary distributions.
+- Original sharp/Cairo input, versions, output hash and PNG are retained in `mixdog-raster/tests/oracles/svg-thin.*`. Existing test comparisons and tolerances are unchanged.
