@@ -189,7 +189,9 @@ async fn microsoft_office_issues<L: WriteLane, H: ComHost>(cx: &InspectContext<'
         }
     };
     let timeout = (args.get("auditProfile").and_then(Value::as_str) == Some("financial-model")).then_some(FINANCIAL_MODEL_TIMEOUT);
-    let call = cx.snapshot.com.call(&issues_request(facts, args), facts.signal.as_ref(), timeout);
+    // The host's future holds the request (a trait's `impl Future` captures every borrow it is given): the request outlives it.
+    let request = issues_request(facts, args);
+    let call = cx.snapshot.com.call(&request, facts.signal.as_ref(), timeout);
     let (copy_audit, response) = both(audit, call).await;
     if !response.get("ok").is_some_and(truthy) {
         return Err(failure_text(&response, "Microsoft Office issue inspection failed"));
