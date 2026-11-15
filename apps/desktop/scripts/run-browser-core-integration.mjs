@@ -63,6 +63,7 @@ try {
       MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
       MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
       MIXDOG_CORE_HARNESS_ENGINE: engine,
+      MIXDOG_CORE_HARNESS_VERSION: JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version,
     });
     const child = spawnElectron(output, { env });
     let exitCode;

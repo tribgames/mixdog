@@ -29,6 +29,8 @@ export const HARNESS_ENV = {
   runtimeRoot: 'MIXDOG_CORE_HARNESS_RUNTIME_ROOT',
   engine: 'MIXDOG_CORE_HARNESS_ENGINE',
   log: 'MIXDOG_BROWSER_INTEGRATION_LOG',
+  /** The product version the harness announces: the bare Electron that runs it has its own (`app.getVersion()`), which the core refuses. */
+  version: 'MIXDOG_CORE_HARNESS_VERSION',
 } as const;
 
 /** The browser session every harness command runs in. */
@@ -71,7 +73,7 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
   const protocol = createProtocolConnection({
     open: openCore({
       resolve: () => readLocalDiscovery(runtimeRoot),
-      version: app.getVersion(),
+      version: process.env[HARNESS_ENV.version] || app.getVersion(),
       capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
     }),
   });
