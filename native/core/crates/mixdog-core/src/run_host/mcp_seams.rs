@@ -340,7 +340,12 @@ impl McpAwareResolver {
 
 impl ToolResolver for McpAwareResolver {
     fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
-        let pooled = self.pool.iter().find(|tool| tool.spec().name == name || tool.spec().aliases.iter().any(|alias| alias == name));
+        // A tool of exactly that name outranks another tool's alias of it (`terminal` is an alias of the `run` adapter).
+        let pooled = self
+            .pool
+            .iter()
+            .find(|tool| tool.spec().name == name)
+            .or_else(|| self.pool.iter().find(|tool| tool.spec().aliases.iter().any(|alias| alias == name)));
         pooled.cloned().or_else(|| self.hub.tool_in(&normalize_scope(scope), name))
     }
 }
