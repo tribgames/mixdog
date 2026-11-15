@@ -389,7 +389,7 @@ fn cff_composite_glyph_mapping_follows_the_charset_of_a_cid_font() {
         map.into_iter().collect::<Vec<_>>(),
         vec![(100, 0), (101, 1), (102, 2), (103, 3), (110, 4), (111, 5)]
     );
-    // A CIDToGIDMap that sends cid 1 to glyph 7 is inverted: the character code 7 stands for the glyph of cid 101.
+    // A CIDToGIDMap that sends cid 1 to glyph 101 is inverted: the character code 101 (of cid 1) becomes 1.
     let cid_to_gid = BTreeMap::from([(1_i64, 101_i64)]);
     let map = cff.composite_glyph_mapping(|cid| i64::from(cid) + 100, Some(&cid_to_gid));
     assert_eq!(map.get(&1), Some(&1));

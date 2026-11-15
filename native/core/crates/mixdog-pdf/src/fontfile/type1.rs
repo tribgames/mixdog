@@ -18,8 +18,9 @@ use crate::fonts::data::encodings::get_encoding;
 const EEXEC_ENCRYPT_KEY: u16 = 55665;
 const CHAR_STRS_ENCRYPT_KEY: u16 = 4330;
 /// Nesting of `callsubr` beyond which the walk stops: pdf.js recurses until the JavaScript stack overflows, which
-/// throws and fails the font; no real program nests more than a few levels.
-const MAX_CHARSTRING_DEPTH: usize = 4000;
+/// throws and fails the font; no real program nests more than a few levels (the Type 1 limit is 10). The bound
+/// keeps the recursion well inside a worker thread's stack.
+const MAX_CHARSTRING_DEPTH: usize = 1000;
 
 /// The font properties the reader reads and sets (`properties` of `Type1Font`).
 #[derive(Debug, Clone, Default)]
@@ -956,12 +957,14 @@ impl Type1Parser {
                 let (width, lsb) = glyphs
                     .first()
                     .map_or((0.0, 0.0), |g| (or_zero(g.width), or_zero(g.lsb)));
+                // `notDef?.charstring.slice() || [0x8b, 0x0e]`: a copy of glyph 0's charstring, empty when that is.
+                let has_charstring = glyphs.first().is_none_or(|g| g.has_charstring);
                 glyphs.push(Type1Glyph {
                     glyph_name: Some(glyph_name),
                     width,
                     lsb,
                     seac: None,
-                    has_charstring: true,
+                    has_charstring,
                 });
             }
             prev_offset = next_offset;

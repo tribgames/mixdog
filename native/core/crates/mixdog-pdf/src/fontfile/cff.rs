@@ -118,8 +118,9 @@ pub(crate) fn js_to_int32(value: f64) -> i32 {
     ((value.trunc() % 4_294_967_296.0) as i64) as i32
 }
 
+/// JavaScript's white space and line terminators: Rust's `is_whitespace` without U+0085, plus U+FEFF.
 fn is_js_space(c: char) -> bool {
-    c.is_whitespace() || c == '\u{feff}'
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 
 fn js_max(a: f64, b: f64) -> f64 {
@@ -839,6 +840,12 @@ pub fn read_cff_font(bytes: &[u8], properties: &mut CffProperties) -> Result<Cff
         bytes: bytes.to_vec(),
     }
     .parse(properties)?;
+    if cff.char_strings.count() == 0 {
+        // `duplicateFirstGlyph` adds `charStrings.get(0)`, which is `undefined` here: pdf.js throws.
+        return Err(type_error(
+            "cannot read properties of undefined (reading 'length')",
+        ));
+    }
     cff.duplicate_first_glyph();
     if let Some(map) = cff.create_built_in_encoding() {
         properties.built_in_encoding = Some(map);
@@ -1844,16 +1851,15 @@ fn recover_signed_16_bit_bbox(bbox: &[f64], only_lower_left: bool) -> Vec<f64> {
             }
         })
         .collect();
+    // A missing coordinate is `undefined` in pdf.js and never compares greater.
     let mut r = mapped.clone();
-    if mapped.len() >= 4 {
-        if mapped[0] > mapped[2] {
-            r[0] = mapped[2];
-            r[2] = mapped[0];
-        }
-        if mapped[1] > mapped[3] {
-            r[1] = mapped[3];
-            r[3] = mapped[1];
-        }
+    if mapped.len() > 2 && mapped[0] > mapped[2] {
+        r[0] = mapped[2];
+        r[2] = mapped[0];
+    }
+    if mapped.len() > 3 && mapped[1] > mapped[3] {
+        r[1] = mapped[3];
+        r[3] = mapped[1];
     }
     r
 }
