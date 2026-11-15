@@ -28,8 +28,8 @@ workspace member and dependency first (nr-office-fonts.wire).
 
 ## native/core/fixtures/MANIFEST.json
 
-In the "sets" list, after the entry of office-stats ... keep the list sorted by set name: "office-text-metrics" goes after
-"office-stats" and before the next set; add:
+In the "sets" list, kept sorted by set name: "office-text-metrics" goes right after the entry whose "set" is
+"office-text-date" (and before the next set); add:
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-text-metrics.mjs --tree <dir with node_modules>",
