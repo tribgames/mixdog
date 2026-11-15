@@ -1,6 +1,7 @@
 //! Process containment: a Windows job object (kill-on-close) or a Unix process group around one
 //! child, so ending a worker or the render browser ends everything it started (LibreOffice,
 //! browser helpers). Termination is the OS exit; nothing here waits.
+//! A child that asks to break away (an Office COM host) leaves the job and survives its worker.
 
 use std::process::ExitStatus;
 
@@ -70,6 +71,7 @@ mod os {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
     use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+    use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_BREAKAWAY_OK;
     use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     use windows_sys::Win32::System::JobObjects::JOBOBJECT_EXTENDED_LIMIT_INFORMATION;
     use windows_sys::Win32::System::JobObjects::JobObjectExtendedLimitInformation;
@@ -96,7 +98,9 @@ mod os {
                 return Err(std::io::Error::last_os_error());
             }
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            // BREAKAWAY_OK: a process the worker starts with CREATE_BREAKAWAY_FROM_JOB (the Office COM hosts) is not in the job, so
+            // a crash of the worker does not kill it before its EOF cleanup. Nothing else starts with that flag.
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
             let set = SetInformationJobObject(
                 job,
                 JobObjectExtendedLimitInformation,

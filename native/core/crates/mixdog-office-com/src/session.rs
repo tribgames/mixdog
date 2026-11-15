@@ -41,6 +41,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cleanup;
 use crate::identity::Identity;
+use crate::sweep::Sweeper;
 
 /// The `backend` every failure answer names.
 pub(crate) const BACKEND: &str = "microsoft-office-com";
@@ -78,8 +79,24 @@ pub(crate) fn spawn_host(program: &Path, args: &[OsString], rt: &Handle) -> std:
         .stderr(Stdio::piped())
         .kill_on_drop(false);
     #[cfg(windows)]
-    // CREATE_NO_WINDOW.
-    command.creation_flags(0x0800_0000);
+    let mut child = {
+        // CREATE_NO_WINDOW, and CREATE_BREAKAWAY_FROM_JOB: the ext-host worker's job kills what it holds when the worker
+        // ends, and a host killed that way never runs the cleanup that closes its document and quits its application.
+        // A job that does not allow breakaway refuses the flag (ERROR_ACCESS_DENIED): the host then starts inside the job,
+        // and the sweep of the next start is its only protection.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        command.creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB);
+        match command.spawn() {
+            Ok(child) => child,
+            Err(error) if error.raw_os_error() == Some(5) => {
+                command.creation_flags(CREATE_NO_WINDOW);
+                command.spawn()?
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    #[cfg(not(windows))]
     let mut child = command.spawn()?;
     let missing = |what: &str| std::io::Error::other(format!("host {what} was not piped"));
     let stdin = child.stdin.take().ok_or_else(|| missing("stdin"))?;
@@ -115,6 +132,7 @@ pub(crate) struct Attach {
     pub(crate) one_shot: bool,
     pub(crate) sessions: Weak<Sessions>,
     pub(crate) grace: Duration,
+    pub(crate) sweeper: Sweeper,
 }
 
 #[derive(Default)]
@@ -133,6 +151,7 @@ pub(crate) struct HostClient {
     session_id: String,
     one_shot: bool,
     grace: Duration,
+    sweeper: Sweeper,
     sessions: Weak<Sessions>,
     shared: Mutex<Shared>,
     state: watch::Receiver<HostState>,
@@ -151,6 +170,7 @@ impl HostClient {
             session_id: how.session_id,
             one_shot: how.one_shot,
             grace: how.grace,
+            sweeper: how.sweeper,
             sessions: how.sessions,
             shared: Mutex::new(Shared { stdin: Some(lines), ..Shared::default() }),
             state,
@@ -160,7 +180,7 @@ impl HostClient {
         mixdog_rt::spawn("office.host.stdin", TaskClass::Work, write_lines(stdin, input));
         let out = mixdog_rt::spawn("office.host.stdout", TaskClass::Work, read_stdout(client.clone(), stdout));
         let err = mixdog_rt::spawn("office.host.stderr", TaskClass::Work, read_stderr(client.clone(), stderr));
-        mixdog_rt::spawn("office.host.exit", TaskClass::Work, watch_exit(child, kill_rx, [out, err], state_tx));
+        mixdog_rt::spawn("office.host.exit", TaskClass::Work, watch_exit(child, kill_rx, [out, err], state_tx, client.sweeper.clone()));
         if !client.one_shot {
             let watcher = client.clone();
             mixdog_rt::spawn("office.host.closed", TaskClass::Work, async move {
@@ -309,6 +329,9 @@ impl HostClient {
         let failures = cleanup::failure_lines(&self.stderr());
         self.stop(&reason);
         let clean_exit = self.exit_code().is_none_or(|code| code == 0);
+        if !failures.is_empty() || !clean_exit {
+            self.sweeper.request();
+        }
         cleanup::finished(failures.is_empty() && clean_exit, failures)
     }
 
@@ -468,6 +491,7 @@ async fn watch_exit(
     mut kill: oneshot::Receiver<()>,
     readers: [JoinHandle<()>; 2],
     state: watch::Sender<HostState>,
+    sweeper: Sweeper,
 ) {
     let status = tokio::select! {
         status = child.wait() => status,
@@ -478,6 +502,10 @@ async fn watch_exit(
     };
     let code = status.ok().and_then(|status| status.code());
     state.send_modify(|state| state.exit = Some(code));
+    // A host that left with a failure or a signal did not finish its cleanup: what it recorded is swept.
+    if code != Some(0) {
+        sweeper.request();
+    }
     for reader in readers {
         let _ = reader.await;
     }

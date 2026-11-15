@@ -33,13 +33,19 @@ fn fake() -> PathBuf {
 /// A transport whose PowerShell command is `fake -NoLogo -File <script>` and whose Rust host program is the same
 /// stand-in; `rust_formats` is the test list (`None`: the shipped list).
 fn office(rust_formats: Option<&[&str]>) -> OfficeCom {
-    let mut config = OfficeComConfig::new(scratch(), mixdog_rt::testing::tokens())
+    office_in(rust_formats).0
+}
+
+/// The transport and the data directory it was given.
+fn office_in(rust_formats: Option<&[&str]>) -> (OfficeCom, PathBuf) {
+    let dir = scratch();
+    let mut config = OfficeComConfig::new(dir.clone(), mixdog_rt::testing::tokens())
         .with_host_command(fake(), vec![OsString::from("-NoLogo"), OsString::from("-File")]);
     config.rust_host_program = fake();
     if let Some(formats) = rust_formats {
         config = config.with_rust_host_formats(formats);
     }
-    OfficeCom::new(config)
+    (OfficeCom::new(config), dir)
 }
 
 fn argv(value: &Value) -> Vec<String> {
@@ -75,9 +81,10 @@ async fn call_argv(office: &OfficeCom, format: &str) -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_listed_format_starts_the_rust_host_program_and_the_others_start_powershell() {
-    let office = office(Some(&["docx"]));
-    assert_eq!(session_argv(&office, "docx").await, ["office-com-host", "--session"]);
-    assert_eq!(call_argv(&office, "docx").await, ["office-com-host"]);
+    let (office, dir) = office_in(Some(&["docx"]));
+    let dir = dir.to_string_lossy().into_owned();
+    assert_eq!(session_argv(&office, "docx").await, ["office-com-host", "--session", "--data-dir", dir.as_str()]);
+    assert_eq!(call_argv(&office, "docx").await, ["office-com-host", "--data-dir", dir.as_str()]);
     assert!(is_powershell_line(&session_argv(&office, "xlsx").await, "office-com-session-host.ps1"));
     assert!(is_powershell_line(&session_argv(&office, "pptx").await, "office-com-session-host.ps1"));
     assert!(is_powershell_line(&call_argv(&office, "pptx").await, "office-com-host.ps1"));
@@ -85,9 +92,10 @@ async fn a_listed_format_starts_the_rust_host_program_and_the_others_start_power
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn detect_follows_the_docx_entry() {
-    let listed = office(Some(&["docx"]));
-    assert_eq!(argv(&listed.detect("docx", "a.docx").await.value), ["office-com-host"]);
-    assert_eq!(argv(&listed.detect("xlsx", "a.xlsx").await.value), ["office-com-host"]);
+    let (listed, dir) = office_in(Some(&["docx"]));
+    let dir = dir.to_string_lossy().into_owned();
+    assert_eq!(argv(&listed.detect("docx", "a.docx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
+    assert_eq!(argv(&listed.detect("xlsx", "a.xlsx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
     let other = office(Some(&["xlsx"]));
     assert!(is_powershell_line(&argv(&other.detect("xlsx", "a.xlsx").await.value), "office-com-host.ps1"));
 }
