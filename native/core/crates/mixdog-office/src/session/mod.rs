@@ -13,8 +13,12 @@
 //! - [`registry`]: the sessions map and the document index, keyed by the absolute path (case-folded on Windows), and the
 //!   pin rule of the worker (a thread whose calls left a live session is pinned).
 
+pub mod create;
 pub mod design;
+pub mod mode;
+pub mod open;
 pub mod registry;
+pub mod working_copy;
 
 use std::path::PathBuf;
 

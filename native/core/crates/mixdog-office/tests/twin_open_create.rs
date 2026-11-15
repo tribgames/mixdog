@@ -45,7 +45,7 @@ use mixdog_office_design::library::{
 use mixdog_ooxml::package::load_package;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
-use mixdog_rt::{CancellationToken, DurabilityIo, InLane};
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use serde_json::{Map, Value, json};
 
 fn golden() -> Value {
@@ -210,7 +210,9 @@ struct World {
     env: Environment,
     names: RefCell<Vec<(String, String)>>,
     anonymous: RefCell<usize>,
-    held: RefCell<BTreeMap<String, SessionHandle>>,
+    /// The latest answer under each name: Node kept the object an open answered (a reused one is a copy that says `reused`), and a
+    /// later materialize of that name answered the same object.
+    held: RefCell<BTreeMap<String, (SessionHandle, bool)>>,
     fixtures: RefCell<Vec<(String, String)>>,
     last_files: RefCell<BTreeMap<String, Value>>,
 }
@@ -364,7 +366,7 @@ fn project(world: &World, opened: &OpenedSession, given: Option<&str>) -> Value 
     );
     world.held.borrow_mut().insert(
         world.name_of(&session.id, given),
-        Arc::clone(&opened.handle),
+        (Arc::clone(&opened.handle), opened.reused),
     );
     out.insert("source".to_owned(), json!(session.source));
     out.insert("target".to_owned(), json!(session.target));
@@ -609,10 +611,10 @@ fn replay<L: WriteLane>(lane: &InLane<L>, world: &World, script: &[Value]) {
                 shown
             }),
             "materialize" => {
-                let handle = world.held.borrow().get(step["session"].as_str().expect("session")).cloned().expect("a held session");
+                let (handle, reused) = world.held.borrow().get(step["session"].as_str().expect("session")).cloned().expect("a held session");
                 materialize_working_copy(lane, &NoWriteNote, &world.env, &registry, &handle).map(|target| {
                     let name = world.name_of(&lock(&handle).id, None);
-                    json!({ "target": world.scrub_text(&target), "session": project(world, &OpenedSession { handle: Arc::clone(&handle), reused: false }, Some(&name)) })
+                    json!({ "target": world.scrub_text(&target), "session": project(world, &OpenedSession { handle: Arc::clone(&handle), reused }, Some(&name)) })
                 })
             }
             other => panic!("unknown op {other}"),

@@ -9,13 +9,18 @@ workspace = true
 
 [dependencies]
 indexmap = { workspace = true, features = ["serde"] }
+mixdog-fonts = { workspace = true }
 mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-office-author = { workspace = true }
 mixdog-office-base = { workspace = true }
 mixdog-office-com = { workspace = true }
 mixdog-office-pdf = { workspace = true }
 mixdog-office-quality = { workspace = true }
 mixdog-ooxml = { workspace = true }
+mixdog-pdf = { workspace = true }
+mixdog-raster = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
@@ -24,8 +29,6 @@ mixdog-rt = { workspace = true }
 mixdog-statefile = { workspace = true }
 
 [dev-dependencies]
-mixdog-fonts = { workspace = true }
-mixdog-pdf = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 mixdog-office-base = { workspace = true, features = ["test-support"] }
