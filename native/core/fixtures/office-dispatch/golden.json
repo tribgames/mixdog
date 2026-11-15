@@ -1,0 +1,386 @@
+{
+  "note": "Recorded from the Node entry point (runtime/office/index.mjs executeOfficeTool); tests/twin_dispatch.rs replays it.",
+  "scenarios": [
+    {
+      "name": "calls that need no session",
+      "calls": [
+        {
+          "args": {
+            "action": "describe"
+          },
+          "text": "{\"actions\":[\"detect\",\"transactions\",\"recover\",\"describe\",\"author\",\"create\",\"attach\",\"open\",\"secure\",\"begin\",\"snapshot\",\"get\",\"query\",\"batch\",\"diff\",\"commit\",\"rollback\",\"issues\",\"qa\",\"validate\",\"render\",\"save\",\"finalize\",\"close\"],\"observation\":{\"selection\":\"attached and visible Microsoft Office snapshots include the active range, paragraph, slide, or shapes; background and portable sessions report document state only\"},\"batch\":{\"atomic\":\"all modes roll back failed batches; Word uses an Office Undo record, a background PowerPoint deck reloads the copy the batch started from (a visible one uses Undo), and Excel restores a checkpoint without saving\",\"operationShape\":\"{ op, target-specific fields, properties?, allowNoChange? }; silent no-op results roll back unless requireChanges:false\",\"initialOperations\":\"create/open accept known operations; their results prove the edit without a redundant snapshot unless snapshotAfter:true\"},\"designs\":[{\"id\":\"executive\",\"label\":\"Executive\",\"bestFor\":\"Decision briefs, operating reviews, dashboards, and leadership presentations.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"editorial\",\"label\":\"Editorial\",\"bestFor\":\"Reports, proposals, briefs, and narrative presentations.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"technical\",\"label\":\"Technical\",\"bestFor\":\"Product, engineering, architecture, and operational material.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"data\",\"label\":\"Data\",\"bestFor\":\"Financial models, analytical reports, dashboards, and KPI reviews.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]}],\"formats\":{\"docx\":{\"paths\":[\"/body/p[N]\",\"/body/p[N]/run[N]\",\"/body/tbl[N]/row[N]/cell[N]\",\"/body/comment[N]\",\"/body/comment-thread[N]\",\"/body/revision[N]\",\"/body/footnote[N]\",\"/body/endnote[N]\",\"/body/content-control[N]\"],\"operationCount\":44},\"xlsx\":{\"paths\":[\"/sheet[NAME]\",\"/sheet[NAME]/cell[A1]\",\"/sheet[NAME]/range[A1:C10]\"],\"operationCount\":47},\"pptx\":{\"paths\":[\"/slide[N]\",\"/slide[N]/shape[N]\"],\"operationCount\":47},\"pdf\":{\"paths\":[\"/page[N]\",\"/field[N]\",\"/outline[N]\",\"/attachments[N]\",\"/metadata\"],\"operationCount\":22},\"csv\":{\"paths\":[\"/sheet[NAME]\",\"/sheet[NAME]/cell[A1]\",\"/sheet[NAME]/range[A1:C10]\"],\"operationCount\":10},\"tsv\":{\"paths\":[\"/sheet[NAME]\",\"/sheet[NAME]/cell[A1]\",\"/sheet[NAME]/range[A1:C10]\"],\"operationCount\":10}},\"nextAction\":\"When discovery is needed, add format for its operation list or add operation for one compact input contract; otherwise call create/open/batch directly.\"}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "describe",
+            "format": "csv"
+          },
+          "text": "{\"actions\":[\"detect\",\"transactions\",\"recover\",\"describe\",\"author\",\"create\",\"attach\",\"open\",\"secure\",\"begin\",\"snapshot\",\"get\",\"query\",\"batch\",\"diff\",\"commit\",\"rollback\",\"issues\",\"qa\",\"validate\",\"render\",\"save\",\"finalize\",\"close\"],\"observation\":{\"selection\":\"attached and visible Microsoft Office snapshots include the active range, paragraph, slide, or shapes; background and portable sessions report document state only\"},\"batch\":{\"atomic\":\"all modes roll back failed batches; Word uses an Office Undo record, a background PowerPoint deck reloads the copy the batch started from (a visible one uses Undo), and Excel restores a checkpoint without saving\",\"operationShape\":\"{ op, target-specific fields, properties?, allowNoChange? }; silent no-op results roll back unless requireChanges:false\",\"initialOperations\":\"create/open accept known operations; their results prove the edit without a redundant snapshot unless snapshotAfter:true\"},\"format\":\"csv\",\"backend\":\"\",\"target\":\"/\",\"paths\":[\"/sheet[NAME]\",\"/sheet[NAME]/cell[A1]\",\"/sheet[NAME]/range[A1:C10]\"],\"operations\":[\"replace_text\",\"set_cell\",\"set_formula\",\"set_range\",\"append_row\",\"clear_cell\",\"insert_rows\",\"delete_rows\",\"insert_columns\",\"delete_columns\"],\"unsupportedInBackend\":[],\"properties\":{\"cell\":[\"value\",\"formula\"],\"structure\":[\"row\",\"column\",\"count\",\"range\"],\"safety\":[\"formulaLikeValue\",\"raggedRow\",\"utf8\"]},\"designs\":[{\"id\":\"executive\",\"label\":\"Executive\",\"bestFor\":\"Decision briefs, operating reviews, dashboards, and leadership presentations.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"editorial\",\"label\":\"Editorial\",\"bestFor\":\"Reports, proposals, briefs, and narrative presentations.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"technical\",\"label\":\"Technical\",\"bestFor\":\"Product, engineering, architecture, and operational material.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]},{\"id\":\"data\",\"label\":\"Data\",\"bestFor\":\"Financial models, analytical reports, dashboards, and KPI reviews.\",\"formats\":[\"pptx\",\"docx\",\"xlsx\",\"pdf\"]}],\"nextAction\":\"If exact fields are unknown, add operation for its compact contract; otherwise call create/open/batch directly.\"}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "describe",
+            "format": "csv",
+            "operation": "set_cell"
+          },
+          "text": "{\"format\":\"csv\",\"backend\":\"\",\"paths\":[\"/sheet[NAME]\",\"/sheet[NAME]/cell[A1]\",\"/sheet[NAME]/range[A1:C10]\"],\"operation\":{\"name\":\"set_cell\",\"supported\":true,\"supportedBackends\":[\"mixdog-tabular\"],\"input\":{\"required\":[\"op\",\"cell\",\"value\"],\"optional\":[\"sheet\",\"allowNoChange\"]}}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "describe",
+            "format": "csv",
+            "backend": "nowhere"
+          },
+          "text": "Error: Unsupported Office backend: nowhere",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "transactions"
+          },
+          "text": "{\"ok\":true,\"transactions\":[]}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "recover"
+          },
+          "text": "Error: recover finishes an interrupted Office transaction and needs its transaction id. Call office with {\"action\":\"transactions\"} to list pending ones. A damaged document is a different matter: it cannot be repaired here — ask for an intact copy, or open it in Microsoft Office and save a fresh file.",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "frobnicate"
+          },
+          "text": "Error: session or path is required",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "snapshot",
+            "session": "office_missing"
+          },
+          "text": "Error: Unknown or closed Office Use session: office_missing",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "secure",
+            "path": "a.csv",
+            "output": "b.pdf",
+            "security": "encrypt"
+          },
+          "text": "Error: secure supports PDF files only",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "attach",
+            "path": "x.csv",
+            "finalize": true
+          },
+          "text": "Error: attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "create"
+          },
+          "text": "Error: create requires path or output",
+          "isError": true,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "open",
+            "path": "missing.csv"
+          },
+          "text": "Error: Office document not found: <dir>/docs/missing.csv",
+          "isError": true,
+          "images": 0
+        }
+      ]
+    },
+    {
+      "name": "a cancelled call",
+      "calls": [
+        {
+          "args": {
+            "action": "describe"
+          },
+          "cancelled": true,
+          "text": "{\"ok\":false,\"code\":\"cancelled\",\"message\":\"Office Use operation was cancelled\",\"detail\":\"Office Use operation was cancelled\"}",
+          "isError": true,
+          "images": 0
+        }
+      ]
+    },
+    {
+      "name": "initial operations of a delimited file",
+      "calls": [
+        {
+          "args": {
+            "action": "create",
+            "path": "table.csv",
+            "operations": [
+              {
+                "op": "append_row",
+                "values": [
+                  "original"
+                ]
+              }
+            ]
+          },
+          "text": "{\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"fileKind\":\"csv\",\"source\":\"<dir>/docs/table.csv\",\"output\":\"<dir>/docs/table.csv\",\"ownership\":\"owned\",\"batch\":{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/table.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"append_row\",\"changed\":true,\"row\":1}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\"}},\"opened\":true,\"created\":true,\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"create\",\"path\":\"<dir>/docs/table.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "open",
+            "path": "table.csv",
+            "output": "edited.csv",
+            "mode": "portable",
+            "operations": [
+              {
+                "op": "append_row",
+                "values": [
+                  "edited"
+                ]
+              }
+            ]
+          },
+          "text": "{\"session\":\"<session 2>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"fileKind\":\"csv\",\"source\":\"<dir>/docs/table.csv\",\"output\":\"<dir>/docs/edited.csv\",\"batch\":{\"ok\":true,\"session\":\"<session 2>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/edited.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"append_row\",\"changed\":true,\"row\":2}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\",\"policy\":\"untrusted-data\"}},\"opened\":true,\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        }
+      ],
+      "files": {
+        "table.csv": "original\r\n",
+        "edited.csv": "original\r\nedited\r\n"
+      }
+    },
+    {
+      "name": "the life of a delimited-file session",
+      "calls": [
+        {
+          "args": {
+            "action": "create",
+            "path": "people.csv",
+            "operations": [
+              {
+                "op": "set_range",
+                "range": "A1:B3",
+                "values": [
+                  [
+                    "name",
+                    "score"
+                  ],
+                  [
+                    "alpha",
+                    1
+                  ],
+                  [
+                    "beta",
+                    2
+                  ]
+                ]
+              }
+            ]
+          },
+          "text": "{\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"fileKind\":\"csv\",\"source\":\"<dir>/docs/people.csv\",\"output\":\"<dir>/docs/people.csv\",\"ownership\":\"owned\",\"batch\":{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/people.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"set_range\",\"changed\":true,\"range\":\"A1:B3\"}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\"}},\"opened\":true,\"created\":true,\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"create\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "batch",
+            "session": "<session>",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "B3",
+                "value": 5
+              }
+            ]
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/people.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"B3\"}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\"},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "issues",
+            "session": "<session>"
+          },
+          "text": "{\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"path\":\"<dir>/docs/people.csv\",\"ok\":true,\"format\":\"csv\",\"issueCount\":0,\"issues\":[],\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "begin",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"transaction\":{\"id\":\"<tx 1>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":0,\"removed\":0,\"modified\":0,\"total\":0},\"changes\":[],\"truncated\":false}},\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "batch",
+            "session": "<session>",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A4",
+                "value": "gamma"
+              }
+            ]
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/people.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A4\"}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\"},\"transaction\":{\"id\":\"<tx 1>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":1,\"removed\":0,\"modified\":2,\"total\":3},\"changes\":[{\"path\":\"/sheet[people]\",\"kind\":\"modified\",\"before\":{\"name\":\"people\",\"rows\":3,\"columns\":2,\"cellCount\":6},\"after\":{\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7}},{\"path\":\"/sheet[people]/cell[A4]\",\"kind\":\"added\",\"after\":{\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"gamma\"}},{\"path\":\"/\",\"kind\":\"modified\",\"before\":{\"state\":\"captured by transaction checkpoint\"},\"after\":{\"operation\":\"set_cell\"}}],\"truncated\":false}},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "diff",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"transaction\":{\"id\":\"<tx 1>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":1,\"removed\":0,\"modified\":2,\"total\":3},\"changes\":[{\"path\":\"/sheet[people]\",\"kind\":\"modified\",\"before\":{\"name\":\"people\",\"rows\":3,\"columns\":2,\"cellCount\":6},\"after\":{\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7}},{\"path\":\"/sheet[people]/cell[A4]\",\"kind\":\"added\",\"after\":{\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"gamma\"}},{\"path\":\"/\",\"kind\":\"modified\",\"before\":{\"state\":\"captured by transaction checkpoint\"},\"after\":{\"operation\":\"set_cell\"}}],\"truncated\":false}},\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "rollback",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"rolledBack\":true,\"fingerprintRestored\":true,\"fingerprintDrift\":false,\"remainingDiff\":{\"summary\":{\"added\":0,\"removed\":0,\"modified\":0,\"total\":0},\"changes\":[],\"truncated\":false},\"transaction\":{\"id\":\"<tx 1>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":1,\"removed\":0,\"modified\":1,\"total\":2},\"changes\":[{\"path\":\"/sheet[people]\",\"kind\":\"modified\",\"before\":{\"name\":\"people\",\"rows\":3,\"columns\":2,\"cellCount\":6},\"after\":{\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7}},{\"path\":\"/sheet[people]/cell[A4]\",\"kind\":\"added\",\"after\":{\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"gamma\"}}],\"truncated\":false}},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "begin",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"transaction\":{\"id\":\"<tx 2>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":0,\"removed\":0,\"modified\":0,\"total\":0},\"changes\":[],\"truncated\":false}},\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "batch",
+            "session": "<session>",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A4",
+                "value": "delta"
+              }
+            ]
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"output\":\"<dir>/docs/people.csv\",\"saved\":true,\"atomic\":true,\"results\":[{\"op\":\"set_cell\",\"changed\":true,\"cell\":\"A4\"}],\"changeSummary\":{\"requested\":1,\"changed\":1,\"noChange\":0},\"semanticOperations\":[],\"trust\":{\"risk\":\"none\"},\"transaction\":{\"id\":\"<tx 2>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":1,\"removed\":0,\"modified\":2,\"total\":3},\"changes\":[{\"path\":\"/sheet[people]\",\"kind\":\"modified\",\"before\":{\"name\":\"people\",\"rows\":3,\"columns\":2,\"cellCount\":6},\"after\":{\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7}},{\"path\":\"/sheet[people]/cell[A4]\",\"kind\":\"added\",\"after\":{\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"delta\"}},{\"path\":\"/\",\"kind\":\"modified\",\"before\":{\"state\":\"captured by transaction checkpoint\"},\"after\":{\"operation\":\"set_cell\"}}],\"truncated\":false}},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "commit",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"committed\":true,\"saved\":true,\"transaction\":{\"id\":\"<tx 2>\",\"startedAt\":\"2023-11-14T22:13:20.000Z\",\"conflict\":false,\"undoUnits\":0,\"diff\":{\"summary\":{\"added\":1,\"removed\":0,\"modified\":2,\"total\":3},\"changes\":[{\"path\":\"/sheet[people]\",\"kind\":\"modified\",\"before\":{\"name\":\"people\",\"rows\":3,\"columns\":2,\"cellCount\":6},\"after\":{\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7}},{\"path\":\"/sheet[people]/cell[A4]\",\"kind\":\"added\",\"after\":{\"ref\":\"A4\",\"row\":4,\"column\":1,\"value\":\"delta\"}},{\"path\":\"/\",\"kind\":\"modified\",\"before\":{\"state\":\"captured by transaction checkpoint\"},\"after\":{\"operation\":\"set_cell\"}}],\"truncated\":false}},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "snapshot",
+            "session": "<session>"
+          },
+          "text": "{\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"fileKind\":\"csv\",\"source\":\"<dir>/docs/people.csv\",\"output\":\"<dir>/docs/people.csv\",\"ownership\":\"owned\",\"visible\":false,\"document\":{\"format\":\"csv\",\"path\":\"<dir>/docs/people.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[people]\",\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7,\"cells\":[{\"path\":\"/sheet[people]/cell[A1]\",\"ref\":\"A1\",\"value\":\"name\"},{\"path\":\"/sheet[people]/cell[B1]\",\"ref\":\"B1\",\"value\":\"score\"},{\"path\":\"/sheet[people]/cell[A2]\",\"ref\":\"A2\",\"value\":\"alpha\"},{\"path\":\"/sheet[people]/cell[B2]\",\"ref\":\"B2\",\"value\":\"1\"},{\"path\":\"/sheet[people]/cell[A3]\",\"ref\":\"A3\",\"value\":\"beta\"},{\"path\":\"/sheet[people]/cell[B3]\",\"ref\":\"B3\",\"value\":\"5\"},{\"path\":\"/sheet[people]/cell[A4]\",\"ref\":\"A4\",\"value\":\"delta\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"people\",\"offset\":0,\"limit\":2000,\"returned\":7,\"total\":7,\"cursor\":null,\"nextCursor\":null,\"hasMore\":false}},\"trust\":{\"risk\":\"none\",\"policy\":\"untrusted-data\"},\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "qa",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":false,\"session\":\"<session 1>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"autoFix\":false,\"fixes\":[],\"fixResult\":null,\"issuesAfter\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 1 column(s); the file's rows are 2 wide.\"}],\"review\":{\"createdAt\":\"2023-11-14T22:13:20.000Z\",\"baselineOutput\":\"\",\"pageCount\":0,\"issuesBefore\":1,\"issuesAfter\":1,\"fixesApplied\":0,\"design\":{\"ok\":true,\"status\":\"skipped\",\"profile\":\"data\",\"composition\":{\"format\":\"csv\",\"fingerprint\":\"\",\"compositionIds\":[],\"count\":0},\"requiresVisualInspection\":false},\"render\":{\"ok\":true,\"format\":\"csv\",\"issues\":[]},\"quality\":{\"version\":2,\"score\":0.5335,\"confidence\":0.4,\"releaseReady\":false,\"dimensions\":{\"render\":0,\"structural\":0.97},\"evidence\":{\"renderedPages\":0,\"expectedPages\":0,\"pageCoverage\":0,\"planCoverage\":1,\"structuralAvailable\":true,\"blockingIssueCount\":1}},\"checklist\":{\"ok\":true,\"task\":\"\",\"auditProfile\":\"\",\"items\":[],\"summary\":{\"total\":0,\"passed\":0,\"failed\":0,\"pending\":0},\"issues\":[]},\"polishPlan\":{\"format\":\"csv\",\"status\":\"needs-polish\",\"targetCount\":1,\"criticalCount\":0,\"targets\":[{\"path\":\"/row[4]\",\"severity\":\"warning\",\"codes\":[\"ragged_row\"],\"actions\":[\"Correct ragged_row at /row[4], then render and inspect the affected page again.\"]}],\"nextAction\":\"Edit only the reported targets in one atomic batch, render the changed pages, then run QA again.\"},\"trust\":{\"risk\":\"none\",\"policy\":\"untrusted-data\"}},\"preview\":{\"output\":\"<dir>/docs/people.csv\",\"pageCount\":0,\"visualCoverage\":{\"mode\":\"structural\",\"reason\":\"Delimited text has no paginated visual layout.\",\"reviewedPages\":[],\"reviewed\":0,\"total\":0,\"complete\":true,\"remainingPages\":[]},\"images\":[],\"reused\":false},\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "save",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 1>\",\"saved\":true,\"path\":\"<dir>/docs/people.csv\",\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "finalize",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":false,\"finalized\":false,\"session\":\"<session 1>\",\"reason\":\"review_issues\",\"failOn\":\"warning\",\"blockingIssues\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 1 column(s); the file's rows are 2 wide.\"}],\"review\":{\"ok\":false,\"issuesAfter\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 1 column(s); the file's rows are 2 wide.\"}],\"preview\":{\"visualCoverage\":{\"mode\":\"structural\",\"reason\":\"Delimited text has no paginated visual layout.\",\"reviewed\":0,\"total\":0,\"complete\":true}}},\"nextAction\":\"Fix the reported issues with one batch, then call finalize again.\",\"stepMetrics\":{\"recalculationMs\":0,\"reviewMs\":0},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "finalize",
+            "session": "<session>",
+            "failOn": "error"
+          },
+          "text": "{\"ok\":true,\"finalized\":true,\"session\":\"<session 1>\",\"path\":\"<dir>/docs/people.csv\",\"failOn\":\"error\",\"saved\":true,\"saveSkipped\":false,\"closed\":true,\"review\":{\"ok\":false,\"issuesAfter\":[{\"severity\":\"warning\",\"code\":\"ragged_row\",\"path\":\"/row[4]\",\"message\":\"Row has 1 column(s); the file's rows are 2 wide.\"}],\"preview\":{\"visualCoverage\":{\"mode\":\"structural\",\"reason\":\"Delimited text has no paginated visual layout.\",\"reviewed\":0,\"total\":0,\"complete\":true}}},\"validation\":{\"ok\":true,\"rows\":4,\"columns\":2,\"invalidEncoding\":false,\"nulBytes\":0},\"stepMetrics\":{\"recalculationMs\":0,\"reviewMs\":0,\"saveMs\":0,\"validationMs\":0,\"closeMs\":0},\"metrics\":{\"durationMs\":0},\"artifacts\":[{\"type\":\"spreadsheet\",\"format\":\"csv\",\"fileKind\":\"csv\",\"operation\":\"edit\",\"path\":\"<dir>/docs/people.csv\"}],\"outputCount\":1,\"expectedOutputCount\":1}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "snapshot",
+            "path": "people.csv"
+          },
+          "text": "{\"session\":\"<session 2>\",\"mode\":\"portable\",\"backend\":\"mixdog-tabular\",\"fileKind\":\"csv\",\"source\":\"<dir>/docs/people.csv\",\"output\":\"<dir>/docs/people.csv\",\"document\":{\"format\":\"csv\",\"path\":\"<dir>/docs/people.csv\",\"delimiter\":\",\",\"sheetCount\":1,\"sheets\":[{\"path\":\"/sheet[people]\",\"name\":\"people\",\"rows\":4,\"columns\":2,\"cellCount\":7,\"cells\":[{\"path\":\"/sheet[people]/cell[A1]\",\"ref\":\"A1\",\"value\":\"name\"},{\"path\":\"/sheet[people]/cell[B1]\",\"ref\":\"B1\",\"value\":\"score\"},{\"path\":\"/sheet[people]/cell[A2]\",\"ref\":\"A2\",\"value\":\"alpha\"},{\"path\":\"/sheet[people]/cell[B2]\",\"ref\":\"B2\",\"value\":\"1\"},{\"path\":\"/sheet[people]/cell[A3]\",\"ref\":\"A3\",\"value\":\"beta\"},{\"path\":\"/sheet[people]/cell[B3]\",\"ref\":\"B3\",\"value\":\"5\"},{\"path\":\"/sheet[people]/cell[A4]\",\"ref\":\"A4\",\"value\":\"delta\"}]}],\"pagination\":{\"unit\":\"populated-cell\",\"scope\":\"people\",\"offset\":0,\"limit\":2000,\"returned\":7,\"total\":7,\"cursor\":null,\"nextCursor\":null,\"hasMore\":false}},\"trust\":{\"risk\":\"none\",\"policy\":\"untrusted-data\"},\"implicitSession\":true,\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "close",
+            "session": "<session>"
+          },
+          "text": "{\"ok\":true,\"session\":\"<session 2>\",\"closed\":true,\"path\":\"<dir>/docs/people.csv\",\"metrics\":{\"durationMs\":0}}",
+          "isError": false,
+          "images": 0
+        },
+        {
+          "args": {
+            "action": "close",
+            "session": "<session>"
+          },
+          "text": "Error: Unknown or closed Office Use session: <session 2>",
+          "isError": true,
+          "images": 0
+        }
+      ]
+    }
+  ]
+}
