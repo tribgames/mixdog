@@ -113,8 +113,12 @@ impl Bits<'_> {
     }
 }
 
-/// Inflates a zlib stream (RFC 1950 header, then deflate blocks). The output stops at `limit` bytes.
+/// Inflates a zlib stream (RFC 1950 header, then deflate blocks). Output exceeding `limit` returns `ResourceLimit`.
 pub fn inflate(input: &[u8], limit: usize) -> Result<Vec<u8>, CodecError> {
+    crate::check_output(inflate_prefix(input, limit.saturating_add(1))?, limit)
+}
+
+fn inflate_prefix(input: &[u8], limit: usize) -> Result<Vec<u8>, CodecError> {
     let (Some(&cmf), Some(&flg)) = (input.first(), input.get(1)) else {
         return Err(CodecError::Format("Invalid header in flate stream".into()));
     };

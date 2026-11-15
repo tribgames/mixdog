@@ -698,8 +698,14 @@ fn a_hybrid_file_reads_the_table_and_its_xref_stream() {
 struct Xor;
 
 impl Decryptor for Xor {
-    fn decrypt_string(&self, _num: i64, _generation: i64, data: &[u8]) -> Vec<u8> {
-        data.iter().map(|b| b ^ 1).collect()
+    fn decrypt_string(
+        &self,
+        _num: i64,
+        _generation: i64,
+        data: &[u8],
+        _xref: Option<&Xref>,
+    ) -> Result<Vec<u8>, PdfError> {
+        Ok(data.iter().map(|b| b ^ 1).collect())
     }
 
     fn decrypt_stream(
@@ -708,6 +714,7 @@ impl Decryptor for Xor {
         _generation: i64,
         data: &[u8],
         _crypt_name: Option<&str>,
+        _embedded_file: bool,
     ) -> Result<Vec<u8>, PdfError> {
         Ok(data.iter().map(|b| b ^ 1).collect())
     }
@@ -898,4 +905,128 @@ fn errors_carry_pdfjs_names_and_messages() {
     );
     assert!(PdfError::Cancelled.is_fatal());
     assert!(!PdfError::XRefParse.is_fatal());
+}
+
+struct BrokenCipher {
+    fatal: bool,
+}
+impl Decryptor for BrokenCipher {
+    fn decrypt_string(
+        &self,
+        _: i64,
+        _: i64,
+        _: &[u8],
+        _: Option<&Xref>,
+    ) -> Result<Vec<u8>, PdfError> {
+        Err(PdfError::Format("string cipher failed".into()))
+    }
+    fn validate_stream(
+        &self,
+        _: i64,
+        _: i64,
+        _: Option<&str>,
+        _: bool,
+        _: Option<&Xref>,
+    ) -> Result<(), PdfError> {
+        Err(if self.fatal {
+            PdfError::ResourceLimit("selected cipher budget".into())
+        } else {
+            PdfError::Format("stream cipher failed".into())
+        })
+    }
+    fn decrypt_stream(
+        &self,
+        _: i64,
+        _: i64,
+        _: &[u8],
+        _: Option<&str>,
+        _: bool,
+    ) -> Result<Vec<u8>, PdfError> {
+        panic!("failed selection never decodes")
+    }
+}
+#[test]
+fn lazy_cipher_errors_propagate_and_only_explicit_crypt_swallows_nonfatal_errors() {
+    for fatal in [false, true] {
+        let cipher = mixdog_pdf::Cipher {
+            decryptor: Arc::new(BrokenCipher { fatal }),
+            num: 1,
+            generation: 0,
+        };
+        let mut parser = Parser::new(lexer(b"(x)"), None, true, false).unwrap();
+        assert!(
+            matches!(parser.get_obj(Some(&cipher)), Err(PdfError::Format(message)) if message == "string cipher failed")
+        );
+        let mut parser = Parser::new(
+            lexer(b"<< /Length 3 >> stream\nabc\nendstream"),
+            None,
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(
+            parser.get_obj(Some(&cipher)).is_err(),
+            "default cipher errors occur when the stream is fetched"
+        );
+        let mut parser = Parser::new(
+            lexer(b"<< /Length 3 /Filter /Crypt >> stream\nabc\nendstream"),
+            None,
+            true,
+            false,
+        )
+        .unwrap();
+        let result = parser.get_obj(Some(&cipher));
+        if fatal {
+            assert!(matches!(result, Err(PdfError::ResourceLimit(_))));
+        } else {
+            assert!(
+                result
+                    .unwrap()
+                    .as_stream()
+                    .unwrap()
+                    .decode(&TestFilters, &Guard::unbounded())
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+}
+#[test]
+fn decoded_budget_is_checked_for_raw_decrypted_and_filtered_streams() {
+    let guard = Guard::new(
+        None,
+        Budget {
+            max_bytes: 2,
+            ..Budget::default()
+        },
+    );
+    for bytes in [
+        b"<< /Length 3 >> stream\nabc\nendstream".as_slice(),
+        b"<< /Length 7 /Filter /ASCIIHexDecode >> stream\n616263>\nendstream".as_slice(),
+    ] {
+        let obj = parse(bytes).unwrap();
+        assert!(matches!(
+            obj.as_stream()
+                .unwrap()
+                .decode(&mixdog_pdf::codec_glue::CodecFilters, &guard),
+            Err(PdfError::ResourceLimit(_))
+        ));
+    }
+    let cipher = mixdog_pdf::Cipher {
+        decryptor: Arc::new(Xor),
+        num: 1,
+        generation: 0,
+    };
+    let mut parser = Parser::new(
+        lexer(b"<< /Length 3 >> stream\nabc\nendstream"),
+        None,
+        true,
+        false,
+    )
+    .unwrap();
+    let obj = parser.get_obj(Some(&cipher)).unwrap();
+    assert!(matches!(
+        obj.as_stream().unwrap().decode(&TestFilters, &guard),
+        Err(PdfError::ResourceLimit(_))
+    ));
 }

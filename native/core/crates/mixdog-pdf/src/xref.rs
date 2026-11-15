@@ -403,6 +403,7 @@ impl Xref {
 
     fn cipher_for(&self, num: i64, generation: i64) -> Option<Cipher> {
         let decryptor = self.state.borrow().encrypt.clone()?;
+        let decryptor = decryptor.for_object(num, generation).unwrap_or(decryptor);
         Some(Cipher {
             decryptor,
             num,

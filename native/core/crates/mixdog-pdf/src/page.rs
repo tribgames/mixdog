@@ -30,19 +30,19 @@ pub struct Page {
     pub crop_box: [f64; 4],
     /// `view`: the crop box intersected with the media box.
     pub view: [f64; 4],
-    /// `rotate`: 0, 90, 180 or 270.
-    pub rotate: i32,
+    /// `rotate`: the original value when already in range (including numeric strings/arrays).
+    pub rotate: Obj,
     /// `userUnit`: the `UserUnit` when it is a positive number, else 1.
     pub user_unit: f64,
 }
 
 /// The display layer's `PageViewport`: where a page's user space lands on the canvas at `scale`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Viewport {
     pub view_box: [f64; 4],
     pub user_unit: f64,
     pub scale: f64,
-    pub rotation: i32,
+    pub rotation: Obj,
     pub offset_x: f64,
     pub offset_y: f64,
     pub transform: [f64; 6],
@@ -124,7 +124,15 @@ impl Page {
 
     /// `getViewport({ scale })`: the page's own rotation, no offset, the y axis flipped.
     pub fn viewport(&self, scale: f64) -> Viewport {
-        Viewport::new(self.view, self.user_unit, scale, self.rotate, 0.0, 0.0)
+        Viewport::new(
+            self.view,
+            self.user_unit,
+            scale,
+            self.rotate.clone(),
+            0.0,
+            0.0,
+        )
+        .expect("Page.rotate is normalized to a multiple of 90")
     }
 }
 
@@ -134,18 +142,27 @@ impl Viewport {
         view_box: [f64; 4],
         user_unit: f64,
         scale: f64,
-        rotation: i32,
+        rotation: Obj,
         offset_x: f64,
         offset_y: f64,
-    ) -> Viewport {
+    ) -> Result<Viewport> {
         let scaled = scale * user_unit;
         let center_x = (view_box[2] + view_box[0]) / 2.0;
         let center_y = (view_box[3] + view_box[1]) / 2.0;
-        let (rotate_a, rotate_b, rotate_c, rotate_d) = match rotation.rem_euclid(360) {
-            180 => (-1.0, 0.0, 0.0, 1.0),
-            90 => (0.0, 1.0, 1.0, 0.0),
-            270 => (0.0, -1.0, -1.0, 0.0),
-            _ => (1.0, 0.0, 0.0, -1.0),
+        let mut angle = object_number(&rotation) % 360.0;
+        if angle < 0.0 {
+            angle += 360.0;
+        }
+        let (rotate_a, rotate_b, rotate_c, rotate_d) = match angle {
+            180.0 => (-1.0, 0.0, 0.0, 1.0),
+            90.0 => (0.0, 1.0, 1.0, 0.0),
+            270.0 => (0.0, -1.0, -1.0, 0.0),
+            0.0 => (1.0, 0.0, 0.0, -1.0),
+            _ => {
+                return Err(crate::error::PdfError::Unknown(
+                    "PageViewport: Invalid rotation, must be a multiple of 90 degrees.".into(),
+                ));
+            }
         };
         let (offset_canvas_x, offset_canvas_y, width, height) = if rotate_a == 0.0 {
             (
@@ -162,7 +179,7 @@ impl Viewport {
                 (view_box[3] - view_box[1]) * scaled,
             )
         };
-        Viewport {
+        Ok(Viewport {
             view_box,
             user_unit,
             scale,
@@ -179,7 +196,7 @@ impl Viewport {
             ],
             width,
             height,
-        }
+        })
     }
 }
 
@@ -269,18 +286,54 @@ fn view_of(crop_box: [f64; 4], media_box: [f64; 4]) -> [f64; 4] {
     media_box
 }
 
-/// `Page.rotate`: the `Rotate` as 0, 90, 180 or 270 (a value that is not a multiple of 90, or no number, is 0).
-fn rotate_of(value: Option<&Obj>) -> i32 {
-    let Some(Obj::Num(mut rotate)) = value.cloned() else {
-        return 0;
+/// Ordinary PDF objects use JavaScript object coercion; arrays keep unresolved refs,
+/// since Rotate is read through Dict.get, not Dict.getArray.
+pub(crate) fn object_number(value: &Obj) -> f64 {
+    match value {
+        Obj::Null => 0.0,
+        Obj::Bool(value) => {
+            if *value {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        Obj::Num(value) => *value,
+        Obj::Str(bytes) => {
+            mixdog_js::string_to_number(&bytes.iter().map(|&b| char::from(b)).collect::<String>())
+        }
+        Obj::Array(_) => mixdog_js::string_to_number(&array_string(value)),
+        _ => f64::NAN,
+    }
+}
+fn array_string(value: &Obj) -> String {
+    match value {
+        Obj::Null => String::new(),
+        Obj::Bool(value) => value.to_string(),
+        Obj::Num(value) => mixdog_js::number_to_string(*value),
+        Obj::Str(bytes) => bytes.iter().map(|&b| char::from(b)).collect(),
+        Obj::Array(items) => items.iter().map(array_string).collect::<Vec<_>>().join(","),
+        _ => "[object Object]".into(),
+    }
+}
+fn rotate_of(value: Option<&Obj>) -> Obj {
+    let Some(value) = value else {
+        return Obj::Num(0.0);
     };
-    if rotate % 90.0 != 0.0 {
-        return 0;
+    if matches!(value, Obj::Null | Obj::Bool(false))
+        || matches!(value, Obj::Num(n) if *n == 0.0 || n.is_nan())
+        || matches!(value, Obj::Str(s) if s.is_empty())
+    {
+        return Obj::Num(0.0);
     }
-    if rotate >= 360.0 {
-        rotate %= 360.0;
-    } else if rotate < 0.0 {
-        rotate = (rotate % 360.0 + 360.0) % 360.0;
+    let angle = object_number(value);
+    if angle % 90.0 != 0.0 {
+        Obj::Num(0.0)
+    } else if angle >= 360.0 {
+        Obj::Num(angle % 360.0)
+    } else if angle < 0.0 {
+        Obj::Num((angle % 360.0 + 360.0) % 360.0)
+    } else {
+        value.clone()
     }
-    rotate as i32
 }

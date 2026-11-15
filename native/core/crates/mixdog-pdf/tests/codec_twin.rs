@@ -8,9 +8,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use mixdog_pdf::StreamFilters;
 use mixdog_pdf::codec_glue::CodecFilters;
 use mixdog_pdf::document::{Document, OpenOptions, wrap_reason};
+use mixdog_pdf::{PdfError, StreamFilters};
 use serde_json::Value;
 
 fn fixtures() -> PathBuf {
@@ -113,11 +113,18 @@ fn attempt_differences(name: &str, bytes: &[u8], attempt: &Value) -> Vec<String>
     };
     let mut found = Vec::new();
     if Some(document.num_pages()) != attempt["numPages"].as_i64() {
-        found.push(format!("{name} ({label}): {} pages, pdf.js {}", document.num_pages(), attempt["numPages"]));
+        found.push(format!(
+            "{name} ({label}): {} pages, pdf.js {}",
+            document.num_pages(),
+            attempt["numPages"]
+        ));
     }
     let mut literals = Vec::new();
     for index in 0..usize::try_from(document.num_pages()).unwrap_or(0) {
-        match document.page(index).and_then(|page| page.content(&document)) {
+        match document
+            .page(index)
+            .and_then(|page| page.content(&document))
+        {
             Ok(content) => literals.extend(literal_strings(&content)),
             Err(e) => found.push(format!("{name} ({label}) page {}: {e}", index + 1)),
         }
@@ -125,7 +132,9 @@ fn attempt_differences(name: &str, bytes: &[u8], attempt: &Value) -> Vec<String>
     for line in attempt["strings"].as_array().expect("the strings") {
         let line = line.as_str().expect("a string");
         if !literals.iter().any(|literal| literal == line.as_bytes()) {
-            found.push(format!("{name} ({label}): the decoded content lacks {line:?}"));
+            found.push(format!(
+                "{name} ({label}): the decoded content lacks {line:?}"
+            ));
         }
     }
     found
@@ -135,53 +144,88 @@ fn attempt_differences(name: &str, bytes: &[u8], attempt: &Value) -> Vec<String>
 fn every_recorded_file_decodes_and_decrypts_as_in_pdf_js() {
     let manifest = json(fixtures().join("MANIFEST.json"));
     let cases = manifest["cases"].as_array().expect("the cases");
-    assert!(cases.len() >= 74, "the recording lost cases: {}", cases.len());
+    assert!(
+        cases.len() >= 74,
+        "the recording lost cases: {}",
+        cases.len()
+    );
     let mut found = Vec::new();
     let mut attempts = 0;
     for case in cases {
-        let golden = json(fixtures().join("goldens").join(format!("{}.json", case.as_str().expect("a case name"))));
+        let golden = json(
+            fixtures()
+                .join("goldens")
+                .join(format!("{}.json", case.as_str().expect("a case name"))),
+        );
         let bytes = mixdog_testkit::read(fixtures().join(golden["file"].as_str().expect("a file")));
         for attempt in golden["attempts"].as_array().expect("the attempts") {
             attempts += 1;
-            found.extend(attempt_differences(golden["name"].as_str().expect("a name"), &bytes, attempt));
+            found.extend(attempt_differences(
+                golden["name"].as_str().expect("a name"),
+                &bytes,
+                attempt,
+            ));
         }
     }
     assert!(attempts >= cases.len(), "every case has an attempt");
     found.truncate(20);
-    assert!(found.is_empty(), "differences from pdf.js:\n{}", found.join("\n"));
+    assert!(
+        found.is_empty(),
+        "differences from pdf.js:\n{}",
+        found.join("\n")
+    );
 }
 
 #[test]
 fn a_literal_string_reads_its_escapes() {
     let strings = literal_strings(b"BT (one \\(two\\) \\\\ \\101 (nested)) Tj (next) Tj ET");
-    assert_eq!(strings, vec![b"one (two) \\ A (nested)".to_vec(), b"next".to_vec()]);
+    assert_eq!(
+        strings,
+        vec![b"one (two) \\ A (nested)".to_vec(), b"next".to_vec()]
+    );
 }
 
 #[test]
 fn brotli_decode_is_a_known_filter_that_stops_past_the_limit() {
     let data: Vec<u8> = (0..4000u32).map(|n| (n % 251) as u8).collect();
     let mut packed = Vec::new();
-    brotli::BrotliCompress(&mut &data[..], &mut packed, &brotli::enc::BrotliEncoderParams::default())
-        .expect("compresses");
+    brotli::BrotliCompress(
+        &mut &data[..],
+        &mut packed,
+        &brotli::enc::BrotliEncoderParams::default(),
+    )
+    .expect("compresses");
     let decoded = CodecFilters
         .decode("BrotliDecode", &packed, None, None, 1 << 20)
         .expect("decodes")
         .expect("a known filter");
     assert_eq!(decoded, data);
-    let cut = CodecFilters
-        .decode("BrotliDecode", &packed, None, None, 100)
-        .expect("decodes")
-        .expect("a known filter");
-    assert_eq!(cut.len(), 101, "one byte past the limit tells the caller it was passed");
+    assert!(matches!(
+        CodecFilters.decode("BrotliDecode", &packed, None, None, 100),
+        Err(PdfError::ResourceLimit(_))
+    ));
 }
 
 #[test]
 fn image_codecs_leave_the_bytes_and_an_unknown_name_is_not_decoded() {
-    for name in ["DCTDecode", "DCT", "JPXDecode", "CCITTFaxDecode", "JBIG2Decode"] {
-        let out = CodecFilters.decode(name, b"pixels", None, None, 100).expect("no failure");
+    for name in [
+        "DCTDecode",
+        "DCT",
+        "JPXDecode",
+        "CCITTFaxDecode",
+        "JBIG2Decode",
+    ] {
+        let out = CodecFilters
+            .decode(name, b"pixels", None, None, 100)
+            .expect("no failure");
         assert_eq!(out.as_deref(), Some(&b"pixels"[..]), "{name}");
     }
-    assert_eq!(CodecFilters.decode("NoSuchDecode", b"x", None, None, 100).expect("no failure"), None);
+    assert_eq!(
+        CodecFilters
+            .decode("NoSuchDecode", b"x", None, None, 100)
+            .expect("no failure"),
+        None
+    );
 }
 
 #[test]
@@ -192,10 +236,17 @@ fn a_wrong_password_is_the_incorrect_password_exception() {
         password: Some("not the password".to_owned()),
         ..OpenOptions::default()
     };
-    let error = Document::open(bytes.clone(), &wrong).err().expect("a wrong password");
+    let error = Document::open(bytes.clone(), &wrong)
+        .err()
+        .expect("a wrong password");
     let exception = wrap_reason(&error);
-    assert_eq!((exception.name, exception.code, exception.message.as_str()), ("PasswordException", Some(2), "Incorrect Password"));
-    let missing = Document::open(bytes, &OpenOptions::default()).err().expect("no password");
+    assert_eq!(
+        (exception.name, exception.code, exception.message.as_str()),
+        ("PasswordException", Some(2), "Incorrect Password")
+    );
+    let missing = Document::open(bytes, &OpenOptions::default())
+        .err()
+        .expect("no password");
     assert_eq!(wrap_reason(&missing).code, Some(1));
 }
 
