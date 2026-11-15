@@ -2,7 +2,7 @@
 //!
 //! Pixels are always stored as RGBA, row after row; a grey image has red = green = blue. `channels` is the number of
 //! bands sharp would show (1 grey, 2 grey and alpha, 3 RGB, 4 RGBA), so [`Image::to_raw`] and [`Image::metadata`]
-//! answer what `raw()` and `metadata()` do. Decoding is `mixdog-imaging`'s (one decoder for the product): the
+//! answer what `raw()` and `metadata()` do. Decoding is `mixdog-imaging`'s (a baseline JPEG is read by [`crate::jpeg`], with libjpeg-turbo's arithmetic): the
 //! metadata width and height are the stored ones, not rotated by the EXIF orientation, and the orientation is
 //! applied only by [`Image::auto_orient`] (sharp's `rotate()` with no angle).
 
@@ -169,7 +169,22 @@ fn is_grey(raster: &Raster) -> bool {
 impl Image {
     /// Decodes PNG, JPEG, GIF (first frame), WebP or TIFF bytes under sharp's default pixel limit.
     pub fn decode(bytes: &[u8]) -> Result<Self, RasterError> {
-        let decoded = mixdog_imaging::decode(bytes, DEFAULT_PIXEL_LIMIT).map_err(|error| RasterError::new(error.to_string()))?;
+        let decoded = match crate::jpeg::decode(bytes, DEFAULT_PIXEL_LIMIT) {
+            // libjpeg-turbo's own samples, which libvips resizes; a colour picture's profile is applied as the general decoder does.
+            Some(mut jpeg) => {
+                if let (Some(profile), false) = (&jpeg.profile, jpeg.grey) {
+                    mixdog_imaging::rgb_to_srgb(&mut jpeg.raster.data, false, profile);
+                }
+                mixdog_imaging::Decoded {
+                    format: Format::Jpeg,
+                    width: jpeg.raster.width,
+                    height: jpeg.raster.height,
+                    orientation: jpeg_facts(bytes).orientation.unwrap_or(1),
+                    raster: jpeg.raster,
+                }
+            }
+            None => mixdog_imaging::decode(bytes, DEFAULT_PIXEL_LIMIT).map_err(|error| RasterError::new(error.to_string()))?,
+        };
         let raster = &decoded.raster;
         let from_pixels = if raster.has_alpha { 4 } else { 3 };
         let facts = match decoded.format {
