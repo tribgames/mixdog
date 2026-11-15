@@ -28,8 +28,8 @@ use crate::session::{Backend, Mode, SessionHandle};
 use crate::snapshot::{ComHost, trust_for_mutation};
 use crate::tabular::{self, Format};
 use crate::transactions::{
-    TransactionError, assert_transaction_unchanged, capture_session_state, persist_office_transaction, record_transaction_operations, transaction_document_diff,
-    transaction_view, unique_token, update_transaction,
+    TransactionError, assert_transaction_unchanged, capture_session_state, persist_office_transaction, record_transaction_operations, remove_quietly,
+    transaction_document_diff, transaction_view, unique_token, update_transaction,
 };
 
 /// How long Office has to save a copy or to replace a deck from a file.
@@ -165,7 +165,9 @@ fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> Safet
         && after == 0.0
         && extension_of(&first.get("path").map(value_to_string).unwrap_or_default()) == extension_of(target);
     let portable_template_seed = match imports {
-        Some(import) if facts.backend == Backend::MixdogOoxml && facts.format == "pptx" && fresh => text_of(import.get("path")),
+        Some(import) if facts.backend == Backend::MixdogOoxml && facts.format == "pptx" && fresh => {
+            import.get("path").filter(|path| truthy(path)).map(value_to_string).unwrap_or_default()
+        }
         _ => String::new(),
     };
     let needs_com_checkpoint = facts.microsoft_office() && facts.mode == Mode::Background && imports.is_some();
@@ -182,12 +184,6 @@ fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> Safet
 fn unique_dashed() -> String {
     let token = unique_token();
     format!("{}-{}-{}-{}-{}", &token[0..8], &token[8..12], &token[12..16], &token[16..20], &token[20..32])
-}
-
-fn remove_quietly<L: WriteLane>(lane: &mixdog_rt::InLane<L>, path: &str) {
-    if !path.is_empty() {
-        let _ = mixdog_fsio::remove_file(lane, path);
-    }
 }
 
 /// Stages what the batch falls back to.
@@ -628,6 +624,8 @@ mod tests {
         assert_eq!(plan.portable_template_seed, "C:/t/t.pptx");
         let edited = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 2), "C:/w/d.pptx", &imports);
         assert!(edited.portable_template_seed.is_empty());
+        let unnamed = batch_safety_plan(&facts(Backend::MixdogOoxml, "pptx", Mode::Portable, true, 0), "C:/w/d.pptx", &[json!({ "op": "import_slides" })]);
+        assert!(unnamed.portable_template_seed.is_empty());
     }
 
     #[test]
