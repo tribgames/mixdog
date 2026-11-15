@@ -69,7 +69,7 @@ pub struct StatuslineService {
 }
 
 impl StatuslineService {
-    /// `data_dir`: the core's data directory; `claude_config_dir`: Claude Code's ([`Self::claude_config_dir`]); `usage`: the
+    /// `data_dir`: the core's data directory; `claude_config_dir`: the status files' ([`Self::claude_config_dir`]); `usage`: the
     /// gateway usage writer whose route section the footer's route spend shares; `started_ms`: this process's start.
     pub fn new(data_dir: PathBuf, claude_config_dir: PathBuf, catalog: Arc<CatalogService>, usage: GatewayUsage, started_ms: f64) -> Self {
         Self { inner: Arc::new(Inner { data_dir, claude_dir: claude_config_dir, catalog, usage, started_ms, events: Mutex::new(UsageView::default()) }) }

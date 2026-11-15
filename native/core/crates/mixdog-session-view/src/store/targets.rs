@@ -50,6 +50,8 @@ pub fn target_of(action: &str, args: &[Value], thread: Option<&str>, fast_on: bo
     let thread_value = thread.filter(|t| !t.is_empty()).map(|t| json!(t));
     match action {
         "addProject" => method("project/create", given(vec![("path", at(args, 0))])),
+        // Node's `inspectProjectPath(path)` (`project.inspect`): any path, registered or not, probed as `{ path, exists, directory }`.
+        "inspectProjectPath" => method("project/read", given(vec![("path", at(args, 0))])),
         "ensureProjectDirectory" => method("project/ensureDirectory", given(vec![("path", at(args, 0))])),
         "listProjects" => method("project/list", json!({})),
         "renameProject" => method("project/update", given(vec![("path", at(args, 0)), ("alias", at(args, 1))])),
@@ -89,8 +91,9 @@ pub fn target_of(action: &str, args: &[Value], thread: Option<&str>, fast_on: bo
 }
 
 /// The actions [`target_of`] answers, whatever their arguments (`typeof store[name] === 'function'` for them).
-const TARGET_ACTIONS: [&str; 18] = [
+const TARGET_ACTIONS: [&str; 19] = [
     "addProject",
+    "inspectProjectPath",
     "ensureProjectDirectory",
     "listProjects",
     "renameProject",
@@ -137,6 +140,7 @@ mod tests {
         assert_eq!(method_of(target_of("addProject", &[json!("/p")], Some("t"), false)), ("project/create".to_owned(), json!({ "path": "/p" })));
         assert_eq!(method_of(target_of("renameProject", &[json!("/p"), json!("A")], None, false)), ("project/update".to_owned(), json!({ "path": "/p", "alias": "A" })));
         assert_eq!(method_of(target_of("listProjects", &[], None, false)).0, "project/list");
+        assert_eq!(method_of(target_of("inspectProjectPath", &[json!("/p")], Some("t"), false)), ("project/read".to_owned(), json!({ "path": "/p" })));
     }
 
     #[test]
@@ -169,7 +173,7 @@ mod tests {
 
     #[test]
     fn the_store_serves_the_router_rows_the_targets_and_the_prompt_surface_only() {
-        for name in ["setTheme", "getOnboardingStatus", "listWorkflows", "submitAsync", "contextStatus", "setRoute"] {
+        for name in ["setTheme", "getOnboardingStatus", "listWorkflows", "submitAsync", "contextStatus", "setRoute", "inspectProjectPath"] {
             assert!(has_action(name), "{name}");
         }
         assert!(!has_action("noSuchAction"));
