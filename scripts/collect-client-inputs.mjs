@@ -218,7 +218,7 @@ const OVERRIDE_ARGS = {
   goalControl: [{ action: 'set', objective: 'ship it' }],
   listProviderModels: [{ providerId: 'p' }],
   setFast: [true],
-  setRoute: [{ provider: 'p', model: 'm' }],
+  setRoute: [{ provider: 'p', model: 'm', applyToCurrentSession: true, keepMainModel: true }],
 };
 
 /** Argument values a client sends where the schema says only "string" or "integer" and the core (like the desktop's
