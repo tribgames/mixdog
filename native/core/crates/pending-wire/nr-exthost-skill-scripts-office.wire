@@ -1,0 +1,53 @@
+# nr-exthost-skill-scripts-office: source-extract, qc-pages and review-deck of the pptx skill run natively (mixdog_skill_scripts), with the
+# `mixdogd exec` spawn of lib/mixdogd-exec.mjs. Files of this task: mixdog-skill-scripts/src/{source_extract,qc_pages,review_deck,mixdogd_exec,shipped}.rs,
+# tests/office_scripts_twin.rs, benchmarks/rust-core/recorders/record-skill-scripts-office.mjs, native/core/fixtures/skill-scripts-office/.
+# Nothing was compiled (the lead builds the wave); the sources were checked to parse with rustfmt only.
+
+## 1. native/core/crates/mixdog-skill-scripts/src/lib.rs (not a hot file, but not owned by this task)
+Module list, after `pub mod inventory;` / before `pub mod parse_args;` (keep alphabetical order, beside whatever nr-exthost-skill-run adds):
+
+    pub mod mixdogd_exec;
+    pub mod qc_pages;
+    pub mod review_deck;
+    pub mod source_extract;
+
+and in the crate doc list, after the `inventory` line:
+
+//! - [`source_extract`], [`qc_pages`], [`review_deck`]: `pptx/scripts/source-extract.mjs`, `qc-pages.mjs`, `review-deck.mjs`; the office engine they
+//!   are handed ([`source_extract::OfficeEngine`], installed with [`source_extract::install_office_engine`]) and the model turn ([`mixdogd_exec`]).
+
+Also change the first doc sentence "(`validate-skill.mjs`, `inventory.mjs`)" to name the five shipped scripts.
+
+## 2. Cargo
+No Cargo change: the crate uses only what it already depends on (mixdog-fsio, mixdog-js, serde_json, sha2, base64; dev: mixdog-testkit, tempfile).
+No Cargo.lock or workspace-hack change from this task. The verify line's `--features test-support` is the feature nr-exthost-skill-run adds (this task defines none).
+
+## 3. The office engine (the part that makes office files and decks work)
+source-extract (pdf/docx/xlsx/pptx) and qc-pages call the office engine through the trait `mixdog_skill_scripts::source_extract::OfficeEngine`:
+    fn call(&self, args: &serde_json::Value, cwd: &Path) -> Result<serde_json::Value, String>   // executeOfficeTool: the parsed result text, or the error text
+    fn measure(&self, deck: &Path) -> Result<Measured { issues: Vec<Value>, document: Value }, String>   // issuesPortableOoxml(deck,'pptx') + snapshotPortableOoxml(deck,'pptx')
+The Rust office tracks do not exist in the tree yet (nr-office-engine-qa-finalize-dispatch registers the entry point; the portable validation/snapshot task the
+measurements). The process that runs `mixdogd skill-run` must call `install_office_engine(Box::new(<engine over those entry points>))` once before `skill_run(..)`
+(mixdog-cli main.rs, the SkillRun arm of nr-exthost-skill-run). Until it is installed the two scripts say once, on stderr, with exit code 1:
+    the office engine is not available in this process: cannot read <file>        (source-extract on an office file)
+    the office engine is not available in this process                              (qc-pages)
+and nothing else (plain-text sources and review-deck need no engine and work now). There is no other implementation behind it.
+Whoever writes the engine must give `call` the arguments exactly as the scripts send them (recorded in fixtures/skill-scripts-office/golden.json: observed.office):
+open {action,path,mode:'portable',snapshotAfter:false} / snapshot {action,session,limit:200,maxChars:100000} / close {action,session,save:false} / render {action,session,pages:[n]}
+and `open` with `output:<scratch copy>` for qc-pages.
+
+## 4. native/core/fixtures/MANIFEST.json (index of fixture sets; lead)
+Add the set (kept sorted by name), then regenerate the index digest with benchmarks/rust-core/recorders/verify-manifests.mjs:
+    {
+      "command": "node benchmarks/rust-core/recorders/record-skill-scripts-office.mjs --tree <product tree>",
+      "fileCount": 1,
+      "manifest": "skill-scripts-office/MANIFEST.json",
+      "manifestSha256": "0e2965e1459cfdd4d4aaeb6ae7170033c7b2094001a8d2311684687200bd975a",
+      "recorder": "benchmarks/rust-core/recorders/record-skill-scripts-office.mjs",
+      "set": "skill-scripts-office",
+      "totalBytes": 839937
+    }
+(re-record changes the digest: take it from skill-scripts-office/MANIFEST.json's sha256).
+
+## 5. Callers of run_native
+`shipped::run_native` now takes `P: WriteProof` (the office scripts write files); `Unlaned`, the only caller (skill-run's run.rs), satisfies it. Nothing to change.
