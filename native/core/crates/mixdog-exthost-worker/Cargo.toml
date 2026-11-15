@@ -32,6 +32,11 @@ path = "tests/pdf_twin.rs"
 required-features = ["test-support"]
 
 [[test]]
+name = "pdf_render_ocr"
+path = "tests/pdf_render_ocr.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "document_twin"
 path = "tests/document_twin.rs"
 required-features = ["test-support"]
@@ -61,6 +66,7 @@ mixdog-ooxml = { workspace = true }
 mixdog-ooxml-text = { workspace = true }
 mixdog-pdf = { workspace = true }
 mixdog-rt = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

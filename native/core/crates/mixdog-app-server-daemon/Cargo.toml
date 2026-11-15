@@ -57,6 +57,7 @@ mixdog-migrate = { workspace = true }
 mixdog-secrets = { workspace = true }
 mixdog-spawn = { workspace = true, features = ["core"] }
 mixdog-store = { workspace = true }
+mixdog-fonts = { workspace = true }
 mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
