@@ -23,7 +23,7 @@ mod system;
 use std::future::Future;
 use std::path::Path;
 
-use mixdog_js::{js_to_lowercase, js_trim, value_to_string};
+use mixdog_js::{is_js_space, js_to_lowercase, js_trim, value_to_string};
 use mixdog_office_author::html_browser::RunError;
 use mixdog_office_author::source_drift::{HtmlSource, edits_replaced_by_author};
 use mixdog_office_base::values::truthy;
@@ -163,7 +163,7 @@ pub(crate) fn render_args(args: &Value) -> Value {
 
 /// HTML opens with markup (a doctype, a comment, an element); a pptxgenjs script never does (`/^\s*</`).
 pub(crate) fn opens_with_markup(source: &str) -> bool {
-    source.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}').starts_with('<')
+    source.trim_start_matches(is_js_space).starts_with('<')
 }
 
 /// `markAuthoredFromHtml(session, sourcePath)`: the session records the HTML its file was just built from and counts edits
