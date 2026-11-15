@@ -3,8 +3,9 @@
 //! scratch folder with the options Node was given. The result JSON must equal the recording exactly except the pixels:
 //! the keys, the file names and the folder they land in, the sizes, the pages of every contact sheet and its geometry,
 //! the visual coverage, the error messages and the files left beside the PDF. The pixels of a page image and of each
-//! thumbnail a sheet was composed from are within the tolerance of the recording (no channel more than `max` away, a mean
-//! difference per channel of at most `mean`); the bottom band of the page with a page number is not compared (the repaint
+//! thumbnail a sheet was composed from are the same picture as the recording by the shared rule of
+//! `mixdog_office_base::twin::pixels` (owner decision 2026-11-16: equal sizes, a mean difference per channel of at most 1 of 255,
+//! no channel of any 4x4 block average more than 24 away; the `tolerance` of the recording is not read); the bottom band of the page with a page number is not compared (the repaint
 //! is set in a font the host chooses). The pages draw no text: the font bridge of the rasteriser draws it. Re-recording is
 //! `twin_live_render_pages` (ignored: it runs Node).
 
@@ -13,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use mixdog_fonts::registry::Registry;
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels::{self, Picture};
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_pdf::{RenderPagesOptions, RenderedImage, RenderedPages, render_pdf_pages};
 use mixdog_raster::Image;
@@ -64,29 +66,20 @@ fn render(path: &Path, options: RenderPagesOptions, note: Arc<Noted>) -> Result<
         .block_on(render_pdf_pages(lanes, Arc::new(Registry::new()), note, path, options))
 }
 
-/// The largest channel difference and the mean over every channel of the rows above `rows`.
-fn compare(ours: &Image, theirs: &Image, rows: u32) -> (u8, f64) {
-    let used = (rows * ours.width() * 4) as usize;
-    let (mut max, mut sum) = (0u8, 0u64);
-    for (a, b) in ours.rgba()[..used].iter().zip(&theirs.rgba()[..used]) {
-        let d = a.abs_diff(*b);
-        max = max.max(d);
-        sum += u64::from(d);
-    }
-    (max, sum as f64 / used.max(1) as f64)
-}
-
-fn check_pixels(what: &str, ours: &[u8], recorded_hex: &str, rows_of: impl Fn(u32) -> u32, tolerance: (u8, f64), failures: &mut Vec<String>) {
+/// Measures the rows above `rows` of both images by the shared rule; fails when they are not the same picture.
+fn check_pixels(what: &str, ours: &[u8], recorded_hex: &str, rows_of: impl Fn(u32) -> u32, failures: &mut Vec<String>) {
     let ours = Image::decode(ours).unwrap_or_else(|error| panic!("{what}: our PNG: {error}"));
     let theirs = Image::decode(&unhex(recorded_hex)).unwrap_or_else(|error| panic!("{what}: the recorded PNG: {error}"));
     if (ours.width(), ours.height()) != (theirs.width(), theirs.height()) {
         failures.push(format!("{what}: the PNG is {}x{}, recorded {}x{}", ours.width(), ours.height(), theirs.width(), theirs.height()));
         return;
     }
-    let (max, mean) = compare(&ours, &theirs, rows_of(ours.height()));
-    eprintln!("{what}: largest {max} mean {mean:.4}");
-    if max > tolerance.0 || mean > tolerance.1 {
-        failures.push(format!("{what}: largest {max} (allowed {}), mean {mean:.4} (allowed {})", tolerance.0, tolerance.1));
+    let (width, rows) = (ours.width(), rows_of(ours.height()));
+    let used = (rows * width * 4) as usize;
+    let comparison = pixels::compare(Picture::new(width, rows, &ours.rgba()[..used]), Picture::new(width, rows, &theirs.rgba()[..used]));
+    eprintln!("{what}: {}", comparison.summary());
+    if let Err(why) = comparison.verdict() {
+        failures.push(format!("{what}: {why}"));
     }
 }
 
@@ -97,7 +90,6 @@ fn names(value: &Value) -> Vec<String> {
 }
 
 fn replay(golden: &Value) {
-    let tolerance = (golden["tolerance"]["max"].as_u64().expect("tolerance.max") as u8, golden["tolerance"]["mean"].as_f64().expect("tolerance.mean"));
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("render-pages");
     let mut failures = Vec::new();
     let mut compared = 0;
@@ -157,7 +149,7 @@ fn replay(golden: &Value) {
             let rows_of = |height: u32| if name == PAGE_NUMBER_CASE { (f64::from(height) * 0.85) as u32 } else { height };
             match image {
                 RenderedImage::Page(page) => {
-                    check_pixels(&what, &page.png, want["png"].as_str().expect("png"), rows_of, tolerance, &mut failures);
+                    check_pixels(&what, &page.png, want["png"].as_str().expect("png"), rows_of, &mut failures);
                     compared += 1;
                 }
                 RenderedImage::Sheet(sheet) => {
@@ -171,7 +163,7 @@ fn replay(golden: &Value) {
                         assert_eq!(Value::from(thumbnail.page), recorded["page"], "{label}: page");
                         assert_eq!(Value::from(thumbnail.width), recorded["width"], "{label}: width");
                         assert_eq!(Value::from(thumbnail.height), recorded["height"], "{label}: height");
-                        check_pixels(&label, &thumbnail.png, recorded["png"].as_str().expect("png"), |height| height, tolerance, &mut failures);
+                        check_pixels(&label, &thumbnail.png, recorded["png"].as_str().expect("png"), |height| height, &mut failures);
                         compared += 1;
                     }
                 }
@@ -179,7 +171,7 @@ fn replay(golden: &Value) {
         }
     }
     assert!(compared > 0, "the recording holds no image");
-    assert!(failures.is_empty(), "images outside the tolerance:\n{}", failures.join("\n"));
+    assert!(failures.is_empty(), "images that are not the recorded picture:\n{}", failures.join("\n"));
 }
 
 #[test]

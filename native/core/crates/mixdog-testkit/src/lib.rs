@@ -6,6 +6,7 @@
 //! because a fixture that cannot be written or read is a failed test, not a value to handle.
 
 mod chain;
+mod encoding;
 pub mod exact;
 mod todo_wording;
 pub use todo_wording::todo_wording;
@@ -17,6 +18,8 @@ mod fs;
 mod process;
 
 pub use chain::chain_output;
+pub use encoding::base64_decode;
+pub use encoding::base64_encode;
 pub use exact::Exact;
 pub use fixture::Fixture;
 pub use fixture::bytes as fixture_read;
@@ -33,6 +36,7 @@ pub use fs::read_string;
 pub use fs::remove_dir_all;
 pub use fs::remove_file;
 pub use fs::set_readonly;
+pub use fs::stage_copy;
 pub use fs::symlink_file;
 pub use fs::tree;
 pub use fs::write;

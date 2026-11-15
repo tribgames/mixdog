@@ -3,14 +3,11 @@
 //! `benchmarks/rust-core/recorders/record-office-render-paint.mjs`). Each case is a generated one-page PDF: shadings of
 //! types 1 to 7 by `sh` and as pattern colours, tiling patterns, constant alpha, blend modes, transparency groups and
 //! soft masks (no text: the glyph outlines are the font bridge's, and Type3 glyph procedures are covered by the unit
-//! tests of the crate). The Rust rasteriser opens the same bytes and must give a canvas of exactly the recorded size whose
-//! pixels are within the recorded tolerance plus the allowance written below for the kind of case: no channel more than
-//! `max` away, and a mean difference per channel of at most `mean` over the page.
-//!
-//! The allowances are the part of the difference the two canvases are expected to disagree about and nothing else: a
-//! gradient is a list of at most 840 colour stops that each canvas interpolates and quantises its own way (banding), the
-//! edges of a mesh triangle are scan-converted into an image that is sampled again, and the blend modes are computed in
-//! different arithmetic. They were chosen from the nature of each kind and have not been tightened by measuring.
+//! tests of the crate). The Rust rasteriser opens the same bytes and must give a canvas of exactly the recorded size which is
+//! the same picture as the recorded one by the shared rule of `mixdog_office_base::twin::pixels` (owner decision 2026-11-16: the
+//! two canvases anti-alias an edge, ramp a gradient, scan-convert a mesh triangle and blend in their own arithmetic): equal
+//! sizes, a mean difference per channel of at most 1 of 255 over the page, and no channel of any 4x4 block average more than 24
+//! away. The `tolerance` the recording carries and the per-kind allowances this test once held are not used.
 //!
 //! The test measures every render before it decides and, for a render outside the tolerance, writes a per-page diff
 //! image (the absolute difference of the channels, in grey, 255 where the sizes differ) to the target directory
@@ -20,6 +17,7 @@
 use std::path::PathBuf;
 
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels::{self, Picture};
 use mixdog_pdf::document::{Document, OpenOptions};
 use mixdog_pdf::render::{RenderOptions, render_page};
 use mixdog_raster::Image;
@@ -28,59 +26,10 @@ use serde_json::Value;
 const SET: &str = "office-render-paint";
 const RECORDER: &str = "benchmarks/rust-core/recorders/record-office-render-paint.mjs";
 
-/// What a kind of case may differ by on top of the recording's tolerance: `(name prefix, largest channel, mean)`. The
-/// first entry whose prefix starts the case's name applies.
-const ALLOWANCES: &[(&str, u8, f64)] = &[
-    // Gradient banding.
-    ("sh-axial", 8, 0.6),
-    ("sh-radial", 8, 0.6),
-    ("pattern-axial", 8, 0.6),
-    ("pattern-radial", 8, 0.6),
-    // The edges of triangles, and the mesh image sampled again.
-    ("sh-mesh", 24, 1.5),
-    ("sh-function-based", 24, 1.5),
-    ("pattern-mesh", 24, 1.5),
-    ("pattern-function-based", 24, 1.5),
-    // The tile image sampled again at the scale of the page.
-    ("tiling", 8, 0.8),
-    // Blend arithmetic, and layers rounded where they are merged.
-    ("blend", 6, 0.5),
-    ("group", 8, 0.5),
-    ("smask", 8, 0.5),
-    ("constant-alpha", 4, 0.3),
-];
-
-fn allowance(name: &str) -> (u8, f64) {
-    ALLOWANCES
-        .iter()
-        .find(|(prefix, _, _)| name.starts_with(prefix))
-        .map_or((0, 0.0), |(_, max, mean)| (*max, *mean))
-}
-
 fn unhex(text: &str) -> Vec<u8> {
     (0..text.len() / 2)
         .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex"))
         .collect()
-}
-
-/// How far the Rust page is from the recorded one: the largest channel difference and the mean over every channel.
-struct Difference {
-    max: u8,
-    mean: f64,
-}
-
-fn compare(ours: &[u8], theirs: &[u8]) -> Difference {
-    let mut max = 0u8;
-    let mut sum = 0u64;
-    for (a, b) in ours.iter().zip(theirs) {
-        let d = a.abs_diff(*b);
-        max = max.max(d);
-        sum += u64::from(d);
-    }
-    Difference {
-        max,
-        mean: sum as f64 / ours.len().max(1) as f64,
-    }
 }
 
 fn diff_directory() -> PathBuf {
@@ -105,15 +54,10 @@ fn write_diff(name: &str, scale: f64, width: u32, height: u32, ours: &[u8], thei
 }
 
 fn replay(golden: &Value) {
-    let tolerance_max = golden["tolerance"]["max"].as_u64().expect("tolerance.max") as u8;
-    let tolerance_mean = golden["tolerance"]["mean"].as_f64().expect("tolerance.mean");
     let mut failures = Vec::new();
     let mut rendered = 0;
     for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
-        let (extra_max, extra_mean) = allowance(name);
-        let allowed_max = tolerance_max.saturating_add(extra_max);
-        let allowed_mean = tolerance_mean + extra_mean;
         let pdf = unhex(case["pdf"].as_str().expect("pdf"));
         let document =
             Document::open(pdf, &OpenOptions::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -143,26 +87,18 @@ fn replay(golden: &Value) {
                 "{name} at {scale}: the recorded PNG is the recorded size"
             );
             let pixels = ours.rgba().expect("pixels");
-            let difference = compare(&pixels, theirs.rgba());
-            eprintln!(
-                "{name} at {scale}: largest {} mean {:.4}",
-                difference.max, difference.mean
-            );
-            if difference.max > allowed_max || difference.mean > allowed_mean {
+            let comparison = pixels::compare(Picture::new(want_width, want_height, &pixels), Picture::new(want_width, want_height, theirs.rgba()));
+            eprintln!("{name} at {scale}: {}", comparison.summary());
+            if let Err(why) = comparison.verdict() {
                 let diff = write_diff(name, scale, want_width, want_height, &pixels, theirs.rgba());
-                failures.push(format!(
-                    "{name} at {scale}: largest {} (allowed {allowed_max}), mean {:.4} (allowed {allowed_mean:.4}); diff image {}",
-                    difference.max,
-                    difference.mean,
-                    diff.display()
-                ));
+                failures.push(format!("{name} at {scale}: {why}; diff image {}", diff.display()));
             }
         }
     }
     assert!(rendered > 0, "the recording holds no render");
     assert!(
         failures.is_empty(),
-        "renders outside the tolerance:\n{}",
+        "renders that are not the recorded picture:\n{}",
         failures.join("\n")
     );
 }
@@ -170,24 +106,6 @@ fn replay(golden: &Value) {
 #[test]
 fn twin_render_paint() {
     replay(&twin::load_golden(SET));
-}
-
-/// Every kind of case the allowances name is in the recording, and every case has a kind.
-#[test]
-fn the_allowances_match_the_recorded_cases() {
-    let golden = twin::load_golden(SET);
-    let names: Vec<&str> = golden["cases"]
-        .as_array()
-        .expect("cases")
-        .iter()
-        .map(|case| case["name"].as_str().expect("name"))
-        .collect();
-    for (prefix, _, _) in ALLOWANCES {
-        assert!(names.iter().any(|name| name.starts_with(prefix)), "no case starts with {prefix}");
-    }
-    for name in &names {
-        assert!(ALLOWANCES.iter().any(|(prefix, _, _)| name.starts_with(prefix)), "{name} has no allowance");
-    }
 }
 
 /// Records again with Node (`MIXDOG_BENCH_TREE=<product tree with node_modules>`) and replays the new recording.
