@@ -59,7 +59,39 @@ pub(crate) fn repair(parser: &mut Parser, source: &str, tree: &Tree) -> Option<R
         return None;
     }
     let again = parser.parse(&text, None)?;
+    if !blanked.chunks(2).all(|pair| in_pattern(again.root_node(), &text, pair)) {
+        // `x = { (a) }`, `class A { (a) }`: the blanked parentheses were not around a target of a pattern, and
+        // V8 rejects what the blanking made readable.
+        return None;
+    }
     Some(Repaired { source: text, tree: again, blanked })
+}
+
+/// The name or member chain between the blanked parentheses `pair` is an element of an array pattern, the target
+/// of a rest element, the value of a property of an object pattern or the left of a default in a pattern.
+fn in_pattern(root: Node<'_>, text: &str, pair: &[usize]) -> bool {
+    let [open, close] = *pair else { return false };
+    let inner = text.get(open + 1..close).unwrap_or("");
+    let begin = open + 1 + (inner.len() - inner.trim_start().len());
+    let end = close - (inner.len() - inner.trim_end().len());
+    if begin >= end {
+        return false;
+    }
+    let Some(mut node) = root.named_descendant_for_byte_range(begin, end) else { return false };
+    while let Some(parent) = node.parent().filter(|p| p.start_byte() == begin && p.end_byte() == end) {
+        node = parent;
+    }
+    if node.start_byte() != begin || node.end_byte() != end {
+        return false;
+    }
+    let Some(parent) = node.parent() else { return false };
+    let is_field = |field: &str| parent.child_by_field_name(field).is_some_and(|child| child.id() == node.id());
+    match parent.kind() {
+        "array_pattern" | "rest_pattern" => true,
+        "pair_pattern" => is_field("value"),
+        "assignment_pattern" => is_field("left"),
+        _ => false,
+    }
 }
 
 fn collect(node: Node<'_>, source: &str, wraps: &mut Vec<(usize, usize)>, letters: &mut Vec<usize>) {

@@ -734,8 +734,10 @@ impl<'s> Checker<'s> {
     }
 
     fn visit_class(&mut self, node: Node<'_>, cx: Cx) -> Check {
+        let sloppy_outside = !cx.strict;
         let mut class_cx = cx;
         class_cx.strict = true;
+        class_cx.class_key = false;
         if has_child_kind(node, "decorator") {
             return Err(Reason::Msg(msg::INVALID_TOKEN));
         }
@@ -755,10 +757,10 @@ impl<'s> Checker<'s> {
             }
         }
         let body = node.child_by_field_name("body").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
-        self.visit_class_body(body, class_cx, derived)
+        self.visit_class_body(body, class_cx, derived, sloppy_outside)
     }
 
-    fn visit_class_body(&mut self, body: Node<'_>, cx: Cx, derived: bool) -> Check {
+    fn visit_class_body(&mut self, body: Node<'_>, cx: Cx, derived: bool, sloppy_outside: bool) -> Check {
         let members = named_kids(body);
         let mut names: HashMap<String, PrivEntry> = HashMap::new();
         for member in &members {
@@ -802,7 +804,7 @@ impl<'s> Checker<'s> {
                         return Err(Reason::Msg(msg::STATIC_PROTOTYPE));
                     }
                     if let Some(name) = name {
-                        self.visit(name, Self::key_cx(name, cx))?;
+                        self.visit(name, Self::key_cx(name, cx, sloppy_outside))?;
                     }
                     self.function_like(member, cx, is_ctor && derived)?;
                 }
@@ -817,7 +819,7 @@ impl<'s> Checker<'s> {
                         return Err(Reason::Msg(msg::STATIC_PROTOTYPE));
                     }
                     if let Some(name) = name {
-                        self.visit(name, Self::key_cx(name, cx))?;
+                        self.visit(name, Self::key_cx(name, cx, sloppy_outside))?;
                     }
                     if let Some(value) = member.child_by_field_name("value") {
                         self.visit(value, cx.initializer())?;
@@ -841,8 +843,8 @@ impl<'s> Checker<'s> {
         Ok(())
     }
 
-    fn key_cx(key: Node<'_>, cx: Cx) -> Cx {
-        Cx { class_key: key.kind() == "computed_property_name", ..cx }
+    fn key_cx(key: Node<'_>, cx: Cx, sloppy_outside: bool) -> Cx {
+        Cx { class_key: sloppy_outside && key.kind() == "computed_property_name", ..cx }
     }
 
     /// The name a member key spells when it is not computed (`constructor`, `'prototype'`), else "".
