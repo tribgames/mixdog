@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-render-pages.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 219087,
+      "path": "golden.json",
+      "sha256": "2a9e403f2f06c2a4c049dd2a37b2a4e75b9cd40a935cb21e535e3bcc51e03f2d"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "0bf8fe0457fac66e5a51d319dad1fd3eee365bf6",
+      "commitFilesMissingFromTree": 2,
+      "exact": false,
+      "filesDifferingFromCommit": 12446
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-render-pages.mjs",
+  "set": "office-render-pages",
+  "totalBytes": 219087
+}
