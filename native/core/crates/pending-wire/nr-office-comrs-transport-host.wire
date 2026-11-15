@@ -1,0 +1,21 @@
+# nr-office-comrs-transport-host
+
+## native/core/crates/mixdog-office-com/Cargo.toml
+Add after the [[test]] name = "twin_detect" block (autotests = false, so the new test target must be listed):
+
+[[test]]
+name = "transport_route"
+path = "tests/transport_route.rs"
+
+## Composer (the task that composes OfficeCom, mixdog-exthost / the ext-host worker wiring)
+OfficeComConfig has a new public field `rust_host_program: PathBuf` (default std::env::current_exe(), falls back to
+"mixdogd"). The composer must set it to the mixdogd path it knows: `config.rust_host_program = <mixdogd path>;`
+because the ext-host worker is started from a configurable program (mixdog-exthost pool.rs `program`), so current_exe is
+not guaranteed to be mixdogd. Nothing else changes in the public API.
+
+## nr-office-comrs-retire-powershell
+mixdog-office-com/src/route.rs RUST_HOST_FORMATS is the compiled list (empty). Each format the Rust host gains is added
+there by the task that implements it (a one-shot `detect`, whatever format it probes, is routed by the `docx` entry:
+route.rs DETECT_FOLLOWS, so nr-office-comrs-switch-word adds only "docx"); the retire task removes the PowerShell
+branch of Inner::start and the list.
+No SERVICE_PENDING names are involved.
