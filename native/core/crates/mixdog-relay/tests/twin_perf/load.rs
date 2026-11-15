@@ -680,18 +680,6 @@ pub struct ProcessFigures {
     pub cpu_ms: u64,
 }
 
-/// The pid listening on `port` out of `netstat -ano` output.
-pub fn netstat_listener(output: &str, port: u16) -> Option<u32> {
-    let suffix = format!(":{port}");
-    output.lines().find_map(|line| {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        match fields.as_slice() {
-            [_, local, _, "LISTENING", pid] if local.ends_with(&suffix) => pid.parse().ok(),
-            _ => None,
-        }
-    })
-}
-
 /// The pid of `ss -ltnpH` output.
 pub fn ss_listener(output: &str) -> Option<u32> {
     let rest = output.split("pid=").nth(1)?;
@@ -703,7 +691,11 @@ pub fn ss_listener(output: &str) -> Option<u32> {
 pub fn listener_pid(port: u16) -> Result<u32, String> {
     use std::ffi::OsStr;
     let found = if cfg!(windows) {
-        netstat_listener(&testkit::output("netstat", &[OsStr::new("-ano"), OsStr::new("-p"), OsStr::new("TCP")]), port)
+        // Not netstat: its headers are in the console's code page (not UTF-8 on a Korean or Japanese Windows) and its state
+        // names are translated. Get-NetTCPConnection answers the bare pid.
+        let script = format!("(Get-NetTCPConnection -LocalPort {port} -State Listen | Select-Object -First 1).OwningProcess");
+        let answer = testkit::output("powershell", &[OsStr::new("-NoProfile"), OsStr::new("-Command"), OsStr::new(&script)]);
+        answer.trim().parse().ok()
     } else {
         let filter = format!("sport = :{port}");
         ss_listener(&testkit::output("ss", &[OsStr::new("-ltnpH"), OsStr::new(&filter)]))
@@ -749,13 +741,6 @@ pub fn process_figures(pid: u32) -> Result<ProcessFigures, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn netstat_names_the_listener_of_the_port() {
-        let output = "  TCP    0.0.0.0:135     0.0.0.0:0     LISTENING       1000\n  TCP    [::]:43211   [::]:0     LISTENING       4321\n  TCP    127.0.0.1:43211   127.0.0.1:50000   ESTABLISHED   4321\n";
-        assert_eq!(netstat_listener(output, 43211), Some(4321));
-        assert_eq!(netstat_listener(output, 4321), None);
-    }
 
     #[test]
     fn ss_and_proc_files_are_read() {

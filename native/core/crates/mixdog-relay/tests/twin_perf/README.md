@@ -38,7 +38,7 @@ cargo nextest run -p mixdog-relay --release --features test-support --offline -E
 ```
 
 `node` with `ws` and `nodemailer` resolvable (`npm ci --prefix apps/relay`) is required, as for the `twin` suite. The relay's
-pid and memory are read through `netstat` and PowerShell on Windows and `ss` and `/proc` on Linux; no other platform is
+pid and memory are read through PowerShell (`Get-NetTCPConnection`, `Get-Process`) on Windows and `ss` and `/proc` on Linux; no other platform is
 supported. The table of each scenario is printed and written to `$CARGO_TARGET_TMPDIR/twin_perf-<scenario>.txt`; paste it into
 the pull request. Idle fleet alone takes about 8 minutes (60 s idle, six runs).
 
