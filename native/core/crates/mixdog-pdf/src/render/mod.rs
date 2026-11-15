@@ -14,18 +14,27 @@
 //! parallel by calling it from one lane job per page, each with a document opened from the same bytes (a
 //! [`Document`] is not shared between threads).
 //!
-//! The paint stage of the rasteriser (Type3 glyphs, shadings, patterns, soft masks, transparency groups, blend modes
-//! beyond the canvas's own) extends the painter; until then those draw nothing, or, for a group, paint in place.
+//! Beyond paths, images and text, the painter draws what pdf.js draws with the rest of its display layer: Type3 glyph
+//! procedures (`text.rs`), shadings of every type and the `sh` operator (`shading.rs`), tiling and shading patterns
+//! as fill, stroke, text and image mask colours (`pattern.rs`), and transparency groups, soft masks, constant alpha
+//! and blend modes (`transparency.rs`). Two things pdf.js does are not done: knockout groups paint as ordinary groups,
+//! and a non-isolated group does not take a copy of its backdrop with it.
 
 mod images;
 mod painter;
+mod pattern;
+mod shading;
 mod text;
+mod transparency;
 
 use mixdog_raster::canvas::Canvas;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::document::Document;
 use crate::error::{PdfError, Result};
-use crate::oplist::{self, FontProvider, OperatorList};
+use crate::oplist::{self, FontHandle, FontProvider, OperatorList};
 use crate::page::Page;
 
 pub use self::text::{AccentDraw, DrawnFont, FontDrawing, GlyphDraw};
@@ -77,17 +86,29 @@ pub fn render_page(
     page: &Page,
     options: &RenderOptions<'_>,
 ) -> Result<RenderedPage> {
-    let list = oplist::get_operator_list(document, page, options.fonts)?;
-    render_operator_list(document, page, &list, options)
+    let operators = oplist::get_page_operators(document, page, options.fonts)?;
+    paint_operator_list(document, page, &operators.list, options, operators.fonts)
 }
 
 /// Paints an operator list of `page` (the list [`render_page`] reads, or one built by the caller) on a white canvas of
-/// the size of the page's viewport at `options.scale` (`Math.ceil` of the viewport's width and height).
+/// the size of the page's viewport at `options.scale` (`Math.ceil` of the viewport's width and height). A list built by
+/// the caller does not bring its fonts, so the text of its Type3 fonts moves the text position and draws nothing.
 pub fn render_operator_list(
     document: &Document,
     page: &Page,
     list: &OperatorList,
     options: &RenderOptions<'_>,
+) -> Result<RenderedPage> {
+    paint_operator_list(document, page, list, options, Vec::new())
+}
+
+/// The list painted, with the fonts it was made with (their Type3 glyph procedures).
+fn paint_operator_list(
+    document: &Document,
+    page: &Page,
+    list: &OperatorList,
+    options: &RenderOptions<'_>,
+    fonts: Vec<FontHandle>,
 ) -> Result<RenderedPage> {
     document.guard().check_now()?;
     let viewport = page.viewport(options.scale);
@@ -113,9 +134,15 @@ pub fn render_operator_list(
     let resources = page.resources(document)?;
     let optional_content = OptionalContentConfig::read(document)?;
     let mut painter = Painter::new(canvas, document, resources, options.drawing, optional_content);
+    let type3: HashMap<String, FontHandle> = fonts
+        .into_iter()
+        .filter(|font| font.type3.is_some())
+        .map(|font| (font.loaded_name.clone(), font))
+        .collect();
+    painter.type3_fonts = Arc::new(type3);
     painter.execute(list)?;
     Ok(RenderedPage {
-        canvas: painter.canvas,
+        canvas: painter.into_base_canvas(),
     })
 }
 
@@ -129,20 +156,31 @@ mod tests {
 
     /// A one-page PDF whose content stream is `content`.
     fn pdf(media_box: &str, content: &[u8]) -> Vec<u8> {
-        let objects: [Vec<u8>; 4] = [
+        pdf_with(media_box, content, "<< >>", &[])
+    }
+
+    /// A stream object: `dict` entries (without `/Length`) and the bytes.
+    fn stream(dict: &str, bytes: &[u8]) -> Vec<u8> {
+        [
+            format!("<< {dict} /Length {} >>\nstream\n", bytes.len()).as_bytes(),
+            bytes,
+            b"\nendstream",
+        ]
+        .concat()
+    }
+
+    /// A one-page PDF with `resources` for its page and `extra` objects, numbered from 5.
+    fn pdf_with(media_box: &str, content: &[u8], resources: &str, extra: &[Vec<u8>]) -> Vec<u8> {
+        let mut objects: Vec<Vec<u8>> = vec![
             b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] /Contents 4 0 R /Resources << >> >>"
+                "<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] /Contents 4 0 R /Resources {resources} >>"
             )
             .into_bytes(),
-            [
-                format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
-                content,
-                b"\nendstream",
-            ]
-            .concat(),
+            stream("", content),
         ];
+        objects.extend(extra.iter().cloned());
         let mut out = b"%PDF-1.4\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
@@ -152,19 +190,24 @@ mod tests {
             out.extend_from_slice(b"\nendobj\n");
         }
         let xref = out.len();
-        out.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+        let size = objects.len() + 1;
+        out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
         for offset in offsets {
             out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
         out.extend_from_slice(
-            format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
         );
         out
     }
 
     fn render(media_box: &str, content: &[u8], scale: f64) -> RenderedPage {
-        let document =
-            Document::open(pdf(media_box, content), &OpenOptions::default()).expect("the PDF opens");
+        render_with(media_box, content, "<< >>", &[], scale)
+    }
+
+    fn render_with(media_box: &str, content: &[u8], resources: &str, extra: &[Vec<u8>], scale: f64) -> RenderedPage {
+        let document = Document::open(pdf_with(media_box, content, resources, extra), &OpenOptions::default())
+            .expect("the PDF opens");
         let page = document.page(0).expect("page");
         let options = RenderOptions {
             scale,
@@ -245,6 +288,209 @@ mod tests {
         assert_eq!(pixel(&page, 25, 75), [0, 255, 0, 255]);
         assert_eq!(pixel(&page, 15, 85), [0, 0, 255, 255]);
         assert_eq!(pixel(&page, 25, 85), [255, 255, 255, 255]);
+    }
+
+    /// `r g b` at `(x, y)` within `tolerance` of `want`.
+    fn near(page: &RenderedPage, x: u32, y: u32, want: [u8; 3], tolerance: u8) -> bool {
+        let got = pixel(page, x, y);
+        (0..3).all(|i| got[i].abs_diff(want[i]) <= tolerance) && got[3] == 255
+    }
+
+    fn red_to_blue() -> Vec<u8> {
+        b"<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>".to_vec()
+    }
+
+    #[test]
+    fn an_axial_shading_runs_from_one_colour_to_the_other_and_extends() {
+        let page = render_with(
+            "0 0 100 100",
+            b"/S1 sh",
+            "<< /Shading << /S1 5 0 R >> >>",
+            &[
+                b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10 0 90 0] /Function 6 0 R /Extend [true true] >>".to_vec(),
+                red_to_blue(),
+            ],
+            1.0,
+        );
+        assert!(near(&page, 1, 50, [255, 0, 0], 3), "{:?}", pixel(&page, 1, 50));
+        assert!(near(&page, 50, 50, [128, 0, 128], 6), "{:?}", pixel(&page, 50, 50));
+        assert!(near(&page, 98, 50, [0, 0, 255], 3), "{:?}", pixel(&page, 98, 50));
+    }
+
+    #[test]
+    fn a_shading_without_extend_leaves_the_page_beyond_its_ends_alone() {
+        let page = render_with(
+            "0 0 100 100",
+            b"/S1 sh",
+            "<< /Shading << /S1 5 0 R >> >>",
+            &[
+                b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >>".to_vec(),
+                red_to_blue(),
+            ],
+            1.0,
+        );
+        assert_eq!(pixel(&page, 5, 50), [255, 255, 255, 255]);
+        assert_eq!(pixel(&page, 95, 50), [255, 255, 255, 255]);
+        assert!(near(&page, 50, 50, [128, 0, 128], 6));
+    }
+
+    #[test]
+    fn a_shading_pattern_fills_the_shape_and_only_the_shape() {
+        let page = render_with(
+            "0 0 100 100",
+            b"/Pattern cs /P1 scn 20 20 60 60 re f",
+            "<< /Pattern << /P1 5 0 R >> >>",
+            &[
+                b"<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >> >>".to_vec(),
+                red_to_blue(),
+            ],
+            1.0,
+        );
+        assert!(near(&page, 22, 50, [235, 0, 20], 12), "{:?}", pixel(&page, 22, 50));
+        assert!(near(&page, 77, 50, [20, 0, 235], 12), "{:?}", pixel(&page, 77, 50));
+        assert_eq!(pixel(&page, 10, 50), [255, 255, 255, 255]);
+        assert_eq!(pixel(&page, 50, 10), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn a_tiling_pattern_repeats_its_cell_across_the_shape() {
+        let cell = stream(
+            "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>",
+            b"1 0 0 rg 0 0 5 5 re f",
+        );
+        let page = render_with(
+            "0 0 100 100",
+            b"/Pattern cs /P1 scn 0 0 100 100 re f",
+            "<< /Pattern << /P1 5 0 R >> >>",
+            &[cell],
+            1.0,
+        );
+        // The red square of each cell is the lower left quarter: device rows 95..100 of the bottom cell.
+        assert_eq!(pixel(&page, 2, 97), [255, 0, 0, 255]);
+        assert_eq!(pixel(&page, 42, 57), [255, 0, 0, 255]);
+        assert_eq!(pixel(&page, 7, 97), [255, 255, 255, 255]);
+        assert_eq!(pixel(&page, 2, 92), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn an_uncoloured_tiling_pattern_takes_the_colour_it_is_selected_with() {
+        let cell = stream(
+            "/PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>",
+            b"0 0 5 5 re f",
+        );
+        let page = render_with(
+            "0 0 100 100",
+            b"/CS1 cs 0 0 1 /P1 scn 0 0 100 100 re f",
+            "<< /ColorSpace << /CS1 [/Pattern /DeviceRGB] >> /Pattern << /P1 5 0 R >> >>",
+            &[cell],
+            1.0,
+        );
+        assert_eq!(pixel(&page, 2, 97), [0, 0, 255, 255]);
+        assert_eq!(pixel(&page, 7, 97), [255, 255, 255, 255]);
+    }
+
+    fn luminosity_mask_page(mask: &str) -> RenderedPage {
+        let group = stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>",
+            mask.as_bytes(),
+        );
+        render_with(
+            "0 0 100 100",
+            b"/GS1 gs 1 0 0 rg 0 0 100 100 re f",
+            "<< /ExtGState << /GS1 << /SMask << /Type /Mask /S /Luminosity /G 5 0 R >> >> >> >>",
+            &[group],
+            1.0,
+        )
+    }
+
+    #[test]
+    fn a_luminosity_soft_mask_shows_the_paint_where_the_mask_is_light() {
+        let page = luminosity_mask_page("1 g 0 0 50 100 re f 0.5 g 50 0 25 100 re f");
+        assert_eq!(pixel(&page, 25, 50), [255, 0, 0, 255]);
+        assert!(near(&page, 60, 50, [255, 128, 128], 3), "{:?}", pixel(&page, 60, 50));
+        assert_eq!(pixel(&page, 90, 50), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn an_alpha_soft_mask_follows_the_alpha_of_its_group() {
+        let group = stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency >> /Resources << >>",
+            b"0 g 0 0 50 100 re f",
+        );
+        let page = render_with(
+            "0 0 100 100",
+            b"/GS1 gs 0 0 1 rg 0 0 100 100 re f",
+            "<< /ExtGState << /GS1 << /SMask << /Type /Mask /S /Alpha /G 5 0 R >> >> >> >>",
+            &[group],
+            1.0,
+        );
+        assert_eq!(pixel(&page, 25, 50), [0, 0, 255, 255]);
+        assert_eq!(pixel(&page, 75, 50), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn a_soft_mask_ends_with_the_state_that_selected_it() {
+        let group = stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>",
+            b"1 g 0 0 50 100 re f",
+        );
+        let page = render_with(
+            "0 0 100 100",
+            b"q /GS1 gs 1 0 0 rg 0 0 100 40 re f Q 0 1 0 rg 0 60 100 40 re f",
+            "<< /ExtGState << /GS1 << /SMask << /Type /Mask /S /Luminosity /G 5 0 R >> >> >> >>",
+            &[group],
+            1.0,
+        );
+        assert_eq!(pixel(&page, 25, 80), [255, 0, 0, 255]);
+        assert_eq!(pixel(&page, 75, 80), [255, 255, 255, 255]);
+        // After `Q` the mask is gone: the green band covers the whole width.
+        assert_eq!(pixel(&page, 25, 10), [0, 255, 0, 255]);
+        assert_eq!(pixel(&page, 75, 10), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn a_transparency_group_is_composited_as_one_object() {
+        let form = stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true >> /Resources << >>",
+            b"1 0 0 rg 10 10 50 50 re f 0 0 1 rg 40 40 50 50 re f",
+        );
+        let page = render_with(
+            "0 0 100 100",
+            b"q /GS1 gs /Fm1 Do Q",
+            "<< /ExtGState << /GS1 << /ca 0.5 >> >> /XObject << /Fm1 5 0 R >> >>",
+            &[form],
+            1.0,
+        );
+        // Where the squares overlap the blue one is on top inside the group, so the red does not show through it.
+        assert!(near(&page, 50, 50, [128, 128, 255], 3), "{:?}", pixel(&page, 50, 50));
+        assert!(near(&page, 20, 80, [255, 128, 128], 3), "{:?}", pixel(&page, 20, 80));
+        assert_eq!(pixel(&page, 5, 50), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn a_blend_mode_blends_with_what_is_under_it() {
+        let page = render_with(
+            "0 0 100 100",
+            b"1 0 0 rg 0 0 100 100 re f /GS1 gs 0 1 1 rg 0 0 50 100 re f",
+            "<< /ExtGState << /GS1 << /BM /Multiply >> >> >>",
+            &[],
+            1.0,
+        );
+        // Multiply of red and cyan is black; the right half is red alone.
+        assert_eq!(pixel(&page, 25, 50), [0, 0, 0, 255]);
+        assert_eq!(pixel(&page, 75, 50), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_be_read_paints_hotpink() {
+        let page = render_with(
+            "0 0 100 100",
+            b"/Pattern cs /P1 scn 0 0 100 100 re f",
+            "<< /Pattern << /P1 5 0 R >> >>",
+            &[b"<< /PatternType 2 /Shading << /ShadingType 9 /ColorSpace /DeviceRGB >> >>".to_vec()],
+            1.0,
+        );
+        assert_eq!(pixel(&page, 50, 50), [255, 105, 180, 255]);
     }
 
     #[test]
