@@ -20,6 +20,8 @@ use mixdog_ooxml::soffice::Soffice;
 use mixdog_rt::{CancellationToken, InLane, LaneToken, LaneTokens, MaintenanceIo};
 use tokio::sync::OnceCell;
 
+use mixdog_fonts::install::{BoxFuture as FontFuture, Downloaded, FontDirs, FontHost, OfficeFonts, RegisterCommand};
+use mixdog_fonts::provision::NOTO_FONTS;
 use super::document::{DocumentEngine, PagesRequest, PdfPreview, PreviewRequest, RenderedPage, RenderedPages};
 use crate::error::CodedError;
 use crate::registry::{BoxFuture, Registry};
@@ -136,11 +138,48 @@ impl DocumentEngine for OfficeEngine {
         })
     }
 
-    /// The Noto faces LibreOffice renders with are provisioned by the daemon's font provisioner, which this worker cannot reach
-    /// (see `nr-office-pdf-preview` in the pending wire): until it is moved into a crate the worker links, an install here
-    /// leaves them to the next time the daemon prepares the office fonts.
+    /// The Noto faces LibreOffice renders with, provisioned after an install as the Node worker did: the one provisioner of
+    /// `mixdog_fonts::install` (the daemon runs the same), over this process's fetch and process spawn. A face that fails keeps
+    /// its own result and nothing is thrown.
     fn prepare_fonts(&self) -> BoxFuture<()> {
-        Box::pin(async {})
+        Box::pin(async {
+            let Ok(tokens) = lanes() else { return };
+            let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
+            let dirs = FontDirs::for_host(&|name| std::env::var(name).ok(), Path::new(&home));
+            let fonts = OfficeFonts::new(Arc::new(WorkerFontHost), tokens.durability_io, dirs, std::env::vars().collect());
+            drop(fonts.prepare(&NOTO_FONTS).await);
+        })
+    }
+}
+
+/// The fetch and the process spawn the font provisioner runs on in a worker.
+struct WorkerFontHost;
+
+impl FontHost for WorkerFontHost {
+    fn get(&self, url: &str) -> FontFuture<'_, Result<Downloaded, String>> {
+        let url = url.to_owned();
+        Box::pin(async move {
+            let response = reqwest::Client::new().get(&url).send().await.map_err(|error| error.to_string())?;
+            let status = response.status().as_u16();
+            let body = if response.status().is_success() { response.bytes().await.map_err(|error| error.to_string())?.to_vec() } else { Vec::new() };
+            Ok(Downloaded { status, body })
+        })
+    }
+
+    fn run(&self, command: RegisterCommand) -> FontFuture<'_, ()> {
+        Box::pin(async move {
+            let mut child = tokio::process::Command::new(&command.program);
+            child.args(&command.args).current_dir(&command.cwd).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+            if let Some(env) = &command.env {
+                child.env_clear().envs(env);
+            }
+            #[cfg(windows)]
+            child.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            if let Ok(mut child) = child.spawn() {
+                // A child that outlives its budget is killed when the wait is dropped (`kill_on_drop`).
+                drop(mixdog_rt::time::timeout(command.timeout, child.wait()).await);
+            }
+        })
     }
 }
 

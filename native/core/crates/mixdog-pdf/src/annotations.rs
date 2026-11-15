@@ -30,6 +30,8 @@ pub struct Annotation {
     pub contents: String,
     pub modification_date: Option<String>,
     pub has_appearance: bool,
+    /// The normal appearance stream (`appearance`): directly, or the one `/AS` selects.
+    pub appearance: Option<Obj>,
     /// The quad points of a link or a text-markup annotation, as `Float32Array` values.
     pub quad_points: Option<Vec<f32>>,
     /// The link's action: `url`, `unsafe_url`, `dest`, `action`...
@@ -197,7 +199,8 @@ fn parse_annotation(
         flags ^= FLAG_INVISIBLE;
     }
     let rect = normal_rect(&xref.get_array(&dict, "Rect")?).unwrap_or([0.0; 4]);
-    let has_appearance = appearance_of(document, &dict)?;
+    let appearance = appearance_of(document, &dict)?;
+    let has_appearance = appearance.is_some();
     let mut data = Annotation {
         id,
         subtype: subtype.clone(),
@@ -206,6 +209,7 @@ fn parse_annotation(
         contents,
         modification_date,
         has_appearance,
+        appearance,
         quad_points: None,
         action: ActionData::default(),
     };
@@ -278,19 +282,22 @@ fn popup_from_parent(document: &Document, dict: &Dict, data: &mut Annotation) ->
     Ok(())
 }
 
-/// `setAppearance`: the annotation has a normal appearance stream (directly, or the one `/AS` selects).
-fn appearance_of(document: &Document, dict: &Dict) -> Result<bool> {
+/// `setAppearance`: the normal appearance stream (directly, or the one `/AS` selects).
+fn appearance_of(document: &Document, dict: &Dict) -> Result<Option<Obj>> {
     let xref = document.xref();
     let Obj::Dict(states) = xref.get(dict, "AP")? else {
-        return Ok(false);
+        return Ok(None);
     };
     match xref.get(&states, "N")? {
-        Obj::Stream(_) => Ok(true),
+        stream @ Obj::Stream(_) => Ok(Some(stream)),
         Obj::Dict(normal) => match xref.get(dict, "AS")? {
-            Obj::Name(state) => Ok(matches!(xref.get(&normal, &state)?, Obj::Stream(_))),
-            _ => Ok(false),
+            Obj::Name(state) => Ok(match xref.get(&normal, &state)? {
+                stream @ Obj::Stream(_) => Some(stream),
+                _ => None,
+            }),
+            _ => Ok(None),
         },
-        _ => Ok(false),
+        _ => Ok(None),
     }
 }
 

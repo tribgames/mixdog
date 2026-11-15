@@ -203,7 +203,7 @@ fn page_shapes(
     page: &Page,
     viewport: &Viewport,
 ) -> Result<(Vec<RuledLine>, Vec<BoxShape>), PdfError> {
-    let list = oplist::get_operator_list(document, page, None)?;
+    let list = oplist::get_operator_list_with_annotations(document, page, None)?;
     let mut lines = Vec::new();
     let mut boxes = Vec::new();
     for (ctm, op) in list.with_transforms() {

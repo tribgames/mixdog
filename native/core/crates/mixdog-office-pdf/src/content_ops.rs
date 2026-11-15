@@ -1051,6 +1051,7 @@ mod tests {
             path: std::path::Path::new("doc.pdf"),
             source: &[],
             document,
+            replaced: false,
             measure: None,
         };
         let result = <ContentOperations as OperationSet<mixdog_fsio::Unlaned>>::run(&set, &mut state, &operation);

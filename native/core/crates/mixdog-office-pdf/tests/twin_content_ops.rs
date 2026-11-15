@@ -39,9 +39,10 @@ fn scratch() -> PathBuf {
     root
 }
 
-/// A text with the case folder shown as the recording shows it: `<case>/sub/file.pdf`.
+/// A text with the case folder shown as the recording shows it: `<case>/sub/file.pdf`. The recorder's `shown` also turns every
+/// backslash of every string into `/` (a pattern written `\d` is recorded `/d`), so this does the same to all of them.
 fn shown_text(text: &str, directory: &str) -> String {
-    if text.contains(directory) { text.replace(directory, "<case>").replace('\\', "/") } else { text.to_owned() }
+    text.replace(directory, "<case>").replace('\\', "/")
 }
 
 fn shown(value: &Value, directory: &str) -> Value {

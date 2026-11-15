@@ -9,7 +9,10 @@ description = "Font faces, system font discovery, CSS font matching with fallbac
 workspace = true
 
 [dependencies]
+futures = { workspace = true, features = ["alloc"] }
 mixdog-fsio = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
 rustybuzz = { workspace = true }
 sha2 = { workspace = true }
 ttf-parser = { workspace = true }
