@@ -19,7 +19,7 @@ portable-snapshot-xlsx.mjs and portable-sheet-audits.mjs.)
 
 ## native/core/fixtures/MANIFEST.json
 
-In the "sets" list, after the entry of office-xlsx-contract (keep the list sorted by set name), add:
+In the "sets" list, after the entry of office-text-date (before openai-facts; keep the list sorted by set name: after office-xlsx-contract if an entry for it was added first), add:
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-xlsx-drawings-snapshot.mjs --tree <tree>",
