@@ -91,9 +91,20 @@ test('transitive local codec changes invalidate the renderer, but unrelated test
   }
 });
 
-test('the relay fingerprint covers the relay crate, the lock file and the deploy scripts', async () => {
+test('the relay fingerprint covers what the binary is built from and the deploy scripts', async () => {
   const names = relayInputs.map((input) => relative(join(import.meta.dirname, '..', '..', '..'), input).replaceAll('\\', '/'));
-  assert.deepEqual(names, ['native/core/crates/mixdog-relay', 'native/core/Cargo.lock', 'apps/relay/deploy']);
+  assert.deepEqual(names, [
+    'native/core/crates/mixdog-relay',
+    'native/core/crates/mixdog-js',
+    'native/core/crates/mixdog-fsio',
+    'native/core/crates/mixdog-rt',
+    'native/core/crates/mixdog-workspace-hack',
+    'native/core/vendor/regress',
+    'native/core/vendor/icu_collator',
+    'native/core/Cargo.toml',
+    'native/core/Cargo.lock',
+    'apps/relay/deploy',
+  ]);
   const result = await fingerprint(relayInputs);
   assert.ok(result.fileCount > 50, `expected the relay crate sources, got ${result.fileCount}`);
 });

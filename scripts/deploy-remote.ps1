@@ -41,10 +41,14 @@ $deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
 $deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
 
 # The Linux relay binary the VPS runs: the mixdog-relay-x86_64-unknown-linux-gnu
-# artifact of a successful mixdogd-build run whose relay sources (the crate and
-# the lock file) equal the local tree. Returns the folder holding it, or $null.
+# artifact of a successful mixdogd-build run whose relay sources (what the binary
+# is built from: relayInputs of apps/relay/scripts/deploy-plan.mjs without deploy/)
+# equal the local tree. Returns the folder holding it, or $null.
 function Get-RelayBinaryDir([string]$cacheDir) {
-    $sources = @('native/core/crates/mixdog-relay', 'native/core/Cargo.lock')
+    $sources = @('native/core/crates/mixdog-relay', 'native/core/crates/mixdog-js',
+        'native/core/crates/mixdog-fsio', 'native/core/crates/mixdog-rt',
+        'native/core/crates/mixdog-workspace-hack', 'native/core/vendor/regress',
+        'native/core/vendor/icu_collator', 'native/core/Cargo.toml', 'native/core/Cargo.lock')
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return $null }
     Push-Location $repo
     try {
