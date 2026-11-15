@@ -3,6 +3,10 @@
 //! there is an alpha channel. The output size is libvips's rule: one scale for both axes (the larger of the two
 //! ratios, so the picture fits inside the box), each side the rounded quotient, and never an enlargement when the
 //! caller says so and the picture already fits.
+//!
+//! An axis that grows is not resampled with Lanczos3: libvips enlarges through an interpolator inferred from the
+//! kernel, a bicubic one that never leaves the range of the two samples a point lies between (no ringing at a hard
+//! edge, which is what keeps a flat-coloured picture small once it is written as a JPEG).
 
 use crate::decode::Raster;
 
@@ -30,22 +34,49 @@ fn lanczos3(x: f64) -> f64 {
     3.0 * pix.sin() * (pix / 3.0).sin() / (pix * pix)
 }
 
+/// The cubic of Catmull and Rom (the bicubic of libvips: Keys with a of minus one half).
+fn catmull_rom(x: f64) -> f64 {
+    let x = x.abs();
+    if x < 1.0 {
+        1.0 + x * x * (1.5 * x - 2.5)
+    } else if x < 2.0 {
+        2.0 + x * (-4.0 + x * (2.5 - 0.5 * x))
+    } else {
+        0.0
+    }
+}
+
 /// For each output sample, the input samples it reads and their normalised weights; an index past an edge is the edge
 /// sample.
 struct Taps {
     offsets: Vec<usize>,
     entries: Vec<(u32, f32)>,
+    /// For an axis that grows: the two samples each output point lies between, which bound its value.
+    bounds: Vec<(u32, u32)>,
 }
 
 impl Taps {
     fn new(in_len: u32, out_len: u32) -> Self {
         let scale = f64::from(in_len) / f64::from(out_len);
-        let filter_scale = scale.max(1.0);
-        let support = 3.0 * filter_scale;
         let last = i64::from(in_len) - 1;
         let mut offsets = Vec::with_capacity(out_len as usize + 1);
         let mut entries = Vec::new();
+        let mut bounds = Vec::new();
         offsets.push(0);
+        if scale < 1.0 {
+            for out in 0..out_len {
+                let center = (f64::from(out) + 0.5) * scale - 0.5;
+                let base = center.floor();
+                for k in (base as i64 - 1)..=(base as i64 + 2) {
+                    entries.push((k.clamp(0, last) as u32, catmull_rom(k as f64 - center) as f32));
+                }
+                bounds.push(((base as i64).clamp(0, last) as u32, (base as i64 + 1).clamp(0, last) as u32));
+                offsets.push(entries.len());
+            }
+            return Self { offsets, entries, bounds };
+        }
+        let filter_scale = scale.max(1.0);
+        let support = 3.0 * filter_scale;
         for out in 0..out_len {
             let center = (f64::from(out) + 0.5) * scale - 0.5;
             let first = (center - support).ceil() as i64;
@@ -63,11 +94,16 @@ impl Taps {
             }
             offsets.push(entries.len());
         }
-        Self { offsets, entries }
+        Self { offsets, entries, bounds }
     }
 
     fn of(&self, out: usize) -> &[(u32, f32)] {
         &self.entries[self.offsets[out]..self.offsets[out + 1]]
+    }
+
+    /// The samples that bound output `out`, when its axis grows.
+    fn bounds_of(&self, out: usize) -> Option<(u32, u32)> {
+        self.bounds.get(out).copied()
     }
 }
 
@@ -83,6 +119,14 @@ fn pass_x(load: impl Fn(usize, &mut [f32; 4]), w_in: usize, h: usize, out_w: usi
                 load(y * w_in + ix as usize, &mut px);
                 for c in 0..channels {
                     acc[c] += weight * px[c];
+                }
+            }
+            if let Some((low, high)) = taps.bounds_of(ox) {
+                let (mut a, mut b) = ([0f32; 4], [0f32; 4]);
+                load(y * w_in + low as usize, &mut a);
+                load(y * w_in + high as usize, &mut b);
+                for c in 0..channels {
+                    acc[c] = acc[c].clamp(a[c].min(b[c]), a[c].max(b[c]));
                 }
             }
             let at = (y * out_w + ox) * channels;
@@ -103,6 +147,17 @@ fn pass_y(load: impl Fn(usize, &mut [f32; 4]), w: usize, out_h: usize, channels:
                 load(iy as usize * w + x, &mut px);
                 for c in 0..channels {
                     row[x * channels + c] += weight * px[c];
+                }
+            }
+        }
+        if let Some((low, high)) = taps.bounds_of(oy) {
+            let (mut a, mut b) = ([0f32; 4], [0f32; 4]);
+            for x in 0..w {
+                load(low as usize * w + x, &mut a);
+                load(high as usize * w + x, &mut b);
+                for c in 0..channels {
+                    let value = &mut row[x * channels + c];
+                    *value = value.clamp(a[c].min(b[c]), a[c].max(b[c]));
                 }
             }
         }
