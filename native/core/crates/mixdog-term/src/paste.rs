@@ -10,7 +10,7 @@
 //! the one implementation of the resize, the size limits and the metadata text.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
@@ -379,23 +379,6 @@ pub fn image_attachment_from_buffer(
     })
 }
 
-/// `path.resolve` without the file system: `.` and `..` resolved lexically.
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !out.pop() {
-                    out.push("..");
-                }
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
 /// Read an image named by a pasted path. `Ok(None)` when the text is not an image path or no such file exists; an error
 /// when the file cannot be read or the resize refuses it. A relative path is taken from `cwd` (the current directory when
 /// `None`).
@@ -410,15 +393,13 @@ pub fn read_image_attachment_from_path(
     let Some(mime_type) = mime_for_path(&cleaned) else {
         return Ok(None);
     };
-    let path = Path::new(&cleaned);
-    let full_path = if path.is_absolute() {
-        path.to_path_buf()
+    // `isAbsolute(cleaned) ? cleaned : resolve(cwd || process.cwd(), cleaned)`: an empty `cwd` is skipped by `resolve`,
+    // which then starts from the process directory.
+    let full_path = if mixdog_js::nodepath::is_absolute_host(&cleaned) {
+        PathBuf::from(&cleaned)
     } else {
-        let base = match cwd {
-            Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
-            _ => std::env::current_dir().map_err(|error| error.to_string())?,
-        };
-        normalize(&base.join(path))
+        let base = cwd.map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+        PathBuf::from(mixdog_js::nodepath::resolve_host(&[&base, &cleaned]))
     };
     match mixdog_fsio::metadata(&Unlaned, &full_path) {
         Ok(metadata) if metadata.is_file() => {}
@@ -685,10 +666,5 @@ mod tests {
             temp_png_path(Path::new("/tmp"), 42, 1700000000000, 0xAB),
             Path::new("/tmp").join("mixdog-clipboard-42-1700000000000-000000ab.png")
         );
-    }
-
-    #[test]
-    fn dot_segments_are_resolved_lexically() {
-        assert_eq!(normalize(Path::new("/a/./b/../c")), PathBuf::from("/a/c"));
     }
 }
