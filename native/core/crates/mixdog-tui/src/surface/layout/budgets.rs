@@ -7,9 +7,10 @@ use mixdog_js::js_trim;
 use mixdog_markdown_ansi::measure::measure_markdown_rendered_rows;
 use mixdog_tui_widgets::question::{question_panel_rows, questions_of};
 use mixdog_tui_widgets::sign_in_url::sign_in_url_layout;
+use mixdog_tui_widgets::spinner::{SpinnerVisibility, is_live_spinner_meta_visible};
 
 use super::surfaces::{LiveHints, Surfaces};
-use super::{BtwPanel, ShellLayoutInput, StreamingTail, TranscriptTail};
+use super::{BtwPanel, ShellLayoutInput};
 use crate::surface::prompt_rows::{PromptRowsCache, queued_band_rows};
 use crate::surface::signature::CORE_MULTILINE_TEXT_ENTRY_KINDS;
 
@@ -33,27 +34,6 @@ const OVERLAY_HINT_ROWS: usize = 0;
 /// The `/btw` panel: border (2) + header (1) + footer (1), and at most this many rows of body.
 const BTW_CHROME_ROWS: usize = 4;
 const BTW_MAX_BODY_ROWS: usize = 10;
-
-/// `isLiveSpinnerMetaVisible(...)`: whether the 2-row live spinner band shows. The spinner and TurnDone occupy the same
-/// two-row slot, so completion (which appends turndone and clears the spinner in one commit) replaces it with no jump. A
-/// statusdone can be emitted mid-turn (after compaction), so it must not suppress the still-active spinner.
-pub fn is_live_spinner_meta_visible(
-    input_box_hidden: bool,
-    slash_palette_open: bool,
-    live_spinner: bool,
-    live_spinner_is_command: bool,
-    latest_item: Option<&TranscriptTail>,
-    streaming_tail: Option<&StreamingTail>,
-    transcript_view_active: bool,
-) -> bool {
-    let visible_streaming_assistant = !transcript_view_active
-        && streaming_tail.is_some_and(|tail| tail.kind == "assistant" && tail.streaming && !js_trim(&tail.text).is_empty());
-    !input_box_hidden
-        && !slash_palette_open
-        && live_spinner
-        && (live_spinner_is_command || latest_item.is_none_or(|item| item.kind != "turndone"))
-        && (live_spinner_is_command || !visible_streaming_assistant)
-}
 
 /// `btwContentRows(panel, columns)`: the rows of the answer body (the scrollable content height).
 fn btw_content_rows(panel: &BtwPanel, columns: usize) -> usize {
@@ -277,15 +257,21 @@ pub(super) fn compute_row_budgets(input: &ShellLayoutInput, surfaces: &Surfaces,
     let queued_visible = !surfaces.has_floating_panel && !surfaces.input_box_hidden && !state.queued.is_empty();
     // While the slash palette is open it owns the area above the prompt, so the live spinner and meta row are suppressed
     // entirely: no reservation and no render.
-    let prompt_meta_visible = is_live_spinner_meta_visible(
-        surfaces.input_box_hidden,
-        input.slash_palette_open,
-        hints.live_spinner,
-        hints.live_spinner_is_command,
-        hints.latest_transcript_item.as_ref(),
-        state.streaming_tail.as_ref(),
-        state.transcript_view_active,
-    );
+    let prompt_meta_visible = is_live_spinner_meta_visible(&SpinnerVisibility {
+        input_box_hidden: surfaces.input_box_hidden,
+        slash_palette_open: input.slash_palette_open,
+        live_spinner: hints.live_spinner,
+        live_spinner_is_command: hints.live_spinner_is_command,
+        latest_transcript_item: hints
+            .latest_transcript_item
+            .as_ref()
+            .map(|item| mixdog_tui_widgets::spinner::TranscriptTail { kind: &item.kind, id: item.id.as_deref() }),
+        streaming_tail: state
+            .streaming_tail
+            .as_ref()
+            .map(|tail| mixdog_tui_widgets::spinner::StreamingTail { kind: &tail.kind, streaming: tail.streaming, text: &tail.text }),
+        transcript_view_active: state.transcript_view_active,
+    });
     let prompt_meta_rows = if prompt_meta_visible { 2 } else { 0 };
     let overlay_hint_requested =
         !surfaces.input_box_hidden && !surfaces.has_floating_panel && !hints.live_spinner && !hints.input_hint.is_empty() && !queued_visible;

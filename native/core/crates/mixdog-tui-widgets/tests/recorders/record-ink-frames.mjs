@@ -57,6 +57,9 @@ const components = resolve(tree, 'src/tui/components');
 const MODULES = {
   Picker: './Picker.jsx',
   ConfirmBar: './ConfirmBar.jsx',
+  ContextPanel: './ContextPanel.jsx',
+  UsagePanel: './UsagePanel.jsx',
+  BtwPanel: './BtwPanel.jsx',
   SlashCommandPalette: './SlashCommandPalette.jsx',
   QuestionPanel: './QuestionPanel.jsx',
   SignInUrl: './SignInUrl.jsx',
