@@ -117,12 +117,33 @@ fn role_abort_seconds(agent: Option<&str>) -> Option<i64> {
     }
 }
 
-/// `resolveAgentStallThresholds(agent, env).warn`, in milliseconds (the status row's `stallWarnMs`). An
-/// agent stall notifies only at its abort deadline, so warn is abort: `STALL_TIMEOUT_S` when set, else
-/// the hidden agent's own `stallCap.idleSeconds`, else the role's workflow budget, else the base 600.
-pub fn stall_warn_ms(agent: AgentKind<'_>, env: Env<'_>) -> i64 {
+/// `resolveAgentStallThresholds(agent, env).abort`, in seconds: `STALL_TIMEOUT_S` when set, else the hidden agent's own
+/// `stallCap.idleSeconds`, else the role's workflow budget, else the base 600.
+fn stall_abort_seconds(agent: AgentKind<'_>, env: Env<'_>) -> i64 {
     let configured = agent.stall_cap_idle_seconds.filter(|seconds| *seconds > 0).or_else(|| role_abort_seconds(agent.name)).unwrap_or(DEFAULT_STALL_ABORT_S);
-    threshold_seconds(env).unwrap_or(configured) * 1000
+    threshold_seconds(env).unwrap_or(configured)
+}
+
+/// `resolveAgentStallThresholds(agent, env).warn`, in milliseconds (the status row's `stallWarnMs`). An
+/// agent stall notifies only at its abort deadline, so warn is abort.
+pub fn stall_warn_ms(agent: AgentKind<'_>, env: Env<'_>) -> i64 {
+    stall_abort_seconds(agent, env) * 1000
+}
+
+/// `DEFAULT_STALL_FIRST_BYTE_ABORT_S`: the first-byte abort of a socket that sits at `requesting` with no stream event, and
+/// the bounds `MIXDOG_STALL_FIRST_BYTE_ABORT_S` is held to.
+const DEFAULT_STALL_FIRST_BYTE_ABORT_S: i64 = 300;
+const MIN_STALL_FIRST_BYTE_ABORT_S: i64 = 5;
+const MAX_STALL_FIRST_BYTE_ABORT_S: i64 = 600;
+
+/// `resolveAgentStallThresholds(agent, env).firstByteAbort`, in seconds: `MIXDOG_STALL_FIRST_BYTE_ABORT_S` when it is a positive
+/// integer (held to 5..=600), else 300; never longer than the agent's own abort deadline.
+pub fn stall_first_byte_abort_s(agent: AgentKind<'_>, env: Env<'_>) -> i64 {
+    let window = present(env, "MIXDOG_STALL_FIRST_BYTE_ABORT_S")
+        .and_then(|raw| parse_int(&raw))
+        .filter(|n| *n > 0)
+        .map_or(DEFAULT_STALL_FIRST_BYTE_ABORT_S, |n| n.clamp(MIN_STALL_FIRST_BYTE_ABORT_S, MAX_STALL_FIRST_BYTE_ABORT_S));
+    window.min(stall_abort_seconds(agent, env))
 }
 
 /// `resolveAgentWatchdogPolicy(agent, overrides)`.

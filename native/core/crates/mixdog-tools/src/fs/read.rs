@@ -2788,3 +2788,162 @@ fn node_base64(text: &str) -> Vec<u8> {
     }
     out
 }
+
+/// A `.docx` and an `.xlsx` read as text: the read tool asks the extension host's `ooxml.text` and shows its answer, and
+/// the host's answer here is the real extractor's (`mixdog-ooxml-text`, what the worker serves), over real packages.
+#[cfg(test)]
+mod office_text_tests {
+    use std::sync::Arc;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::ext::ExtCall;
+    use mixdog_core_api::domain::ext::ExtError;
+    use mixdog_core_api::domain::ext::ExtFrame;
+    use mixdog_core_api::domain::ext::ExtPool;
+    use mixdog_core_api::domain::ext::ExtWorkerId;
+    use mixdog_core_api::domain::ext::ExtWorkerStatus;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_ooxml_text::ExtractOptions;
+    use mixdog_ooxml_text::extract_ooxml_text_from_buffer;
+
+    use super::super::tests::context_seeded;
+    use super::super::tests::text_of;
+    use super::*;
+
+    const WORD_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const SHEET_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    const RELATIONSHIP_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+    /// An Office package whose parts are stored (no compression): local headers, central directory, end record.
+    fn package(parts: &[(&str, String)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for (name, body) in parts {
+            let offset = out.len() as u32;
+            let (name, body) = (name.as_bytes(), body.as_bytes());
+            let head = |sig: u32, out: &mut Vec<u8>| {
+                out.extend_from_slice(&sig.to_le_bytes());
+                if sig == 0x0201_4b50 {
+                    out.extend_from_slice(&20_u16.to_le_bytes());
+                }
+                out.extend_from_slice(&20_u16.to_le_bytes());
+                out.extend_from_slice(&[0; 8]);
+                out.extend_from_slice(&0_u32.to_le_bytes());
+                out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+                out.extend_from_slice(&0_u16.to_le_bytes());
+            };
+            head(0x0403_4b50, &mut out);
+            out.extend_from_slice(name);
+            out.extend_from_slice(body);
+            head(0x0201_4b50, &mut central);
+            central.extend_from_slice(&[0; 10]);
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name);
+        }
+        let directory = out.len() as u32;
+        out.extend_from_slice(&central);
+        out.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+        out.extend_from_slice(&directory.to_le_bytes());
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out
+    }
+
+    struct Frames(Option<ExtFrame>);
+
+    #[async_trait::async_trait]
+    impl EventSource<ExtFrame> for Frames {
+        async fn next(&mut self) -> Option<ExtFrame> {
+            self.0.take()
+        }
+    }
+
+    /// The extension host's `ooxml.text` over the files it was given, answering with the real extractor's text.
+    struct OoxmlHost(Vec<(&'static str, Vec<u8>)>);
+
+    impl ExtPool for OoxmlHost {
+        fn call(&self, call: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
+            assert_eq!(call.method, "ooxml.text");
+            let path = call.params["path"].as_str().expect("a path");
+            let (name, bytes) = self.0.iter().find(|(name, _)| path.ends_with(name)).expect("a file the test seeded");
+            let options = ExtractOptions { max_output_bytes: call.params["maxOutputBytes"].as_u64().expect("an output budget") as usize };
+            let text = extract_ooxml_text_from_buffer(bytes, name, &options);
+            Ok(Box::new(Frames(Some(ExtFrame::Done(Ok(serde_json::json!({ "text": text })))))))
+        }
+
+        fn status(&self) -> Vec<ExtWorkerStatus> {
+            Vec::new()
+        }
+
+        fn stop_worker(&self, _worker: ExtWorkerId) -> Result<(), ExtError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_docx_table_and_an_xlsx_grid_are_read_as_text() {
+        let paragraph = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
+        let cell = |text: &str| format!("<w:tc>{}</w:tc>", paragraph(text));
+        let docx = package(&[(
+            "word/document.xml",
+            format!(
+                "<?xml version=\"1.0\"?><w:document xmlns:w=\"{WORD_NS}\"><w:body>{}<w:tbl><w:tr>{}{}{}</w:tr><w:tr>{}{}{}</w:tr></w:tbl>{}</w:body></w:document>",
+                paragraph("조치"),
+                cell("항목"),
+                cell("수량"),
+                cell("월 비용"),
+                cell("야간 인력"),
+                cell("12명"),
+                cell("38,400,000원"),
+                paragraph("끝"),
+            ),
+        )]);
+        let xlsx = package(&[
+            (
+                "xl/workbook.xml",
+                format!(
+                    "<?xml version=\"1.0\"?><workbook xmlns=\"{SHEET_NS}\" xmlns:r=\"{RELATIONSHIP_NS}\"><sheets><sheet name=\"실적\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"메모\" sheetId=\"2\" r:id=\"rId2\"/></sheets></workbook>"
+                ),
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"worksheet\" Target=\"worksheets/sheet2.xml\"/></Relationships>".to_owned(),
+            ),
+            (
+                "xl/sharedStrings.xml",
+                format!("<?xml version=\"1.0\"?><sst xmlns=\"{SHEET_NS}\"><si><t>허브</t></si><si><t>처리량</t></si><si><t>대전</t></si></sst>"),
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                format!(
+                    "<?xml version=\"1.0\"?><worksheet xmlns=\"{SHEET_NS}\"><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"D1\" t=\"inlineStr\"><is><t>비고</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"s\"><v>2</v></c><c r=\"B2\"><f>SUM(E1:E3)</f><v>128400</v></c><c r=\"D2\" t=\"inlineStr\"><is><t>야간</t></is></c></row></sheetData></worksheet>"
+                ),
+            ),
+            ("xl/worksheets/sheet2.xml", format!("<?xml version=\"1.0\"?><worksheet xmlns=\"{SHEET_NS}\"><sheetData/></worksheet>")),
+        ]);
+        let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-office-text").join("ws")).unwrap();
+        let seeds = vec![("report.docx".to_owned(), docx.clone()), ("kpi.xlsx".to_owned(), xlsx.clone())];
+        let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+        let host = Arc::new(OoxmlHost(vec![("report.docx", docx), ("kpi.xlsx", xlsx)])) as Arc<dyn ExtPool>;
+        let read = ReadTool::new(Some(host), None);
+
+        // Which column a table value belongs to is the table's meaning: rows, not one value per line.
+        let (failed, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "report.docx" })).await);
+        assert!(!failed, "{text}");
+        assert_eq!(text.split('\n').collect::<Vec<_>>(), ["조치", "항목\t수량\t월 비용", "야간 인력\t12명\t38,400,000원", "끝"]);
+
+        // A sheet reads as its grid: a formula as its cached value, an empty cell keeping its column, an empty sheet named.
+        let (failed, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "kpi.xlsx" })).await);
+        assert!(!failed, "{text}");
+        assert_eq!(
+            text.split('\n').collect::<Vec<_>>(),
+            ["--- sheet 실적 ---", "허브\t처리량\t\t비고", "대전\t128400\t\t야간", "", "--- sheet 메모 ---", "(empty sheet)"]
+        );
+    }
+}
