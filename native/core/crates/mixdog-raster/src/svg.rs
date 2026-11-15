@@ -478,6 +478,12 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
             continue;
         }
         let (region_width, region_height) = ((x1 - x0) as usize, (y1 - y0) as usize);
+        if let usvg::Node::Path(path) = node {
+            let base = tiny_skia::Transform::from_row(scale as f32, 0.0, 0.0, scale as f32, left as f32, top as f32).pre_concat(parent);
+            if cairo_path(path, base, &mut out, width, (x0 as usize, y0 as usize, region_width, region_height)) {
+                continue;
+            }
+        }
         let mut pixmap = tiny_skia::Pixmap::new((region_width * factor) as u32, (region_height * factor) as u32).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
         let base = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, ((left - x0 as f64) * k) as f32, ((top - y0 as f64) * k) as f32).pre_concat(parent);
         // The tolerance cairo flattens a curve at, 0.1 of a device pixel, in the units the path is written in.
@@ -665,6 +671,420 @@ fn draw_path(path: &usvg::Path, transform: tiny_skia::Transform, pixmap: &mut ti
     } else {
         stroke_it(pixmap);
         fill_it(pixmap);
+    }
+    true
+}
+
+/// The tolerance (device pixels) cairo flattens a curve at.
+const CAIRO_TOLERANCE: f32 = 0.1;
+/// The scan converter of cairo's image backend (`cairo-tor-scan-converter.c`): 256 sub-samples across a pixel and 15 sub-rows down it.
+const GRID_X: i64 = 256;
+const GRID_Y: i64 = 15;
+
+/// A polygon edge in cairo's grid: `x` in 1/256 of a pixel, `y` in 1/15 of a pixel (rounded as `INPUT_TO_GRID_Y` does), top to bottom.
+struct GridEdge {
+    x: i64,
+    y: i64,
+    dx: i64,
+    bottom: i64,
+    direction: i32,
+    fixed_y: i64,
+    fixed_dy: i64,
+}
+
+/// The path as cairo's path holds it: every point rounded to 24.8 fixed point, every curve cut into lines by `_cairo_spline_decompose` (the
+/// same halving, in fixed point, until no control point is more than 0.1 pixel from the chord) and every sub-path a list of points that
+/// closes by itself.
+fn fixed_polygon(path: &tiny_skia::Path) -> Vec<Vec<(i64, i64)>> {
+    type Point = (i64, i64);
+    let fixed = |value: f32| (f64::from(value) * 256.0).round_ties_even() as i64;
+    fn half(a: Point, b: Point) -> Point {
+        (a.0 + ((b.0 - a.0) >> 1), a.1 + ((b.1 - a.1) >> 1))
+    }
+    // `_cairo_spline_error_squared`, in pixels.
+    fn error_squared(a: Point, b: Point, c: Point, d: Point) -> f64 {
+        let to_pixels = |v: i64| v as f64 / 256.0;
+        let (mut bx, mut by) = (to_pixels(b.0 - a.0), to_pixels(b.1 - a.1));
+        let (mut cx, mut cy) = (to_pixels(c.0 - a.0), to_pixels(c.1 - a.1));
+        if a != d {
+            let (dx, dy) = (to_pixels(d.0 - a.0), to_pixels(d.1 - a.1));
+            let v = dx * dx + dy * dy;
+            let along = |x: &mut f64, y: &mut f64| {
+                let u = *x * dx + *y * dy;
+                if u <= 0.0 {
+                } else if v <= u {
+                    *x -= dx;
+                    *y -= dy;
+                } else {
+                    let w = u / v;
+                    *x -= w * dx;
+                    *y -= w * dy;
+                }
+            };
+            along(&mut bx, &mut by);
+            along(&mut cx, &mut cy);
+        }
+        (bx * bx + by * by).max(cx * cx + cy * cy)
+    }
+    fn decompose(out: &mut Vec<Point>, p: [Point; 4], tolerance_squared: f64, depth: u32) {
+        if depth >= 24 || error_squared(p[0], p[1], p[2], p[3]) < tolerance_squared {
+            out.push(p[3]);
+            return;
+        }
+        let (ab, bc, cd) = (half(p[0], p[1]), half(p[1], p[2]), half(p[2], p[3]));
+        let (abc, bcd) = (half(ab, bc), half(bc, cd));
+        let middle = half(abc, bcd);
+        decompose(out, [p[0], ab, abc, middle], tolerance_squared, depth + 1);
+        decompose(out, [middle, bcd, cd, p[3]], tolerance_squared, depth + 1);
+    }
+    let tolerance_squared = f64::from(CAIRO_TOLERANCE) * f64::from(CAIRO_TOLERANCE);
+    let mut subpaths: Vec<Vec<Point>> = Vec::new();
+    let mut current: Vec<Point> = Vec::new();
+    let mut at: Point = (0, 0);
+    for segment in path.segments() {
+        match segment {
+            tiny_skia::PathSegment::MoveTo(p) => {
+                if current.len() > 1 {
+                    subpaths.push(std::mem::take(&mut current));
+                }
+                current.clear();
+                at = (fixed(p.x), fixed(p.y));
+                current.push(at);
+            }
+            tiny_skia::PathSegment::LineTo(p) => {
+                at = (fixed(p.x), fixed(p.y));
+                current.push(at);
+            }
+            tiny_skia::PathSegment::QuadTo(c, p) => {
+                let (q, end) = ((fixed(c.x), fixed(c.y)), (fixed(p.x), fixed(p.y)));
+                // The quadratic as the cubic with the same curve.
+                let third = |from: i64, control: i64| from + (2 * (control - from) + 1).div_euclid(3);
+                let b = (third(at.0, q.0), third(at.1, q.1));
+                let c2 = (third(end.0, q.0), third(end.1, q.1));
+                decompose(&mut current, [at, b, c2, end], tolerance_squared, 0);
+                at = end;
+            }
+            tiny_skia::PathSegment::CubicTo(c1, c2, p) => {
+                let end = (fixed(p.x), fixed(p.y));
+                decompose(&mut current, [at, (fixed(c1.x), fixed(c1.y)), (fixed(c2.x), fixed(c2.y)), end], tolerance_squared, 0);
+                at = end;
+            }
+            tiny_skia::PathSegment::Close => {
+                if current.len() > 1 {
+                    let first = current[0];
+                    subpaths.push(std::mem::take(&mut current));
+                    at = first;
+                    current = vec![first];
+                }
+            }
+        }
+    }
+    if current.len() > 1 {
+        subpaths.push(current);
+    }
+    subpaths
+}
+
+/// The edges of a flattened device-space path as cairo's polygon holds them: every sub-path closed, horizontal edges dropped, and each edge's
+/// rows taken on the 1/15 grid (an edge that spans no row is dropped).
+fn grid_edges(polygon: &[Vec<(i64, i64)>]) -> Vec<GridEdge> {
+    let grid_y = |fixed_y: i64| (fixed_y * GRID_Y + 128) >> 8;
+    let mut edges = Vec::new();
+    let mut add = |from: (i64, i64), to: (i64, i64)| {
+        if from.1 == to.1 {
+            return;
+        }
+        let (top, bottom, direction) = if from.1 < to.1 { (from, to, 1) } else { (to, from, -1) };
+        let (top_y, bottom_y) = (grid_y(top.1), grid_y(bottom.1));
+        if top_y >= bottom_y {
+            return;
+        }
+        edges.push(GridEdge { x: top.0, y: top_y, dx: bottom.0 - top.0, bottom: bottom_y, direction, fixed_y: top.1, fixed_dy: bottom.1 - top.1 });
+    };
+    for points in polygon {
+        for pair in points.windows(2) {
+            add(pair[0], pair[1]);
+        }
+        add(points[points.len() - 1], points[0]);
+    }
+    edges
+}
+
+/// A rectilinear polygon (every edge vertical or horizontal in 24.8 fixed point) as cairo fills it: `_cairo_path_fixed_fill_rectilinear_to_boxes`
+/// turns it into boxes and the rectangular scan converter covers a pixel by the product of the box's fractions of it, in 256ths
+/// (`coverage = x * y >> 8`, and 256 is written as 255). The coverage of the union is taken slab by slab between the edges' y values.
+/// `None` when an edge is neither vertical nor horizontal.
+fn rectilinear_coverage(polygon: &[Vec<(i64, i64)>], even_odd: bool, left: usize, top: usize, width: usize, height: usize) -> Option<Vec<u8>> {
+    // Vertical edges: (x, top y, bottom y, direction), all in fixed point.
+    let mut verticals: Vec<(i64, i64, i64, i32)> = Vec::new();
+    let mut add = |from: (i64, i64), to: (i64, i64)| -> bool {
+        if from.1 == to.1 {
+            return true;
+        }
+        if from.0 != to.0 {
+            return false;
+        }
+        verticals.push(if from.1 < to.1 { (from.0, from.1, to.1, 1) } else { (from.0, to.1, from.1, -1) });
+        true
+    };
+    for points in polygon {
+        for pair in points.windows(2) {
+            if !add(pair[0], pair[1]) {
+                return None;
+            }
+        }
+        if !add(points[points.len() - 1], points[0]) {
+            return None;
+        }
+    }
+    let mut mask = vec![0u8; width * height];
+    let mut area = vec![0i64; width];
+    let mut breaks: Vec<i64> = Vec::new();
+    let mut crossings: Vec<(i64, i32)> = Vec::new();
+    for row in 0..height {
+        let row_top = (top + row) as i64 * 256;
+        let row_bottom = row_top + 256;
+        breaks.clear();
+        breaks.push(row_top);
+        breaks.push(row_bottom);
+        for &(_, y0, y1, _) in &verticals {
+            for y in [y0, y1] {
+                if y > row_top && y < row_bottom {
+                    breaks.push(y);
+                }
+            }
+        }
+        breaks.sort_unstable();
+        breaks.dedup();
+        area.iter_mut().for_each(|v| *v = 0);
+        let mut touched = false;
+        for slab in breaks.windows(2) {
+            let (ya, yb) = (slab[0], slab[1]);
+            crossings.clear();
+            for &(x, y0, y1, direction) in &verticals {
+                if y0 <= ya && yb <= y1 {
+                    crossings.push((x - left as i64 * 256, direction));
+                }
+            }
+            crossings.sort_by_key(|c| c.0);
+            let mut winding = 0i32;
+            let mut span_start = 0i64;
+            for &(x, direction) in &crossings {
+                let was_inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
+                winding += direction;
+                let inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
+                if !was_inside && inside {
+                    span_start = x;
+                } else if was_inside && !inside {
+                    let (a, b) = (span_start.clamp(0, width as i64 * 256), x.clamp(0, width as i64 * 256));
+                    let mut at = a;
+                    while at < b {
+                        let column = (at / 256) as usize;
+                        let next = ((at / 256 + 1) * 256).min(b);
+                        area[column] += (next - at) * (yb - ya);
+                        touched = true;
+                        at = next;
+                    }
+                }
+            }
+        }
+        if !touched {
+            continue;
+        }
+        for column in 0..width {
+            let coverage = (area[column] >> 8).min(256);
+            mask[row * width + column] = (coverage - (coverage >> 8)) as u8;
+        }
+    }
+    Some(mask)
+}
+
+/// The coverage (0 to 255) of `edges` over the `width` x `height` pixels at (`left`, `top`) as cairo's scan converter gives it: 15 sub-rows
+/// per pixel, each row's spans cut at the edges' x on the 1/256 grid by the fill rule, the covered length of a pixel summed over the rows
+/// and expanded to 8 bits (`GRID_AREA_TO_ALPHA`).
+fn cairo_coverage(edges: &[GridEdge], even_odd: bool, left: usize, top: usize, width: usize, height: usize) -> Vec<u8> {
+    let mut mask = vec![0u8; width * height];
+    let area = GRID_X * GRID_Y;
+    let right = width as i64 * GRID_X;
+    let mut sums = vec![0i64; width + 1];
+    let mut steps = vec![0i64; width + 2];
+    let mut crossings: Vec<(i64, i32)> = Vec::new();
+    for row in 0..height {
+        sums.iter_mut().for_each(|v| *v = 0);
+        steps.iter_mut().for_each(|v| *v = 0);
+        let mut touched = false;
+        for sub in 0..GRID_Y {
+            let y = (top + row) as i64 * GRID_Y + sub;
+            crossings.clear();
+            for edge in edges {
+                if edge.y <= y && y < edge.bottom {
+                    let x = edge.x + (((2 * y + 1) * 128 - GRID_Y * edge.fixed_y) * edge.dx).div_euclid(GRID_Y * edge.fixed_dy);
+                    crossings.push((x - left as i64 * GRID_X, edge.direction));
+                }
+            }
+            if crossings.is_empty() {
+                continue;
+            }
+            crossings.sort_by_key(|c| c.0);
+            let mut winding = 0i32;
+            let mut span_start = 0i64;
+            for &(x, direction) in &crossings {
+                let was_inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
+                winding += direction;
+                let inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
+                if !was_inside && inside {
+                    span_start = x;
+                } else if was_inside && !inside {
+                    let (a, b) = (span_start.clamp(0, right), x.clamp(0, right));
+                    if b > a {
+                        touched = true;
+                        let (ia, ib) = ((a / GRID_X) as usize, (b / GRID_X) as usize);
+                        if ia == ib {
+                            sums[ia] += b - a;
+                        } else {
+                            sums[ia] += GRID_X - (a % GRID_X);
+                            sums[ib] += b % GRID_X;
+                            steps[ia + 1] += GRID_X;
+                            steps[ib] -= GRID_X;
+                        }
+                    }
+                }
+            }
+        }
+        if !touched {
+            continue;
+        }
+        let mut run = 0i64;
+        for column in 0..width {
+            run += steps[column];
+            let total = sums[column] + run;
+            mask[row * width + column] = ((total * 255 + area / 2) / area).min(255) as u8;
+        }
+    }
+    mask
+}
+
+/// pixman's `MUL_UN8`.
+fn mul_un8(a: u32, b: u32) -> u32 {
+    let t = a * b + 128;
+    (t + (t >> 8)) >> 8
+}
+
+/// Lays one anti-aliased coverage mask of a paint over the picture the way pixman composites a solid or gradient source through an a8 mask.
+fn lay(out: &mut [[u8; 4]], width: usize, region: (usize, usize, usize, usize), mask: &[u8], source: &dyn Fn(usize, usize) -> [u8; 4]) {
+    let (left, top, region_width, region_height) = region;
+    for row in 0..region_height {
+        for column in 0..region_width {
+            let cover = u32::from(mask[row * region_width + column]);
+            if cover == 0 {
+                continue;
+            }
+            let src = source(column, row);
+            let below = &mut out[(top + row) * width + left + column];
+            let covered_alpha = mul_un8(u32::from(src[3]), cover);
+            for channel in 0..4 {
+                below[channel] = (mul_un8(u32::from(src[channel]), cover) + mul_un8(u32::from(below[channel]), 255 - covered_alpha)).min(255) as u8;
+            }
+        }
+    }
+}
+
+type Source = Box<dyn Fn(usize, usize) -> [u8; 4]>;
+
+/// A fill or a stroke of a path drawn as cairo draws it: the path in device space flattened at 0.1 pixel, scan-converted on cairo's grid and
+/// composited over `out`. `false` when the shape is not drawn here (a pattern paint, an aliased shape, a transform that cannot be inverted):
+/// nothing has been drawn then.
+fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8; 4]], width: usize, region: (usize, usize, usize, usize)) -> bool {
+    if !path.rendering_mode().use_shape_antialiasing() {
+        return false;
+    }
+    let fill = path.fill().map(|fill| (fill, paint_of(fill.paint(), fill.opacity(), true)));
+    let stroke = path.stroke().map(|stroke| (stroke, paint_of(stroke.paint(), stroke.opacity(), true)));
+    if fill.as_ref().is_some_and(|(_, paint)| paint.is_none()) || stroke.as_ref().is_some_and(|(_, paint)| paint.is_none()) {
+        return false;
+    }
+    if !path.is_visible() {
+        return true;
+    }
+    let (left, top, region_width, region_height) = region;
+    let local = transform.post_translate(-(left as f32), -(top as f32));
+    let Some(inverse) = local.invert() else { return false };
+    let Some(device_region) = tiny_skia::Rect::from_xywh(0.0, 0.0, region_width as f32, region_height as f32) else { return false };
+    let Some(user_region) = device_region.transform(inverse) else { return false };
+    let device_scale = f64::from(transform.sx).hypot(f64::from(transform.ky)).max(f64::from(transform.kx).hypot(f64::from(transform.sy)));
+
+    // The source of a paint at the pixel (column, row) of the region: a solid colour or the shader at the pixel centre.
+    let source_of = |paint: &tiny_skia::Paint<'static>, color: Option<(usvg::Color, f32)>| -> Option<Source> {
+        if let Some((c, opacity)) = color {
+            let alpha16 = (f64::from(opacity) * 65535.0).round() as u32;
+            let premultiplied = |channel: u8| ((((f64::from(channel) / 255.0) * f64::from(opacity) * 65535.0).round() as u32) >> 8) as u8;
+            let solid = [premultiplied(c.red), premultiplied(c.green), premultiplied(c.blue), (alpha16 >> 8) as u8];
+            return Some(Box::new(move |_, _| solid));
+        }
+        let mut pixmap = tiny_skia::Pixmap::new(region_width as u32, region_height as u32)?;
+        pixmap.fill_rect(user_region, paint, local, None);
+        Some(Box::new(move |column, row| {
+            let pixel = pixmap.pixel(column as u32, row as u32).expect("inside");
+            [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+        }))
+    };
+    let color_of = |paint: &usvg::Paint, opacity: usvg::Opacity| -> Option<(usvg::Color, f32)> { match paint {
+        usvg::Paint::Color(c) => Some((*c, opacity.get())),
+        _ => None,
+    } };
+
+    let fill_it = |out: &mut [[u8; 4]]| {
+        let Some((fill, Some(paint))) = &fill else { return };
+        let bounds = path.data().bounds();
+        if bounds.width() == 0.0 || bounds.height() == 0.0 {
+            return;
+        }
+        let Some(device) = path.data().clone().transform(transform) else { return };
+        let polygon = fixed_polygon(&device);
+        let even_odd = fill.rule() == usvg::FillRule::EvenOdd;
+        let mask = rectilinear_coverage(&polygon, even_odd, left, top, region_width, region_height)
+            .unwrap_or_else(|| cairo_coverage(&grid_edges(&polygon), even_odd, left, top, region_width, region_height));
+        if let Some(source) = source_of(paint, color_of(fill.paint(), fill.opacity())) {
+            lay(out, width, region, &mask, &*source);
+        }
+    };
+    let stroke_it = |out: &mut [[u8; 4]]| {
+        let Some((stroke, Some(paint))) = &stroke else { return };
+        let styled = stroke.to_tiny_skia();
+        let resolution = device_scale.max(f64::EPSILON) as f32;
+        // A line thinner than one sub-row of the scan converter (1/15 of a pixel) leaves no coverage in cairo: recorded for a 1 unit hairline
+        // drawn at a fortieth of a pixel, which cairo does not draw at all.
+        let device_width = f64::from(styled.width) * f64::from(transform.sx * transform.sy - transform.kx * transform.ky).abs().sqrt();
+        if device_width < 1.0 / GRID_Y as f64 {
+            return;
+        }
+        // The stroker is given the curve already cut into lines (at 0.1 pixel), dashed, and offsets those.
+        let Some(centre) = flatten(path.data(), CAIRO_TOLERANCE / resolution) else { return };
+        let dashed;
+        let basis = match &styled.dash {
+            Some(dash) => match centre.dash(dash, resolution) {
+                Some(done) => {
+                    dashed = done;
+                    &dashed
+                }
+                None => return,
+            },
+            None => &centre,
+        };
+        let Some(outline) = basis.stroke(&styled, resolution) else { return };
+        let Some(device) = outline.transform(transform) else { return };
+        let polygon = fixed_polygon(&device);
+        let mask = cairo_coverage(&grid_edges(&polygon), false, left, top, region_width, region_height);
+        if let Some(source) = source_of(paint, color_of(stroke.paint(), stroke.opacity())) {
+            lay(out, width, region, &mask, &*source);
+        }
+    };
+    if path.paint_order() == usvg::PaintOrder::FillAndStroke {
+        fill_it(out);
+        stroke_it(out);
+    } else {
+        stroke_it(out);
+        fill_it(out);
     }
     true
 }
@@ -1008,6 +1428,25 @@ mod tests {
         assert!(image.has_alpha());
         let pixel = &image.rgba()[..4];
         assert!(pixel[3].abs_diff(128) <= 1 && pixel[0].abs_diff(0x33) <= 2 && pixel[1].abs_diff(0x66) <= 2 && pixel[2].abs_diff(0x99) <= 2, "{pixel:?}");
+    }
+
+    #[test]
+    fn a_box_edge_is_covered_by_its_fixed_point_fraction() {
+        // A page of 40 by 24 drawn into 7 by 4 is 7 by 4 centred at its own scale: the box edges fall at 1/6 of a pixel, 43/256 in fixed point, so
+        // the edge row covers 213/256 of the pixel and is written 213.
+        let page = svg("width=\"40\" height=\"24\" viewBox=\"0 0 40 24\"", "<rect width=\"40\" height=\"24\" fill=\"#36c\"/>");
+        let image = rasterize_to(&SvgFonts::none(), &page, 72.0, 7, 4).unwrap();
+        assert_eq!(image.rgba()[3], 213);
+        assert_eq!(image.rgba()[(7 + 3) * 4 + 3], 255);
+    }
+
+    #[test]
+    fn a_line_thinner_than_a_sub_row_of_the_scan_converter_leaves_nothing() {
+        let page = svg("width=\"40\" height=\"24\" viewBox=\"0 0 40 24\"", "<path d=\"M0 24 L40 0\" stroke=\"#d33\" stroke-width=\"1\"/>");
+        let thin = rasterize_to(&SvgFonts::none(), &page, 180.0, 2, 1).unwrap();
+        assert!(thin.rgba().chunks_exact(4).all(|pixel| pixel[3] == 0), "{:?}", thin.rgba());
+        let drawn = rasterize(&SvgFonts::none(), &page, 72.0).unwrap();
+        assert!(drawn.rgba().chunks_exact(4).any(|pixel| pixel[3] > 0));
     }
 
     #[test]

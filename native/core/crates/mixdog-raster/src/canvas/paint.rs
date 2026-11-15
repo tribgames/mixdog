@@ -441,6 +441,15 @@ impl Repetition {
     }
 }
 
+/// A picture as straight colour (0 to 1, three values a pixel) and alpha (0 to 1).
+#[derive(Clone, Debug)]
+pub(crate) struct StraightPicture {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) colour: Vec<f32>,
+    pub(crate) alpha: Vec<f32>,
+}
+
 /// A `CanvasPattern`: an image (premultiplied pixels) that repeats, with its own transform (`setTransform`).
 #[derive(Clone, Debug)]
 pub struct PatternStyle {
@@ -449,11 +458,16 @@ pub struct PatternStyle {
     pub(crate) transform: Transform,
     /// Sampled with the bicubic (Mitchell) filter whenever smoothing is on, not the bilinear one.
     pub(crate) cubic: bool,
+    /// The picture with its straight (unpremultiplied) colour, for the bicubic filter of a smoothed pattern: Skia averages the colour and the
+    /// alpha apart and premultiplies after, which the premultiplied sampler of tiny-skia does not do, so the canvas samples this itself.
+    /// `None` for an opaque picture, where the two are the same, and for a picture that does not repeat (the canvases of mesh and raster
+    /// shadings, which keep the premultiplied sampler: the straight one moved two of their renders a little further from the recording).
+    pub(crate) straight: Option<Arc<StraightPicture>>,
 }
 
 impl PatternStyle {
     pub fn new(bitmap: &super::Bitmap, repetition: Repetition) -> Self {
-        Self { pixmap: Arc::new(bitmap.pixmap().clone()), repetition, transform: Transform::identity(), cubic: false }
+        Self { pixmap: Arc::new(bitmap.pixmap().clone()), repetition, transform: Transform::identity(), cubic: false, straight: None }
     }
 
     /// A pattern made of a canvas that was drawn for it (pdf.js's `createPattern(tile, "repeat")` of a tiling pattern's
@@ -484,7 +498,21 @@ impl PatternStyle {
         }
         let mut pixmap = source.clone();
         pixmap.data_mut().copy_from_slice(&current);
-        Self { pixmap: Arc::new(pixmap), repetition, transform: Transform::identity(), cubic: true }
+        let straight = if repetition == Repetition::NoRepeat || current.chunks_exact(4).all(|pixel| pixel[3] == 255) {
+            None
+        } else {
+            let mut colour = Vec::with_capacity(width * height * 3);
+            let mut alpha = Vec::with_capacity(width * height);
+            for pixel in current.chunks_exact(4) {
+                let a = f32::from(pixel[3]);
+                for channel in 0..3 {
+                    colour.push(if pixel[3] == 0 { 0.0 } else { f32::from(pixel[channel]) / a });
+                }
+                alpha.push(a / 255.0);
+            }
+            Some(Arc::new(StraightPicture { width, height, colour, alpha }))
+        };
+        Self { pixmap: Arc::new(pixmap), repetition, transform: Transform::identity(), cubic: true, straight }
     }
 
     /// `pattern.setTransform(matrix)`.
