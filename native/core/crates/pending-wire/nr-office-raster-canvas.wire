@@ -1,0 +1,92 @@
+# nr-office-raster-canvas: the 2D canvas of the Office stack in mixdog-raster (module `canvas`, over tiny-skia), its recording and twin test.
+
+The code of the task is in crates/mixdog-raster/src/canvas/{mod,path,paint,text,image_data}.rs and tests/twin_canvas.rs. It was written
+without running cargo (the lead compiles the wave); nothing below is optional, the module does not compile without the dependency lines.
+
+## native/core/Cargo.toml
+
+[workspace.dependencies]: add, next to `ttf-parser = "=0.25.1"` (owner decision "2D rasteriser"; tiny-skia 0.11.4 with tiny-skia-path 0.11.4
+and strict-num 0.1.1 are in the local cargo cache and already in Cargo.lock because resvg uses them; default features stay on, so the
+lock does not change):
+
+    tiny-skia = "=0.11.4"
+
+## native/core/crates/mixdog-raster/Cargo.toml (dependency edges only; the crate is the raster crate's, the lines are this task's)
+
+[dependencies]: add (alphabetical, before `mixdog-imaging`):
+
+    mixdog-fonts = { workspace = true }
+    mixdog-fsio = { workspace = true }
+
+and after `mixdog-rt`:
+
+    tiny-skia = { workspace = true }
+    ttf-parser = { workspace = true }
+
+[dev-dependencies]: add:
+
+    mixdog-office-base = { workspace = true, features = ["test-support"] }
+    sha2 = { workspace = true }
+
+(mixdog-fonts does not depend on mixdog-raster and mixdog-office-base does not either: no cycle. tiny-skia exposes tiny-skia-path through
+`tiny_skia::{Path, PathBuilder, Transform, ...}`: no direct edge to it.)
+
+## native/core/crates/mixdog-raster/src/lib.rs
+
+In the module list add, before `pub mod composite;`:
+
+    pub mod canvas;
+
+and in the `pub use` list, before `pub use crate::composite::Blend;`:
+
+    pub use crate::canvas::Canvas;
+
+and in the module doc (first paragraph) add one sentence: "`canvas` is the 2D canvas the office code draws with (`@napi-rs/canvas`), over tiny-skia."
+
+## native/core/Cargo.lock
+
+Package mixdog-raster gets these dependency lines (the list is alphabetical; dev-dependencies are listed with the rest):
+
+    "mixdog-fonts",
+    "mixdog-fsio",
+    "mixdog-office-base",
+    "sha2",
+    "tiny-skia",
+    "ttf-parser",
+
+No other package changes (tiny-skia 0.11.4, tiny-skia-path, strict-num, ttf-parser 0.25.1 and sha2 are locked already). Regenerate offline with
+`cargo update -w`.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Run the repository's hakari check after the edges are added; take its output if it asks for a line (tiny-skia and ttf-parser may be added to
+the hack's dependency list).
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" (keep the list sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs, which also recomputes the
+manifestSha256 if the line endings of office-canvas/MANIFEST.json changed on checkout):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-canvas.mjs --tree <dir with node_modules>",
+      "fileCount": 1,
+      "manifest": "office-canvas/MANIFEST.json",
+      "manifestSha256": "8e715af7a57564cffee480ef0d44f03d4b4aac261165040b6695d2a96bbe9494",
+      "recorder": "benchmarks/rust-core/recorders/record-office-canvas.mjs",
+      "set": "office-canvas",
+      "totalBytes": 570551
+    }
+
+The set's MANIFEST.json records `product.commit: null` (the tree the recorder loaded, C:/Project/mixdog, has uncommitted changes under
+src/ against its HEAD 0bf8fe045; the file counts are in the manifest). Re-record from an exact checkout with `--tree` when one is at hand.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service.
+
+## Consumers (later tasks)
+
+The PDF renderer (nr-office-pdf-render), the contact sheet (nr-office-authoring-contact-sheet), the visual diff and the rendered-page
+metrics of mixdog-office-quality draw on `mixdog_raster::canvas::Canvas`, with `mixdog_raster::canvas::skia` for masks and shaders.
+The font registry and the lane read proof reach `fill_text` / `stroke_text` / `measure_text` as arguments: the consumer owns the
+`Arc<Registry>` it builds with mixdog-fonts.
