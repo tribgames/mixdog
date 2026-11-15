@@ -16,7 +16,7 @@ use mixdog_termtext::display_width;
 use super::draft::Draft;
 use super::editing::{
     Caret, caret_position, clear_selection, len16, line_end, line_start, move_cursor, next_word_offset,
-    previous_word_offset, replace_selection, selection_range, slice16, slice16_from, splice16, vertical_offset,
+    previous_word_offset, replace_selection, selection_range, slice16, splice16, vertical_offset,
 };
 use super::escape::{EscapeAction, EscapeInput, classify_prompt_escape};
 use super::helpers::{
