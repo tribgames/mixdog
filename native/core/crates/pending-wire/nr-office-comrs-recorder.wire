@@ -1,0 +1,57 @@
+# nr-office-comrs-recorder: the recorder package of crates/mixdog-office-com and its registry test.
+
+Nothing here was compiled (no cargo run by this task). The new package is `native/core/crates/mixdog-office-com/recorder`
+(`mixdog-office-com-recorder`, a cdylib and rlib, Windows only: elsewhere its lib is empty). It uses no crate that is not
+already in the lock and has its own FFI (no `windows` feature, no `windows-sys`).
+
+## native/core/Cargo.toml
+
+`[workspace] members`: after `"crates/mixdog-office-com",` add
+
+    "crates/mixdog-office-com/recorder",
+
+No `[workspace.dependencies]` entry: nothing depends on the recorder.
+
+## native/core/crates/mixdog-office-com/Cargo.toml (owned by an earlier task; the explicit test list needs the new test)
+
+After the `[[test]] name = "pswire"` block add
+
+    [[test]]
+    name = "registry_source"
+    path = "tests/registry_source.rs"
+
+No new dependency: the test uses `regex`, `serde_json`, `sha2` and `mixdog-testkit` (`read`, `read_string`, `exists`), which
+the crate already lists.
+
+## native/core/Cargo.lock
+
+Add the package (a `cargo update -w --offline` writes it):
+
+    [[package]]
+    name = "mixdog-office-com-recorder"
+    version = "1.5.0"
+    dependencies = [
+     "mixdog-office-com",
+     "mixdog-workspace-hack",
+     "serde_json",
+    ]
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+No external crate or feature is new (serde_json and mixdog-office-com are already unified). Run the hakari check after the
+manifest edit and take its output if it asks for a line for the new member.
+
+## Not wired
+
+No protocol row, no `SERVICE_PENDING` name, no desktop change. `crates/mixdog-testkit/tests/cfg_test_guard.rs` lists only
+`mixdog-core` and `mixdog-core-session`; the recorder's `cfg(test)` items are a thread-local capture and test fixtures that
+nothing else uses, so no entry is needed.
+
+## What the lead should compile and run
+
+* `cargo build -p mixdog-office-com-recorder --offline` on Windows and `cargo clippy -p mixdog-office-com-recorder --all-targets -- -D warnings`
+  (the crate's unit tests build fake `IDispatch` and `IEnumVARIANT` objects of the C ABI in process: they start no Office,
+  no PowerShell and write no file).
+* `cargo nextest run -p mixdog-office-com --test registry_source` (reads the embedded `assets/office-com-host.ps1` and,
+  when it exists, `C:/Project/mixdog`; no Office needed).
+* The recording itself (`recorder/record-office-com.mjs --area selftest`) needs Microsoft Office and is not part of any run.
