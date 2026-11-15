@@ -742,4 +742,50 @@ mod tests {
         let recall = entry("recall");
         assert_eq!((&recall["trigger"], &recall["title"]), (&json!("Prior sessions."), &json!("Stored")));
     }
+
+    /// What a new Lead session offers of the tools a desktop bridge or the memory switch gates (`browser`, `browser_devtools`,
+    /// `computer`, `memory`, `recall`), as Node's `applyDeferredToolSurface` does: `DEFERRED_DEFAULT_LEAD_TOOLS` names none of
+    /// them, so no request of a new session defines one, whatever the provider. Each stays in the deferred catalog and is
+    /// listed by the roster (`deferredPoolToolNames`), reached through `load_tool` (a provider with native tool search) or
+    /// through `load_tool` and `call_tool` (the bridge exposure of every other provider, a custom OpenAI-compatible one
+    /// here); a tool a gate denies (`options.disallowed`, the feature denials of the creation path) is in no list.
+    #[test]
+    fn a_lead_surface_defers_the_bridge_and_memory_tools_and_leaves_a_denied_one_out() {
+        fn sorted<'a>(names: &[&'a str]) -> Vec<&'a str> {
+            let mut names = names.to_vec();
+            names.sort_unstable();
+            names
+        }
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let host = Host(vec![tool("load_tool"), tool("call_tool")]);
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        let eager = ["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "ask_user", "web_search", "todo", "Skill", "load_tool"];
+        let gated = ["browser", "browser_devtools", "memory", "recall"];
+        for (provider, bridge) in [("custom-11111111-1111-4111-8111-111111111111", true), ("anthropic", false)] {
+            let held: Vec<Value> = eager.iter().chain(gated.iter()).chain(["computer"].iter()).map(|name| tool(name)).collect();
+            let mut session = json!({ "provider": provider, "model": "smoke", "toolSpec": "full", "tools": held });
+            // Computer Use is off here: the gate's denial reaches the surface as the creation path passes it.
+            surface.apply(&mut session, "lead", &[], &ApplyOptions { provider: None, model: None, disallowed: vec!["computer".to_owned()] });
+            let names = |key: &str| -> Vec<String> { session[key].as_array().expect("a tool list").iter().map(tool_name).collect() };
+            let (defined, catalog, roster) = (names("tools"), names("deferredToolCatalog"), surface.pool_tool_names(&session));
+            let holds = |list: &[String], name: &str| list.iter().any(|entry| entry == name);
+            for name in gated {
+                assert!(!holds(&defined, name), "{provider}: {name} is defined in no request of a new session");
+                assert!(holds(&catalog, name), "{provider}: {name} stays in the deferred catalog");
+                assert!(holds(&roster, name), "{provider}: the roster lists {name}");
+            }
+            for list in [&defined, &catalog, &roster] {
+                assert!(!holds(list, "computer"), "{provider}: a tool the gates deny is in no list");
+            }
+            assert!(holds(&defined, "load_tool"), "{provider}: load_tool is defined");
+            assert_eq!(holds(&defined, "call_tool"), bridge, "{provider}: call_tool belongs to the bridge exposure");
+            assert_eq!(session.get("toolExposureMode").and_then(Value::as_str) == Some(TOOL_EXPOSURE_BRIDGE), bridge, "{provider}: the exposure");
+            // The request defines the Lead's eager core and nothing else (the bridge's `call_tool` aside).
+            let core: Vec<&str> = defined.iter().map(String::as_str).filter(|name| *name != "call_tool").collect();
+            let mut expected: Vec<&str> = vec!["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "web_search"];
+            expected.extend(["Skill", "ask_user", "load_tool", "todo"]);
+            assert_eq!(sorted(&core), sorted(&expected), "{provider}: the tools a new Lead session's request defines");
+        }
+    }
 }
