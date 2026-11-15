@@ -3005,6 +3005,7 @@
   "Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.": "Một kết nối khác đang cài Mixdog trên {{name}}. Hãy đợi một lát rồi thử lại.",
   "Mixdog is free and open source — a GitHub star genuinely helps it grow.": "Mixdog là nguồn mở và miễn phí — một ngôi sao GitHub thực sự giúp nó phát triển.",
   "Mixdog is reconnecting automatically.": "Mixdog đang tự động kết nối lại.",
+  "Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.": "Mixdog mất kết nối trước khi thao tác Git này được xác nhận nên có thể nó đã được thực hiện. Hãy kiểm tra trạng thái kho lưu trữ trước khi thử lại.",
   "Mixdog needs a one-time approval from the desktop it belongs to.": "Mixdog cần được phê duyệt một lần trên máy tính đã liên kết.",
   "Mixdog needs to recover": "Mixdog cần phục hồi",
   "Mixdog on {{name}} did not stop. Check the details below, then try again.": "Mixdog trên {{name}} không dừng. Xem chi tiết bên dưới rồi thử lại.",

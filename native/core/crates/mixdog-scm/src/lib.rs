@@ -10,6 +10,7 @@ pub mod feeds;
 pub mod gh;
 pub mod git;
 pub mod git_launch;
+pub mod head_watch;
 pub mod input;
 pub mod inspect;
 pub mod locks;

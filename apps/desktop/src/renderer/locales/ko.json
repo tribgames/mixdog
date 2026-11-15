@@ -3005,6 +3005,7 @@
   "Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.": "다른 연결이 {{name}}에 Mixdog을 이미 설치하는 중입니다. 잠시 기다린 뒤 다시 시도하세요.",
   "Mixdog is free and open source — a GitHub star genuinely helps it grow.": "Mixdog은 무료 오픈 소스입니다. GitHub Star가 성장에 큰 도움이 됩니다.",
   "Mixdog is reconnecting automatically.": "Mixdog이 자동으로 다시 연결합니다.",
+  "Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.": "이 Git 작업이 확인되기 전에 Mixdog의 연결이 끊어져 작업이 실행되었을 수 있습니다. 다시 시도하기 전에 저장소 상태를 확인하세요.",
   "Mixdog needs a one-time approval from the desktop it belongs to.": "Mixdog을 사용하려면 연결된 데스크톱에서 한 번 승인해야 합니다.",
   "Mixdog needs to recover": "Mixdog 복구가 필요합니다",
   "Mixdog on {{name}} did not stop. Check the details below, then try again.": "{{name}}의 Mixdog이 종료되지 않았습니다. 아래 내용을 확인한 뒤 다시 시도하세요.",

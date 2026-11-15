@@ -17,6 +17,7 @@ import {
 import { splitGitPatchHunks, type GitPatchHunk } from '../shared/git-patch';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { gitActionFailureText } from './source-control-action-failure';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import type { WorkspaceSelection } from './nav-types';
 import { SCM_DIFF_STYLE_KEY, SESSION_DIFF_STYLE_KEY } from './desktop-types';
@@ -183,7 +184,7 @@ export function GitDiffPane({
       await load();
       window.dispatchEvent(new Event('mixdog:git-changed'));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(gitActionFailureText(reason));
     } finally {
       setBusyHunk(-1);
     }

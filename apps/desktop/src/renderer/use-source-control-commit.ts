@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { DesktopGitFile, DesktopGitStatus } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { gitActionFailureText } from './source-control-action-failure';
 import { sourceControlCommitSelection } from './source-control-commit-selection';
 import { partialStagingWarning } from './source-control-confirmations';
 import type { GitActionRunner } from './use-source-control-runner';
@@ -73,7 +74,7 @@ export function useSourceControlCommit({
       try {
         await followUp();
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(gitActionFailureText(reason));
       }
     });
   };
