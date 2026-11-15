@@ -12,6 +12,7 @@
 //! Every failure is an [`ImagingError`]: the decoder rejected the bytes (with libvips's sentence), or the machine
 //! could not do the work (there is no encoder for the format, or memory ran out).
 
+pub mod avif;
 pub mod cache;
 mod color;
 pub mod decode;
