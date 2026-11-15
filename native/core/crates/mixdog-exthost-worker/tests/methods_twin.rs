@@ -330,3 +330,32 @@ async fn svg_buffers_are_accepted_by_all_three_native_image_envelopes() {
     }
     pool.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn avif_and_heic_buffers_are_answered_as_sharp_answers_them() {
+    let pool = pool();
+    let reference: Value = serde_json::from_str(include_str!("../../mixdog-imaging/tests/avif-reference.json")).unwrap();
+    for row in reference["rows"].as_array().unwrap() {
+        let name = row["name"].as_str().unwrap();
+        let data = row["input"].as_str().unwrap();
+        let probe = ask(&pool, "image.probe", json!({"data": data}), &[]).await.unwrap();
+        match row["raw"].get("ok") {
+            Some(raw) => assert_eq!(probe, json!({"ok": {"width": raw["width"], "height": raw["height"]}}), "{name}"),
+            None => assert_eq!(probe, json!({"error": "invalid"}), "{name}"),
+        }
+        let resized = ask(&pool, "image.resize", json!({"data": data, "ext": "avif"}), &[]).await.unwrap();
+        match row["resize"].get("ok") {
+            Some(ok) => {
+                assert_eq!(resized["ok"]["mimeType"], ok["mime"], "{name}");
+                assert_eq!(resized["ok"]["dimensions"], ok["dimensions"], "{name}");
+                let bytes = STANDARD.decode(resized["ok"]["data"].as_str().unwrap()).unwrap();
+                assert_eq!(&bytes[4..12], b"ftypavif", "{name}: the output is an AVIF file, as sharp writes one");
+            }
+            None => {
+                assert_eq!(resized["error"], "invalid", "{name}");
+                assert!(resized["message"].as_str().unwrap().starts_with("invalid or corrupt image data: "), "{name}");
+            }
+        }
+    }
+    pool.close().await;
+}

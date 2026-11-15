@@ -18,6 +18,7 @@ mod color;
 pub mod decode;
 pub mod encode;
 pub mod error;
+mod heif;
 pub mod jpeg_enc;
 pub mod policy;
 pub mod resize;
