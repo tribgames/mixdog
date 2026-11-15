@@ -1,6 +1,8 @@
 //! Replays tests/goldens/errors.json (recorded from the Node error modules by tests/recorders/record-errors.mjs) through the
 //! Rust port: every failure of the corpus gives what Node gave from every function, with the clock and the zone pinned as
-//! the recorder pinned them. An output Node recorded as an exception is skipped.
+//! the recorder pinned them. An output Node recorded as an exception fails the test
+//! instead of being skipped: the golden holds none. Three long texts (13000 x, a data URI, a JSON blob) carry only `safeDetails`: the
+//! recorder ran no other function on them, so only that field exists to compare (`texts_give_what_node_gave` counts them).
 
 use mixdog_js::json_number;
 use mixdog_js::time::Tz;
@@ -20,9 +22,9 @@ fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/errors.json")).expect("the golden is JSON")
 }
 
-/// The recorded output of one call, `None` when Node threw.
+/// The recorded output of one call. An output without a value is a Node exception and fails the test.
 fn recorded(output: &Value) -> Option<&Value> {
-    output.get("value")
+    Some(output.get("value").unwrap_or_else(|| panic!("a recorded output has no value (Node threw, which the twin does not list): {output}")))
 }
 
 fn describe(case: &Value) -> String {
@@ -123,11 +125,13 @@ fn texts_give_what_node_gave() {
     let now = golden["now"].as_f64().expect("now");
     let texts = golden["texts"].as_array().expect("texts");
     assert!(texts.len() > 150);
+    let mut only_safe_details = 0;
     for case in texts {
         let text = case["text"].as_str().expect("text");
         let value = json!(text);
         check(case, "safeDetails", recorded(&case["safeDetails"]), json!(error_presentation::safe_error_details(text)));
         if case.get("namesModel").is_none() {
+            only_safe_details += 1;
             continue;
         }
         check(case, "namesModel", recorded(&case["namesModel"]), json!(error_presentation::names_unavailable_model(Some(&value))));
@@ -142,6 +146,7 @@ fn texts_give_what_node_gave() {
             check(case, "backgroundBody", recorded(&case["backgroundBody"][index]), json!(only));
         }
     }
+    assert_eq!(only_safe_details, 3, "the texts the recorder ran only safeDetails on are the three long ones");
 }
 
 #[test]
