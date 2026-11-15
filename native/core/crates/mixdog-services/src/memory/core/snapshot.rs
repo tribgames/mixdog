@@ -6,7 +6,7 @@
 
 use mixdog_js::{js_trim, js_words, to_number_of, value_to_string};
 use serde_json::Value;
-use mixdog_rt::DurabilityIo;
+use mixdog_rt::{DurabilityIo, LaneToken};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -189,19 +189,34 @@ pub async fn write_snapshot(
 
 async fn write(lane: DurabilityIo, data_dir: &Path, snapshot: Snapshot) -> Result<(u64, bool)> {
     let path = file_path(data_dir);
-    // A slower refresh may finish after a newer one: never overwrite it.
-    if let Some(current) = read(lane, data_dir).await
-        && current.revision >= snapshot.revision {
-            return Ok((current.revision, current.revision == snapshot.revision));
-        }
-    fsio::create_dir_all(lane, data_dir).await?;
-    let temp = data_dir.join(format!("{FILE_NAME}.{}.tmp", uuid::Uuid::new_v4().simple()));
-    // `writeJsonAtomicAsync(..., { compact: true })`: compact JSON and a final newline.
-    let mut bytes = serde_json::to_vec(&snapshot)?;
-    bytes.push(b'\n');
-    fsio::write(lane, &temp, bytes).await?;
-    fsio::rename(lane, &temp, &path).await?;
-    Ok((snapshot.revision, true))
+    let requested_revision = snapshot.revision;
+    let next = serde_json::to_value(snapshot)?;
+    // Node's updateJsonAtomic: compare and publish under the SAME file lock. Separate lane
+    // jobs for a read and rename let an older refresh overwrite one that finished first.
+    let job = lane
+        .submit_wait(&tokio_util::sync::CancellationToken::new(), move |lane| {
+            let opts = mixdog_statefile::Opts { secret: true, compact: true, ..Default::default() };
+            mixdog_statefile::update_json(
+                lane,
+                &path,
+                |current| {
+                    let newer = current.as_ref().is_some_and(|current| {
+                        current.get("version").and_then(Value::as_f64) == Some(f64::from(VERSION))
+                            && finite_number(current.get("revision")).max(0.0) >= requested_revision as f64
+                    });
+                    Ok::<_, std::convert::Infallible>((!newer).then_some(next))
+                },
+                &opts,
+            )
+            .map(|current| {
+                let revision = current.as_ref().map_or(0, |current| finite_number(current.get("revision")).max(0.0) as u64);
+                (revision, revision == requested_revision)
+            })
+            .map_err(|error| std::io::Error::other(error.to_string()))
+        })
+        .await
+        .map_err(|error| std::io::Error::other(format!("snapshot write was not queued: {error:?}")))?;
+    Ok(job.await.map_err(|error| std::io::Error::other(error.to_string()))??)
 }
 
 /// What a new session injects: common entries, then those of the `project_id`
@@ -236,3 +251,7 @@ pub fn session_payload(snapshot: &Snapshot, project_id: Option<&str>, agent_id: 
         db_lines: Vec::new(),
     }
 }
+
+#[cfg(test)]
+#[path = "snapshot_tests.rs"]
+mod tests;
