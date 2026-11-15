@@ -60,7 +60,7 @@ use mixdog_office_pdf::render::{RenderPagesOptions, render_pdf_pages};
 use mixdog_office_pdf::writer::create_chart_pdf;
 use mixdog_office_quality::document_brief::BriefReadings;
 use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
-use mixdog_ooxml::package::Package;
+use mixdog_ooxml::zipio::Package;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::{CancellationToken, LaneTokens, MaintenanceIo};

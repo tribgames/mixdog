@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use mixdog_ooxml::package::Package;
+use mixdog_ooxml::zipio::Package;
 use mixdog_raster::image::Image;
 use serde_json::{Value, json};
 
