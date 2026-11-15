@@ -289,7 +289,10 @@ fn quick_inverse(x: i32) -> i32 {
     if x == 0 { 0 } else { (1 << 22) / x }
 }
 fn quick_div(a: i32, b: i32) -> i32 {
-    if (8..1024).contains(&b.abs()) && a.abs() < 512 {
+    // SkAnalyticEdge.cpp: kMaxBits=31, kMinBits=3,
+    // kMaxAbsA = 1 << (31 - (22 - 3)) = 4096. The reciprocal multiply
+    // deliberately differs by a few fixed-point units from integer division.
+    if (8..1024).contains(&b.abs()) && a.abs() < 4096 {
         (a * quick_inverse(b)) >> 6
     } else {
         ((i64::from(a) << 16) / i64::from(b)).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
@@ -776,10 +779,6 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
     if groups.len() < 2 {
         return;
     }
-    let (clip_l, clip_r) = (
-        (raster.left as i32) << 16,
-        ((raster.left + raster.width) as i32) << 16,
-    );
     let stop = ((raster.top + raster.height) as i32) << 16;
     let mut side = [(0_usize, 0_usize), (1_usize, 0_usize)];
     let mut pending = 2;
@@ -852,7 +851,11 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
             }
         }
         bottom = bottom.min(stop);
-        let (mut left, mut right) = (x[0].max(clip_l), x[1].min(clip_r));
+        // Keep the actual edge positions as scan state. Skia's edge builder clips
+        // geometry before aaa_walk_convex_edges; our edges retain their original
+        // positions and Row clips writes instead. Feeding a clipped x back into
+        // the edge loses its slope intercept when it later re-enters the canvas.
+        let (mut left, mut right) = (x[0], x[1]);
         if le.dx == 0 && re.dx == 0 {
             // The vertical fast path uses fixed_to_alpha, not 256-level trapezoids.
             while y < bottom {
@@ -867,7 +870,9 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                         full: fixed_alpha(h),
                         no_real: false,
                     };
-                    for px in from..to {
+                    for px in from.max(row.raster.left as i32)
+                        ..to.min((row.raster.left + row.raster.width) as i32)
+                    {
                         let width = right.min((px + 1) << 16) - left.max(px << 16);
                         row.pixel(px, fixed_alpha(fixed_mul(h, width)), false);
                     }
@@ -880,8 +885,8 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
             while y < bottom {
                 let next = ceil_fixed(y + 1).min(bottom);
                 let h = next - y;
-                let nl = (left + fixed_mul(le.dx, h)).max(clip_l + (ONE >> 5));
-                let nr = (right + fixed_mul(re.dx, h)).min(clip_r + (ONE >> 5));
+                let nl = left.wrapping_add(fixed_mul(le.dx, h));
+                let nr = right.wrapping_add(fixed_mul(re.dx, h));
                 let mask = !((ONE >> 4) - 1);
                 if y >> 16 >= raster.top as i32 {
                     trapezoid(
@@ -1359,6 +1364,29 @@ mod tests {
         let total: f32 = raster.data.iter().map(|value| f32::from(*value) / 255.0).sum();
         let exact = 2.0 / 3.0 * 20.0 * 12.5;
         assert!((total - exact).abs() / exact < 0.02, "area {total} against {exact}");
+    }
+
+    #[test]
+    fn quick_div_uses_the_pinned_reciprocal_range() {
+        assert_eq!(quick_div(1024, 63), 1_065_216);
+        assert_eq!(quick_div(-1024, 63), -1_065_216);
+        assert_eq!(quick_div(4095, 63), (4095 * ((1 << 22) / 63)) >> 6);
+        assert_eq!(quick_div(4096, 63), ((4096_i64 << 16) / 63) as i32);
+        assert_eq!(quick_div(1024, 1024), 1 << 16);
+    }
+
+    #[test]
+    fn an_edge_reentering_the_canvas_keeps_its_original_intercept() {
+        // The blue rectangle of PDF group-matrix-bbox at scale 2 extends two
+        // pixels past its group's canvas, then returns along the lower diagonal.
+        let path = polygon(&[(68.0, 56.0), (140.0, 24.0), (172.0, 96.0), (100.0, 128.0)]);
+        let whole = coverage(&path, FillRule::Winding, 200, 180).expect("whole");
+        let clipped = coverage(&path, FillRule::Winding, 170, 180).expect("clipped");
+        for y in clipped.top..clipped.top + clipped.height {
+            for x in clipped.left..clipped.left + clipped.width {
+                assert_eq!(at(&clipped, x, y), at(&whole, x, y), "cropping changed ({x}, {y})");
+            }
+        }
     }
 
     #[test]
