@@ -55,3 +55,10 @@ in the tree or the registry source (line ends normalised to LF); none was fetche
 - The 11.1 MB `icudt77l.dat.bz2` and the 5.3 MB of icu_collator test data are used by no product build and no default test; whether to
   keep them in the repository is the owner's decision.
 - `icu_collator_data` is CLDR 49 while Node 22.20.0 uses CLDR 47: tailoring differences are possible (stated in `MIXDOG.md`).
+
+## AVIF decoding crates (mixdog-imaging)
+
+| Item | Origin | Exact version | Licence (text in LICENSES/) | Where | Downloaded without approval |
+|---|---|---|---|---|---|
+| `rav1d` (pure-Rust AV1 decoder, dav1d port; features `bitdepth_8`, `bitdepth_16`, no assembler) | crates.io, local Cargo cache | =1.1.0 | BSD-2-Clause: `rav1d-BSD-2-Clause.txt` | `native/core/crates/mixdog-imaging` (dependency, module `src/avif.rs`) | no (owner-approved) |
+| `avif-parse` (AVIF/ISOBMFF item extraction) | crates.io, local Cargo cache | =2.1.0 | MPL-2.0: `avif-parse-MPL-2.0.txt` | `native/core/crates/mixdog-imaging` (dependency) | no (owner-approved) |
