@@ -1557,7 +1557,7 @@ async fn drive(
     // `dispatchPromptSubmit` (`turn-prepare.mjs:185-208`), after the prompt row and before the model is asked: a handler's
     // block refuses the turn (`prompt blocked by hook: <reason>`), a hook failure decides nothing, and the context the
     // handlers add joins the turn's own as the context this turn carries. The wait ends with the turn (`turn.awaitTurn`):
-    // a turn stopped meanwhile goes on to the loop, which ends it as stopped.
+    // a turn stopped meanwhile ends as stopped: in the loop, or by `BeforeLoop` when a later setup wait ends with the fired token.
     let submitted_prompt = input_body.get("content").cloned().unwrap_or(Value::Null);
     let verdict = tokio::select! {
         verdict = lifecycle.prompt_submit(&thread, &header, &submitted_prompt) => verdict,
