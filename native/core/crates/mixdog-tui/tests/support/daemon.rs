@@ -175,9 +175,10 @@ impl Drop for Workspace {
 /// A user-level `hooks.json` whose PreToolUse handler answers `ask` for `tool`.
 fn write_ask_hook(data_dir: &Path, install: &Path, tool: &str) {
     let answer = r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"pty end-to-end"}}"#;
-    // A script run by `node` as an exec (`command` and `args`): a command line without `args` goes through the handler's shell
-    // (`bash -lc` on Windows too), which would take the backslashes of a script path for escapes. It answers at once: the hook is
-    // asked about one call and needs nothing of the payload.
+    // A script run by `node` as an exec (`command` and `args`): a command line without `args` goes through the handler's default
+    // shell (`powershell -Command` on Windows, `bash -lc` elsewhere, as Node's `commandSpawnSpec`), and PowerShell prints a quoted
+    // script path as a string instead of running it. It answers at once: the hook is asked about one call and needs nothing of the
+    // payload.
     let script = install.join("ask.mjs");
     let body = format!("process.stdout.write('{answer}');\n");
     std::fs::write(&script, body).expect("the hook script");
