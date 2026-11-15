@@ -64,14 +64,20 @@ fn inline_or_file(value: &str, inline_prefix: &str) -> Result<String, String> {
     if value.starts_with(inline_prefix) { Ok(value.to_owned()) } else { read_file(value) }
 }
 
-/// The DER of the first PEM block and its label.
-fn pem_block(text: &str) -> Result<(String, Vec<u8>), String> {
-    pem::parse(text).map(|block| (block.tag().to_owned(), block.into_contents())).map_err(|_| UNSUPPORTED_KEY.to_owned())
+/// The label and DER of the first PEM block that holds a private key of an accepted form. Blocks of other kinds are
+/// skipped as OpenSSL skips them: `openssl ecparam -genkey` writes `EC PARAMETERS` before the `EC PRIVATE KEY`.
+fn pem_block(text: &str, accepted: &[&str]) -> Result<(String, Vec<u8>), String> {
+    let blocks = pem::parse_many(text).map_err(|_| UNSUPPORTED_KEY.to_owned())?;
+    blocks
+        .into_iter()
+        .find(|block| accepted.iter().any(|tag| *tag == block.tag()))
+        .map(|block| (block.tag().to_owned(), block.into_contents()))
+        .ok_or_else(|| UNSUPPORTED_KEY.to_owned())
 }
 
 /// An EC P-256 private key: PKCS#8 (`PRIVATE KEY`) or SEC1 (`EC PRIVATE KEY`).
 pub fn parse_ec_p256_pem(text: &str) -> Result<SigningKey, String> {
-    let (tag, der) = pem_block(text)?;
+    let (tag, der) = pem_block(text, &["PRIVATE KEY", "EC PRIVATE KEY"])?;
     let secret = match tag.as_str() {
         "PRIVATE KEY" => p256::SecretKey::from_pkcs8_der(&der).map_err(|_| UNSUPPORTED_KEY.to_owned())?,
         "EC PRIVATE KEY" => p256::SecretKey::from_sec1_der(&der).map_err(|_| UNSUPPORTED_KEY.to_owned())?,
@@ -82,7 +88,7 @@ pub fn parse_ec_p256_pem(text: &str) -> Result<SigningKey, String> {
 
 /// An RSA private key: PKCS#8 (`PRIVATE KEY`) or PKCS#1 (`RSA PRIVATE KEY`).
 pub fn parse_rsa_pem(text: &str) -> Result<RsaKeyPair, String> {
-    let (tag, der) = pem_block(text)?;
+    let (tag, der) = pem_block(text, &["PRIVATE KEY", "RSA PRIVATE KEY"])?;
     let pair = match tag.as_str() {
         "PRIVATE KEY" => RsaKeyPair::from_pkcs8(&der),
         "RSA PRIVATE KEY" => RsaKeyPair::from_der(&der),

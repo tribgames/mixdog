@@ -203,9 +203,10 @@ impl NativePushService {
     }
 
     /// `native-push`: validates, checks the association and the limit, sends, and returns the `native-push-result` frame for
-    /// the leg to write. `None` on a relay without credentials, which ignores the frame.
+    /// the leg to write. `None` on a relay that cannot deliver to any platform, which ignores the frame (the legs got no
+    /// `nativePush` when its `platforms` was empty).
     pub async fn send(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) -> Option<Value> {
-        let push = self.push.as_ref()?;
+        let push = self.push.as_ref().filter(|push| !push.platforms().is_empty())?;
         let Some(request) = self.validated(message) else { return Some(refusal(message, "invalid-message")) };
         let bound = self.table().get_mut(&request.token).is_some_and(|entry| {
             associations_of(entry).values().any(|association| {
