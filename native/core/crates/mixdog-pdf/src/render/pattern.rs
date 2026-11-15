@@ -52,6 +52,8 @@ pub(super) struct TilingPaint {
     cell: TilingPattern,
     /// `this.ctx.canvas`: the size of the canvas the pattern was created on.
     canvas_size: (u32, u32),
+    /// `baseTransform`: the matrix of the page, form or cell the pattern colour was selected in.
+    base_transform: Matrix,
     /// `patternBaseMatrix`: the matrix of the page at creation with the pattern's own.
     pattern_base_matrix: Matrix,
 }
@@ -78,6 +80,7 @@ impl TilingPaint {
         Self {
             cell,
             canvas_size,
+            base_transform,
             pattern_base_matrix,
         }
     }
@@ -111,10 +114,10 @@ impl TilingPaint {
         dims[3] = bbox[1];
     }
 
-    /// `_getCombinedScales`: the scale of the pattern matrix and of the page matrix together.
-    fn combined_scales(&self, base_transform: &Matrix) -> (f64, f64) {
+    /// `_getCombinedScales`: the scale of the pattern matrix and of the matrix the pattern was selected in together.
+    fn combined_scales(&self) -> (f64, f64) {
         let (matrix_x, matrix_y) = singular_scales(&self.cell.matrix);
-        let (base_x, base_y) = singular_scales(base_transform);
+        let (base_x, base_y) = singular_scales(&self.base_transform);
         (
             f64::from(((f64::from(matrix_x)) * f64::from(base_x)) as f32),
             f64::from(((f64::from(matrix_y)) * f64::from(base_y)) as f32),
@@ -355,7 +358,7 @@ impl<'a> Painter<'a> {
         let (width, height) = (x1 - x0, y1 - y0);
         let xstep = tiling.cell.xstep.abs();
         let ystep = tiling.cell.ystep.abs();
-        let (scale_x, scale_y) = tiling.combined_scales(&self.base_transform);
+        let (scale_x, scale_y) = tiling.combined_scales();
         let (mut canvas_width, mut canvas_height) = (width, height);
         let (mut redraw_horizontally, mut redraw_vertically) = (false, false);
         if (xstep * scale_x).ceil() >= (width * scale_x).ceil() {
@@ -508,7 +511,7 @@ impl<'a> Painter<'a> {
             || self.current.active_smask.is_some();
         let outcome = if isolated {
             let (box_width, box_height) = (x1 - x0, y1 - y0);
-            let (scale_x, scale_y) = tiling.combined_scales(&self.base_transform);
+            let (scale_x, scale_y) = tiling.combined_scales();
             let dimx = TilingPaint::size_and_scale(box_width, tiling.canvas_size.0, scale_x);
             let dimy = TilingPaint::size_and_scale(box_height, tiling.canvas_size.1, scale_y);
             self.render_tile_canvas(tiling, dimx, dimy).map(|tile_canvas| {
