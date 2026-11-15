@@ -19,18 +19,18 @@ use tokio_rustls::server::TlsStream;
 use super::{GmailAppPassword, Target, Timeouts, describe};
 use super::wire::Failure;
 
-const EMAIL: &str = "user@gmail.com";
-const SECRET: &str = "abcdwxyzabcdwxyz";
+pub(crate) const EMAIL: &str = "user@gmail.com";
+pub(crate) const SECRET: &str = "abcdwxyzabcdwxyz";
 const ID_LINE: &str = "ID (\"name\" \"imapflow\" \"version\" \"2.5.7\" \"vendor\" \"Postal Systems\" \"support-url\" \"https://github.com/postalsys/imapflow/issues\")";
 
-type Log = Arc<Mutex<Vec<String>>>;
+pub(crate) type Log = Arc<Mutex<Vec<String>>>;
 
-struct Pki {
-    acceptor: TlsAcceptor,
-    roots: RootCertStore,
+pub(crate) struct Pki {
+    pub(crate) acceptor: TlsAcceptor,
+    pub(crate) roots: RootCertStore,
 }
 
-fn pki() -> Pki {
+pub(crate) fn pki() -> Pki {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let issued = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
     let certificate = issued.cert.der().clone();
@@ -48,7 +48,7 @@ fn pki() -> Pki {
 
 /// A server-side line reader and writer, with the DEFLATE layer a server switches on after
 /// `COMPRESS DEFLATE`.
-struct Chan {
+pub(crate) struct Chan {
     io: TlsStream<TcpStream>,
     buffer: Vec<u8>,
     inflate: Option<Decompress>,
@@ -57,7 +57,7 @@ struct Chan {
 }
 
 impl Chan {
-    async fn line(&mut self) -> Option<String> {
+    pub(crate) async fn line(&mut self) -> Option<String> {
         loop {
             if let Some(at) = self.buffer.iter().position(|b| *b == b'\n') {
                 let line: Vec<u8> = self.buffer.drain(..=at).collect();
@@ -80,8 +80,12 @@ impl Chan {
         }
     }
 
-    async fn say(&mut self, text: &str) {
-        let bytes = format!("{text}\r\n").into_bytes();
+    pub(crate) async fn say(&mut self, text: &str) {
+        self.say_raw(format!("{text}\r\n").into_bytes()).await;
+    }
+
+    /// Bytes as they are (a response with a literal in it), still deflated when the layer is on.
+    pub(crate) async fn say_raw(&mut self, bytes: Vec<u8>) {
         let bytes = match self.deflate.as_mut() {
             None => bytes,
             Some(deflate) => {
@@ -96,7 +100,7 @@ impl Chan {
 }
 
 /// Listens on loopback; every accepted connection runs `handler` after the TLS handshake.
-async fn serve<H, F>(pki: &Pki, log: &Log, handler: H) -> Target
+pub(crate) async fn serve<H, F>(pki: &Pki, log: &Log, handler: H) -> Target
 where
     H: Fn(Chan) -> F + Send + Sync + 'static,
     F: Future<Output = ()> + Send + 'static,
@@ -119,17 +123,22 @@ where
     Target::new("localhost", port)
 }
 
+/// Answers the commands of a session beyond the set-up: `(tag, command)` to the bytes to send, or `None`.
+pub(crate) type Extra = Arc<dyn Fn(&str, &str) -> Option<Vec<Vec<u8>>> + Send + Sync>;
+
 #[derive(Clone)]
-struct Imap {
-    greeting: String,
-    capabilities: String,
+pub(crate) struct Imap {
+    pub(crate) greeting: String,
+    pub(crate) capabilities: String,
     /// What follows the tag on the answer to the login (`OK …` or `NO …`).
-    login: String,
+    pub(crate) login: String,
+    pub(crate) extra: Option<Extra>,
 }
 
 impl Imap {
-    fn gmail() -> Self {
+    pub(crate) fn gmail() -> Self {
         Self {
+            extra: None,
             greeting: "* OK Gimap ready for requests from 203.0.113.9 abc".into(),
             capabilities: "IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 UIDPLUS ENABLE MOVE CONDSTORE ESEARCH UTF8=ACCEPT LIST-EXTENDED LIST-STATUS LITERAL- SPECIAL-USE APPENDLIMIT=35651584".into(),
             login: "OK user@gmail.com authenticated (Success)".into(),
@@ -174,22 +183,29 @@ impl Imap {
                     chan.say(&format!("{tag} OK Success")).await;
                     return;
                 }
-                _ => chan.say(&format!("{tag} BAD unknown command")).await,
+                _ => match self.extra.as_ref().and_then(|extra| extra(tag, command)) {
+                    Some(chunks) => {
+                        for chunk in chunks {
+                            chan.say_raw(chunk).await;
+                        }
+                    }
+                    None => chan.say(&format!("{tag} BAD unknown command")).await,
+                },
             }
         }
     }
 }
 
 #[derive(Clone)]
-struct Smtp {
-    greeting: String,
-    ehlo: Vec<String>,
+pub(crate) struct Smtp {
+    pub(crate) greeting: String,
+    pub(crate) ehlo: Vec<String>,
     /// The reply to a finished login.
-    auth: String,
+    pub(crate) auth: String,
 }
 
 impl Smtp {
-    fn gmail() -> Self {
+    pub(crate) fn gmail() -> Self {
         Self {
             greeting: "220 smtp.gmail.com ESMTP abc - gsmtp".into(),
             ehlo: vec![
@@ -218,6 +234,16 @@ impl Smtp {
                 chan.say(&self.auth).await;
             } else if line.starts_with("AUTH PLAIN ") {
                 chan.say(&self.auth).await;
+            } else if line.starts_with("MAIL FROM:") || line.starts_with("RCPT TO:") {
+                chan.say("250 2.1.0 OK").await;
+            } else if line == "DATA" {
+                chan.say("354 Go ahead").await;
+                while let Some(data) = chan.line().await {
+                    if data == "." {
+                        break;
+                    }
+                }
+                chan.say("250 2.0.0 OK 1 abc - gsmtp").await;
             } else if line == "QUIT" {
                 chan.say("221 2.0.0 closing connection").await;
                 return;
@@ -228,13 +254,13 @@ impl Smtp {
     }
 }
 
-struct Rig {
-    imap_log: Log,
-    smtp_log: Log,
-    verifier: GmailAppPassword,
+pub(crate) struct Rig {
+    pub(crate) imap_log: Log,
+    pub(crate) smtp_log: Log,
+    pub(crate) verifier: GmailAppPassword,
 }
 
-async fn rig(imap: Imap, smtp: Smtp, timeouts: Timeouts) -> Rig {
+pub(crate) async fn rig(imap: Imap, smtp: Smtp, timeouts: Timeouts) -> Rig {
     let pki = pki();
     let (imap_log, smtp_log): (Log, Log) = Default::default();
     let imap_target = serve(&pki, &imap_log, move |chan| imap.clone().run(chan)).await;
@@ -243,11 +269,11 @@ async fn rig(imap: Imap, smtp: Smtp, timeouts: Timeouts) -> Rig {
     Rig { imap_log, smtp_log, verifier }
 }
 
-fn quick() -> Timeouts {
+pub(crate) fn quick() -> Timeouts {
     Timeouts { connection: Duration::from_secs(5), greeting: Duration::from_secs(5), socket: Duration::from_secs(5) }
 }
 
-fn lines(log: &Log) -> Vec<String> {
+pub(crate) fn lines(log: &Log) -> Vec<String> {
     log.lock().unwrap().clone()
 }
 
