@@ -1,0 +1,35 @@
+# nr-relay-native-push: what the wiring applies (nothing here was compiled: cargo was not run)
+
+No hot file is edited by this task: Cargo.toml of mixdog-relay already carries every crate it uses (p256 with ecdsa, pkcs8 and
+pem; ring; pem; reqwest with http2; base64; url; serde_json; mixdog-fsio; mixdog-js; and tempfile as a dev-dependency), so there
+is no Cargo.toml, Cargo.lock or workspace-hack edit and no protocol row. SERVICE_PENDING in compose_flip.rs: no name leaves it.
+
+## What the tasks that assemble the relay use (mixdog_relay::native_push)
+
+- `NativePush::from_environment(&config.env)` builds the credentialed sender for the process (real hosts, system clock,
+  reqwest transport) and logs "[relay] APNs credentials unusable: <msg>" or "[relay] FCM credentials unusable: <msg>" for a
+  platform it disables. nr-relay-server wraps it as `Option<Arc<dyn PushSender>>`, `None` when `is_configured()` is false
+  (Node passed `null`), and builds one `NativePushService::new(that)` shared by every desktop leg.
+- `NativePushService` replaces `nativePush` + `nativeBindings` + `nativeLimiter` of the leg context (120 sends a minute per
+  device is built in; `with_limiter` takes another RateLimiter):
+  - `platforms()`: the `nativePushPlatforms` for `relay-capabilities` (`nativePush: 1` and `nativePushPlatforms` are sent only
+    when it is not empty).
+  - `bind(device_id, &dyn PairedClients, &frame)` for `native-push-bind`, `unbind(device_id, &frame)` for
+    `native-push-unbind`, `drop_bindings(device_id, Some(client_id) | None)` for `dropNativeBindings` on `revoke-client` and
+    on a revoked device, `send(device_id, &dyn PairedClients, &frame).await -> Option<Value>` for `native-push`: the leg writes
+    the returned `native-push-result` frame with js::wire; `None` (no credentials) writes nothing.
+  - `PairedClients` is implemented by the legs over the device store: `has_client(device_id, client_id)` is
+    `store.hasClient(...) === true`.
+  - `close()` at relay shutdown (Node's `nativePush.close()`).
+- The twin host fakes the sender at the trait seam: implement `PushSender` (platforms, send, close) as tests/native_push.rs's
+  FakePush does, or hand `NativePush::new` a recording `HttpTransport` with `Origins`.
+
+## native/core/crates/mixdog-relay/Cargo.toml (scaffold file, not edited here)
+
+tests/native_push.rs calls two items that exist only with the `test-support` feature (`NativePushService::hold_single_association`
+and `association_count`), so a bare `cargo test` would not compile it. Add beside the `twin` entry:
+
+    [[test]]
+    name = "native_push"
+    path = "tests/native_push.rs"
+    required-features = ["test-support"]
