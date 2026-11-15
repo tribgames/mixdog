@@ -77,6 +77,10 @@ mixdog_pdf::embed (all in crates/mixdog-pdf/src/embed/):
                                                               text was encoded, with the reference it reserved at embed time
                                                               (store.next_ref()) as target, and one SuffixRng per document
                                                               (SuffixRng::default(): the counter starts at 1, as PDFContext's)
+    SuffixRng::name(&mut self, prefix: &str, digits: i32) -> String
+                                                              addRandomSuffix: the writer takes a page's font resource key from
+                                                              the SAME SuffixRng with 10 digits (PDFDict.uniqueKey, at drawing
+                                                              time, before the fonts are written at save), as pdf-lib does
     EmbeddedFace::from_bytes(Vec<u8>) -> Result<EmbeddedFace, EmbedError>
     embed_document_font(&ReadProof, &FontEnv, &FontRequest { font_path, text, standard }) -> Result<DocumentFont { font, font_path, embedded }, EmbedError>
     embed_bold_font(&ReadProof, &Font regular, font_path: &str, text: &str) -> Font
