@@ -14,15 +14,18 @@
 //! * the `actualBoundingBox` fields are those of the first run: left from the first glyph, right from the last glyph's
 //!   origin, ascent and descent over its glyphs, each glyph's ink box rounded outwards to whole pixels on the left,
 //!   right and top and floored on the bottom. A synthesised italic (an italic request answered by an upright face)
-//!   shears the outline by a quarter of its height and is rounded outwards on every side. A synthesised bold, which
-//!   widens the ink, is not modelled, and hinting moves the vertical bounds of some glyphs by a pixel in the canvas
-//!   (the rasteriser). With letter spacing the left bound gains the spacing and the right bound loses half of it,
-//!   except in a cursive script.
+//!   shears the outline by a quarter of its height (it is not hinted). A synthesised bold grows the box by half of
+//!   Skia's fake-bold stroke on every side, and by the miter tips of its corners. The box is the control box of the
+//!   outline the canvas draws: grid-fitted vertically by the auto-hinter (`crate::autohint`), whose model of FreeType
+//!   can leave a bound one pixel from the canvas's where it fits a zone differently. With letter spacing the left
+//!   bound gains the spacing and the right bound loses half of it, except in a cursive script.
 //! * a NUL in the text is refused.
 
 use mixdog_fsio::ReadProof;
 
+use crate::autohint;
 use crate::css_font::ParsedFont;
+use crate::face::Face;
 use crate::face::FontError;
 use crate::face::Slant;
 use crate::matching::Chain;
@@ -108,89 +111,56 @@ fn round_hundredths(value: f32) -> f32 {
 /// Skia's synthetic italic: the glyph is sheared by a quarter of its height to the right (`SkFont::setSkewX(-1/4)`).
 const FAKE_ITALIC_SKEW: f32 = 0.25;
 
-/// The extent of an outline sheared by [`FAKE_ITALIC_SKEW`], in font units: `(min x, max x)`; the curves are followed
-/// to their extremes, not only through their control points.
-struct SkewedExtent {
-    last: (f32, f32),
-    min_x: f32,
-    max_x: f32,
+/// How the canvas draws one glyph, which decides what its ink box is.
+#[derive(Clone, Copy)]
+struct Look {
+    size: f32,
+    /// An italic request answered by an upright face: the outline is sheared, and no longer aligned to the pixel grid.
+    synthetic_italic: bool,
+    /// A bold request answered by a face that is not bold: the glyph is stroked and filled (Skia's fake bold).
+    synthetic_bold: bool,
+    /// The auto-hinter grid-fits the glyph vertically.
+    hinted: bool,
 }
 
-impl SkewedExtent {
-    fn at(&mut self, x: f32, y: f32) {
-        let sheared = x + FAKE_ITALIC_SKEW * y;
-        self.min_x = self.min_x.min(sheared);
-        self.max_x = self.max_x.max(sheared);
-    }
-
-    fn follow(&mut self, points: &[(f32, f32)]) {
-        // Sampled densely: a glyph curve is short and smooth, and its extreme is where the sheared x turns.
-        const STEPS: usize = 64;
-        let start = self.last;
-        for step in 1..=STEPS {
-            let t = step as f32 / STEPS as f32;
-            let u = 1.0 - t;
-            let (x, y) = match points {
-                [c, e] => (u * u * start.0 + 2.0 * u * t * c.0 + t * t * e.0, u * u * start.1 + 2.0 * u * t * c.1 + t * t * e.1),
-                [c1, c2, e] => (
-                    u * u * u * start.0 + 3.0 * u * u * t * c1.0 + 3.0 * u * t * t * c2.0 + t * t * t * e.0,
-                    u * u * u * start.1 + 3.0 * u * u * t * c1.1 + 3.0 * u * t * t * c2.1 + t * t * t * e.1,
-                ),
-                _ => return,
-            };
-            self.at(x, y);
+/// The ink box of a glyph as the canvas keeps it: the control box of the outline the canvas draws (hinted when it is
+/// hinted, sheared when it is synthetically italic, grown by half the stroke of a fake bold and its miter corners), with
+/// the left, right and top edges rounded outwards and the bottom floored.
+fn glyph_ink(face: &Face, parsed: &ttf_parser::Face<'_>, glyph: u16, look: Look) -> Option<Ink> {
+    let upem = f32::from(parsed.units_per_em().max(1));
+    let scale = look.size / upem;
+    let hinted = if look.hinted && !look.synthetic_italic {
+        let ppem = (f64::from(look.size) * 64.0) as i64;
+        autohint::metrics_of(face).and_then(|metrics| metrics.hint(parsed, glyph, ppem, ppem))
+    } else {
+        None
+    };
+    let contours = match hinted {
+        Some(hinted) => hinted.contours,
+        None => {
+            let skew = if look.synthetic_italic { FAKE_ITALIC_SKEW } else { 0.0 };
+            let outline = autohint::scaled_outline(parsed, glyph, 1.0, 1.0)?;
+            outline.contours.into_iter().map(|contour| contour.into_iter().map(|(x, y, tag)| ((x + skew * y) * scale, y * scale, tag)).collect()).collect()
         }
-        if let Some(end) = points.last() {
-            self.last = *end;
-        }
-    }
+    };
+    let half_stroke = if look.synthetic_bold { fake_bold_width(look.size) / 2.0 } else { 0.0 };
+    let (x_min, x_max, y_min, y_max) = autohint::stroked_bounds(&contours, half_stroke)?;
+    // A glyph FreeType renders keeps its descent floored; one Skia renders as a path (sheared or stroked) is rounded outwards.
+    let bottom = (-y_min).ceil();
+    Some(Ink { left: x_min.floor(), right: x_max.ceil(), top: y_max.ceil(), bottom })
 }
 
-impl ttf_parser::OutlineBuilder for SkewedExtent {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.at(x, y);
-        self.last = (x, y);
-    }
-
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.at(x, y);
-        self.last = (x, y);
-    }
-
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.follow(&[(x1, y1), (x, y)]);
-    }
-
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        self.follow(&[(x1, y1), (x2, y2), (x, y)]);
-    }
-
-    fn close(&mut self) {}
-}
-
-/// The ink box of a glyph. With `synthetic_italic` the glyph is sheared first and, being no longer aligned to the pixel
-/// grid, is not hinted: every edge is rounded outwards.
-fn glyph_ink(face: &ttf_parser::Face<'_>, glyph: u16, size: f32, synthetic_italic: bool) -> Option<Ink> {
-    let id = ttf_parser::GlyphId(glyph);
-    let bounds = face.glyph_bounding_box(id)?;
-    let scale = size / f32::from(face.units_per_em().max(1));
-    let per_unit = |value: i16| f32::from(value) * scale;
-    if synthetic_italic {
-        let mut extent = SkewedExtent { last: (0.0, 0.0), min_x: f32::INFINITY, max_x: f32::NEG_INFINITY };
-        face.outline_glyph(id, &mut extent)?;
-        return Some(Ink {
-            left: (extent.min_x * scale).floor(),
-            right: (extent.max_x * scale).ceil(),
-            top: per_unit(bounds.y_max).ceil(),
-            bottom: (-per_unit(bounds.y_min)).ceil(),
-        });
-    }
-    Some(Ink {
-        left: per_unit(bounds.x_min).floor(),
-        right: per_unit(bounds.x_max).ceil(),
-        top: per_unit(bounds.y_max).ceil(),
-        bottom: (-per_unit(bounds.y_min)).floor(),
-    })
+/// The width of the stroke Skia adds around a fake bold glyph: `size * interp(size)`, the factor going from 1/24 at 9 pixels
+/// to 1/32 at 36 and held beyond them.
+pub fn fake_bold_width(size: f32) -> f32 {
+    let factor = if size <= 9.0 {
+        1.0 / 24.0
+    } else if size >= 36.0 {
+        1.0 / 32.0
+    } else {
+        1.0 / 24.0 + (size - 9.0) / (36.0 - 9.0) * (1.0 / 32.0 - 1.0 / 24.0)
+    };
+    size * factor
 }
 
 /// One run of the paragraph shaper: one script, one bidi level and one font resolution.
@@ -236,7 +206,8 @@ fn regions(chain: &Chain<'_>, text: &str) -> Vec<Region> {
                 Some(current) if is_neutral(character) => current,
                 _ => (level, resolve(character)),
             };
-            if open == Some(state) && out.last().is_some_and(|region| region.range.end == at) {
+            // A carriage return always starts a run of its own (the line feed after it joins it).
+            if open == Some(state) && character != '\r' && out.last().is_some_and(|region| region.range.end == at) {
                 if let Some(region) = out.last_mut() {
                     region.range.end = at + character.len_utf8();
                 }
@@ -262,15 +233,19 @@ fn shape_text(chain: &Chain<'_>, text: &str, font: &ParsedFont, letter_spacing: 
     for (run_index, region) in regions.into_iter().enumerate() {
         let (Some(face), Some(parsed)) = (faces[region.slot].as_ref(), chain.parsed(region.slot)) else { continue };
         let units_per_em = parsed.units_per_em();
-        // A face that is not italic stands in for an italic request: the canvas shears it.
-        let synthetic_italic = font.slant != Slant::Upright && registry.face(chain.ids()[region.slot]).style.slant == Slant::Upright;
+        let registered = registry.face(chain.ids()[region.slot]);
+        // A face that is not italic stands in for an italic request: the canvas shears it. One that is not bold stands in
+        // for a bold request: the canvas strokes it.
+        let synthetic_italic = font.slant != Slant::Upright && registered.style.slant == Slant::Upright;
+        let synthetic_bold = font.weight >= 600 && registered.style.weight < 600;
         for glyph in shape::shape_run(face, &text[region.range.clone()], region.rtl, region.range.start) {
+            let hinted = text[glyph.cluster..].chars().next().is_none_or(autohint::is_hinted);
             placed.push(Placed {
                 cluster: glyph.cluster,
                 run: run_index,
                 advance: advance_of(parsed, &glyph, size, units_per_em) + letter_spacing,
                 offset: shaper_scaled_fixed(glyph.x_offset, size, units_per_em) as f32 / 65536.0,
-                ink: glyph_ink(parsed, glyph.glyph_id, size, synthetic_italic),
+                ink: glyph_ink(registered, parsed, glyph.glyph_id, Look { size, synthetic_italic, synthetic_bold, hinted }),
             });
         }
     }
