@@ -242,10 +242,6 @@ impl Painter<'_> {
 
     /// `_createMaskCanvas` and the draw of `paintImageMaskXObject`.
     fn paint_image_mask(&mut self, mask: &ImageMask) -> Result<()> {
-        if self.current.pattern_fill {
-            self.report_once("pattern", "an image mask painted with a pattern is drawn by the paint stage of the rasteriser");
-            return Ok(());
-        }
         let (width, height) = (mask.width as f64, mask.height as f64);
         let Ok(stencil) = Bitmap::from_straight(mask.width as u32, mask.height as u32, &mask_pixels(mask)) else {
             tracing::warn!("Unable to paint an image mask of {} by {} pixels", mask.width, mask.height);
@@ -284,7 +280,14 @@ impl Painter<'_> {
             (0.0, 0.0, width, height),
         );
         fill.set_global_composite_operation("source-in");
-        fill.set_fill_style(self.canvas.fill_style().clone());
+        // A pattern fill is made for the matrix from the mask's own canvas to the pattern's space.
+        let pattern_style = if self.current.pattern_fill {
+            let pattern_inverse = gstate::transform(&inverse, &[1.0, 0.0, 0.0, 1.0, -bounds[0], -bounds[1]]);
+            self.mask_pattern_style(&pattern_inverse)?
+        } else {
+            None
+        };
+        fill.set_fill_style(pattern_style.unwrap_or_else(|| self.canvas.fill_style().clone()));
         fill.fill_rect(0.0, 0.0, width as f32, height as f32);
         let placed = Bitmap::from_canvas(&fill);
         self.canvas.save();

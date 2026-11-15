@@ -4,9 +4,9 @@
 //! event the way `CanvasGraphics` executes the matching operator, and leaves text to `text.rs` and images to
 //! `images.rs`.
 //!
-//! Not painted here (the paint stage of the rasteriser adds them): Type3 glyph procedures, shadings, patterns, soft
-//! masks, non-trivial transparency groups. A pattern fill or stroke draws nothing until then (reported once); a group
-//! is entered as pdf.js enters one that needs no isolation (its bounding box clips, its content paints in place).
+//! Patterns and shadings (`pattern.rs`, `shading.rs`), transparency groups and soft masks (`transparency.rs`) and
+//! Type3 glyph procedures (`text.rs`) are painted by the files named; this one holds the state they work on and
+//! routes the operators to them.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -23,8 +23,12 @@ use crate::oplist::events::{
     GStateValue, MarkedData, Op, OperatorList, OptionalContent, PaintOp, ParamOp, PathData,
 };
 use crate::oplist::gstate::Matrix;
+use crate::oplist::FontHandle;
 
+use super::pattern::PatternPaint;
+use super::shading::ShadingIr;
 use super::text::{DrawnFont, FontDrawing};
+use super::transparency::{ActiveSMask, SmaskMeta, SmaskSource};
 
 /// `LINE_CAP_STYLES` and `LINE_JOIN_STYLES`.
 const LINE_CAP_STYLES: [&str; 3] = ["butt", "round", "square"];
@@ -130,6 +134,21 @@ pub(super) fn axial_bounding_box(rect: &[f64; 4], m: &Matrix, output: &mut [f64;
     output[1] = output[1].min(b0).min(b1).min(b2).min(b3);
     output[2] = output[2].max(a0).max(a1).max(a2).max(a3);
     output[3] = output[3].max(b0).max(b1).max(b2).max(b3);
+}
+
+/// `Util.intersect`: the rectangle two rectangles share, `None` when they do not meet.
+pub(super) fn intersect(rect1: &[f64; 4], rect2: &[f64; 4]) -> Option<[f64; 4]> {
+    let x_low = rect1[0].min(rect1[2]).max(rect2[0].min(rect2[2]));
+    let x_high = rect1[0].max(rect1[2]).min(rect2[0].max(rect2[2]));
+    if x_low > x_high {
+        return None;
+    }
+    let y_low = rect1[1].min(rect1[3]).max(rect2[1].min(rect2[3]));
+    let y_high = rect1[1].max(rect1[3]).min(rect2[1].max(rect2[3]));
+    if y_low > y_high {
+        return None;
+    }
+    Some([x_low, y_low, x_high, y_high])
 }
 
 /// `makePathFromDrawOPS`: the path a buffer of codes and coordinates describes (the walk stops at a truncated entry).
@@ -257,6 +276,61 @@ pub(super) struct Extra {
     pub(super) line_width: f64,
     pub(super) dash_phase: f64,
     pub(super) transfer: Option<TransferMaps>,
+    /// `fillColor` and `strokeColor` when they are patterns.
+    pub(super) fill_pattern: Option<Arc<PatternPaint>>,
+    pub(super) stroke_pattern: Option<Arc<PatternPaint>>,
+    /// `tilingPatternDims`: the shape being filled with a tiling pattern, in pattern space.
+    pub(super) tiling_pattern_dims: Option<[f64; 4]>,
+    /// `clipBox` and `minMax`: the box of the clip and of the path under construction, in device space.
+    pub(super) clip_box: [f32; 4],
+    pub(super) min_max: [f32; 4],
+    /// `activeSMask`.
+    pub(super) active_smask: Option<Arc<ActiveSMask>>,
+    /// The canvas's `globalCompositeOperation`, `lineCap`, `lineJoin` and `miterLimit` (which a canvas does not give
+    /// back).
+    pub(super) blend_mode: &'static str,
+    pub(super) line_cap: &'static str,
+    pub(super) line_join: &'static str,
+    pub(super) miter_limit: f32,
+}
+
+impl Extra {
+    /// `getPathBoundingBox`: the box of the path under construction, with the half line width of a stroke around it.
+    fn path_bounding_box(&self, stroke_transform: Option<&Matrix>) -> [f64; 4] {
+        let mut bounds = self.min_max;
+        if let Some(transform) = stroke_transform {
+            let (scale_x, scale_y) = singular_scales(transform);
+            let x_pad = f64::from(scale_x) * self.line_width / 2.0;
+            let y_pad = f64::from(scale_y) * self.line_width / 2.0;
+            bounds[0] = (f64::from(bounds[0]) - x_pad) as f32;
+            bounds[1] = (f64::from(bounds[1]) - y_pad) as f32;
+            bounds[2] = (f64::from(bounds[2]) + x_pad) as f32;
+            bounds[3] = (f64::from(bounds[3]) + y_pad) as f32;
+        }
+        bounds.map(f64::from)
+    }
+
+    /// `getClippedPathBoundingBox`: `None` where the path lies outside the clip.
+    pub(super) fn clipped_path_bbox(&self, stroke_transform: Option<&Matrix>) -> Option<[f64; 4]> {
+        intersect(&self.clip_box.map(f64::from), &self.path_bounding_box(stroke_transform))
+    }
+
+    /// `startNewPathAndClipBox`.
+    pub(super) fn start_new_path_and_clip_box(&mut self, clip_box: [f64; 4]) {
+        self.clip_box = clip_box.map(|value| value as f32);
+        self.min_max = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+    }
+
+    /// `updateClipFromPath`: the clip box is cut to the path.
+    pub(super) fn update_clip_from_path(&mut self) {
+        let clipped = self.clipped_path_bbox(None).unwrap_or([0.0; 4]);
+        self.start_new_path_and_clip_box(clipped);
+    }
+
+    /// `isEmptyClip`: nothing was added to the path under construction.
+    fn is_empty_clip(&self) -> bool {
+        self.min_max[0] == f32::INFINITY
+    }
 }
 
 impl Default for Extra {
@@ -288,6 +362,16 @@ impl Default for Extra {
             line_width: 1.0,
             dash_phase: 0.0,
             transfer: None,
+            fill_pattern: None,
+            stroke_pattern: None,
+            tiling_pattern_dims: None,
+            clip_box: [0.0; 4],
+            min_max: [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY],
+            active_smask: None,
+            blend_mode: "source-over",
+            line_cap: "butt",
+            line_join: "miter",
+            miter_limit: 10.0,
         }
     }
 }
@@ -456,12 +540,26 @@ pub(super) struct Painter<'a> {
     pub(super) current: Extra,
     states: Vec<Extra>,
     pending_clip: Option<FillRule>,
-    optional_content: OptionalContentConfig,
+    optional_content: Arc<OptionalContentConfig>,
     marked: Vec<bool>,
     pub(super) content_visible: bool,
     /// `pendingTextPaths`: the glyph outlines a clipping text mode collects until `ET`.
     pub(super) pending_text_paths: Option<Vec<super::text::TextClipPath>>,
     reported: HashSet<&'static str>,
+    /// `baseTransform` and its stack: the matrix of the page, or of the form or pattern cell being painted.
+    pub(super) base_transform: Matrix,
+    pub(super) base_transform_stack: Vec<Matrix>,
+    /// `cachedPatterns`: the shadings read, by id.
+    pub(super) shading_cache: HashMap<String, Arc<ShadingIr>>,
+    /// `groupStack`: the canvas each open group was begun on, `None` for a group painted in place.
+    pub(super) group_stack: Vec<Option<Canvas>>,
+    /// `smaskStack` and `tempSMask`.
+    pub(super) smask_stack: Vec<SmaskMeta>,
+    pub(super) temp_smask: Option<SmaskSource>,
+    /// An element is being painted on a soft-mask layer.
+    pub(super) in_layer: bool,
+    /// The fonts the operator list was made with, for the glyph procedures of Type3 fonts (`charProcOperatorList`).
+    pub(super) type3_fonts: Arc<HashMap<String, FontHandle>>,
 }
 
 impl<'a> Painter<'a> {
@@ -472,12 +570,27 @@ impl<'a> Painter<'a> {
         drawing: Option<&'a dyn FontDrawing>,
         optional_content: OptionalContentConfig,
     ) -> Self {
+        Self::with_shared(canvas, document, resources, drawing, Arc::new(optional_content))
+    }
+
+    fn with_shared(
+        canvas: Canvas,
+        document: &'a Document,
+        resources: Arc<Dict>,
+        drawing: Option<&'a dyn FontDrawing>,
+        optional_content: Arc<OptionalContentConfig>,
+    ) -> Self {
+        let current = Extra {
+            clip_box: [0.0, 0.0, canvas.width() as f32, canvas.height() as f32],
+            ..Extra::default()
+        };
+        let base_transform = widen(canvas.get_transform());
         Self {
             canvas,
             document,
             resources,
             drawing,
-            current: Extra::default(),
+            current,
             states: Vec::new(),
             pending_clip: None,
             optional_content,
@@ -485,7 +598,29 @@ impl<'a> Painter<'a> {
             content_visible: true,
             pending_text_paths: None,
             reported: HashSet::new(),
+            base_transform,
+            base_transform_stack: Vec::new(),
+            shading_cache: HashMap::new(),
+            group_stack: Vec::new(),
+            smask_stack: Vec::new(),
+            temp_smask: None,
+            in_layer: false,
+            type3_fonts: Arc::new(HashMap::new()),
         }
+    }
+
+    /// A painter for a pattern cell on `canvas` (`createCanvasGraphics`): the same document, resources, fonts and
+    /// optional content, a state of its own.
+    pub(super) fn nested(&self, canvas: Canvas) -> Painter<'a> {
+        let mut nested = Self::with_shared(
+            canvas,
+            self.document,
+            self.resources.clone(),
+            self.drawing,
+            self.optional_content.clone(),
+        );
+        nested.type3_fonts = self.type3_fonts.clone();
+        nested
     }
 
     /// Says once, at warn level, that something the rasteriser does not paint yet was met.
@@ -509,7 +644,27 @@ impl<'a> Painter<'a> {
         Ok(())
     }
 
+    /// An operator that paints something is one element of the page: under a soft mask it paints on a layer
+    /// (`compose` runs after each of them in pdf.js).
     fn apply(&mut self, op: &Op) -> Result<()> {
+        let paints = match op {
+            Op::ConstructPath { paint, .. } => *paint != PaintOp::EndPath,
+            Op::ShowText(_)
+            | Op::PaintImage(_)
+            | Op::PaintInlineImage(_)
+            | Op::PaintImageMask(_)
+            | Op::PaintSolidColorImageMask
+            | Op::ShadingFill(_) => true,
+            _ => false,
+        };
+        if paints && self.content_visible {
+            self.in_smask_layer(|painter| painter.apply_op(op))
+        } else {
+            self.apply_op(op)
+        }
+    }
+
+    fn apply_op(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Save => self.save(),
             Op::Restore => self.restore(),
@@ -521,7 +676,7 @@ impl<'a> Painter<'a> {
                 m[4] as f32,
                 m[5] as f32,
             ),
-            Op::ConstructPath { paint, path } => self.construct_path(*paint, path.as_ref()),
+            Op::ConstructPath { paint, path } => self.construct_path(*paint, path.as_ref())?,
             Op::Clip => self.pending_clip = Some(FillRule::Winding),
             Op::EoClip => self.pending_clip = Some(FillRule::EvenOdd),
             Op::SetLineWidth(width) => self.set_line_width(*width),
@@ -533,46 +688,24 @@ impl<'a> Painter<'a> {
             Op::SetFont { loaded_name, size } => {
                 self.set_font(loaded_name, size.as_num().unwrap_or(f64::NAN));
             }
-            Op::ShowText(items) => self.show_text(items),
+            Op::ShowText(items) => self.show_text(items)?,
             Op::SetTextMatrix(m) => self.set_text_matrix(m),
             Op::SetFillRgbColor(color) => self.set_fill_color(color),
             Op::SetStrokeRgbColor(color) => self.set_stroke_color(color),
             Op::SetFillTransparent => self.set_fill_color("transparent"),
             Op::SetStrokeTransparent => self.set_stroke_color("transparent"),
-            Op::SetFillPattern(_) => self.current.pattern_fill = true,
-            Op::SetStrokePattern(_) => self.current.pattern_stroke = true,
-            Op::ShadingFill(_) => self.report_once(
-                "shading",
-                "a shading fill (sh) is not painted by the core rasteriser",
-            ),
+            Op::SetFillPattern(pattern) => self.set_pattern_color(pattern, true)?,
+            Op::SetStrokePattern(pattern) => self.set_pattern_color(pattern, false)?,
+            Op::ShadingFill(shading) => self.shading_fill(shading)?,
             Op::FormBegin { matrix, bbox } => self.form_begin(matrix.as_ref(), bbox.as_ref()),
             Op::FormEnd => {
                 if self.content_visible {
                     self.restore();
+                    self.base_transform = self.base_transform_stack.pop().unwrap_or(self.base_transform);
                 }
             }
-            Op::BeginGroup(group) => {
-                if self.content_visible {
-                    self.save();
-                    if let Some(bbox) = group.bbox {
-                        let clip = rect_path(f64::from(bbox[0]), f64::from(bbox[1]), f64::from(bbox[2]), f64::from(bbox[3]));
-                        let clip = match &group.matrix {
-                            Some(matrix) => {
-                                let mut moved = Path2D::new();
-                                moved.add_path(&clip, skia(matrix));
-                                moved
-                            }
-                            None => clip,
-                        };
-                        self.canvas.clip_path2d(&clip, FillRule::Winding);
-                    }
-                }
-            }
-            Op::EndGroup(_) => {
-                if self.content_visible {
-                    self.restore();
-                }
-            }
+            Op::BeginGroup(group) => self.begin_group(group)?,
+            Op::EndGroup(group) => self.end_group(group)?,
             Op::PaintImage(image) => {
                 if self.content_visible {
                     self.paint_image_object(image)?;
@@ -645,13 +778,20 @@ impl<'a> Painter<'a> {
     fn set_line_cap(&mut self, style: f64) {
         if let Some(name) = style_name(&LINE_CAP_STYLES, style) {
             self.canvas.set_line_cap(name);
+            self.current.line_cap = name;
         }
     }
 
     fn set_line_join(&mut self, style: f64) {
         if let Some(name) = style_name(&LINE_JOIN_STYLES, style) {
             self.canvas.set_line_join(name);
+            self.current.line_join = name;
         }
+    }
+
+    fn set_miter_limit(&mut self, limit: f64) {
+        self.canvas.set_miter_limit(limit as f32);
+        self.current.miter_limit = limit as f32;
     }
 
     fn param(&mut self, op: ParamOp, args: &[Obj]) {
@@ -659,7 +799,7 @@ impl<'a> Painter<'a> {
         match op {
             ParamOp::SetLineCap => self.set_line_cap(number(0)),
             ParamOp::SetLineJoin => self.set_line_join(number(0)),
-            ParamOp::SetMiterLimit => self.canvas.set_miter_limit(number(0) as f32),
+            ParamOp::SetMiterLimit => self.set_miter_limit(number(0)),
             ParamOp::SetRenderingIntent | ParamOp::SetFlatness => {}
             ParamOp::SetCharSpacing => self.current.char_spacing = number(0),
             ParamOp::SetWordSpacing => self.current.word_spacing = number(0),
@@ -679,22 +819,22 @@ impl<'a> Painter<'a> {
                 let leading = self.current.leading;
                 self.move_text(0.0, leading);
             }
-            ParamOp::SetCharWidth | ParamOp::SetCharWidthAndBounds => self.report_once(
-                "type3-width",
-                "a Type3 glyph description (d0, d1) is drawn by the paint stage of the rasteriser",
-            ),
+            // `setCharWidth` does nothing; `setCharWidthAndBounds` clips the glyph to its box.
+            ParamOp::SetCharWidth => {}
+            ParamOp::SetCharWidthAndBounds => {
+                let (llx, lly, urx, ury) = (number(2), number(3), number(4), number(5));
+                self.canvas.clip_path2d(&rect_path(llx, lly, urx, ury), FillRule::Winding);
+            }
         }
     }
 
-    fn set_gstate(&mut self, states: &[(String, GStateValue)]) {
+    pub(super) fn set_gstate(&mut self, states: &[(String, GStateValue)]) {
         for (key, value) in states {
             match (key.as_str(), value) {
                 ("LW", GStateValue::Number(width)) => self.set_line_width(*width),
                 ("LC", GStateValue::Value(Obj::Num(style))) => self.set_line_cap(*style),
                 ("LJ", GStateValue::Value(Obj::Num(style))) => self.set_line_join(*style),
-                ("ML", GStateValue::Value(Obj::Num(limit))) => {
-                    self.canvas.set_miter_limit(*limit as f32);
-                }
+                ("ML", GStateValue::Value(Obj::Num(limit))) => self.set_miter_limit(*limit),
                 ("D", GStateValue::Value(Obj::Array(dash))) => {
                     let array: Vec<f64> = match dash.first() {
                         Some(Obj::Array(values)) => {
@@ -715,7 +855,9 @@ impl<'a> Painter<'a> {
                 }
                 ("BM", GStateValue::BlendMode(mode)) => {
                     self.canvas.set_global_composite_operation(mode);
+                    self.current.blend_mode = *mode;
                 }
+                ("SMask", GStateValue::Bool(selected)) => self.set_smask(*selected),
                 ("TR", GStateValue::Transfer(maps)) => self.set_transfer(maps.as_deref()),
                 _ => {}
             }
@@ -746,18 +888,21 @@ impl<'a> Painter<'a> {
         }
     }
 
-    fn set_fill_color(&mut self, color: &str) {
+    pub(super) fn set_fill_color(&mut self, color: &str) {
         self.current.fill_color = color.to_owned();
         let shown = self.transferred(color);
         self.canvas.set_fill_color(&shown);
         self.current.pattern_fill = false;
+        self.current.fill_pattern = None;
+        self.current.tiling_pattern_dims = None;
     }
 
-    fn set_stroke_color(&mut self, color: &str) {
+    pub(super) fn set_stroke_color(&mut self, color: &str) {
         self.current.stroke_color = color.to_owned();
         let shown = self.transferred(color);
         self.canvas.set_stroke_color(&shown);
         self.current.pattern_stroke = false;
+        self.current.stroke_pattern = None;
     }
 
     fn form_begin(&mut self, matrix: Option<&[f32; 6]>, bbox: Option<&[f32; 4]>) {
@@ -765,70 +910,126 @@ impl<'a> Painter<'a> {
             return;
         }
         self.save();
+        self.base_transform_stack.push(self.base_transform);
         if let Some(m) = matrix {
             self.canvas.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
         }
+        self.base_transform = self.ctm();
         if let Some(b) = bbox {
-            let clip = rect_path(f64::from(b[0]), f64::from(b[1]), f64::from(b[2]), f64::from(b[3]));
+            let rect = b.map(f64::from);
+            let mut min_max = self.current.min_max.map(f64::from);
+            axial_bounding_box(&rect, &self.base_transform, &mut min_max);
+            self.current.min_max = min_max.map(|value| value as f32);
+            let clip = rect_path(rect[0], rect[1], rect[2], rect[3]);
             self.canvas.clip_path2d(&clip, FillRule::Winding);
             // `endPath` after the box: a `W` left pending before `Do` is consumed by the empty path.
-            self.pending_clip = None;
+            if self.pending_clip.take().is_some() {
+                self.current.update_clip_from_path();
+            }
+            let clip_box = self.current.clip_box.map(f64::from);
+            self.current.start_new_path_and_clip_box(clip_box);
         }
     }
 
     // ---- paths -------------------------------------------------------------------------------------------------
 
-    fn construct_path(&mut self, paint: PaintOp, data: Option<&PathData>) {
+    fn construct_path(&mut self, paint: PaintOp, data: Option<&PathData>) -> Result<()> {
         let path = data.map_or_else(Path2D::new, |data| path_from_buffer(&data.data));
-        let is_empty = data.is_none_or(|data| data.min_max[0] == f32::INFINITY);
+        match data.filter(|data| data.min_max[0] != f32::INFINITY) {
+            None => {
+                if !matches!(paint, PaintOp::Stroke | PaintOp::CloseStroke) {
+                    self.current.tiling_pattern_dims = None;
+                }
+            }
+            Some(data) => {
+                let mut min_max = self.current.min_max.map(f64::from);
+                let rect = data.min_max.map(f64::from);
+                let ctm = self.ctm();
+                axial_bounding_box(&rect, &ctm, &mut min_max);
+                self.current.min_max = min_max.map(|value| value as f32);
+                self.update_tiling_dims(paint);
+            }
+        }
         match paint {
-            PaintOp::Stroke | PaintOp::CloseStroke => self.stroke(&path),
-            PaintOp::Fill => self.fill(&path, FillRule::Winding),
-            PaintOp::EoFill => self.fill(&path, FillRule::EvenOdd),
+            PaintOp::Stroke | PaintOp::CloseStroke => self.stroke(&path)?,
+            PaintOp::Fill => self.fill(&path, FillRule::Winding)?,
+            PaintOp::EoFill => self.fill(&path, FillRule::EvenOdd)?,
             PaintOp::FillStroke | PaintOp::CloseFillStroke => {
-                self.fill(&path, FillRule::Winding);
-                self.stroke(&path);
+                self.fill(&path, FillRule::Winding)?;
+                self.stroke(&path)?;
             }
             PaintOp::EoFillStroke | PaintOp::CloseEoFillStroke => {
-                self.fill(&path, FillRule::EvenOdd);
-                self.stroke(&path);
+                self.fill(&path, FillRule::EvenOdd)?;
+                self.stroke(&path)?;
             }
             PaintOp::EndPath => {}
         }
-        self.consume_path(&path, is_empty);
+        self.consume_path(&path);
+        Ok(())
     }
 
-    /// `fill`: a pattern fill is the paint stage's.
-    fn fill(&mut self, path: &Path2D, rule: FillRule) {
-        if self.current.pattern_fill {
-            self.report_once("pattern", "a pattern fill is painted by the paint stage of the rasteriser");
+    /// The part of `constructPath` that follows a tiling fill: the shape's box in pattern space.
+    fn update_tiling_dims(&mut self, paint: PaintOp) {
+        if matches!(paint, PaintOp::Stroke | PaintOp::CloseStroke) {
             return;
+        }
+        let (Some(mut dims), Some(pattern)) = (self.current.tiling_pattern_dims, self.current.fill_pattern.clone())
+        else {
+            return;
+        };
+        let PatternPaint::Tiling(tiling) = &*pattern else {
+            return;
+        };
+        let clip_box = self.current.clip_box.map(f64::from);
+        match intersect(&clip_box, &self.current.min_max.map(f64::from)) {
+            Some(clipped) => {
+                tiling.update_pattern_dims(clipped, &mut dims);
+                self.current.tiling_pattern_dims = Some(dims);
+            }
+            None => self.current.tiling_pattern_dims = None,
+        }
+    }
+
+    /// `fill`: a pattern fill is the pattern's.
+    fn fill(&mut self, path: &Path2D, rule: FillRule) -> Result<()> {
+        if self.current.pattern_fill {
+            return self.fill_with_pattern(path, rule);
         }
         if self.content_visible {
             self.canvas.fill_path2d(path, rule);
         }
+        Ok(())
     }
 
     /// `stroke`: the stroke alpha for the stroke, the fill alpha again after it.
-    fn stroke(&mut self, path: &Path2D) {
-        if self.current.pattern_stroke {
-            self.report_once("pattern", "a pattern stroke is painted by the paint stage of the rasteriser");
-            return;
-        }
+    fn stroke(&mut self, path: &Path2D) -> Result<()> {
         self.canvas.set_global_alpha(self.current.stroke_alpha as f32);
-        if self.content_visible {
+        let outcome = if !self.content_visible {
+            Ok(())
+        } else if self.current.pattern_stroke {
+            self.stroke_with_pattern(path)
+        } else {
             self.rescale_and_stroke(path);
-        }
+            Ok(())
+        };
         self.canvas.set_global_alpha(self.current.fill_alpha as f32);
+        outcome
     }
 
-    /// `consumePath`: the pending clip takes the path unless the path was empty.
-    fn consume_path(&mut self, path: &Path2D, is_empty: bool) {
-        if let Some(rule) = self.pending_clip.take()
+    /// `consumePath`: the pending clip takes the path unless nothing was added to it.
+    fn consume_path(&mut self, path: &Path2D) {
+        let is_empty = self.current.is_empty_clip();
+        let rule = self.pending_clip.take();
+        if rule.is_some() {
+            self.current.update_clip_from_path();
+        }
+        if let Some(rule) = rule
             && !is_empty
         {
             self.canvas.clip_path2d(path, rule);
         }
+        let clip_box = self.current.clip_box.map(f64::from);
+        self.current.start_new_path_and_clip_box(clip_box);
     }
 
     /// `getSinglePixelWidth`.
@@ -879,7 +1080,7 @@ impl<'a> Painter<'a> {
     }
 
     /// `rescaleAndStroke`: a stroke is never thinner than a device pixel.
-    fn rescale_and_stroke(&mut self, path: &Path2D) {
+    pub(super) fn rescale_and_stroke(&mut self, path: &Path2D) {
         let line_width = self.current.line_width;
         let (scale_x, scale_y) = self.scale_for_stroking();
         let width = if line_width == 0.0 { 1.0 } else { line_width };
