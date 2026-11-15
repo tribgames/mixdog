@@ -14,6 +14,7 @@ use std::path::Path;
 use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::{json_number, to_number, value_to_string};
 use mixdog_ooxml::placeholder_scan::placeholder_text_issues;
+use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_pdf::inspect::{Detail, InspectError, InspectOptions, PageRange, inspect_pdf_buffer};
 use mixdog_pdf::write::{PdfDocument, SaveOptions};
@@ -23,7 +24,7 @@ use serde_json::{Map, Value, json};
 use crate::analysis::outline::extract_pdf_outline;
 use crate::analysis::round2;
 use crate::document::{AnalysisError, PdfSource};
-use crate::edit_document::{PDF_ENCRYPTED_HINT, edit_error, js_string, load_pdf, pdf_attachments, read_file, truthy};
+use crate::edit_document::{PDF_ENCRYPTED_HINT, edit_error, js_string, load_pdf, pdf_attachments, read_file};
 use crate::limits::DEFAULT_MAX_OUTLINE_ENTRIES;
 use crate::safety::active_content_issues;
 
@@ -525,8 +526,8 @@ fn form_field_issues(fields: &[Value], forms: &dyn FormView) -> Vec<Value> {
                     mixdog_js::number_to_string(round2(field_number(widget, "width"))),
                     mixdog_js::number_to_string(round2(field_number(widget, "height"))),
                     value_to_string(&widget["page"]),
-                    mixdog_js::number_to_string(crate::edit_document::js_round(min_width)),
-                    mixdog_js::number_to_string(crate::edit_document::js_round(min_height)),
+                    mixdog_js::number_to_string(mixdog_js::math::round(min_width)),
+                    mixdog_js::number_to_string(mixdog_js::math::round(min_height)),
                 ),
             ));
         }

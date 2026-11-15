@@ -58,6 +58,10 @@ functions is another task's.
   true, as `MARK_OPERATIONS` did). The caller of `apply_pdf_batch` passes both: `&[&content, &StructureOperations]`.
   `BatchState.document` is replaceable by a handler that must continue on a fresh load; `BatchState.measure` carries
   what a mark measured (a boxed value of the content module's own type).
+- `applyPdfBatch` is ported here (`adapter::apply_pdf_batch`). nr-office-pdf-content-ops names "the applyPdfBatch
+  dispatcher" and a `batch.rs` in its work: it implements `OperationSet` for its operations and calls this function; it
+  does not write a second dispatcher. The batch `context` of Node (`{ dataDir, signal }`, read only by `ocr_pages`) is
+  not a field of `BatchState`: the content set carries it as fields of its own value, built per call.
 
 ## 6. Consumers
 `mixdog_office_pdf::adapter::{snapshot_pdf, validate_pdf, issues_pdf, apply_pdf_batch}` (blocking, generic over the

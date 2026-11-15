@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use mixdog_fsio::WriteProof;
 use mixdog_js::{js_trim, json_number, to_number, value_to_string};
+use mixdog_office_base::values::truthy;
 use mixdog_pdf::Guard;
 use mixdog_pdf::codec_glue::CodecFilters;
 use mixdog_pdf::write::attachments::AttachmentOptions;
@@ -19,7 +20,7 @@ use crate::adapter::{BatchState, OperationSet};
 use crate::analysis::round2;
 use crate::document::AnalysisError;
 use crate::edit_document::{
-    edit_error, js_string, load_pdf, present, read_file, resolve_beside, selected_edit_pages, truthy, write_sibling,
+    edit_error, js_string, load_pdf, present, read_file, resolve_beside, selected_edit_pages, write_sibling,
 };
 
 /// The operations this module runs.
