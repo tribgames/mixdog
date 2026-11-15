@@ -1,6 +1,39 @@
+# WHERE EVERY TEST RUNS (the one list). A test is in exactly one of these places.
+#
+#   default / ci   Every test that is not #[ignore]d. CI runs the `ci` profile (below) over a nextest archive built once per OS
+#                  (release-gate.yml, job `core-build`), split into partitions run side by side (`core-tests`), on Linux x64,
+#                  macOS arm64 and Windows x64: the whole workspace on a push to main, a manual run and the release gate, the changed
+#                  crates and their reverse dependencies on a pull request (scripts/ci/core-select.mjs). The merge check runs `default`.
+#   agent          Local only: `default` without the heavy matrices (a branch that does not touch them). CI does not use it.
+#   pg             #[ignore]d tests that compose the real core over a Postgres runtime. CI: rust-core-unix.yml (Linux, macOS).
+#   tag-tree       #[ignore]d tests against the real 1.4.5 tag tree (`verdict::tag_gates::`, `legacy_clients::`). CI: rust-core-unix.yml
+#                  (Linux, macOS; gate 3 at 200 repetitions off pull requests).
+#   services-pg    #[ignore]d memory tests that need only a Postgres runtime. Not in CI yet (merge check, locally).
+#   services-models, migration-corpus, office-throughput, pwsh-50-mib
+#                  #[ignore]d tests that need what a hosted runner does not have: real ONNX models and the network, the migration
+#                  corpus (a user's data), a real LibreOffice and Chromium, a 414 MiB PowerShell command. Run by hand with their
+#                  profile and `--run-ignored only`; never in CI.
+#   (no profile)   The other #[ignore]d tests, each needing a machine with that thing: a real Microsoft Office or a screen on Windows
+#                  (mixdog-office tests/live_com, mixdog-office-com *_live), a real LibreOffice (mixdog-ooxml soffice_lifecycle and
+#                  twin_xlsx_charts_soffice), a quiet machine to time on (mixdog-relay twin_perf, mixdog-tui perf_pty).
+#                  `cargo nextest run --run-ignored only -p <crate>` runs them there. Never in CI.
+#
+# An #[ignore]d test that fits none of these belongs in one: add it here, with the reason its attribute gives.
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 fail-fast = false
+
+# `--profile ci`: what a hosted runner runs from the archive. `default` and its overrides (every [[profile.default.overrides]] and the
+# test groups apply here), no retries: a test that fails once is red, never green on a second try (a retry hides the flaky test that
+# a real defect is). Slow and failing tests are named in the log, a failure's output printed where it fails and again at the end.
+[profile.ci]
+retries = 0
+fail-fast = false
+status-level = "slow"
+final-status-level = "slow"
+failure-output = "immediate-final"
+success-output = "never"
 
 # `--profile agent`: a crate's suite without the heavy matrices, for a branch that does not touch them.
 # In two hours of twelve checkouts (2026-11-10) these few tests were 60 of 339 test minutes, each real-git
