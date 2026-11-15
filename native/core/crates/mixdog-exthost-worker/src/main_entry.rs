@@ -73,7 +73,7 @@ mod tests {
     fn the_names_come_from_the_registry_and_an_extension_adds_to_them() {
         assert_eq!(
             native_methods(),
-            vec!["image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.officeText", "ooxml.text"]
+            vec!["image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.officeText", "office.sweepJournals", "ooxml.text"]
         );
         let extra: Extension =
             |registry| registry.register("zzz.extra", |_| async { Ok(crate::Outcome::value(serde_json::Value::Null)) });

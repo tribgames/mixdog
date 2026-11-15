@@ -22,6 +22,8 @@ async fn session_start_sweeps_the_complete_recorded_office_subject() {
     let expected: Value = serde_json::from_str(include_str!("../../../../fixtures/office-startup/recording.json")).unwrap();
     let mut js = crate::js_runtime::fixture(dir.path());
     js.program = "node".into();
+    // The recording freezes the clock inside the script worker (mock timers), so the script worker answers the sweep.
+    js.script_hosts = true;
     let worker = js.package_root.join("src/ext-host/worker.mjs");
     let real_worker = root.join("src/ext-host/worker.mjs");
     let setup = r#"
