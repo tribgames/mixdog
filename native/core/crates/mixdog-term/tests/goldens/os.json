@@ -1,0 +1,3207 @@
+{
+ "note": "recorded by tests/recorders/record-os.mjs from the Node TUI sources; do not edit by hand",
+ "osc52Max": 262144,
+ "osc52": [
+  {
+   "text": "",
+   "tmux": false,
+   "sequence": "\u001b]52;c;\u0007"
+  },
+  {
+   "text": "",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;\u0007\u001b\\"
+  },
+  {
+   "text": "hello",
+   "tmux": false,
+   "sequence": "\u001b]52;c;aGVsbG8=\u0007"
+  },
+  {
+   "text": "hello",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;aGVsbG8=\u0007\u001b\\"
+  },
+  {
+   "text": "héllo wörld 日本語",
+   "tmux": false,
+   "sequence": "\u001b]52;c;aMOpbGxvIHfDtnJsZCDml6XmnKzoqp4=\u0007"
+  },
+  {
+   "text": "héllo wörld 日本語",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;aMOpbGxvIHfDtnJsZCDml6XmnKzoqp4=\u0007\u001b\\"
+  },
+  {
+   "text": "a\u001bb",
+   "tmux": false,
+   "sequence": "\u001b]52;c;YRti\u0007"
+  },
+  {
+   "text": "a\u001bb",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;YRti\u0007\u001b\\"
+  },
+  {
+   "text": "line one\nline two\r\nline three",
+   "tmux": false,
+   "sequence": "\u001b]52;c;bGluZSBvbmUKbGluZSB0d28NCmxpbmUgdGhyZWU=\u0007"
+  },
+  {
+   "text": "line one\nline two\r\nline three",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;bGluZSBvbmUKbGluZSB0d28NCmxpbmUgdGhyZWU=\u0007\u001b\\"
+  },
+  {
+   "text": "emoji 😀 and 👨‍👩",
+   "tmux": false,
+   "sequence": "\u001b]52;c;ZW1vamkg8J+YgCBhbmQg8J+RqOKAjfCfkak=\u0007"
+  },
+  {
+   "text": "emoji 😀 and 👨‍👩",
+   "tmux": true,
+   "sequence": "\u001bPtmux;\u001b\u001b]52;c;ZW1vamkg8J+YgCBhbmQg8J+RqOKAjfCfkak=\u0007\u001b\\"
+  }
+ ],
+ "skip": [
+  {
+   "platform": "win32",
+   "env": {},
+   "skip": true
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "TMUX": ""
+   },
+   "skip": true
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "skip": false
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "skip": true
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "skip": true
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "skip": true
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "TMUX": ""
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "TMUX": ""
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "skip": false
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "skip": false
+  }
+ ],
+ "native": [
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "hello",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "680065006c006c006f00"
+  },
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "héllo wörld 日本語",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6800e9006c006c006f0020007700f60072006c0064002000e5652c679e8a"
+  },
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "a\u001bb",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "61001b006200"
+  },
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "line one\nline two\r\nline three",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6c0069006e00650020006f006e0065000a006c0069006e0065002000740077006f000d000a006c0069006e006500200074006800720065006500"
+  },
+  {
+   "platform": "win32",
+   "env": {},
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "65006d006f006a00690020003dd800de200061006e00640020003dd868dc0d203dd869dc"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "hello",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "680065006c006c006f00"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6800e9006c006c006f0020007700f60072006c0064002000e5652c679e8a"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "a\u001bb",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "61001b006200"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6c0069006e00650020006f006e0065000a006c0069006e0065002000740077006f000d000a006c0069006e006500200074006800720065006500"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "65006d006f006a00690020003dd800de200061006e00640020003dd868dc0d203dd869dc"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "hello",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "680065006c006c006f00"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6800e9006c006c006f0020007700f60072006c0064002000e5652c679e8a"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "a\u001bb",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "61001b006200"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6c0069006e00650020006f006e0065000a006c0069006e0065002000740077006f000d000a006c0069006e006500200074006800720065006500"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "65006d006f006a00690020003dd800de200061006e00640020003dd868dc0d203dd869dc"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "hello",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "680065006c006c006f00"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6800e9006c006c006f0020007700f60072006c0064002000e5652c679e8a"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "a\u001bb",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "61001b006200"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6c0069006e00650020006f006e0065000a006c0069006e0065002000740077006f000d000a006c0069006e006500200074006800720065006500"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "65006d006f006a00690020003dd800de200061006e00640020003dd868dc0d203dd869dc"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "hello",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "680065006c006c006f00"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6800e9006c006c006f0020007700f60072006c0064002000e5652c679e8a"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "a\u001bb",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "61001b006200"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "6c0069006e00650020006f006e0065000a006c0069006e0065002000740077006f000d000a006c0069006e006500200074006800720065006500"
+  },
+  {
+   "platform": "win32",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "clip.exe",
+   "args": [],
+   "inputHex": "65006d006f006a00690020003dd800de200061006e00640020003dd868dc0d203dd869dc"
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "hello",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "héllo wörld 日本語",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "a\u001bb",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "line one\nline two\r\nline three",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "darwin",
+   "env": {},
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "hello",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "a\u001bb",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "hello",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "a\u001bb",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "hello",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "a\u001bb",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "hello",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "a\u001bb",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "darwin",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "pbcopy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": ""
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "hello",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "héllo wörld 日本語",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "a\u001bb",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "line one\nline two\r\nline three",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "linux",
+   "env": {},
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": ""
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "hello",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "a\u001bb",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": ""
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "hello",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "a\u001bb",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "wl-copy",
+   "args": [],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": ""
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "hello",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "a\u001bb",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": ""
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "hello",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68656c6c6f"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "héllo wörld 日本語",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "68c3a96c6c6f2077c3b6726c6420e697a5e69cace8aa9e"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "a\u001bb",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "611b62"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "line one\nline two\r\nline three",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "6c696e65206f6e650a6c696e652074776f0d0a6c696e65207468726565"
+  },
+  {
+   "platform": "linux",
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "text": "emoji 😀 and 👨‍👩",
+   "cmd": "xclip",
+   "args": [
+    "-selection",
+    "clipboard"
+   ],
+   "inputHex": "656d6f6a6920f09f988020616e6420f09f91a8e2808df09f91a9"
+  }
+ ],
+ "hints": {
+  "linux": {
+   "xclip": "xclip is not installed; install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`",
+   "wl-copy": "wl-copy is not installed; install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`"
+  },
+  "darwinKeepsTheError": true,
+  "noReader": "no clipboard reader is installed; install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`"
+ },
+ "policy": [
+  {
+   "spec": "",
+   "lines": 0,
+   "fold": false,
+   "ref": "[Pasted text #7 +0 lines]"
+  },
+  {
+   "spec": "one",
+   "lines": 1,
+   "fold": false,
+   "ref": "[Pasted text #7 +1 lines]"
+  },
+  {
+   "spec": "a\nb\n",
+   "lines": 2,
+   "fold": false,
+   "ref": "[Pasted text #7 +2 lines]"
+  },
+  {
+   "spec": "a\r\nb\r\n\r\n",
+   "lines": 2,
+   "fold": false,
+   "ref": "[Pasted text #7 +2 lines]"
+  },
+  {
+   "spec": "\n\n",
+   "lines": 0,
+   "fold": false,
+   "ref": "[Pasted text #7 +0 lines]"
+  },
+  {
+   "spec": "a\rb\rc",
+   "lines": 3,
+   "fold": false,
+   "ref": "[Pasted text #7 +3 lines]"
+  },
+  {
+   "spec": {
+    "unit": "x",
+    "count": 999
+   },
+   "lines": 1,
+   "fold": false,
+   "ref": "[Pasted text #7 +1 lines]"
+  },
+  {
+   "spec": {
+    "unit": "x",
+    "count": 1000
+   },
+   "lines": 1,
+   "fold": false,
+   "ref": "[Pasted text #7 +1 lines]"
+  },
+  {
+   "spec": {
+    "unit": "x",
+    "count": 1001
+   },
+   "lines": 1,
+   "fold": true,
+   "ref": "[Pasted text #7 +1 lines]"
+  },
+  {
+   "spec": {
+    "unit": "😀",
+    "count": 501
+   },
+   "lines": 1,
+   "fold": true,
+   "ref": "[Pasted text #7 +1 lines]"
+  },
+  {
+   "spec": {
+    "lines": 200
+   },
+   "lines": 200,
+   "fold": false,
+   "ref": "[Pasted text #7 +200 lines]"
+  }
+ ],
+ "formatImageRef": [
+  {
+   "id": 1,
+   "ref": "[Image #1]"
+  },
+  {
+   "id": 12,
+   "ref": "[Image #12]"
+  },
+  {
+   "id": 305,
+   "ref": "[Image #305]"
+  }
+ ],
+ "imageRefs": [
+  {
+   "input": "",
+   "ids": []
+  },
+  {
+   "input": "a [Image #2] b [Image #10][Image #2] [Image #0] [Image #x] [Image #3",
+   "ids": [
+    2,
+    10
+   ]
+  },
+  {
+   "input": "[Image #[Image #5] [image #6] [Image #7 ]",
+   "ids": [
+    5
+   ]
+  },
+  {
+   "input": "[Image #007] [Image #1][Image #1]",
+   "ids": [
+    7,
+    1
+   ]
+  },
+  {
+   "input": "[Pasted text #1 +4 lines] [Pasted text #7 +x lines] [Pasted text #9 +12 lines] [Pasted text #3 +1 line]",
+   "ids": []
+  },
+  {
+   "input": "[Pasted text #0 +4 lines] [Pasted text #5  +2 lines] [Pasted text #6 +2 lines",
+   "ids": []
+  },
+  {
+   "input": "mixed [Image #4] and [Pasted text #4 +9 lines]",
+   "ids": [
+    4
+   ]
+  }
+ ],
+ "textRefs": [
+  {
+   "input": "",
+   "ids": []
+  },
+  {
+   "input": "a [Image #2] b [Image #10][Image #2] [Image #0] [Image #x] [Image #3",
+   "ids": []
+  },
+  {
+   "input": "[Image #[Image #5] [image #6] [Image #7 ]",
+   "ids": []
+  },
+  {
+   "input": "[Image #007] [Image #1][Image #1]",
+   "ids": []
+  },
+  {
+   "input": "[Pasted text #1 +4 lines] [Pasted text #7 +x lines] [Pasted text #9 +12 lines] [Pasted text #3 +1 line]",
+   "ids": [
+    1,
+    9
+   ]
+  },
+  {
+   "input": "[Pasted text #0 +4 lines] [Pasted text #5  +2 lines] [Pasted text #6 +2 lines",
+   "ids": []
+  },
+  {
+   "input": "mixed [Image #4] and [Pasted text #4 +9 lines]",
+   "ids": [
+    4
+   ]
+  }
+ ],
+ "prompt": [
+  {
+   "text": "hi",
+   "images": [],
+   "content": "hi"
+  },
+  {
+   "text": " see [Image #1] and [Image #2] ",
+   "images": [],
+   "content": " see [Image #1] and [Image #2] "
+  },
+  {
+   "text": "  [Image #2]",
+   "images": [],
+   "content": "  [Image #2]"
+  },
+  {
+   "text": "[Image #3][Image #1]",
+   "images": [],
+   "content": "[Image #3][Image #1]"
+  },
+  {
+   "text": "   ",
+   "images": [],
+   "content": "   "
+  },
+  {
+   "text": "[Image #9]",
+   "images": [],
+   "content": "[Image #9]"
+  },
+  {
+   "text": "hi",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": "hi"
+  },
+  {
+   "text": " see [Image #1] and [Image #2] ",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": [
+    {
+     "type": "text",
+     "text": " see [Image #1] and [Image #2] "
+    },
+    {
+     "type": "text",
+     "text": "[Image: 1x1]"
+    },
+    {
+     "type": "image",
+     "data": "AAA",
+     "mimeType": "image/jpeg",
+     "pasteId": 1
+    }
+   ]
+  },
+  {
+   "text": "  [Image #2]",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": "  [Image #2]"
+  },
+  {
+   "text": "[Image #3][Image #1]",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": [
+    {
+     "type": "text",
+     "text": "[Image #3][Image #1]"
+    },
+    {
+     "type": "text",
+     "text": "[Image: 1x1]"
+    },
+    {
+     "type": "image",
+     "data": "AAA",
+     "mimeType": "image/jpeg",
+     "pasteId": 1
+    }
+   ]
+  },
+  {
+   "text": "   ",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": "   "
+  },
+  {
+   "text": "[Image #9]",
+   "images": [
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "mediaType": "image/jpeg",
+     "metadataText": "[Image: 1x1]"
+    }
+   ],
+   "content": "[Image #9]"
+  },
+  {
+   "text": "hi",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": "hi"
+  },
+  {
+   "text": " see [Image #1] and [Image #2] ",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": [
+    {
+     "type": "text",
+     "text": " see [Image #1] and [Image #2] "
+    },
+    {
+     "type": "image",
+     "data": "AAA",
+     "mimeType": "image/png",
+     "pasteId": 1
+    },
+    {
+     "type": "image",
+     "data": "BBB",
+     "mimeType": "image/png",
+     "pasteId": 2
+    }
+   ]
+  },
+  {
+   "text": "  [Image #2]",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": [
+    {
+     "type": "text",
+     "text": "  [Image #2]"
+    },
+    {
+     "type": "image",
+     "data": "BBB",
+     "mimeType": "image/png",
+     "pasteId": 2
+    }
+   ]
+  },
+  {
+   "text": "[Image #3][Image #1]",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": [
+    {
+     "type": "text",
+     "text": "[Image #3][Image #1]"
+    },
+    {
+     "type": "image",
+     "data": "AAA",
+     "mimeType": "image/png",
+     "pasteId": 1
+    },
+    {
+     "type": "image",
+     "data": "CCC",
+     "mimeType": "image/png",
+     "pasteId": 3
+    }
+   ]
+  },
+  {
+   "text": "   ",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": "   "
+  },
+  {
+   "text": "[Image #9]",
+   "images": [
+    {
+     "type": "image",
+     "id": 2,
+     "content": "BBB"
+    },
+    {
+     "type": "image",
+     "id": 1,
+     "content": "AAA",
+     "metadataText": ""
+    },
+    {
+     "type": "image",
+     "id": 3,
+     "content": "CCC",
+     "mediaType": ""
+    }
+   ],
+   "content": "[Image #9]"
+  }
+ ],
+ "candidates": [
+  {
+   "platform": "linux",
+   "text": "/a/one.png ~/two.JPG C:\\three.gif\nnote file:///x/four.webp  x",
+   "parts": [
+    {
+     "text": "/a/one.png",
+     "imagePath": true
+    },
+    {
+     "text": "~/two.JPG",
+     "imagePath": true
+    },
+    {
+     "text": "C:\\three.gif",
+     "imagePath": true
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "note",
+     "imagePath": false
+    },
+    {
+     "text": "file:///x/four.webp  x",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "plain words /not/an/image.txt ./rel/a.jpeg ../up/b.WEBP",
+   "parts": [
+    {
+     "text": "plain words",
+     "imagePath": false
+    },
+    {
+     "text": "/not/an/image.txt",
+     "imagePath": false
+    },
+    {
+     "text": "./rel/a.jpeg",
+     "imagePath": true
+    },
+    {
+     "text": "../up/b.WEBP",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "",
+   "parts": []
+  },
+  {
+   "platform": "linux",
+   "text": "\n",
+   "parts": [
+    {
+     "text": "\n",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "a\r\nb\rc",
+   "parts": [
+    {
+     "text": "a",
+     "imagePath": false
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "b",
+     "imagePath": false
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "c",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "/a/b.png /a/c.png",
+   "parts": [
+    {
+     "text": "/a/b.png",
+     "imagePath": true
+    },
+    {
+     "text": "/a/c.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": " /leading.png",
+   "parts": [
+    {
+     "text": "/leading.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "trailing /x.png ",
+   "parts": [
+    {
+     "text": "trailing",
+     "imagePath": false
+    },
+    {
+     "text": "/x.png ",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "C:\\dir\\pic.png D:\\other\\pic.jpg",
+   "parts": [
+    {
+     "text": "C:\\dir\\pic.png",
+     "imagePath": true
+    },
+    {
+     "text": "D:\\other\\pic.jpg",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "\"/quoted path/a.png\" '/single/b.png'",
+   "parts": [
+    {
+     "text": "\"/quoted path/a.png\" '/single/b.png'",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "/a\\ b/c.png",
+   "parts": [
+    {
+     "text": "/a\\ b/c.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "file:///home/u/a%20b.png file:///C:/Users/u/shot.PNG",
+   "parts": [
+    {
+     "text": "file:///home/u/a%20b.png",
+     "imagePath": true
+    },
+    {
+     "text": "file:///C:/Users/u/shot.PNG",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": ".png",
+   "parts": [
+    {
+     "text": ".png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "linux",
+   "text": "x.png.bak /y/z.gif",
+   "parts": [
+    {
+     "text": "x.png.bak",
+     "imagePath": false
+    },
+    {
+     "text": "/y/z.gif",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "/a/one.png ~/two.JPG C:\\three.gif\nnote file:///x/four.webp  x",
+   "parts": [
+    {
+     "text": "/a/one.png",
+     "imagePath": true
+    },
+    {
+     "text": "~/two.JPG",
+     "imagePath": true
+    },
+    {
+     "text": "C:\\three.gif",
+     "imagePath": true
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "note",
+     "imagePath": false
+    },
+    {
+     "text": "file:///x/four.webp  x",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "plain words /not/an/image.txt ./rel/a.jpeg ../up/b.WEBP",
+   "parts": [
+    {
+     "text": "plain words",
+     "imagePath": false
+    },
+    {
+     "text": "/not/an/image.txt",
+     "imagePath": false
+    },
+    {
+     "text": "./rel/a.jpeg",
+     "imagePath": true
+    },
+    {
+     "text": "../up/b.WEBP",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "",
+   "parts": []
+  },
+  {
+   "platform": "win32",
+   "text": "\n",
+   "parts": [
+    {
+     "text": "\n",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "a\r\nb\rc",
+   "parts": [
+    {
+     "text": "a",
+     "imagePath": false
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "b",
+     "imagePath": false
+    },
+    {
+     "text": "\n",
+     "imagePath": false
+    },
+    {
+     "text": "c",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "/a/b.png /a/c.png",
+   "parts": [
+    {
+     "text": "/a/b.png",
+     "imagePath": true
+    },
+    {
+     "text": "/a/c.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": " /leading.png",
+   "parts": [
+    {
+     "text": "/leading.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "trailing /x.png ",
+   "parts": [
+    {
+     "text": "trailing",
+     "imagePath": false
+    },
+    {
+     "text": "/x.png ",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "C:\\dir\\pic.png D:\\other\\pic.jpg",
+   "parts": [
+    {
+     "text": "C:\\dir\\pic.png",
+     "imagePath": true
+    },
+    {
+     "text": "D:\\other\\pic.jpg",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "\"/quoted path/a.png\" '/single/b.png'",
+   "parts": [
+    {
+     "text": "\"/quoted path/a.png\" '/single/b.png'",
+     "imagePath": false
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "/a\\ b/c.png",
+   "parts": [
+    {
+     "text": "/a\\ b/c.png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "file:///home/u/a%20b.png file:///C:/Users/u/shot.PNG",
+   "parts": [
+    {
+     "text": "file:///home/u/a%20b.png",
+     "imagePath": true
+    },
+    {
+     "text": "file:///C:/Users/u/shot.PNG",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": ".png",
+   "parts": [
+    {
+     "text": ".png",
+     "imagePath": true
+    }
+   ]
+  },
+  {
+   "platform": "win32",
+   "text": "x.png.bak /y/z.gif",
+   "parts": [
+    {
+     "text": "x.png.bak",
+     "imagePath": false
+    },
+    {
+     "text": "/y/z.gif",
+     "imagePath": true
+    }
+   ]
+  }
+ ],
+ "cleanPath": [
+  {
+   "platform": "linux",
+   "value": "  \"/a b/c.png\"  ",
+   "cleaned": "/a b/c.png"
+  },
+  {
+   "platform": "linux",
+   "value": "'/a/c.png'",
+   "cleaned": "/a/c.png"
+  },
+  {
+   "platform": "linux",
+   "value": "\"",
+   "cleaned": ""
+  },
+  {
+   "platform": "linux",
+   "value": "'",
+   "cleaned": ""
+  },
+  {
+   "platform": "linux",
+   "value": "\"\"",
+   "cleaned": ""
+  },
+  {
+   "platform": "linux",
+   "value": "/a\\ b/c\\(1\\).png",
+   "cleaned": "/a b/c(1).png"
+  },
+  {
+   "platform": "linux",
+   "value": "/a\\\nb.png",
+   "cleaned": "/a\\\nb.png"
+  },
+  {
+   "platform": "linux",
+   "value": "C:\\Users\\u\\a.png",
+   "cleaned": "C:Usersua.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///home/u/a%20b.png",
+   "cleaned": "/home/u/a b.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///C:/Users/u/a%20b.png",
+   "cleaned": "/C:/Users/u/a b.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:////server/share/a.png",
+   "cleaned": "//server/share/a.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file://host/x/../y.png?q=1#f",
+   "cleaned": "/y.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///x/%ZZ.png",
+   "cleaned": "file:///x/%ZZ.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///x/%E4%B8%AD.png",
+   "cleaned": "/x/中.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///x/%FF.png",
+   "cleaned": "file:///x/%FF.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///x/./y/../z.png",
+   "cleaned": "/x/z.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///C|/a.png",
+   "cleaned": "/C:/a.png"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///a/b/..",
+   "cleaned": "/a/"
+  },
+  {
+   "platform": "linux",
+   "value": "file://",
+   "cleaned": "/"
+  },
+  {
+   "platform": "linux",
+   "value": "file:///100%.png",
+   "cleaned": "file:///100%.png"
+  },
+  {
+   "platform": "linux",
+   "value": "plain.png",
+   "cleaned": "plain.png"
+  },
+  {
+   "platform": "linux",
+   "value": "  ",
+   "cleaned": ""
+  },
+  {
+   "platform": "win32",
+   "value": "  \"/a b/c.png\"  ",
+   "cleaned": "/a b/c.png"
+  },
+  {
+   "platform": "win32",
+   "value": "'/a/c.png'",
+   "cleaned": "/a/c.png"
+  },
+  {
+   "platform": "win32",
+   "value": "\"",
+   "cleaned": ""
+  },
+  {
+   "platform": "win32",
+   "value": "'",
+   "cleaned": ""
+  },
+  {
+   "platform": "win32",
+   "value": "\"\"",
+   "cleaned": ""
+  },
+  {
+   "platform": "win32",
+   "value": "/a\\ b/c\\(1\\).png",
+   "cleaned": "/a\\ b/c\\(1\\).png"
+  },
+  {
+   "platform": "win32",
+   "value": "/a\\\nb.png",
+   "cleaned": "/a\\\nb.png"
+  },
+  {
+   "platform": "win32",
+   "value": "C:\\Users\\u\\a.png",
+   "cleaned": "C:\\Users\\u\\a.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///home/u/a%20b.png",
+   "cleaned": "\\home\\u\\a b.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///C:/Users/u/a%20b.png",
+   "cleaned": "C:\\Users\\u\\a b.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:////server/share/a.png",
+   "cleaned": "\\\\server\\share\\a.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file://host/x/../y.png?q=1#f",
+   "cleaned": "\\y.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///x/%ZZ.png",
+   "cleaned": "file:\\\\\\x\\%ZZ.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///x/%E4%B8%AD.png",
+   "cleaned": "\\x\\中.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///x/%FF.png",
+   "cleaned": "file:\\\\\\x\\%FF.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///x/./y/../z.png",
+   "cleaned": "\\x\\z.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///C|/a.png",
+   "cleaned": "C:\\a.png"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///a/b/..",
+   "cleaned": "\\a\\"
+  },
+  {
+   "platform": "win32",
+   "value": "file://",
+   "cleaned": "\\"
+  },
+  {
+   "platform": "win32",
+   "value": "file:///100%.png",
+   "cleaned": "file:\\\\\\100%.png"
+  },
+  {
+   "platform": "win32",
+   "value": "plain.png",
+   "cleaned": "plain.png"
+  },
+  {
+   "platform": "win32",
+   "value": "  ",
+   "cleaned": ""
+  }
+ ],
+ "mime": [
+  {
+   "path": "/a/b.PNG",
+   "mime": "image/png"
+  },
+  {
+   "path": "b.jpg",
+   "mime": "image/jpeg"
+  },
+  {
+   "path": "b.JPEG",
+   "mime": "image/jpeg"
+  },
+  {
+   "path": "b.gif",
+   "mime": "image/gif"
+  },
+  {
+   "path": "b.webp",
+   "mime": "image/webp"
+  },
+  {
+   "path": "b.bmp",
+   "mime": null
+  },
+  {
+   "path": "png",
+   "mime": null
+  },
+  {
+   "path": ".png",
+   "mime": null
+  },
+  {
+   "path": "a.",
+   "mime": null
+  },
+  {
+   "path": "/dir.png/file",
+   "mime": null
+  },
+  {
+   "path": "x.tar.png",
+   "mime": "image/png"
+  },
+  {
+   "path": "",
+   "mime": null
+  }
+ ],
+ "canOpen": [
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {},
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "TMUX": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {},
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "TMUX": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "win32",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {},
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "TMUX": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {},
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "TMUX": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "darwin",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {},
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "TMUX": ""
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {},
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,123,0"
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "TMUX": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "SSH_CONNECTION": "10.0.0.1 5000 10.0.0.2 22"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "TMUX": "x",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": "wayland-0"
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "WAYLAND_DISPLAY": ""
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0"
+   },
+   "result": true
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {
+    "DISPLAY": ":0",
+    "SSH_TTY": "/dev/pts/3"
+   },
+   "result": false
+  }
+ ],
+ "launchers": [
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "C:\\Windows\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/a?b=1&c=2"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "C:\\Windows\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/it's"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {},
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "C:\\Windows\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "D:\\Win"
+   },
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "D:\\Win\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/a?b=1&c=2"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "D:\\Win"
+   },
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "D:\\Win\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/it's"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "D:\\Win"
+   },
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "D:\\Win\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "",
+    "WINDIR": "E:\\W"
+   },
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "E:\\W\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/a?b=1&c=2"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "",
+    "WINDIR": "E:\\W"
+   },
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "E:\\W\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "https://example.com/it's"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "win32",
+   "wsl": false,
+   "env": {
+    "SystemRoot": "",
+    "WINDIR": "E:\\W"
+   },
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "E:\\W\\System32\\rundll32.exe",
+     [
+      "url.dll,FileProtocolHandler",
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "open",
+     [
+      "https://example.com/a?b=1&c=2"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "open",
+     [
+      "https://example.com/it's"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "darwin",
+   "wsl": false,
+   "env": {},
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "open",
+     [
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "xdg-open",
+     [
+      "https://example.com/a?b=1&c=2"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {},
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "xdg-open",
+     [
+      "https://example.com/it's"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": false,
+   "env": {},
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "xdg-open",
+     [
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {},
+   "url": "https://example.com/a?b=1&c=2",
+   "candidates": [
+    [
+     "wslview",
+     [
+      "https://example.com/a?b=1&c=2"
+     ]
+    ],
+    [
+     "powershell.exe",
+     [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Start-Process -FilePath 'https://example.com/a?b=1&c=2'"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {},
+   "url": "https://example.com/it's",
+   "candidates": [
+    [
+     "wslview",
+     [
+      "https://example.com/it's"
+     ]
+    ],
+    [
+     "powershell.exe",
+     [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Start-Process -FilePath 'https://example.com/it''s'"
+     ]
+    ]
+   ]
+  },
+  {
+   "platform": "linux",
+   "wsl": true,
+   "env": {},
+   "url": "http://127.0.0.1:1455/cb?code=a b",
+   "candidates": [
+    [
+     "wslview",
+     [
+      "http://127.0.0.1:1455/cb?code=a b"
+     ]
+    ],
+    [
+     "powershell.exe",
+     [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Start-Process -FilePath 'http://127.0.0.1:1455/cb?code=a b'"
+     ]
+    ]
+   ]
+  }
+ ],
+ "macScript": [
+  {
+   "title": "Select a project folder",
+   "script": "set f to choose folder with prompt \"Select a project folder\"\nPOSIX path of f"
+  },
+  {
+   "title": "Pick \"a\" \\ folder",
+   "script": "set f to choose folder with prompt \"Pick \\\"a\\\" \\\\ folder\"\nPOSIX path of f"
+  },
+  {
+   "title": "",
+   "script": "set f to choose folder with prompt \"\"\nPOSIX path of f"
+  },
+  {
+   "title": "it's",
+   "script": "set f to choose folder with prompt \"it's\"\nPOSIX path of f"
+  },
+  {
+   "title": "back\\slash\"quote",
+   "script": "set f to choose folder with prompt \"back\\\\slash\\\"quote\"\nPOSIX path of f"
+  }
+ ]
+}
