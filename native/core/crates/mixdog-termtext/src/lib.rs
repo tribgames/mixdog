@@ -6,6 +6,7 @@
 
 pub mod ansi;
 pub mod grapheme;
+pub mod lone;
 pub mod policy;
 pub mod slice;
 pub mod spans;
