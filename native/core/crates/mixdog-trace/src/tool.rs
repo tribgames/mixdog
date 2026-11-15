@@ -206,14 +206,11 @@ fn first_non_empty_line(text: &str) -> String {
 fn tool_failure_cause(text: &str) -> String {
     let trimmed = js_trim(text);
     let body = ERROR_PREFIX.find(trimmed).filter(|r| r.start == 0).map_or(trimmed, |r| &trimmed[r.end..]);
-    if body.starts_with('{') {
-        if let Ok(value) = mixdog_js::json_parse(body) {
-            if value.get("ok") == Some(&Value::Bool(false)) {
-                if let Some(error) = value.get("error").and_then(Value::as_str) {
-                    return error.to_string();
-                }
-            }
-        }
+    if body.starts_with('{')
+        && let Ok(value) = mixdog_js::json_parse(body)
+        && value.get("ok") == Some(&Value::Bool(false))
+        && let Some(error) = value.get("error").and_then(Value::as_str) {
+        return error.to_string();
     }
     text.to_string()
 }

@@ -154,10 +154,9 @@ impl Spool {
         // One write at a time, as Node keeps one in flight: a second flusher that took the next chunk must not reach the
         // file before the chunk ahead of it.
         #[cfg(feature = "flush-probe")]
-        if matches!(self.writing.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
-            if let Some(probe) = flush_probe::get(&self.path) {
-                probe.blocked();
-            }
+        if matches!(self.writing.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+            && let Some(probe) = flush_probe::get(&self.path) {
+            probe.blocked();
         }
         let _writing = self.writing.lock().unwrap_or_else(|poison| poison.into_inner());
         let chunk = {

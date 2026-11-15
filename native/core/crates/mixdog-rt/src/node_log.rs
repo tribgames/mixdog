@@ -84,8 +84,10 @@ pub fn bare(line: &str) -> String {
     format!("{line}\n")
 }
 
+type CapturedLines = Arc<Mutex<Vec<(Origin, Channel, String)>>>;
+
 /// The lines [`emit`] gets on this thread while the guard lives, in order, instead of the installed sink.
-pub fn capture() -> (Arc<Mutex<Vec<(Origin, Channel, String)>>>, CaptureGuard) {
+pub fn capture() -> (CapturedLines, CaptureGuard) {
     let lines = Arc::new(Mutex::new(Vec::new()));
     let into = lines.clone();
     let sink: Sink = Arc::new(move |origin, channel, line| {
