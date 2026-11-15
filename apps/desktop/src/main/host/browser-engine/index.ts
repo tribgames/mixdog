@@ -57,6 +57,10 @@ export interface BrowserEnginePorts {
   taskLifecycle: ReturnType<typeof createBrowserTaskLifecycle<WebContents>>;
   /** The sign-in flows and the turn bookkeeping the core's engine asks about (browser/host-agent.ts builds it). */
   signIn: SignInDeps;
+  /** An agent command works on the page until the returned release (browser/host-agent.ts `drivePage`): a veto
+   *  answers the agent, a window the page opens is the agent's, the script contexts, console, browser log and
+   *  accessibility tree are observed and the page runs unthrottled. */
+  drivePage(guest: WebContents): () => void;
   /** The one owner of a page's emulation, shared with the pane's preset path. */
   emulation: BrowserEmulationOwner;
   /** The folder a saved performance trace goes to when the core does not name one. */
@@ -247,7 +251,11 @@ export function createBrowserEngine(
     isEngineMode: () => engaged,
     ...(options.transcript ? { transcript: options.transcript } : {}),
   };
-  const leases: Leases = createLeases(volunteered, ctx);
+  // A command of the core drives the page it leases, for as long as it holds the lease.
+  const leases: Leases = createLeases(volunteered, ctx, undefined, (pageId) => {
+    const guest = guestOf(pageId);
+    return guest && !guest.isDestroyed() ? ports.drivePage(guest) : undefined;
+  });
   ctx.leases = leases;
 
   const stopFollowing = new Map<WebContents, () => void>();
