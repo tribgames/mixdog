@@ -1,0 +1,106 @@
+[
+  {
+    "node": "apps/relay/lib/feedback.mjs::nodemailerSender (secure on port 465, requireTLS otherwise, rejectUnauthorized true, four timeouts)",
+    "rust": "smtp::implicit_tls_sends_the_message_after_ehlo_and_auth"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionEHLO / _actionSTARTTLS (requireTLS asks for STARTTLS, EHLO again after the upgrade)",
+    "rust": "smtp::starttls_upgrades_and_says_ehlo_again"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionSTARTTLS (a refusal is ETLS, also when STARTTLS was not advertised)",
+    "rust": "smtp::a_server_that_does_not_advertise_starttls_is_still_asked_and_a_refusal_is_etls"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-transport::send (no AUTH extension: the login is skipped)",
+    "rust": "smtp::a_server_that_offers_no_auth_is_not_asked_to_authenticate"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::login (LOGIN, CRAM-MD5, PLAIN preferred, XOAUTH2 never picked)",
+    "rust": "smtp::auth_login_answers_both_prompts"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionAUTH_CRAM_MD5 (RFC 2195 challenge)",
+    "rust": "smtp::auth_cram_md5_answers_the_challenge_of_rfc_2195"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_parseEhloExtensions (preference order of the mechanisms)",
+    "rust": "smtp::plain_is_preferred_and_a_server_naming_only_xoauth2_gets_plain"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionAUTHComplete (334 is answered with an empty line)",
+    "rust": "smtp::a_334_after_the_credentials_is_answered_with_an_empty_line"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionEHLO (HELO fallback when EHLO is refused)",
+    "rust": "smtp::ehlo_refused_falls_back_to_helo_on_a_secure_connection_and_authenticates"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_onData (multi-line replies)",
+    "rust": "smtp::multi_line_replies_are_read_whole"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_setEnvelope (PIPELINING)",
+    "rust": "smtp::pipelining_sends_the_envelope_and_data_without_waiting"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_advanceEnvelope (one command at a time without PIPELINING)",
+    "rust": "smtp::without_pipelining_each_command_waits_for_its_reply"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection/data-stream.js::DataStream (CRLF, dot-stuffing, terminator)",
+    "rust": "smtp::data_is_dot_stuffed_and_ends_with_a_lone_dot"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_setEnvelope (SMTPUTF8)",
+    "rust": "smtp::a_non_ascii_sender_asks_for_smtputf8_when_the_server_offers_it"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_startPhase / _onTimeout (connection, greeting, upgrade and socket timeouts: ETIMEDOUT)",
+    "rust": "smtp::a_silent_server_ends_every_phase_with_etimedout"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_actionGreeting, _actionEHLO, _actionSTARTTLS, login, _actionMAIL, _actionRCPT, _actionDATA, _actionSMTPStream (error codes by step)",
+    "rust": "smtp::a_refusal_at_each_step_is_the_code_nodemailer_gives_it"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_envelopeError (recipients are sent once)",
+    "rust": "smtp::a_recipient_listed_twice_is_sent_once"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_setEnvelope (No recipients defined, EENVELOPE after the login)",
+    "rust": "smtp::a_message_without_a_recipient_is_an_envelope_error_after_the_login"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_onClose (ECONNECTION)",
+    "rust": "smtp::a_server_that_hangs_up_is_econnection"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_onConnectionSocketError (ESOCKET)",
+    "rust": "smtp::a_port_with_no_server_is_esocket"
+  },
+  {
+    "node": "apps/relay/lib/feedback.mjs::nodemailerSender (tls.rejectUnauthorized true)",
+    "rust": "smtp::a_certificate_the_roots_do_not_vouch_for_is_esocket"
+  },
+  {
+    "node": "node_modules/nodemailer/smtp-connection::_resolveAndConnect (EDNS)",
+    "rust": "smtp::a_name_that_does_not_resolve_is_edns"
+  },
+  {
+    "node": "apps/relay/lib/feedback.mjs::feedbackMailConfig (the password never appears in a log line)",
+    "rust": "smtp::the_password_is_not_in_the_debug_text_of_the_config_or_of_an_error"
+  },
+  {
+    "node": "apps/relay/lib/feedback.mjs::deliver (attachments with contentDisposition attachment)",
+    "rust": "smtp::attachments_reach_the_server_as_a_multipart_message"
+  },
+  {
+    "node": "tests/twin/node/smtp-capture.mjs::sendMail over STARTTLS, with and without PIPELINING (ascii, Korean, Reply-To, three attachments)",
+    "rust": "smtp_twin::the_same_messages_through_nodemailer_and_the_rust_client_look_alike_to_the_server"
+  },
+  {
+    "node": "node_modules/nodemailer/mime-node, mime-funcs, qp, base64 (headers, transfer encodings, encoded words, RFC 2231 names)",
+    "rust": "mail::mime::tests::attachment_names_are_encoded_as_words_and_rfc_2231_continuations"
+  }
+]
