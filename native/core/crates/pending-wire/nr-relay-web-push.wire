@@ -1,0 +1,22 @@
+# nr-relay-web-push: nothing to paste into a hot file.
+#
+# Cargo: every dependency the module uses is already in native/core/crates/mixdog-relay/Cargo.toml (base64, p256 with
+#   ecdsa+jwk, reqwest, serde_json, url, uuid v4, mixdog-fsio, mixdog-js, mixdog-rt; tempfile and tokio as dev-dependencies).
+#   No workspace member, no workspace dependency, no Cargo.lock change. src/lib.rs already declares `pub mod web_push`.
+# Test targets: tests/web_push.rs is picked up by cargo's test discovery (binary `web_push`); it needs no feature.
+# SERVICE_PENDING (compose_flip.rs): this task registers no protocol method; nothing to remove.
+#
+# What the server-assembly task (nr-relay-server) and the legs/HTTP tasks consume from mixdog_relay::web_push:
+#   WebPush::open(&data_dir, Arc<dyn PushClient>) -> Option<WebPush>      createRelayWebPush: None disables web push
+#       the client is send::ReqwestClient::new()? in production and a recording PushClient behind the twin host's webPushFetch seam
+#   WebPush::public_key() -> &str                                          GET /webpush/key
+#   WebPush::registry() -> MutexGuard<Registry>                            bind/unbind/mark_capable/is_capable/has/list_for/
+#                                                                          drop_endpoint/drop_client (never hold it across an await)
+#   WebPush::allow_mutation(credential) -> bool                            mutationLimiter (20 per minute)
+#   WebPush::subscriptions_frame(device_id, client_known) -> Value         webPushSubscriptionsFrame: on leg open and on publish
+#   WebPush::mark_ready(device_id)                                         the leg's 'webpush-ready' frame
+#   WebPush::send_from_desktop(device_id, &message, client_known, publish) -> Value   the leg's 'webpush-send' frame: send the
+#       returned 'webpush-result' to the leg; `publish(holder)` is called for every PC that held a subscription 404/410 retired
+#       and must send that PC subscriptions_frame; client_known is the device store's hasClient(deviceId, clientId)
+#   registry::{Sealed::from_value, is_device_id}, endpoint::valid_endpoint(&str) -> Option<String> for the HTTP register route
+#   revoke-device / revoke-client in the leg call registry().drop_client(device, None | Some(client)) and publish when it returns true
