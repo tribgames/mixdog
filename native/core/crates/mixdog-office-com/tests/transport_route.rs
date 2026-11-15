@@ -1,6 +1,6 @@
 //! Which host program a call or a session starts: with a test list of formats served by the Rust host, a docx session
 //! and `detect` (whatever format it probes) start the configured Rust host program as `office-com-host --session` / `office-com-host`, and xlsx and
-//! pptx start the PowerShell command line; with the shipped (empty) list everything starts PowerShell. The stand-in
+//! pptx start the PowerShell command line; with the shipped list docx (and `detect`) starts the Rust host program and xlsx and pptx start PowerShell. The stand-in
 //! host (`tests/fake_host.rs`) reports the arguments it was started with.
 
 use std::ffi::OsString;
@@ -101,13 +101,27 @@ async fn detect_follows_the_docx_entry() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_shipped_list_starts_powershell_for_everything() {
-    let office = office(None);
+async fn the_shipped_list_starts_the_rust_host_for_word_and_powershell_for_the_others() {
+    let (office, dir) = office_in(None);
+    let dir = dir.to_string_lossy().into_owned();
+    assert_eq!(session_argv(&office, "docx").await, ["office-com-host", "--session", "--data-dir", dir.as_str()]);
+    assert_eq!(call_argv(&office, "docx").await, ["office-com-host", "--data-dir", dir.as_str()]);
+    assert_eq!(argv(&office.detect("docx", "a.docx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
+    assert_eq!(argv(&office.detect("pptx", "a.pptx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
+    for format in ["xlsx", "pptx"] {
+        assert!(is_powershell_line(&session_argv(&office, format).await, "office-com-session-host.ps1"), "{format}");
+        assert!(is_powershell_line(&call_argv(&office, format).await, "office-com-host.ps1"), "{format}");
+    }
+    let no_format = office.call(&json!({"action": "snapshot"}), CallOptions::default()).await;
+    assert!(is_powershell_line(&argv(&no_format.value), "office-com-host.ps1"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_test_list_starts_powershell_for_everything() {
+    let office = office(Some(&[]));
     for format in ["docx", "xlsx", "pptx"] {
         assert!(is_powershell_line(&session_argv(&office, format).await, "office-com-session-host.ps1"), "{format}");
         assert!(is_powershell_line(&call_argv(&office, format).await, "office-com-host.ps1"), "{format}");
     }
     assert!(is_powershell_line(&argv(&office.detect("docx", "a.docx").await.value), "office-com-host.ps1"));
-    let no_format = office.call(&json!({"action": "snapshot"}), CallOptions::default()).await;
-    assert!(is_powershell_line(&argv(&no_format.value), "office-com-host.ps1"));
 }
