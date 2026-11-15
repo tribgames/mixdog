@@ -20,7 +20,7 @@ use crate::model_install::{
 const STAMP: &str = "install.json";
 /// Derived from `tokenizer.json` by older installs; stale once it is replaced.
 const DERIVED: [&str; 1] = ["tokenizer.bin"];
-const BUNDLED: &str = include_str!("model-manifest.json");
+const BUNDLED: &str = include_str!("../../../../../../src/runtime/effort-judge/model-manifest.json");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ManifestFile {

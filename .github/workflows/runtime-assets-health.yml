@@ -38,7 +38,7 @@ jobs:
             'src/runtime/memory/data/runtime-manifest.json',
             'src/runtime/channels/data/voice-runtime-manifest.json',
             'native/core/crates/mixdog-services/data/local-provider-manifest.json',
-            'native/core/crates/mixdog-services/src/effort_judge/model-manifest.json',
+            'src/runtime/effort-judge/model-manifest.json',
             'native/core/crates/mixdog-services/data/tidy-engines-manifest.json',
             'src/runtime/agent/orchestrator/tools/graph-manifest.json',
           ];
