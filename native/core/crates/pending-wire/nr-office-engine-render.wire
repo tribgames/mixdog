@@ -77,4 +77,5 @@ paths by the recorder and added with `git add --sparse`; the set's MANIFEST.json
 
 ## What was not compiled or run
 Nothing was compiled or run in Rust. The first compile of the module and of tests/twin_render.rs is the lead's. `twin_live_render` (ignored) re-records
-through Node and LibreOffice on the migration PC and was not run.
+the same stand-in scenarios through Node and was not run; the live LibreOffice export and the contents-page numbering
+(`number_docx_table_of_contents`) have no recorded twin and no unit test yet.
