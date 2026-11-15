@@ -102,7 +102,8 @@ struct Shape {
     tool_expanded: bool,
     prefix_len: usize,
     prefix_revision: u64,
-    tail_id: Option<String>,
+    /// The id of the streaming tail; none for a build without one (which caches the whole index).
+    tail: Option<Option<String>>,
 }
 
 /// The row index kept across flushes of a streaming tail.
@@ -119,14 +120,18 @@ impl IncrementalRowIndex {
         self.index = RowIndex::default();
     }
 
-    /// `buildTranscriptRowIndexIncremental`: with no streaming tail a whole build; with one, the settled prefix built for the
-    /// same revision, width, expansion, length and tail id is kept and only the tail's row is replaced. Any other change
-    /// rebuilds the whole index, so the prefix is always what a whole build produces. `prefix_revision` is the engine's
-    /// monotonic structure revision: it proves the settled prefix unchanged without walking it.
+    /// `buildTranscriptRowIndexIncremental` behind the memo of `useTranscriptGeometry`: with no streaming tail the index built
+    /// for the same revision, width, expansion and length is kept (a whole build otherwise); with one, the settled prefix built
+    /// for the same revision, width, expansion, length and tail id is kept and only the tail's row is replaced. Any other
+    /// change rebuilds the whole index, so the prefix is always what a whole build produces. `prefix_revision` is the engine's
+    /// monotonic structure revision: it proves the settled items unchanged without walking them.
     pub fn build(&mut self, items: &Items, heights: &mut ItemHeights, params: &HeightParams, prefix_revision: u64) -> &RowIndex {
         let Some((tail_at, tail)) = items.streaming_tail() else {
-            self.shape = None;
-            self.index = build_row_index(items, heights, params);
+            let shape = Shape { columns: params.columns, tool_expanded: params.tool_output_expanded, prefix_len: items.len(), prefix_revision, tail: None };
+            if self.shape.as_ref() != Some(&shape) || self.index.rows.len() != items.len() {
+                self.index = build_row_index(items, heights, params);
+                self.shape = Some(shape);
+            }
             return &self.index;
         };
         let shape = Shape {
@@ -134,7 +139,7 @@ impl IncrementalRowIndex {
             tool_expanded: params.tool_output_expanded,
             prefix_len: tail_at,
             prefix_revision,
-            tail_id: item_id(tail),
+            tail: Some(item_id(tail)),
         };
         if self.shape.as_ref() == Some(&shape) && self.index.rows.len() > tail_at {
             self.index.truncate(tail_at);
@@ -222,6 +227,20 @@ mod tests {
         assert!(next_revision.rows[1] > before.rows[1]);
         let narrower = incremental.build(&Items::new(&settled, Some(&tail)), &mut heights, &params(20), 2).clone();
         assert!(narrower.rows[1] > next_revision.rows[1]);
+    }
+
+    #[test]
+    fn a_settled_transcript_is_walked_once_per_revision() {
+        let mut settled = settled(3);
+        let mut heights = ItemHeights::default();
+        let mut incremental = IncrementalRowIndex::default();
+        let before = incremental.build(&Items::new(&settled, None), &mut heights, &params(40), 1).clone();
+        settled[1] = json!({"id": "u1", "kind": "user", "text": "wide ".repeat(80)});
+        let same_revision = incremental.build(&Items::new(&settled, None), &mut heights, &params(40), 1).clone();
+        assert_eq!(same_revision, before, "the revision proves the items unchanged, so they are not walked");
+        let next_revision = incremental.build(&Items::new(&settled, None), &mut heights, &params(40), 2).clone();
+        assert!(next_revision.rows[1] > before.rows[1]);
+        assert_eq!(next_revision, build_row_index(&Items::new(&settled, None), &mut heights, &params(40)));
     }
 
     #[test]
