@@ -5,6 +5,7 @@
 //! exec's boundary removes every `MIXDOG_*` variable from the process before its core starts.
 #![allow(
     clippy::disallowed_methods,
+    clippy::disallowed_types,
     reason = "the swap re-runs this program as a process of its own: it is the command's entry, with no lane to spawn through"
 )]
 
@@ -31,9 +32,6 @@ use crate::interactive::run_interactive;
 
 /// Set in the process a swap starts again, so that it does not swap and start again in its turn.
 const SWAP_REEXEC: &str = "MIXDOG_SWAP_REEXEC";
-/// The re-run's console is the one it was started on: no window of its own.
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Runs the command on `argv` (the words after the program's name) and returns the exit code.
 pub fn run(argv: &[String]) -> i32 {
@@ -124,14 +122,13 @@ fn execute(invocation: &Invocation) -> i32 {
     }
 }
 
-/// Starts the program again on the same words with the swap guard set, the console it has inherited; its exit code, and
+/// Starts the program again on the same words with the swap guard set, attached to this process's console and streams (Node's
+/// `spawnSync` with `stdio: 'inherit'`: the terminal interface and Ctrl+C reach it as they reached this run); its exit code, and
 /// the reason the run ended with when a signal ended the child (`stagedChildExitCode`). `None` when it could not be started.
 fn rerun(argv: &[String]) -> Option<(i32, &'static str)> {
     let exe = std::env::current_exe().ok()?;
     let mut command = std::process::Command::new(exe);
     command.args(argv).env(SWAP_REEXEC, "1");
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, CREATE_NO_WINDOW);
     let status = command.status().ok()?;
     Some(child_exit(&status))
 }

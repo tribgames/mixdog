@@ -10,7 +10,7 @@
 //! The binary reaches the stand-in through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`). Ctrl+C is a
 //! CTRL_C_EVENT on the binary's own hidden console, sent by this test binary re-run as a helper; Windows only, as the recording is.
 #![cfg(windows)]
-#![allow(clippy::disallowed_methods, reason = "the test lays out an install, runs a process and reads what it left on disk")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out an install, runs a process and reads what it left on disk")]
 
 #[path = "../../mixdog-cli/tests/support/request.rs"]
 mod request;
