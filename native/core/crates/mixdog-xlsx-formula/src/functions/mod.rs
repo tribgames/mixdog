@@ -6,6 +6,8 @@
 use crate::registry::Table;
 
 mod statistical;
+mod distributions;
+mod jstat;
 
 // Library modules, one line each: `mod math;`
 
@@ -28,6 +30,7 @@ pub const TABLES: &[Table] = &[
     financial::FUNCTIONS,
     engineering::FUNCTIONS, complex::FUNCTIONS,
     statistical::FUNCTIONS,
+    distributions::FUNCTIONS,
     math::FUNCTIONS, logical::FUNCTIONS, information::FUNCTIONS,
     text::FUNCTIONS, datetime::FUNCTIONS, lookup::FUNCTIONS, database::FUNCTIONS,
 ];

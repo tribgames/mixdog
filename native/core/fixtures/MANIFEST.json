@@ -695,6 +695,15 @@
       "totalBytes": 1008794
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-stats-distributions.mjs --tree <tree>",
+      "fileCount": 3,
+      "manifest": "office-stats-distributions/MANIFEST.json",
+      "manifestSha256": "807a6d880db4100c556dc2285016f3075c338f15f87526369955d41f6bc51241",
+      "recorder": "benchmarks/rust-core/recorders/record-office-stats-distributions.mjs",
+      "set": "office-stats-distributions",
+      "totalBytes": 1407546
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-text-date.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-text-date/MANIFEST.json",
