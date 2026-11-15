@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-composition.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3728171,
+      "path": "golden.json",
+      "sha256": "f2072943415739f42f6ec6af259e9e77afa59026c9ed72b0d735776047876fef"
+    }
+  ],
+  "product": {
+    "appsSha256": "affb7bc9f7731381d4d7bf4dcb570b73c6ff1582366623685a5f2c60108867cc",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5268,
+    "refComparison": {
+      "closestCommit": "afa20b9830e6e4bdb71f73e0cb38935b5c8bf0a4",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5268
+    },
+    "srcSha256": "bffdefbc2469519d184c43845ff536fadf27ebdf4eaea0f91a47a3e208c5c56f",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-composition.mjs",
+  "set": "office-composition",
+  "totalBytes": 3728171
+}
