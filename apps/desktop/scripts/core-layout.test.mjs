@@ -53,7 +53,7 @@ test('a core install without the Office templates beside the binary is refused, 
     for (const file of OFFICE_TEMPLATE_FILES) {
       const tree = install(kind, 'linux', 'x64');
       rmSync(join(tree.dir, OFFICE_TEMPLATES_DIR, file));
-      assert.throws(() => verify(kind, tree, 'linux', 'x64'), new RegExp(`missing Office template ${OFFICE_TEMPLATES_DIR}/${file.replaceAll('.', '\.')}`));
+      assert.throws(() => verify(kind, tree, 'linux', 'x64'), new RegExp(`missing Office template ${OFFICE_TEMPLATES_DIR}/${file.replaceAll('.', '\\.')}`));
     }
   }
 });
