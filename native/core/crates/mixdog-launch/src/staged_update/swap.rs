@@ -111,10 +111,10 @@ fn swap_into_place(context: &Context, best: &layout::Staged) -> SwapOutcome {
             if exe.is_file() {
                 break;
             }
-            if std::fs::rename(&backup, exe).is_ok() {
+            if rename_with_retry(&backup, exe).is_ok() {
                 break;
             }
-            if std::fs::rename(&incoming, exe).is_ok() {
+            if rename_with_retry(&incoming, exe).is_ok() {
                 forward = true;
                 break;
             }
