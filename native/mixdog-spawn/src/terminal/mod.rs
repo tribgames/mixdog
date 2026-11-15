@@ -350,6 +350,8 @@ struct TabState {
     order: Option<RelayOrder>,
     /// Chunks the filter has taken: a held-back tail is flushed only if no chunk came after the one that held it ([`Tab::flush_held`]).
     held_gen: u64,
+    /// The armed release of the held tail: cancelled when a chunk, the end or the exit supersedes it, so a stale deadline never wakes.
+    held_timer: Option<mixdog_rt::TimerHandle>,
     /// A flush has taken the held tail and not yet put it into the feed: the next chunk waits for it ([`Tab::wait_flush`]).
     flushing: bool,
 }
@@ -435,23 +437,45 @@ impl Tab {
 
     /// Arms the release of the marker text chunk number `held_gen` left held back (`HELD_OUTPUT_FLUSH_MS` / `flushHeld`): a chunk that comes
     /// sooner makes it stale. The flush waits for the feed, so it runs on a thread of its own, never on the ticker.
-    fn arm_flush(self: &Arc<Self>, held_gen: u64) {
+    fn arm_flush(
+        self: &Arc<Self>,
+        ticker: &mixdog_rt::Ticker,
+        held_gen: u64,
+        dispatch: impl FnOnce(Arc<Self>, u64) + Send + 'static,
+    ) -> mixdog_rt::TimerHandle {
         let tab = Arc::downgrade(self);
-        drop(mixdog_rt::ticker().register(std::time::Instant::now() + HELD_FLUSH, move || {
+        ticker.register(std::time::Instant::now() + HELD_FLUSH, move || {
             let Some(tab) = tab.upgrade() else { return };
-            let _ = std::thread::Builder::new().name("terminal-held-flush".to_owned()).spawn(move || {
-                if let Ok(feed) = tab.manager.feed_of(&tab.handle) {
-                    tab.flush_held(&feed, held_gen);
-                }
-            });
-        }));
+            // Cancellation may lose to a dequeued callback: judge it before dispatch creates an OS thread, not only after it starts.
+            if !tab.flush_ready(held_gen) {
+                return;
+            }
+            dispatch(tab, held_gen);
+        })
+    }
+
+    /// The tail chunk number `generation` left held back is still the current one and nothing is flushing or over.
+    fn flush_ready(&self, generation: u64) -> bool {
+        let state = self.lock();
+        !state.exited
+            && !state.flushing
+            && state.held_gen == generation
+            && state.scanner.as_ref().is_some_and(MarkerScanner::is_holding)
+    }
+
+    fn dispatch_flush(tab: Arc<Self>, held_gen: u64) {
+        let _ = std::thread::Builder::new().name("terminal-held-flush".to_owned()).spawn(move || {
+            if let Ok(feed) = tab.manager.feed_of(&tab.handle) {
+                tab.flush_held(&feed, held_gen);
+            }
+        });
     }
 
     /// Puts the held-back marker text into `feed` as output, unless a chunk came after chunk number `held_gen` (it decides the text itself).
     fn flush_held(&self, feed: &Feed, held_gen: u64) {
         let text = {
             let mut state = self.lock();
-            if state.held_gen != held_gen || state.flushing {
+            if state.exited || state.held_gen != held_gen || state.flushing {
                 return;
             }
             let Some(scanner) = state.scanner.as_mut() else { return };
@@ -518,6 +542,9 @@ impl Tab {
         let line = format!("\r\n[process exited with code {code}]\r\n");
         let mut state = self.lock();
         state.exited = true;
+        if let Some(timer) = state.held_timer.take() {
+            timer.cancel();
+        }
         state.paused_by.clear();
         let change = state.activity.exit();
         let emitted = state.emitted;
@@ -603,11 +630,40 @@ impl TabFilter {
     fn new(tab: Arc<Tab>) -> Self {
         Self { tab, text: String::new(), markers: Vec::new() }
     }
+
+    /// `admitted` with the ticker and the flush dispatch of the held-tail release given (the tests give theirs).
+    fn admitted_with(
+        &mut self,
+        ticker: Option<&mixdog_rt::Ticker>,
+        dispatch: impl FnOnce(Arc<Tab>, u64) + Send + 'static,
+    ) -> bool {
+        let mut state = self.tab.lock();
+        let text = std::mem::take(&mut self.text);
+        state.buffer.append(&text);
+        Tab::emitted(&mut state, text.len());
+        let mut changed = false;
+        for marker in self.markers.drain(..) {
+            let change = state.activity.marker(marker);
+            changed |= change.is_some();
+            self.tab.publish_after_output(&mut state, change);
+        }
+        if state.scanner.as_ref().is_some_and(MarkerScanner::is_holding) {
+            if let Some(timer) = state.held_timer.take() {
+                timer.cancel();
+            }
+            state.held_timer =
+                Some(self.tab.arm_flush(ticker.unwrap_or_else(|| mixdog_rt::ticker()), state.held_gen, dispatch));
+        }
+        changed
+    }
 }
 
 impl OutputFilter for TabFilter {
     fn filter(&mut self, bytes: &[u8]) -> Vec<u8> {
         let mut state = self.tab.wait_flush();
+        if let Some(timer) = state.held_timer.take() {
+            timer.cancel();
+        }
         state.held_gen += 1;
         let decoded = state.decoder.push(bytes);
         let (text, markers) = match state.scanner.as_mut() {
@@ -621,6 +677,9 @@ impl OutputFilter for TabFilter {
 
     fn finish(&mut self) -> Vec<u8> {
         let mut state = self.tab.wait_flush();
+        if let Some(timer) = state.held_timer.take() {
+            timer.cancel();
+        }
         state.held_gen += 1;
         let mut text = state.scanner.as_mut().map(MarkerScanner::flush).unwrap_or_default();
         text.push_str(&state.decoder.finish());
@@ -630,20 +689,7 @@ impl OutputFilter for TabFilter {
     }
 
     fn admitted(&mut self) -> bool {
-        let mut state = self.tab.lock();
-        let text = std::mem::take(&mut self.text);
-        state.buffer.append(&text);
-        Tab::emitted(&mut state, text.len());
-        let mut changed = false;
-        for marker in self.markers.drain(..) {
-            let change = state.activity.marker(marker);
-            changed |= change.is_some();
-            self.tab.publish_after_output(&mut state, change);
-        }
-        if state.scanner.as_ref().is_some_and(MarkerScanner::is_holding) {
-            self.tab.arm_flush(state.held_gen);
-        }
-        changed
+        self.admitted_with(None, Tab::dispatch_flush)
     }
 }
 
@@ -1363,6 +1409,7 @@ impl TerminalTabs {
                 emitted: 0,
                 order: None,
                 held_gen: 0,
+                held_timer: None,
                 flushing: false,
             }),
             pty_gate: Mutex::new(()),
@@ -1580,6 +1627,10 @@ impl TerminalTabs {
     /// A view focused (or left) a tab; focusing clears `finished`. Focus is activity only: the size
     /// owner is whoever claimed it with [`Self::resize`].
     pub fn focus(&self, id: &str, client: &str, focused: bool) {
+        self.focus_with(id, client, focused, None);
+    }
+
+    fn focus_with(&self, id: &str, client: &str, focused: bool, ticker: Option<&mixdog_rt::Ticker>) {
         let Some(tab) = self.running(id) else {
             return;
         };
@@ -1590,7 +1641,7 @@ impl TerminalTabs {
             // A repeated focus is the renewal: the view's lease starts again.
             let (weak, who) = (Arc::downgrade(&tab), client.to_owned());
             state.activity.lease_focus(client, |epoch| {
-                Some(mixdog_rt::ticker().register(std::time::Instant::now() + FOCUS_LEASE, move || {
+                Some(ticker.unwrap_or_else(|| mixdog_rt::ticker()).register(std::time::Instant::now() + FOCUS_LEASE, move || {
                     if let Some(tab) = weak.upgrade() {
                         drop(mixdog_rt::spawn("terminal-focus-lease", mixdog_rt::TaskClass::Work, async move {
                             tab.lock().activity.lapse_focus(&who, epoch);
@@ -1652,6 +1703,9 @@ impl TerminalTabs {
             let mut state = tab.lock();
             let was_paused = !std::mem::take(&mut state.paused_by).is_empty();
             state.exited = true;
+            if let Some(timer) = state.held_timer.take() {
+                timer.cancel();
+            }
             let change = state.activity.exit();
             tab.publish(&mut state, change);
             (was_paused, state.buffer.cursor())
@@ -1787,6 +1841,7 @@ mod lock_order {
                 emitted: 0,
                 order: None,
                 held_gen: 0,
+                held_timer: None,
                 flushing: false,
             }),
             pty_gate: Mutex::new(()),
@@ -1905,6 +1960,7 @@ mod lock_order {
                 emitted: 0,
                 order: Some(RelayOrder::default()),
                 held_gen: 0,
+                held_timer: None,
                 flushing: false,
             }),
             pty_gate: Mutex::new(()),
@@ -2514,6 +2570,7 @@ mod held_flush {
                 emitted: 0,
                 order: None,
                 held_gen: 0,
+                held_timer: None,
                 flushing: false,
             }),
             pty_gate: Mutex::new(()),
@@ -2572,5 +2629,106 @@ mod held_flush {
         let held_gen = tab.lock().held_gen;
         tab.flush_held(&feed, held_gen);
         assert_eq!(feed.pushed(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn admitted_replaces_the_timer_and_only_dispatches_the_current_tail() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let tab = tab();
+        let ticker = mixdog_rt::Ticker::start();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let feed = Feed::new(1 << 20);
+        let mut filter = TabFilter::new(tab.clone());
+        for _ in 0..12 {
+            filter.filter(b"\x1b");
+            let (calls, feed) = (calls.clone(), feed.clone());
+            filter.admitted_with(Some(&ticker), move |tab, generation| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tab.flush_held(&feed, generation);
+            });
+            tokio::task::yield_now().await;
+            tokio::time::advance(std::time::Duration::from_millis(10)).await;
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+        }
+        tokio::time::advance(HELD_FLUSH + std::time::Duration::from_millis(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "stale deadlines must never dispatch threads");
+        assert_eq!(feed.pushed(), 1);
+        assert!(!tab.lock().scanner.as_ref().unwrap().is_holding());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn finish_cancels_the_real_armed_tail_and_a_dequeued_stale_callback_is_refused() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let tab = tab();
+        let ticker = mixdog_rt::Ticker::start();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut filter = TabFilter::new(tab.clone());
+        filter.filter(b"\x1b");
+        let count = calls.clone();
+        filter.admitted_with(Some(&ticker), move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        let old = tab.lock().held_gen;
+        assert!(tab.flush_ready(old));
+        assert_eq!(filter.finish(), b"\x1b");
+        assert!(!tab.flush_ready(old));
+        assert!(tab.lock().held_timer.is_none());
+        tokio::task::yield_now().await;
+        tokio::time::advance(HELD_FLUSH + std::time::Duration::from_millis(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn focus_arms_and_renews_the_actual_thirty_second_lease() {
+        let tab = tab();
+        let tabs = TerminalTabs::new(tab.manager.clone(), TerminalConfig::new(Arc::new(Quiet)));
+        tabs.table().insert(tab.id.clone(), Slot::Live(tab.clone()));
+        let ticker = mixdog_rt::Ticker::start();
+        tabs.focus_with(&tab.id, "view", true, Some(&ticker));
+        tokio::task::yield_now().await;
+        tokio::time::advance(std::time::Duration::from_secs(20)).await;
+        tabs.focus_with(&tab.id, "view", true, Some(&ticker));
+        tokio::time::advance(std::time::Duration::from_secs(15)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(tab.lock().activity.focused_by("view"), "renewal survived the old deadline");
+        tokio::time::advance(std::time::Duration::from_secs(16)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!tab.lock().activity.focused_by("view"));
+        tabs.focus_with(&tab.id, "view", true, Some(&ticker));
+        tabs.connection_closed("view");
+        assert!(!tab.lock().activity.focused_by("view"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stale_callback_that_still_fires_never_dispatches_a_thread() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let tab = tab();
+        let ticker = mixdog_rt::Ticker::start();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut filter = TabFilter::new(tab.clone());
+        filter.filter(b"\x1b");
+        let count = calls.clone();
+        filter.admitted_with(Some(&ticker), move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        // Keep the actual deadline armed while invalidating its generation. This
+        // represents cancellation losing to a callback already dequeued to run.
+        tab.lock().held_gen += 1;
+        tokio::task::yield_now().await;
+        tokio::time::advance(HELD_FLUSH + std::time::Duration::from_millis(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "the callback must check before OS-thread dispatch");
     }
 }
