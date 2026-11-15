@@ -1,0 +1,56 @@
+# nr-office-author-pptx-writer-package: what the lead applies (all of it is in files this task does not own).
+# (No protocol rows, no daemon service, no SERVICE_PENDING change: the writer is a library module with no caller yet; the
+# pptx build task (nr-office-author-pptx-build) is its caller.)
+
+## 1. native/core/crates/mixdog-office-author/src/lib.rs
+Add the module beside `pub mod brief;`:
+
+    pub mod pptx_writer;
+
+and extend the crate's header comment with one line: `pptx_writer`, the pptx package the `pptxgenjs` 4.0.1 library writes
+for the calls of `authoring/pptx-html-build.mjs` (presentation, theme, master, layout, slides, shapes, pictures, notes).
+
+## 2. native/core/crates/mixdog-office-author/Cargo.toml
+[dependencies]: add, after the `mixdog-office-quality` line (both are workspace entries already):
+
+    mixdog-ooxml = { workspace = true }
+    base64 = { workspace = true }
+
+(`mixdog-ooxml` for its `zipio::Package`, the container the package is built in; `base64` for the picture data. The twin
+test `tests/twin_pptx_writer.rs` also reads `serde_json`, `base64` and `mixdog-office-base` (feature `test-support`), which
+the crate lists already or with the two lines above.) The new edge mixdog-office-author -> mixdog-ooxml closes no cycle
+(mixdog-ooxml depends on mixdog-office-base, mixdog-ooxml-text, mixdog-js, mixdog-fsio, mixdog-fonts and others, not on
+the authoring crate).
+
+## 3. native/core/Cargo.lock
+The package `mixdog-office-author` gains the dependencies `base64` and `mixdog-ooxml` (both already in the lock; no new
+external crate and no new feature of one). Lead regenerates it offline (`cargo update --workspace --offline`).
+
+## 4. native/core/fixtures/MANIFEST.json, "sets" (keep the list sorted by set name: it sorts after "office-pptx-base" and
+##    before the next set that follows it):
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-pptx-writer.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-pptx-writer/MANIFEST.json",
+      "manifestSha256": "519606c00d30edbac8a94330b6a2af59f42e5a433f63fd29f8809fc5a78c1d1a",
+      "recorder": "benchmarks/rust-core/recorders/record-office-pptx-writer.mjs",
+      "set": "office-pptx-writer",
+      "totalBytes": 511085
+    },
+(Or run `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` once the wave is merged.)
+
+## 5. For the later tasks of the track
+The module exports `pptx_writer::{Presentation, Slide, Layout, Dim, ShapeOptions, Fill, Line, Shadow, Hyperlink,
+ImageOptions, ImageFile, ImageSizing, SizingKind, Background, SlideNumber, SlideNumberMargin, ThemeFonts}`.
+`Presentation::new`, `set_layout("LAYOUT_WIDE")` or `define_layout(name, inches, inches)` then `set_layout(name)`,
+`add_slide() -> &mut Slide`, `Slide::{add_shape(preset, options), add_image(options), add_notes, set_background,
+set_hidden}`, `Presentation::set_slide_number(index, props)`, `package() -> mixdog_ooxml::zipio::Package`, `write()`.
+What the text writer (nr-office-author-pptx-writer-text) adds: a `SlideObject::Text` / table object in `slide.rs`
+(`SlideObject` is the enum of a slide's objects in order; the id of an object on the slide is its place in it plus 2, a
+notes object counts) and its `p:sp` / `p:graphicFrame` writer beside `shapes::shape_xml` (a shape carries `txBody` through
+`genXmlTextBody`; `ShapeObject` has no text yet, so a framed text box is a `ShapeObject` with a text body field added
+there). The chart writer (nr-office-author-pptx-charts) adds `rels_chart` to `Slide` (it counts in the next relationship
+id, `Slide::next_rel_id`, and goes after the hyperlinks in `rels_xml`) and the chart Override of `content_types_xml`.
+Not carried here, on purpose: audio/video (`addMedia`), SVG pictures (pptxgenjs's own SVG preview is a broken-image
+placeholder), `defineSlideMaster`, sections (random ids), custom geometry points; gradients are not a pptxgenjs shape fill
+(the chart/normalise task writes native gradients after the fact).
