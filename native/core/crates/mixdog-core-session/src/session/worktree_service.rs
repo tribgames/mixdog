@@ -215,6 +215,13 @@ impl ThreadScmService {
             message: Some("WORKTREE_NOT_IMPLEMENTED: The session did not enter its worktree before the first prompt.".into()),
             detail: None,
         };
+        // The intent of a launch (`creationIntent` of session-proxy's `createSession`): armed now, provisioned when the first
+        // turn starts; `default` arms it only where the settings make a worktree the default of a new task.
+        if let Some(mode) = draft.get("mode").and_then(JsonValue::as_str) {
+            let name = draft.get("name").and_then(JsonValue::as_str).map(str::to_owned);
+            self.workspaces.register_creation_intent(thread.as_str(), Some(mode), name).await;
+            return Ok(());
+        }
         let confirm = flag(draft, "confirmLarge");
         // `requiredNewTaskDraft` kept `branch` trimmed, the flags only when true, and `create` only beside a branch.
         let branch = draft_branch(draft);

@@ -44,7 +44,9 @@ const SUBMIT_OPTION_KEYS: &[&str] = &[
     "kickoff",
 ];
 const NEW_TASK_DRAFT_KEYS: &[&str] = &["projectPath", "route", "workflowId", "orchestrationMode", "worktree"];
-const NEW_TASK_WORKTREE_KEYS: &[&str] = &["confirmLarge", "branch", "create", "fromDefault"];
+/// The choice of the desktop (`confirmLarge`, `branch`, `create`, `fromDefault`), or the intent of a launch (`mode`, `name`:
+/// `--worktree [name]`, `--no-worktree`, or neither, as the terminal UI starts its session).
+const NEW_TASK_WORKTREE_KEYS: &[&str] = &["confirmLarge", "branch", "create", "fromDefault", "mode", "name"];
 
 /// `None`: this group does not own `method`.
 pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorData>> {
@@ -388,6 +390,25 @@ fn new_task_worktree(value: &Value, path: &str) -> Checked {
     };
     require_allowed_keys(record, NEW_TASK_WORKTREE_KEYS, path, "new task worktree")?;
     let at = |key: &str| format!("{path}/{key}");
+    // The intent of a launch (`creationIntent`): `worktree` (with an optional name), `default` (the settings decide) or `branch`.
+    if let Some(mode) = present(record, "mode") {
+        if !matches!(mode.as_str(), Some("default" | "worktree" | "branch")) {
+            return Err(invalid(&at("mode"), "worktree.mode must be default, worktree or branch."));
+        }
+        if let Some(name) = present(record, "name") {
+            if mode.as_str() != Some("worktree") {
+                return Err(invalid(&at("name"), "worktree.name requires the worktree mode."));
+            }
+            required_string(name, &at("name"), "worktree.name", 255)?;
+        }
+        if ["branch", "create", "fromDefault"].iter().any(|key| present(record, key).is_some()) {
+            return Err(invalid(path, "a worktree mode takes no branch choice."));
+        }
+        return Ok(());
+    }
+    if present(record, "name").is_some() {
+        return Err(invalid(&at("name"), "worktree.name requires the worktree mode."));
+    }
     if present(record, "confirmLarge").is_some_and(|flag| !flag.is_boolean()) {
         return Err(invalid(&at("confirmLarge"), "worktree.confirmLarge must be a boolean."));
     }
