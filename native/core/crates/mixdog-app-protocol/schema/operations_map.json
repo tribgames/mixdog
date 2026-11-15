@@ -3854,8 +3854,8 @@
       "list": "actions",
       "name": "getSettingsSnapshot",
       "target": {
-        "kind": "deleted",
-        "target": "caller-less action (DS §17.1)"
+        "kind": "method",
+        "target": "config/getSettingsSnapshot"
       }
     },
     {
@@ -4826,8 +4826,8 @@
       "list": "actions",
       "name": "rememberPromptHistory",
       "target": {
-        "kind": "deleted",
-        "target": "caller-less action (DS §17.1)"
+        "kind": "method",
+        "target": "thread/rememberPromptHistory"
       }
     },
     {
@@ -4946,16 +4946,16 @@
       "list": "actions",
       "name": "restoreNewerTranscript",
       "target": {
-        "kind": "deleted",
-        "target": "caller-less action (DS §17.1)"
+        "kind": "method",
+        "target": "thread/restoreNewerTranscript"
       }
     },
     {
       "list": "actions",
       "name": "restoreOlderTranscript",
       "target": {
-        "kind": "deleted",
-        "target": "caller-less action (DS §17.1)"
+        "kind": "method",
+        "target": "thread/restoreOlderTranscript"
       }
     },
     {
@@ -5458,8 +5458,8 @@
       "list": "actions",
       "name": "setProgressHint",
       "target": {
-        "kind": "deleted",
-        "target": "caller-less action (DS §17.1)"
+        "kind": "method",
+        "target": "thread/setProgressHint"
       }
     },
     {

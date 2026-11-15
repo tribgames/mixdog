@@ -27,6 +27,17 @@ impl SessionActor {
     pub(super) fn turn_op(&mut self, req: CoreRequest, tx: Waiter) -> Result<(), (CoreError, Waiter)> {
         let done = match req.method.as_str() {
             "thread/pushNotice" => self.push_notice(&req),
+            // rememberPromptHistory(text): the draft Esc cleared joins the cwd's persisted history, through the writer a submitted prompt uses
+            // (the republish of the list is that writer's: PromptFlushed). true when there was a text to keep (Node answered whether the write
+            // landed; the writer here retries a write that did not).
+            "thread/rememberPromptHistory" => match super::super::tui_client_methods::remembered_prompt(&req.params) {
+                Ok(Some(prompt)) => {
+                    self.persist_prompt(prompt);
+                    Ok(Value::Bool(true))
+                }
+                Ok(None) => Ok(Value::Bool(false)),
+                Err(error) => Err(error),
+            },
             "thread/askSide" => {
                 let params: mixdog_app_protocol::v2::params::ThreadAskSideParams = match parse(&req.params, "ThreadAskSideParams") {
                     Ok(params) => params,

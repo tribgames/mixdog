@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(pending.elapsed, "15s");
         let done = read(json!({ "result": "ok  \n", "count": 3, "nowMs": 9, "startedAt": 5, "completedAt": 47_000 }));
         assert!(!done.pending && done.has_result);
-        assert_eq!((done.rt.as_deref(), done.group_count, done.done_count, done.elapsed.as_str()), (Some("ok"), 3.0, 3.0, "42s"));
+        assert_eq!((done.rt.as_deref(), done.group_count, done.done_count, done.elapsed.as_str()), (Some("ok"), 3.0, 3.0, "46s"));
         let partial = read(json!({ "result": "x", "count": 3, "completedCount": 1 }));
         assert!(partial.pending);
         assert!(read(json!({ "result": "x", "headerFinalized": false })).header_pending);

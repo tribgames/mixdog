@@ -1290,6 +1290,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let route_setup_calls = Arc::new(crate::late_setup_actions::DomainCoreCalls(pre.late.clone()));
     // `thread/setWorkflow`, `thread/setOutputStyle` and the other settings of a thread read the same workflow config and output styles as the config service.
     let workflow_config = pre.workflow_config.clone();
+    let pre_late = pre.late.clone(); // the late domain table, for the terminal client's snapshot reads after `pre` is given to the post stage
     let output_styles = pre.output_styles.clone();
 
     // The one quota auto-resume switch (config key `quotaAutoResume`, on unless `false`). It is built here, ahead of the goals
@@ -3614,6 +3615,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone())),
         domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
     )))?;
+    // `config/getSettingsSnapshot`, `thread/setProgressHint`, `thread/restoreOlderTranscript`, `thread/restoreNewerTranscript` (the terminal client's calls; `thread/rememberPromptHistory` is the thread actor's):
+    // the snapshot reads go through the late domain table the setup status readers use and the web-search route through the workflow config; the hint is the runtime section's.
+    let web_route = workflow_config.clone();
+    let snapshot_reads = mixdog_core_session::session::tui_client_methods::SettingsReads::new(pre_late.clone(), move || web_route.web_search_route());
+    builder.register(mixdog_core_session::session::tui_client_methods::TuiClientService::new(
+        snapshot_reads,
+        Arc::new(mixdog_core::run_host::compose_parts::LateThreads(late.clone())),
+    ))?;
     // ---- the services whose constructors the tree and the draft both have (registration-inventory.md; flip-brief.md "Unregistered services") ----
     // memory (`memory/recall`, `memory/memoryControl`): the memory stack's service over the stored sessions it recalls from.
     builder.register(Arc::new(memory.service(Arc::new(mixdog_core_ports::ports::memory_source::SessionRecallSource::new(

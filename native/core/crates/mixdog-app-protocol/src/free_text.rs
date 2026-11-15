@@ -94,6 +94,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "desktop/userFile/write", &["/path", "/text"]),
     // Text stored as written: notes, personas, definitions, instructions, prompts, descriptions.
     (Kind::Request, "thread/pushNotice", &["/text"]),
+    (Kind::Request, "thread/setProgressHint", &["/text"]),
+    (Kind::Request, "thread/rememberPromptHistory", &["/text"]),
     (Kind::Request, "agent/saveLeadPersona", &["/text"]),
     (Kind::Request, "agent/saveLeadAgentBody", &["/text"]),
     (Kind::Request, "agent/setLeadCreated", &["/description"]),

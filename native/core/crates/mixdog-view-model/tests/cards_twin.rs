@@ -27,7 +27,7 @@ use serde_json::Value;
 use serde_json::json;
 
 fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/cards.json")).expect("the golden is JSON")
+    serde_json::from_str(&mixdog_js::json_well_formed_str(mixdog_testkit::fixture!("tests/goldens/cards.json"))).expect("the golden is JSON")
 }
 
 fn describe(value: &impl std::fmt::Display) -> String {

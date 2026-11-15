@@ -471,5 +471,6 @@ pub const ARG_ORDER: &[(&str, &[&str])] = &[
     ("thread/pushNotice", &["text", "level"]),
     ("thread/revertTurnReviewFile", &["file", "checkpointId"]),
     ("thread/setEffort", &["value", "options"]),
+    ("thread/setProgressHint", &["text", "tone", "percent"]),
     ("thread/setWorkflow", &["workflowId", "options"]),
 ];

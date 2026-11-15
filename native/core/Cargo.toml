@@ -106,6 +106,7 @@ exclude = [
     "crates/mixdog-secure-desktop",
     "vendor/fancy-regex",
     "vendor/icu_collator",
+    "vendor/regress",
 ]
 
 [workspace.package]
@@ -370,3 +371,5 @@ libwebp-sys = "=0.9.6"
 # (native/core/vendor/fancy-regex/MIXDOG.md): an MCP output schema's pattern ends when its call is cancelled.
 fancy-regex = { path = "vendor/fancy-regex" }
 icu_collator = { path = "vendor/icu_collator" }
+# regress 0.10.5 with a start-anchored match tried at one position under the `utf16` feature (native/core/vendor/regress/MIXDOG.md).
+regress = { path = "vendor/regress" }

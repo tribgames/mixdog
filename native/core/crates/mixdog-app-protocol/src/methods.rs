@@ -709,6 +709,51 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh],
     },
+    /// Today's session configure action `setProgressHint`: the sticky hint line of the input row (the runtime section's `progressHint`); an empty text clears it.
+    ThreadSetProgressHint => "thread/setProgressHint" {
+        params: ThreadSetProgressHintParams,
+        result: JsonValue,
+        scope: thread_or_none(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Today's session configure action `rememberPromptHistory`: the text joins the up-arrow history of the thread's folder; answers whether there was a text to keep.
+    ThreadRememberPromptHistory => "thread/rememberPromptHistory" {
+        params: ThreadRememberPromptHistoryParams,
+        result: JsonValue,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: op(Thread),
+        origins: [Local, Ssh],
+    },
+    /// Today's session configure action `restoreOlderTranscript`: answers false, the core keeps the whole log (page with `thread/items/list`).
+    ThreadRestoreOlderTranscript => "thread/restoreOlderTranscript" {
+        params: ThreadRestoreTranscriptParams,
+        result: JsonValue,
+        scope: thread_or_none(thread_id),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Today's session configure action `restoreNewerTranscript`: as `thread/restoreOlderTranscript`.
+    ThreadRestoreNewerTranscript => "thread/restoreNewerTranscript" {
+        params: ThreadRestoreTranscriptParams,
+        result: JsonValue,
+        scope: thread_or_none(thread_id),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read; a row that cannot be read is null.
+    ConfigGetSettingsSnapshot => "config/getSettingsSnapshot" {
+        params: ConfigGetSettingsSnapshotParams,
+        result: JsonValue,
+        scope: thread_or_shared_read(thread_id, "config"),
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
     /// Today's session configure action `requestWorktree`.
     ThreadRequestWorktree => "thread/requestWorktree" {
         params: ThreadRequestWorktreeParams,
