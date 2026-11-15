@@ -614,6 +614,21 @@ export function createBrowserHostAgent(options: {
       ),
     replyLine: base.linkedSignIns.replyLine,
   };
+  // Every agent command reaches its page here, before acting on it: from
+  // now on a veto answers the agent, not a person's earlier click or key.
+  // The host's own command runner calls it for the page a command resolved,
+  // and the engine lane for the page a command of the core leases.
+  const drivePage = (guest: WebContents): (() => void) => {
+    leave.agentActs(guest);
+    // A window the page opens from here on is the agent's (popup-focus).
+    state.for(guest).actor = 'agent';
+    const releaseDomains = cdp.drive(guest);
+    const releasePower = base.display.power.drive(guest);
+    return () => {
+      releasePower();
+      releaseDomains();
+    };
+  };
   const runCommand = createBrowserCommandRunner({
     state,
     approvals: base.approvals,
@@ -625,19 +640,7 @@ export function createBrowserHostAgent(options: {
     retainGuest: options.retainGuest,
     autoSignIn,
     linkedSignIn,
-    // Every agent command reaches its page here, before acting on it: from
-    // now on a veto answers the agent, not a person's earlier click or key.
-    drivePage: (guest) => {
-      leave.agentActs(guest);
-      // A window the page opens from here on is the agent's (popup-focus).
-      state.for(guest).actor = 'agent';
-      const releaseDomains = cdp.drive(guest);
-      const releasePower = base.display.power.drive(guest);
-      return () => {
-        releasePower();
-        releaseDomains();
-      };
-    },
+    drivePage,
     services,
     onDiagnostic: options.onDiagnostic,
   });
@@ -719,5 +722,5 @@ export function createBrowserHostAgent(options: {
     forget: (sessionId) => taskLifecycle.forget(sessionId),
     onDiagnostic: options.onDiagnostic,
   };
-  return { ...queue, bridge, loginFill, signIn };
+  return { ...queue, bridge, loginFill, signIn, drivePage };
 }

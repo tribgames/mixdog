@@ -141,3 +141,26 @@ test('host/browser/command refuses a tool action in engine mode and serves the r
   assert.equal(await command({ action: 'importSources', threadId: 't1' }, signal), 'remote importSources');
   assert.deepEqual(ran, ['snapshot']);
 });
+
+test('a command of the core drives the page it leases through the host, and lets go with the lease', () => {
+  const h = harness();
+  const guest = { pageId: 'p1', isDestroyed: () => false, once: () => {}, on: () => {}, off: () => {}, removeListener: () => {} };
+  h.guests.push(guest);
+  const log = [];
+  h.ports.drivePage = (driven) => {
+    log.push(['drive', driven]);
+    return () => log.push(['release', driven]);
+  };
+  createBrowserEngine(h.connection, h.ports);
+  const { leases } = h.bound();
+  const lease = leases.acquire('p1', 'c1', 5_000);
+  assert.deepEqual(log, [['drive', guest]], 'the host is told an agent command works on the page');
+  leases.release('p1', lease);
+  assert.deepEqual(log, [
+    ['drive', guest],
+    ['release', guest],
+  ]);
+  // A page that is gone is not leased, and nothing is driven for it.
+  assert.throws(() => leases.acquire('p9', 'c2', 5_000));
+  assert.equal(log.length, 2);
+});

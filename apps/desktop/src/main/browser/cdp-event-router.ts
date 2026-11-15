@@ -213,8 +213,11 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     diagnostics: GuestRecord
   ): boolean {
     // Every network event the lane carries reaches the core, also those the
-    // host's own ledger never read (cache hits, data chunks, extra info).
+    // host's own ledger never read (cache hits, data chunks, extra info). The
+    // host keeps only the type of each request in flight: a paused request is
+    // answered here, by the intercept rule that type selects.
     if (name.startsWith('Network.')) {
+      diagnostics.requestTypes.follow(name, params, sessionId);
       if (engine.carries(name)) engine.forward(guest, name, params, sessionId);
       return true;
     }

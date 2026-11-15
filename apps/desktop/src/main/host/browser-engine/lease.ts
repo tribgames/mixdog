@@ -8,6 +8,12 @@
  * `host/browser/userInput` tells the core when the person takes the page and
  * when they let go. Every lease ends with the connection.
  *
+ * A lease is also what drives the page: for as long as a command holds it the
+ * page is the agent's to work on (`drive`, the host's `drivePage`: the script
+ * contexts, console, browser log and accessibility tree are observed and the
+ * page runs unthrottled), as the host-mode command runner held its page for
+ * the length of one command.
+ *
  * The same rules as the host-mode queue (browser/command-queue-local-input.ts)
  * with the page, not the session's queue key, as the unit.
  */
@@ -98,7 +104,8 @@ function takeoverError(until: number | undefined): HostRpcError {
 
 interface PageState {
   calls: Set<{ controller: AbortController; settled: Promise<void> }>;
-  lease?: { id: string; timer: unknown };
+  /** `undrive` gives back what the lease drove the page with. */
+  lease?: { id: string; timer: unknown; undrive(): void };
   /** Local inputs running or waiting. */
   pending: number;
   holds: number;
@@ -114,7 +121,15 @@ interface PageState {
   reason: UserInputReason;
 }
 
-export function createLeases(connection: HostConnection, ctx: EngineContext, clock: Clock = systemClock): Leases {
+/** An agent command works on the page from now until the returned release (browser/host-agent.ts `drivePage`). */
+export type DrivePage = (pageId: string) => (() => void) | undefined;
+
+export function createLeases(
+  connection: HostConnection,
+  ctx: EngineContext,
+  clock: Clock = systemClock,
+  drive?: DrivePage
+): Leases {
   const pages = new Map<string, PageState>();
   let closed = false;
   /** Rises with every `userInput` sent, for the connection's life: a page's state is dropped when idle, its order is not. */
@@ -183,9 +198,11 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
   }
 
   function dropLease(page: PageState): void {
-    if (!page.lease) return;
-    clock.clearTimer(page.lease.timer);
+    const lease = page.lease;
+    if (!lease) return;
     page.lease = undefined;
+    clock.clearTimer(lease.timer);
+    lease.undrive();
   }
 
   /** The page is the person's from now for the quiet window; returns the agent calls this aborted. */
@@ -220,18 +237,20 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
       if (!ctx.page(pageId)) throw pageGone(pageId);
       const page = state(pageId);
       if (holdsPage(page)) throw takeoverError(quietEnd(page));
+      // The new command drives the page before the lease it replaces lets go, so the page never idles in between.
+      const undrive = drive?.(pageId) ?? (() => undefined);
       dropLease(page);
       page.leases += 1;
       const id = `lease-${pageId}-${page.leases}-${commandId}`;
       const timer = clock.setTimer(
         () => {
           if (page.lease?.id !== id) return;
-          page.lease = undefined;
+          dropLease(page);
           idle(pageId, page);
         },
         Math.max(1, Math.floor(ttlMs))
       );
-      page.lease = { id, timer };
+      page.lease = { id, timer, undrive };
       return id;
     },
 

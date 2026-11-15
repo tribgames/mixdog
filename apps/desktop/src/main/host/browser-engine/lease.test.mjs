@@ -227,3 +227,89 @@ test('userInput seq keeps rising after an idle page state is dropped', () => {
   const seqs = h.notes.map((note) => note.params.seq);
   assert.deepEqual(seqs, [1, 2, 3]);
 });
+
+/** Leases over a `drive` that records which pages are driven now and how often each was let go. */
+function drivenHarness() {
+  const clock = fakeClock();
+  const notifications = new Map();
+  const closers = [];
+  const connection = {
+    notify: () => {},
+    handleNotification: (method, handler) => notifications.set(method, handler),
+    onClose: (listener) => closers.push(listener),
+  };
+  const ctx = { page: (pageId) => (pageId === 'p1' || pageId === 'p2' ? {} : undefined) };
+  const driving = [];
+  const log = [];
+  const leases = createLeases(connection, ctx, clock, (pageId) => {
+    driving.push(pageId);
+    log.push(`drive ${pageId}`);
+    let released = false;
+    return () => {
+      assert.equal(released, false, `${pageId} is let go once`);
+      released = true;
+      driving.splice(driving.indexOf(pageId), 1);
+      log.push(`release ${pageId}`);
+    };
+  });
+  return {
+    clock,
+    leases,
+    driving,
+    log,
+    release: (params) => notifications.get('host/browser/lease/release')(params),
+    close: () => closers.forEach((close) => close()),
+  };
+}
+
+test('a command drives the page it leases until it releases the lease', () => {
+  const h = drivenHarness();
+  const lease = h.leases.acquire('p1', 'c1', 5_000);
+  assert.deepEqual(h.driving, ['p1'], 'the leased page is driven (console, log and accessibility up, unthrottled)');
+  // A release that names another lease is not this command's.
+  h.release({ pageId: 'p1', leaseId: 'lease-of-another-command' });
+  assert.deepEqual(h.driving, ['p1']);
+  h.release({ pageId: 'p1', leaseId: lease });
+  assert.deepEqual(h.driving, []);
+  assert.deepEqual(h.log, ['drive p1', 'release p1']);
+});
+
+test('the next command drives the page before the lease it replaces lets go', () => {
+  const h = drivenHarness();
+  h.leases.acquire('p1', 'c1', 5_000);
+  const second = h.leases.acquire('p1', 'c2', 5_000);
+  assert.deepEqual(h.log, ['drive p1', 'drive p1', 'release p1'], 'the page never idles between two commands');
+  h.leases.release('p1', second);
+  assert.deepEqual(h.driving, []);
+});
+
+test('a lease that ends any other way stops driving its page', () => {
+  const expired = drivenHarness();
+  expired.leases.acquire('p1', 'c1', 5_000);
+  expired.clock.advance(5_001);
+  assert.deepEqual(expired.driving, [], 'the lease ran out');
+
+  const taken = drivenHarness();
+  taken.leases.acquire('p1', 'c1', 5_000);
+  taken.leases.acquire('p2', 'c2', 5_000);
+  taken.leases.onUserInput('p1', 'key');
+  assert.deepEqual(taken.driving, ['p2'], 'the person took the page; the other page is still the command it serves');
+
+  const closed = drivenHarness();
+  closed.leases.acquire('p1', 'c1', 5_000);
+  closed.leases.forget('p1');
+  assert.deepEqual(closed.driving, [], 'the page closed');
+
+  const ended = drivenHarness();
+  ended.leases.acquire('p1', 'c1', 5_000);
+  ended.leases.acquire('p2', 'c2', 5_000);
+  ended.close();
+  assert.deepEqual(ended.driving, [], 'the connection ended');
+});
+
+test('a page the person holds is not driven by the command that is refused', () => {
+  const h = drivenHarness();
+  h.leases.onUserInput('p1', 'pointer');
+  assert.throws(() => h.leases.acquire('p1', 'c1', 5_000), { code: -32012 });
+  assert.deepEqual(h.log, []);
+});
