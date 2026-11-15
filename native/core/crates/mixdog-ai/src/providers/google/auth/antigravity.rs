@@ -242,10 +242,12 @@ impl AntigravityAuth {
     }
 
     /// The signed-in document, for building the adapter (project binding).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn current(&self) -> Result<TokenDoc, ProviderError> {
         self.store.load().await.ok_or_else(|| reauth("not signed in — run /login"))
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn refresh(&self, spent: &TokenDoc) -> Result<TokenDoc, ProviderError> {
         let id = client_id();
         let secret = client_secret();
@@ -289,6 +291,7 @@ impl AntigravityAuth {
         self.store.load().await.ok_or_else(|| reauth("credentials were removed during token refresh — run /login"))
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn tokens(&self, force: bool) -> Result<TokenDoc, ProviderError> {
         let tokens = self.current().await?;
         if !force && !should_refresh(&tokens, (self.now_ms)()) {
@@ -404,6 +407,7 @@ pub struct CodeAssist<'a> {
 }
 
 impl CodeAssist<'_> {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn call(&self, action: &str, body: Option<Value>) -> Result<Value, ProviderError> {
         let post = body.is_some();
         let response = self
@@ -449,6 +453,7 @@ impl CodeAssist<'_> {
         parsed.filter(Value::is_object).ok_or_else(|| failure(format!("invalid {action} response")))
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn project_state(&self) -> Result<Value, ProviderError> {
         let body = json!({ "metadata": { "ideType": "ANTIGRAVITY" } });
         let mut payload = self.call("loadCodeAssist", Some(body.clone())).await?;
@@ -461,6 +466,7 @@ impl CodeAssist<'_> {
         Ok(payload)
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn provision(&self, tier_id: &str, pause: &dyn Pause) -> Result<(), ProviderError> {
         let mut operation = self
             .call("onboardUser", Some(json!({ "tierId": tier_id, "metadata": { "ideType": "ANTIGRAVITY" } })))
@@ -493,6 +499,7 @@ impl CodeAssist<'_> {
     /// Resolves account eligibility, onboards when Google reports no tier,
     /// and returns the project from a fresh status load plus the tier (paid
     /// first).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn discover_account(&self, pause: &dyn Pause) -> Result<Account, ProviderError> {
         let initial = self.project_state().await?;
         if initial["currentTier"].is_null() {

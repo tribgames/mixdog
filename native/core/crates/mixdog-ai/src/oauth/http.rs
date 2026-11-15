@@ -89,6 +89,7 @@ pub fn request_failed(operation: &str, error: &ProviderError) -> String {
 }
 
 /// [`call`] keeping the transport's typed error, for the sites whose Node code words the failure itself.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn try_call(
     http: &dyn HttpSend,
     method: &str,
@@ -100,6 +101,7 @@ pub async fn try_call(
 }
 
 /// [`call_under`] keeping the transport's typed error.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn try_call_under(
     http: &dyn HttpSend,
     exchange: Exchange,

@@ -419,6 +419,7 @@ fn strip_request_prefix<'a>(current: &'a [Value], previous: &[Value]) -> Option<
 /// `_stripResponseItemsFromHead`: the tail after the previous response's own
 /// items, which must all lead it in order; `Err` carries the mismatch reason
 /// and its diagnostics.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a [Value], (String, OutputMismatch)> {
     let mut cursor = 0;
     for output in outputs {
@@ -428,7 +429,7 @@ fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a 
         }
         let kind = Some(text(output, "type")).filter(|t| !t.is_empty()).unwrap_or("unknown");
         let actual = tail.get(cursor);
-        let actual_type = match actual.map(|item| input_type(item)) {
+        let actual_type = match actual.map(input_type) {
             Some(t) if !t.is_empty() => t.to_owned(),
             _ => "unknown".to_owned(),
         };

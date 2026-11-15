@@ -385,6 +385,7 @@ impl CreateJob {
     }
 
     /// One POST: the new cache's name and token size, or the typed failure.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn post_once(&self) -> Result<(String, u64), ProviderError> {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {

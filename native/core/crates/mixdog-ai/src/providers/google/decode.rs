@@ -373,6 +373,7 @@ impl GeminiDecoder {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn line(&mut self, raw: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let line = String::from_utf8_lossy(raw);
         let line = line.trim_end_matches('\r');
@@ -398,6 +399,7 @@ impl GeminiDecoder {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn chunk(&mut self, payload: Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let chunk = if self.dialect.envelope {
             match payload.get("response") {
@@ -530,6 +532,7 @@ impl GeminiDecoder {
         err
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn conclude(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut out = Vec::new();
         // `assertGeminiStreamCompleted` names the consumer's label (`gemini-stream.mjs:237`, `:244`).

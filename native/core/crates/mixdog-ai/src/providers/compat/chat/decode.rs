@@ -557,6 +557,7 @@ impl ChatDecoder {
         self.error(err)
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn on_data(&mut self, raw: &str, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let data = mixdog_js::js_trim(raw);
         if data.is_empty() {
@@ -573,6 +574,7 @@ impl ChatDecoder {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn finalize(&mut self, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         if self.terminal {
             return Ok(());

@@ -341,6 +341,7 @@ impl CursorUsage {
 
     /// `callCursorUnary`: one empty-bodied unary POST; a status of 400 or more is the failure, a
     /// redirect is an answer.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn call(&self, token: &str, path: &str) -> Result<Vec<u8>, ProviderError> {
         let request = WireRequest {
             transport: TransportKind::Http2,

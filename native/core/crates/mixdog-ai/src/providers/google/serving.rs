@@ -376,6 +376,7 @@ impl VertexPlace {
     }
 
     /// The location one request goes to, or why none can serve it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn choose(&self, route: &Route<'_>, tier: Tier) -> Result<String, ProviderError> {
         let configured = self.configured.as_deref().map(str::trim).filter(|c| !c.is_empty());
         let pinned = configured.is_some();
@@ -411,6 +412,7 @@ impl VertexPlace {
     }
 
     /// `https://{host}/v1[/projects/{project}/locations/{location}]`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn base(&self, location: &str) -> Result<String, ProviderError> {
         match &self.account {
             VertexAccount::Express => Ok(EXPRESS_BASE.to_owned()),

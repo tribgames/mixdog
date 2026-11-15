@@ -85,6 +85,7 @@ impl ModelBroker {
     ///
     /// [`SendStages::ladder_by_connection`]: mixdog_core_api::domain::provider::SendStages::ladder_by_connection
     /// [`SendStages::reconnecting`]: mixdog_core_api::domain::provider::SendStages::reconnecting
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn send(
         &self,
         adapter: &dyn ProviderAdapter,
@@ -113,6 +114,7 @@ impl ModelBroker {
         result
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn run(
         &self,
         adapter: &dyn ProviderAdapter,
@@ -155,7 +157,7 @@ impl ModelBroker {
             }
             let mut streamed = false;
             let failure = match self
-                .attempt(adapter, &send.request, sink, cancel, &mut streamed, stages.ladder_by_connection, liveness.as_deref())
+                .attempt(adapter, &send.request, sink, cancel, (&mut streamed, stages.ladder_by_connection), liveness.as_deref())
                 .await
             {
                 Ok(()) => {
@@ -311,16 +313,17 @@ impl ModelBroker {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn attempt(
         &self,
         adapter: &dyn ProviderAdapter,
         request: &Arc<ModelRequest>,
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
-        streamed: &mut bool,
-        by_connection: bool,
+        stream_state: (&mut bool, bool),
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
+        let (streamed, by_connection) = stream_state;
         // The stages the adapter raises from inside the attempt are delivered as the request goes out, ahead of whatever
         // the attempt's end brings.
         let opened = request
@@ -346,6 +349,7 @@ impl ModelBroker {
     }
 
     /// The provider's re-issue of a spent send ([`ProviderAdapter::recover_spent`]), to its terminal event.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn recovered(
         &self,
         adapter: &dyn ProviderAdapter,
@@ -363,6 +367,7 @@ impl ModelBroker {
     }
 
     /// An opened stream's events into `sink`, to its terminal event; `evented` is set by the first event.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn consume(
         mut stream: Box<dyn mixdog_core_api::domain::provider::ModelStream>,
         sink: &mut dyn AttemptSink,
@@ -428,6 +433,7 @@ impl Drop for Group<'_> {
     }
 }
 
+#[allow(clippy::large_enum_variant, reason = "Forward the canonical ProviderError through the broker without an extra allocation on the failure path")]
 enum Stop {
     Cancelled,
     Failed(ProviderError),

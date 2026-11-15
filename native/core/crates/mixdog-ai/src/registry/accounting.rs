@@ -499,7 +499,7 @@ pub fn usage_request_status(failed: bool, substituted: bool, attempts: u32) -> &
 /// The first-output time within the request, when its provider is timed.
 fn first_output_ms(provider: &str, generation_ms: Option<f64>, stream_ms: f64) -> Option<f64> {
     let generation = generation_ms.filter(|g| g.is_finite())?;
-    (TIMED_PROVIDERS.contains(&provider) && generation >= 0.0 && generation <= stream_ms).then(|| stream_ms - generation)
+    if TIMED_PROVIDERS.contains(&provider) && generation >= 0.0 && generation <= stream_ms { Some(stream_ms - generation) } else { None }
 }
 
 #[cfg(test)]
