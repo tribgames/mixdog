@@ -20,11 +20,17 @@ use crate::ps::payload;
 #[derive(Clone, Copy)]
 pub struct HostEnv<'a> {
     lane: &'a InLane<MaintenanceIo>,
+    data_dir: Option<&'a std::path::Path>,
 }
 
 impl<'a> HostEnv<'a> {
-    pub(super) fn new(lane: &'a InLane<MaintenanceIo>) -> Self {
-        Self { lane }
+    pub(super) fn new(lane: &'a InLane<MaintenanceIo>, data_dir: Option<&'a std::path::Path>) -> Self {
+        Self { lane, data_dir }
+    }
+
+    /// The data directory the host keeps its record of the application under; none for a hand-started host.
+    pub fn data_dir(&self) -> Option<&'a std::path::Path> {
+        self.data_dir
     }
 
     /// The proof that the host's thread is a job of the maintenance lane: file work on the apartment thread (checkpoint
