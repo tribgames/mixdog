@@ -37,7 +37,7 @@ const DOMAIN: &str = "route";
 pub const PRE_SESSION: &str = "";
 
 /// The keys of a `route/set` selection that are options of the write, not part of the route.
-const OPTION_KEYS: [&str; 4] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "onlyIfEmpty"];
+const OPTION_KEYS: [&str; 5] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "onlyIfEmpty", "validateOnly"];
 
 /// The keys a session-only request may carry (`SESSION_ONLY_KEYS`).
 const SESSION_ONLY_KEYS: [&str; 5] = ["provider", "model", "effort", "fast", "autoEffort"];
@@ -162,7 +162,7 @@ pub(super) fn plan(selection: &Obj, selected: &Obj) -> Plan {
         keep_main_model: Some(selection.get("keepMainModel") != Some(&Value::Bool(false))),
         only_if_empty: flag("onlyIfEmpty"),
         session_only,
-        validate_only: false,
+        validate_only: flag("validateOnly"),
         follow: FollowOptions { apply_to_current_session: flag("applyToCurrentSession"), switch_established: true, defer_until_next_turn: true, lease: None },
     };
     Plan::Write(requested, options)

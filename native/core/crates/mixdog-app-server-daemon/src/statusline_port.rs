@@ -69,15 +69,15 @@ pub struct StatuslineService {
 }
 
 impl StatuslineService {
-    /// `data_dir`: the core's data directory; `claude_config_dir`: Claude Code's ([`Self::claude_config_dir`]); `usage`: the
+    /// `data_dir`: the core's data directory; `claude_config_dir`: the status files' ([`Self::claude_config_dir`]); `usage`: the
     /// gateway usage writer whose route section the footer's route spend shares; `started_ms`: this process's start.
     pub fn new(data_dir: PathBuf, claude_config_dir: PathBuf, catalog: Arc<CatalogService>, usage: GatewayUsage, started_ms: f64) -> Self {
         Self { inner: Arc::new(Inner { data_dir, claude_dir: claude_config_dir, catalog, usage, started_ms, events: Mutex::new(UsageView::default()) }) }
     }
 
-    /// Claude Code's configuration directory: `CLAUDE_CONFIG_DIR`, else `.claude` of the home directory.
+    /// The directory of the status files (`claudeConfigDir` of the statusline's `claude-current`): `MIXDOG_CONFIG_DIR`, else `.mixdog` of the home directory.
     pub fn claude_config_dir(env: &dyn Fn(&str) -> Option<std::ffi::OsString>, home: Option<PathBuf>) -> PathBuf {
-        env("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.unwrap_or_default().join(".claude"))
+        env("MIXDOG_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.unwrap_or_default().join(".mixdog"))
     }
 }
 
@@ -218,10 +218,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_code_config_is_the_variable_else_the_dot_claude_of_the_home() {
-        let var = |value: Option<&'static str>| move |name: &str| if name == "CLAUDE_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
+    fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {
+        let var = |value: Option<&'static str>| move |name: &str| if name == "MIXDOG_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
         assert_eq!(StatuslineService::claude_config_dir(&var(Some("D:/cc")), Some("C:/home".into())), PathBuf::from("D:/cc"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".claude"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".claude"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
     }
 }
