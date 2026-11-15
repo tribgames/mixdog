@@ -1,0 +1,2986 @@
+{
+  "area": "ppt-edit",
+  "description": "The PowerPoint editor of office-com-host.ps1 (Apply-PowerPointOperation, 46 operations) run through the PowerShell host's own sessions: every operation with the argument sets of the live PowerPoint tests and every refusal; two and three charts in one background batch so the open-data-sheet and Excel-reuse paths run; a chart refresh that adds a period under a last-point accent; templates with particles and repeated tokens; import_slides and keep_slides; a background batch failing after a replace_text so the deck checkpoint reload runs; a visible-session batch with Undo. Recorded on the migration PC with Microsoft PowerPoint and Excel (record-office-com.mjs --area ppt-edit) and replayed by tests/ppt_edit.rs against the fake dispatch object: the call log is cut at the operation markers, and the answers of the process and window layer are scripted on the fake platform from the recorded window handles. Not covered by the recorder's step kinds: apply_theme with a theme file (it needs a .thmx this repository does not carry: only its refusal is recorded), and an installation of PowerPoint in another UI language (layout names follow it): the Korean-UI deck is these scenarios recorded on a Korean-UI PC.",
+  "scenarios": [
+    {
+      "id": "text-and-shapes",
+      "description": "Text boxes, shapes, text edits and shape arrangement: add_textbox with paragraphs, bullets, faces, fill, outline, margins, spacing and shadow; add_shape in every portable geometry and the line; set_shape with null colours and percentages; replace_text across spaces, soft breaks, the notes and one slide; set_text; fit_text; delete_shape, z_order, align_shapes, distribute_shapes, group_shapes, ungroup_shape, set_hyperlink, add_provenance, set_notes. The refusals each get a batch of their own.",
+      "collect": [
+        "text.pptx"
+      ],
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "te",
+              "format": "pptx",
+              "path": "${work}\\text.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "slides",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Quarterly review",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40,
+                  "fontSize": 32,
+                  "fontName": "Arial",
+                  "color": "1A1A1A",
+                  "name": "Title"
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Filled",
+                  "left": 48,
+                  "top": 100,
+                  "width": 300,
+                  "height": 40,
+                  "fillColor": "0B5FFF",
+                  "color": "FFFFFF",
+                  "fillTransparency": 10,
+                  "lineColor": "101010",
+                  "lineTransparency": 20,
+                  "lineWidth": 2
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "",
+                  "left": 48,
+                  "top": 160,
+                  "width": 300,
+                  "height": 120,
+                  "paragraphs": [
+                    {
+                      "text": "First point",
+                      "bullet": true,
+                      "level": 0,
+                      "fontSize": 18
+                    },
+                    {
+                      "text": "Nested point",
+                      "bullet": true,
+                      "level": 1,
+                      "bold": true,
+                      "color": "0B5FFF"
+                    },
+                    {
+                      "text": "Plain",
+                      "bullet": false,
+                      "italic": true,
+                      "fontName": "Georgia"
+                    }
+                  ]
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "분기 검토 결과 요약",
+                  "left": 48,
+                  "top": 300,
+                  "width": 300,
+                  "height": 40,
+                  "properties": {
+                    "alignment": "centre",
+                    "verticalAlignment": "middle",
+                    "marginLeft": 12,
+                    "marginTop": 6,
+                    "marginRight": 12,
+                    "marginBottom": 6,
+                    "paragraphSpacing": 8,
+                    "bold": true,
+                    "italic": true,
+                    "rotation": 5,
+                    "altText": "A summary",
+                    "shadow": {
+                      "color": "404040",
+                      "transparency": 0.5,
+                      "blur": 4,
+                      "offsetX": 2,
+                      "offsetY": 2
+                    }
+                  }
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 2,
+                  "text": "Second page",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40,
+                  "properties": {
+                    "shadow": true
+                  }
+                }
+              ]
+            }
+          },
+          "label": "textboxes",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "rect",
+                  "left": 400,
+                  "top": 40,
+                  "width": 120,
+                  "height": 60,
+                  "fillColor": "0B5FFF",
+                  "lineColor": "101010",
+                  "text": "Rect"
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "Rounded Rectangle",
+                  "left": 400,
+                  "top": 120,
+                  "fillColor": "F2F4F7",
+                  "paragraphs": [
+                    {
+                      "text": "Own ink",
+                      "color": "B00020"
+                    },
+                    {
+                      "text": "Default ink"
+                    }
+                  ]
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "pentagon",
+                  "left": 400,
+                  "top": 200,
+                  "fillColor": "101820"
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "star",
+                  "left": 400,
+                  "top": 280,
+                  "rotation": 15,
+                  "fillTransparency": 30,
+                  "properties": {
+                    "fontName": "Arial",
+                    "fontSize": 14,
+                    "color": "123456",
+                    "altText": "A star",
+                    "shadow": true
+                  },
+                  "name": "Star"
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "line",
+                  "left": 40,
+                  "top": 440,
+                  "width": 400,
+                  "height": 0,
+                  "lineColor": "9AA3AD",
+                  "lineWidth": 1.5
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": 9,
+                  "left": 560,
+                  "top": 40
+                },
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "circle",
+                  "left": 560,
+                  "top": 120,
+                  "text": ""
+                }
+              ]
+            }
+          },
+          "label": "shapes",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_shape",
+                  "slide": 1,
+                  "shape": 6,
+                  "properties": {
+                    "left": 100,
+                    "top": 360,
+                    "width": 150,
+                    "height": 80,
+                    "rotation": 10,
+                    "altText": "Moved",
+                    "fillColor": null,
+                    "lineColor": "123456",
+                    "lineTransparency": 50,
+                    "lineWidth": 3,
+                    "shadow": {
+                      "color": "202020"
+                    }
+                  }
+                },
+                {
+                  "op": "set_shape",
+                  "slide": 1,
+                  "shape": 7,
+                  "properties": {
+                    "fillColor": "FF8000",
+                    "fillTransparency": 25,
+                    "lineColor": null,
+                    "marginLeft": 4,
+                    "paragraphSpacing": 2,
+                    "alignment": "right",
+                    "verticalAlignment": "bottom",
+                    "fontName": "Arial",
+                    "fontSize": 12,
+                    "bold": false,
+                    "italic": true,
+                    "color": "FFFFFF"
+                  }
+                }
+              ]
+            }
+          },
+          "label": "set-shape",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_notes",
+                  "slide": 1,
+                  "text": "Speaker note about the review"
+                },
+                {
+                  "op": "add_provenance",
+                  "slide": 1,
+                  "citation": "Source: Model!B2"
+                },
+                {
+                  "op": "add_provenance",
+                  "slide": 1,
+                  "citation": "Source: Model!B2",
+                  "shape": 2
+                }
+              ]
+            }
+          },
+          "label": "notes",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "replace_text",
+                  "find": "Quarterly",
+                  "replace": "Annual"
+                },
+                {
+                  "op": "replace_text",
+                  "find": "review",
+                  "replace": "summary",
+                  "slide": 1
+                },
+                {
+                  "op": "replace_text",
+                  "find": "Speaker note",
+                  "replace": "Presenter note"
+                },
+                {
+                  "op": "replace_text",
+                  "find": "Second page",
+                  "replace": "Last page",
+                  "slide": 2
+                },
+                {
+                  "op": "replace_text",
+                  "find": "nothing like this",
+                  "replace": "x",
+                  "allowNoChange": true
+                },
+                {
+                  "op": "set_text",
+                  "slide": 2,
+                  "shape": 1,
+                  "text": "Rewritten"
+                }
+              ]
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_textbox",
+                  "slide": 2,
+                  "text": "A long line of text that has to shrink to fit the narrow box it was given by the slide author",
+                  "left": 48,
+                  "top": 200,
+                  "width": 120,
+                  "height": 30,
+                  "fontSize": 24
+                },
+                {
+                  "op": "fit_text",
+                  "slide": 2,
+                  "shape": 2,
+                  "minFontSize": 10
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 2,
+                  "text": "Off the page",
+                  "left": 900,
+                  "top": 500,
+                  "width": 300,
+                  "height": 100
+                },
+                {
+                  "op": "fit_text",
+                  "slide": 2,
+                  "shape": 3
+                },
+                {
+                  "op": "fit_text",
+                  "slide": 2,
+                  "shape": 1
+                }
+              ]
+            }
+          },
+          "label": "fit",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "align_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    5,
+                    6,
+                    7
+                  ],
+                  "align": "left"
+                },
+                {
+                  "op": "align_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    5,
+                    6,
+                    7
+                  ],
+                  "align": "middle",
+                  "relativeToSlide": true
+                },
+                {
+                  "op": "distribute_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    5,
+                    6,
+                    7
+                  ],
+                  "direction": "vertical"
+                },
+                {
+                  "op": "distribute_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    5,
+                    6,
+                    7
+                  ],
+                  "direction": "horizontal",
+                  "relativeToSlide": true
+                },
+                {
+                  "op": "group_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    6,
+                    7
+                  ]
+                },
+                {
+                  "op": "ungroup_shape",
+                  "slide": 1,
+                  "shape": 6
+                },
+                {
+                  "op": "set_hyperlink",
+                  "slide": 1,
+                  "shape": 1,
+                  "address": "https://example.com",
+                  "subAddress": ""
+                },
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 1,
+                  "command": "front"
+                },
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 2,
+                  "command": "back"
+                },
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 3,
+                  "command": "forward"
+                },
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 4,
+                  "command": "backward"
+                },
+                {
+                  "op": "delete_shape",
+                  "slide": 2,
+                  "shape": 3
+                }
+              ]
+            }
+          },
+          "label": "arrange",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "replace_text",
+                  "find": "   ",
+                  "replace": "x"
+                }
+              ]
+            }
+          },
+          "label": "refuse-empty-find",
+          "expect": {
+            "contains": "replace_text requires non-empty find"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_shape",
+                  "slide": 1,
+                  "shapeType": "blob"
+                }
+              ]
+            }
+          },
+          "label": "refuse-shape-type",
+          "expect": {
+            "contains": "Unsupported shapeType: blob. Use one of:"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 1,
+                  "command": "sideways"
+                }
+              ]
+            }
+          },
+          "label": "refuse-z-order",
+          "expect": {
+            "contains": "z_order command must be front, back, forward, or backward"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "align_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    1,
+                    2
+                  ],
+                  "align": "diagonal"
+                }
+              ]
+            }
+          },
+          "label": "refuse-align",
+          "expect": {
+            "contains": "Unsupported shape alignment: diagonal"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "distribute_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "direction": "diagonal"
+                }
+              ]
+            }
+          },
+          "label": "refuse-distribute",
+          "expect": {
+            "contains": "Unsupported shape distribution: diagonal"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "group_shapes",
+                  "slide": 1,
+                  "shapes": [
+                    1
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "refuse-group",
+          "expect": {
+            "contains": "group_shapes requires at least two shape indexes"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_provenance",
+                  "slide": 1
+                }
+              ]
+            }
+          },
+          "label": "refuse-provenance",
+          "expect": {
+            "contains": "add_provenance requires source with a document or label"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "te",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "rotate_slide",
+                  "slide": 1
+                }
+              ]
+            }
+          },
+          "label": "refuse-unknown",
+          "expect": {
+            "contains": "Unsupported PPTX operation: rotate_slide"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "te",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "tables-and-images",
+      "description": "Tables and pictures: add_table with figure columns (signs, currency, Korean units), column widths and row heights, header and body fills; set_table_data growing and shrinking the table with the last row's type copied; set_table_cell_style; add_image stretched, contained and covered around a focus; replace_image keeping the frame; crop_image; add_media with an embedded sound.",
+      "collect": [
+        "tables.pptx"
+      ],
+      "steps": [
+        {
+          "copy": "../ppt-edit/inputs/pixel.png",
+          "as": "pixel.png",
+          "prepare": true
+        },
+        {
+          "copy": "../ppt-edit/inputs/tone.wav",
+          "as": "tone.wav",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "ta",
+              "format": "pptx",
+              "path": "${work}\\tables.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "slides",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_table",
+                  "slide": 1,
+                  "values": [
+                    [
+                      "Region",
+                      "Revenue",
+                      "Growth",
+                      "Note"
+                    ],
+                    [
+                      "Seoul",
+                      "1,200",
+                      "+12%",
+                      "strong"
+                    ],
+                    [
+                      "Busan",
+                      "$800",
+                      "-3.5%",
+                      "flat"
+                    ],
+                    [
+                      "Daegu",
+                      "45억",
+                      "(2)",
+                      ""
+                    ]
+                  ],
+                  "left": 40,
+                  "top": 40,
+                  "width": 600,
+                  "height": 160,
+                  "properties": {
+                    "columnWidths": [
+                      2,
+                      1,
+                      1,
+                      2
+                    ],
+                    "headerRowHeight": 36,
+                    "bodyRowHeight": 28,
+                    "fontName": "Arial",
+                    "fontSize": 14,
+                    "color": "222222",
+                    "headerFillColor": "101820",
+                    "headerColor": "FFFFFF",
+                    "bodyFillColor": "F7F8FA"
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "slide": 1,
+                  "rows": 3,
+                  "columns": 2,
+                  "top": 260
+                },
+                {
+                  "op": "add_table",
+                  "slide": 2,
+                  "values": [
+                    [
+                      "A",
+                      "B"
+                    ],
+                    [
+                      "1",
+                      "2"
+                    ]
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "tables",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_table_data",
+                  "slide": 1,
+                  "shape": 1,
+                  "values": [
+                    [
+                      "Region",
+                      "Revenue",
+                      "Growth",
+                      "Note",
+                      "Extra"
+                    ],
+                    [
+                      "Seoul",
+                      "1,300",
+                      "+13%",
+                      "up",
+                      "x"
+                    ],
+                    [
+                      "Busan",
+                      "$810",
+                      "-3%",
+                      "flat",
+                      "y"
+                    ],
+                    [
+                      "Daegu",
+                      "46억",
+                      "(1)",
+                      "n/a",
+                      "z"
+                    ],
+                    [
+                      "Gwangju",
+                      "12",
+                      "+1%",
+                      "new",
+                      "w"
+                    ]
+                  ]
+                },
+                {
+                  "op": "set_table_data",
+                  "slide": 1,
+                  "shape": 2,
+                  "values": [
+                    [
+                      "only"
+                    ]
+                  ]
+                },
+                {
+                  "op": "set_table_cell_style",
+                  "slide": 1,
+                  "shape": 1,
+                  "row": 2,
+                  "col": 2,
+                  "properties": {
+                    "fillColor": "FFF4CC",
+                    "horizontalAlignment": "right",
+                    "verticalAlignment": "top",
+                    "fontName": "Arial",
+                    "fontSize": 12,
+                    "bold": true,
+                    "italic": false,
+                    "color": "123456"
+                  }
+                },
+                {
+                  "op": "set_table_cell_style",
+                  "slide": 1,
+                  "shape": 1,
+                  "row": 3,
+                  "col": 1,
+                  "properties": {
+                    "fillColor": null
+                  }
+                }
+              ]
+            }
+          },
+          "label": "table-data",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_image",
+                  "slide": 2,
+                  "path": "${work}\\pixel.png",
+                  "left": 40,
+                  "top": 200,
+                  "width": 200,
+                  "height": 100,
+                  "altText": "Stretched"
+                },
+                {
+                  "op": "add_image",
+                  "slide": 2,
+                  "path": "${work}\\pixel.png",
+                  "left": 260,
+                  "top": 200,
+                  "width": 200,
+                  "height": 100,
+                  "fit": "contain"
+                },
+                {
+                  "op": "add_image",
+                  "slide": 2,
+                  "path": "${work}\\pixel.png",
+                  "left": 480,
+                  "top": 200,
+                  "width": 200,
+                  "height": 100,
+                  "fit": "cover",
+                  "focusX": 0.3,
+                  "focusY": 0.7
+                },
+                {
+                  "op": "add_image",
+                  "slide": 2,
+                  "path": "${work}\\pixel.png",
+                  "left": 40,
+                  "top": 320,
+                  "width": 100,
+                  "height": 200,
+                  "fit": "cover",
+                  "focusY": 0.2
+                },
+                {
+                  "op": "crop_image",
+                  "slide": 2,
+                  "shape": 2,
+                  "left": 0,
+                  "right": 0,
+                  "top": 0,
+                  "bottom": 0
+                },
+                {
+                  "op": "replace_image",
+                  "slide": 2,
+                  "shape": 3,
+                  "path": "${work}\\pixel.png",
+                  "altText": "Replaced"
+                },
+                {
+                  "op": "add_media",
+                  "slide": 2,
+                  "path": "${work}\\tone.wav",
+                  "left": 300,
+                  "top": 340,
+                  "width": 60,
+                  "height": 60,
+                  "altText": "A tone"
+                }
+              ]
+            }
+          },
+          "label": "images",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_image",
+                  "slide": 2,
+                  "path": "${work}\\pixel.png",
+                  "fit": "tile"
+                }
+              ]
+            }
+          },
+          "label": "refuse-fit",
+          "expect": {
+            "contains": "Image fit must be stretch, contain, or cover"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_table_data",
+                  "slide": 2,
+                  "shape": 1,
+                  "values": [
+                    [
+                      "x"
+                    ]
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "refuse-not-a-table",
+          "expect": {
+            "contains": "is not a table"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ta",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_table_cell_style",
+                  "slide": 1,
+                  "shape": 1,
+                  "row": 9,
+                  "col": 1,
+                  "properties": {}
+                }
+              ]
+            }
+          },
+          "label": "refuse-cell",
+          "expect": {
+            "contains": "is outside it"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "ta",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "slides-notes-footers",
+      "description": "The slide operations: add_slide in the preceding slide's layout and by name (the English default names in any UI language), type, number and refusal; set_layout; duplicate, move, delete and keep; visibility, transition, animation, background; comments; footer and slide number on a layout with a footer placeholder and on one without; fill_template with particles and repeated tokens; import_slides after the source deck is closed and its refusal while it is open.",
+      "collect": [
+        "slides.pptx",
+        "source.pptx"
+      ],
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "srcdeck",
+              "format": "pptx",
+              "path": "${work}\\source.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "session": "srcdeck",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "One",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 2,
+                  "text": "Two",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 3,
+                  "text": "Three",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "srcdeck",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"closed\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "sl",
+              "format": "pptx",
+              "path": "${work}\\slides.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide",
+                  "layout": "Title Only"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide",
+                  "layout": "blank",
+                  "index": 2
+                },
+                {
+                  "op": "add_slide",
+                  "layout": 1
+                },
+                {
+                  "op": "add_slide",
+                  "layout": "obj"
+                },
+                {
+                  "op": "set_layout",
+                  "slide": 1,
+                  "layout": "title only"
+                }
+              ]
+            }
+          },
+          "label": "layouts",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide",
+                  "layout": "No Such Layout"
+                }
+              ]
+            }
+          },
+          "label": "refuse-layout-name",
+          "expect": {
+            "contains": "PowerPoint layout 'No Such Layout' not found; available layouts:"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide",
+                  "layout": 99
+                }
+              ]
+            }
+          },
+          "label": "refuse-layout-index",
+          "expect": {
+            "contains": "PowerPoint layout index out of range: 99"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "duplicate_slide",
+                  "slide": 1
+                },
+                {
+                  "op": "duplicate_slide",
+                  "slide": 2,
+                  "index": 5
+                },
+                {
+                  "op": "move_slide",
+                  "slide": 1,
+                  "index": 3
+                },
+                {
+                  "op": "set_slide_visibility",
+                  "slide": 2,
+                  "visible": false
+                },
+                {
+                  "op": "set_slide_visibility",
+                  "slide": 2,
+                  "visible": true
+                },
+                {
+                  "op": "set_transition",
+                  "slide": 1,
+                  "effect": "fade",
+                  "advanceOnTime": true,
+                  "advanceTime": 4,
+                  "duration": 1
+                },
+                {
+                  "op": "set_transition",
+                  "slide": 2,
+                  "effect": 3850,
+                  "duration": 3
+                },
+                {
+                  "op": "set_transition",
+                  "slide": 3,
+                  "duration": 0.4
+                },
+                {
+                  "op": "set_slide_background",
+                  "slide": 1,
+                  "color": "101820"
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Animated",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40,
+                  "name": "Anim"
+                },
+                {
+                  "op": "add_animation",
+                  "slide": 1,
+                  "shape": 1,
+                  "effect": "fly",
+                  "trigger": "after_previous",
+                  "duration": 0.6,
+                  "delay": 0.1
+                },
+                {
+                  "op": "add_animation",
+                  "slide": 1,
+                  "shape": 1,
+                  "effect": "zoom",
+                  "trigger": "on click"
+                },
+                {
+                  "op": "add_comment",
+                  "slide": 1,
+                  "text": "Check this",
+                  "left": 30,
+                  "top": 30
+                },
+                {
+                  "op": "add_comment",
+                  "slide": 1,
+                  "text": "Second",
+                  "author": "Reviewer",
+                  "initials": "RV"
+                },
+                {
+                  "op": "delete_comment",
+                  "slide": 1,
+                  "comment": 1
+                }
+              ]
+            }
+          },
+          "label": "arrange",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_transition",
+                  "slide": 1,
+                  "effect": "spin"
+                }
+              ]
+            }
+          },
+          "label": "refuse-transition",
+          "expect": {
+            "contains": "Unknown transition effect: spin"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_slide_visibility",
+                  "slide": 1
+                }
+              ]
+            }
+          },
+          "label": "refuse-visibility",
+          "expect": {
+            "contains": "set_slide_visibility requires visible: true or false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "delete_comment",
+                  "slide": 1,
+                  "comment": 9
+                }
+              ]
+            }
+          },
+          "label": "refuse-comment",
+          "expect": {
+            "contains": "PowerPoint comment index out of range: 9"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "apply_theme"
+                }
+              ]
+            }
+          },
+          "label": "refuse-theme",
+          "expect": {
+            "contains": "apply_theme requires path"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_footer",
+                  "slide": 1,
+                  "text": "Confidential"
+                },
+                {
+                  "op": "set_footer",
+                  "slide": 2,
+                  "text": "Internal use"
+                },
+                {
+                  "op": "set_slide_number",
+                  "slide": 1,
+                  "visible": true
+                },
+                {
+                  "op": "set_slide_number",
+                  "slide": 2,
+                  "visible": false
+                }
+              ]
+            }
+          },
+          "label": "footers",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_textbox",
+                  "slide": 3,
+                  "text": "{{company}}은 {{ company }} and {{city}} {{missing}}",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40,
+                  "name": "Template"
+                },
+                {
+                  "op": "fill_template",
+                  "tokens": {
+                    "company": "모아페이",
+                    "city": "Seoul"
+                  },
+                  "particles": [
+                    {
+                      "key": "company",
+                      "find": "{{company}}은",
+                      "replace": "모아페이는"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "template",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "fill_template",
+                  "tokens": {
+                    "city": "Seoul"
+                  },
+                  "strict": true
+                }
+              ]
+            }
+          },
+          "label": "refuse-strict",
+          "expect": {
+            "contains": "Unfilled template tokens:"
+          }
+        },
+        {
+          "session": "src",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "src",
+            "request": {
+              "action": "open_session",
+              "session": "srcopen",
+              "format": "pptx",
+              "path": "${work}\\source.pptx",
+              "mode": "visible"
+            }
+          },
+          "label": "open-source",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "import_slides",
+                  "path": "${work}\\source.pptx",
+                  "slides": [
+                    1
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "refuse-import-open",
+          "expect": {
+            "contains": "import_slides requires the saved source deck to be closed before import"
+          }
+        },
+        {
+          "send": {
+            "session": "src",
+            "request": {
+              "action": "close_session",
+              "session": "srcopen",
+              "save": false
+            }
+          },
+          "label": "close-source",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "src"
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "import_slides",
+                  "path": "${work}\\source.pptx",
+                  "slides": [
+                    1,
+                    3
+                  ],
+                  "after": 1
+                },
+                {
+                  "op": "import_slides",
+                  "path": "${work}\\source.pptx"
+                }
+              ]
+            }
+          },
+          "label": "import",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "sl",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "keep_slides",
+                  "slides": [
+                    1,
+                    2,
+                    3,
+                    4
+                  ]
+                },
+                {
+                  "op": "delete_slide",
+                  "slide": 4
+                }
+              ]
+            }
+          },
+          "label": "keep",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "sl",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "charts",
+      "description": "Charts with the embedded data sheet: add_chart of every kind with series, point colours, labels, legend, axis and title fields; two and three charts in one background batch (the open data sheet and the Excel reuse); a refresh that adds a period under a last-point accent and a bar chart's category order; set_chart_series, set_chart_axis, set_chart_trendline, set_chart_error_bars and set_chart_data_labels; every chart refusal.",
+      "collect": [
+        "charts.pptx"
+      ],
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "ch",
+              "format": "pptx",
+              "path": "${work}\\charts.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "slides",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_chart",
+                  "slide": 1,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "column",
+                  "title": "Revenue",
+                  "categories": [
+                    "2022",
+                    "2023",
+                    "2024"
+                  ],
+                  "series": [
+                    {
+                      "name": "Revenue",
+                      "values": [
+                        10,
+                        14,
+                        18
+                      ],
+                      "color": "0B5FFF"
+                    }
+                  ],
+                  "showValues": true,
+                  "valueNumberFormat": "#,##0",
+                  "dataLabelPosition": "outside_end",
+                  "zeroBaseline": true,
+                  "showLegend": false
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 1,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "doughnut",
+                  "categories": [
+                    "A",
+                    "B",
+                    "C"
+                  ],
+                  "series": [
+                    {
+                      "name": "Share",
+                      "values": [
+                        50,
+                        30,
+                        20
+                      ],
+                      "pointColors": [
+                        "0B5FFF",
+                        "FF8000",
+                        "2EAD6B"
+                      ]
+                    }
+                  ],
+                  "showValues": true
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 2,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "bar",
+                  "categories": [
+                    "North",
+                    "South",
+                    "East"
+                  ],
+                  "series": [
+                    {
+                      "name": "Loss",
+                      "values": [
+                        -5,
+                        3,
+                        -1
+                      ]
+                    }
+                  ],
+                  "showValues": true,
+                  "dataLabelPosition": "inside_end",
+                  "dataLabelColor": "FFFFFF"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 2,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "line",
+                  "categories": [
+                    "Q1",
+                    "Q2",
+                    "Q3",
+                    "Q4"
+                  ],
+                  "series": [
+                    {
+                      "name": "A",
+                      "values": [
+                        1,
+                        3,
+                        2,
+                        4
+                      ]
+                    },
+                    {
+                      "name": "B",
+                      "values": [
+                        2,
+                        2,
+                        3,
+                        5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 3,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "pie",
+                  "categories": [
+                    "X",
+                    "Y"
+                  ],
+                  "series": [
+                    {
+                      "name": "P",
+                      "values": [
+                        60,
+                        40
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 3,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "scatter",
+                  "categories": [
+                    1,
+                    2,
+                    3
+                  ],
+                  "series": [
+                    {
+                      "name": "S",
+                      "values": [
+                        2,
+                        4,
+                        8
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 4,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "stacked_column",
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "S1",
+                      "values": [
+                        1,
+                        2
+                      ]
+                    },
+                    {
+                      "name": "S2",
+                      "values": [
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 4,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "area"
+                }
+              ]
+            }
+          },
+          "label": "kinds",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 5,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "One",
+                      "values": [
+                        1,
+                        2
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 5,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "Two",
+                      "values": [
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "two-charts",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 6,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "One",
+                      "values": [
+                        1,
+                        2
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 6,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "Two",
+                      "values": [
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 6,
+                  "left": 40,
+                  "top": 300,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "a",
+                    "b"
+                  ],
+                  "series": [
+                    {
+                      "name": "Three",
+                      "values": [
+                        5,
+                        6
+                      ]
+                    }
+                  ],
+                  "chartType": "doughnut"
+                }
+              ]
+            }
+          },
+          "label": "three-charts",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 7,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "categories": [
+                    "Jan",
+                    "Feb",
+                    "Mar"
+                  ],
+                  "series": [
+                    {
+                      "name": "Sales",
+                      "values": [
+                        5,
+                        6,
+                        9
+                      ],
+                      "color": "9AA3AD",
+                      "pointColors": [
+                        "9AA3AD",
+                        "9AA3AD",
+                        "0B5FFF"
+                      ]
+                    }
+                  ],
+                  "title": "Monthly"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 7,
+                  "left": 420,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "bar",
+                  "categories": [
+                    "x",
+                    "y",
+                    "z"
+                  ],
+                  "series": [
+                    {
+                      "name": "Rank",
+                      "values": [
+                        3,
+                        2,
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "accent-chart",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 1,
+                  "series": [
+                    {
+                      "name": "Sales",
+                      "values": [
+                        5,
+                        6,
+                        9,
+                        11
+                      ]
+                    }
+                  ],
+                  "categories": [
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr"
+                  ],
+                  "showValues": true,
+                  "zeroBaseline": true,
+                  "valueNumberFormat": "0",
+                  "title": "Monthly (Apr)"
+                },
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 1,
+                  "series": [
+                    {
+                      "name": "Sales",
+                      "values": [
+                        1,
+                        2,
+                        3,
+                        4
+                      ]
+                    }
+                  ],
+                  "title": ""
+                },
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 2,
+                  "series": [
+                    {
+                      "name": "Rank",
+                      "values": [
+                        3,
+                        2,
+                        1
+                      ]
+                    }
+                  ],
+                  "categoryOrder": "topDown"
+                },
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 2,
+                  "series": [
+                    {
+                      "name": "Rank",
+                      "values": [
+                        3,
+                        2,
+                        1
+                      ]
+                    }
+                  ],
+                  "categoryOrder": "bottom_up"
+                },
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 2,
+                  "series": [
+                    {
+                      "name": "Rank",
+                      "values": [
+                        4,
+                        5,
+                        6
+                      ]
+                    }
+                  ],
+                  "chartType": "stacked_bar"
+                }
+              ]
+            }
+          },
+          "label": "refresh",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_series",
+                  "slide": 1,
+                  "shape": 1,
+                  "series": 1,
+                  "name": "Renamed",
+                  "categories": [
+                    "a",
+                    "b",
+                    "c"
+                  ],
+                  "values": [
+                    3,
+                    2,
+                    1
+                  ],
+                  "secondaryAxis": false,
+                  "chartType": "line"
+                },
+                {
+                  "op": "set_chart_axis",
+                  "slide": 1,
+                  "shape": 1,
+                  "axis": "category",
+                  "title": "Year"
+                },
+                {
+                  "op": "set_chart_axis",
+                  "slide": 1,
+                  "shape": 1,
+                  "axis": "value",
+                  "minimum": 0,
+                  "maximum": 20,
+                  "majorUnit": 5,
+                  "numberFormat": "0.0",
+                  "secondaryAxis": false
+                }
+              ]
+            }
+          },
+          "label": "series-axis",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_trendline",
+                  "slide": 2,
+                  "shape": 2,
+                  "type": "linear",
+                  "displayEquation": true,
+                  "displayRSquared": true
+                },
+                {
+                  "op": "set_chart_trendline",
+                  "slide": 2,
+                  "shape": 2,
+                  "series": 1,
+                  "type": "exp"
+                },
+                {
+                  "op": "set_chart_trendline",
+                  "slide": 2,
+                  "shape": 2,
+                  "type": "moving average"
+                },
+                {
+                  "op": "set_chart_error_bars",
+                  "slide": 2,
+                  "shape": 2,
+                  "series": 1,
+                  "amount": 1.5,
+                  "direction": "y",
+                  "endStyle": "plus"
+                },
+                {
+                  "op": "set_chart_error_bars",
+                  "slide": 2,
+                  "shape": 2,
+                  "amount": 1
+                },
+                {
+                  "op": "set_chart_data_labels",
+                  "slide": 2,
+                  "shape": 2,
+                  "showValue": true,
+                  "showCategoryName": true,
+                  "numberFormat": "0.0",
+                  "position": "outside_end"
+                },
+                {
+                  "op": "set_chart_data_labels",
+                  "slide": 1,
+                  "shape": 2,
+                  "series": 1,
+                  "position": "best_fit"
+                }
+              ]
+            }
+          },
+          "label": "trendlines",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_axis",
+                  "slide": 4,
+                  "shape": 1,
+                  "axis": "value"
+                }
+              ]
+            }
+          },
+          "label": "refuse-not-a-chart",
+          "expect": {
+            "contains": "is not a chart"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_chart",
+                  "slide": 1,
+                  "left": 40,
+                  "top": 40,
+                  "width": 360,
+                  "height": 240,
+                  "chartType": "radar",
+                  "series": [
+                    {
+                      "name": "S",
+                      "values": [
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "refuse-chart-type",
+          "expect": {
+            "contains": "Unknown chart type: radar"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_trendline",
+                  "slide": 2,
+                  "shape": 2,
+                  "type": "wavy"
+                }
+              ]
+            }
+          },
+          "label": "refuse-trendline",
+          "expect": {
+            "contains": "set_chart_trendline type must be"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_error_bars",
+                  "slide": 2,
+                  "shape": 2,
+                  "direction": "z",
+                  "amount": 1
+                }
+              ]
+            }
+          },
+          "label": "refuse-direction",
+          "expect": {
+            "contains": "set_chart_error_bars direction must be x or y"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_error_bars",
+                  "slide": 2,
+                  "shape": 2,
+                  "amount": 0
+                }
+              ]
+            }
+          },
+          "label": "refuse-amount",
+          "expect": {
+            "contains": "set_chart_error_bars requires a positive amount"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 2,
+                  "series": [
+                    {
+                      "name": "Rank",
+                      "values": [
+                        1
+                      ]
+                    }
+                  ],
+                  "categoryOrder": "sideways"
+                }
+              ]
+            }
+          },
+          "label": "refuse-order",
+          "expect": {
+            "contains": "set_chart_data categoryOrder must be 'topDown' or 'bottomUp'"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 1,
+                  "series": [
+                    {
+                      "name": "Sales",
+                      "values": [
+                        1
+                      ]
+                    }
+                  ],
+                  "categoryOrder": "topDown"
+                }
+              ]
+            }
+          },
+          "label": "refuse-order-kind",
+          "expect": {
+            "contains": "orders a horizontal bar chart's categories"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "ch",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_chart_data",
+                  "slide": 7,
+                  "shape": 1,
+                  "series": []
+                }
+              ]
+            }
+          },
+          "label": "refuse-no-series",
+          "expect": {
+            "contains": "PowerPoint chart data requires at least one series"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "ch",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "failing-background-batch",
+      "description": "A background batch that fails after a replace_text: the deck is reloaded from the checkpoint, so the text is what it was and the later snapshot shows it.",
+      "collect": [
+        "failing.pptx"
+      ],
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "fb",
+              "format": "pptx",
+              "path": "${work}\\failing.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "fb",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Before the failure",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40
+                }
+              ]
+            }
+          },
+          "label": "build",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "fb",
+              "action": "checkpoint"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "fb",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "replace_text",
+                  "find": "Before",
+                  "replace": "After"
+                },
+                {
+                  "op": "z_order",
+                  "slide": 1,
+                  "shape": 1,
+                  "command": "sideways"
+                }
+              ]
+            }
+          },
+          "label": "fail",
+          "expect": {
+            "contains": "z_order command must be front, back, forward, or backward"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "fb",
+              "action": "snapshot"
+            }
+          },
+          "label": "after-failure",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "fb",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "visible-batch-undo",
+      "description": "A visible-session batch: each operation starts an undo entry; a failing batch is taken back through Undo until the deck reads as it did; a later batch of the same session succeeds.",
+      "collect": [
+        "visible.pptx"
+      ],
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "vi",
+              "format": "pptx",
+              "path": "${work}\\visible.pptx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "vi",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Visible text",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40,
+                  "name": "V"
+                }
+              ]
+            }
+          },
+          "label": "build",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "vi",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_textbox",
+                  "slide": 1,
+                  "text": "Second box",
+                  "left": 48,
+                  "top": 48,
+                  "width": 300,
+                  "height": 40
+                },
+                {
+                  "op": "set_text",
+                  "slide": 1,
+                  "shape": 1,
+                  "text": "Changed"
+                },
+                {
+                  "op": "delete_shape",
+                  "slide": 1,
+                  "shape": 99
+                }
+              ]
+            }
+          },
+          "label": "fail",
+          "expect": {
+            "contains": "failed at"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "vi",
+              "action": "snapshot"
+            }
+          },
+          "label": "after-undo",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "vi",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_text",
+                  "slide": 1,
+                  "shape": 1,
+                  "text": "Changed again"
+                },
+                {
+                  "op": "add_chart",
+                  "slide": 1,
+                  "categories": [
+                    "a"
+                  ],
+                  "series": [
+                    {
+                      "name": "S",
+                      "values": [
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "label": "again",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "vi",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    }
+  ]
+}
