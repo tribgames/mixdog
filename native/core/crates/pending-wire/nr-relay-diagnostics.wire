@@ -1,0 +1,13 @@
+nr-relay-diagnostics: no Cargo, workspace or protocol edit. mixdog-relay already depends on every crate the diagnostics use
+(mixdog-rt, tokio with rt/time/sync, mixdog-js through logline); tokio's test-util is already a dev-dependency.
+
+For the task that writes the server and the legs registry (the code that owns the live desktop table):
+  - once the relay's runtime runs, call `mixdog_relay::diagnostics::start_socket_diagnostics(snapshot)` and keep the returned
+    `SocketDiagnostics`; call `.stop()` on shutdown (a drop stops it too). It must be called inside the tokio runtime.
+  - `snapshot` is an `Arc<dyn Fn() -> Vec<DesktopSockets> + Send + Sync>` that copies, per live desktop entry: its device id,
+    whether its leg socket is attached, that socket's buffered_amount in bytes (src/ws) and, per attached phone, its client id and
+    buffered_amount. Node read `entry.socket?.bufferedAmount || 0` and each `phone.bufferedAmount || 0`.
+
+SERVICE_PENDING (compose_flip.rs): nothing to remove; this task adds no protocol method.
+
+Verify with: cargo nextest run -p mixdog-relay --features test-support --offline -E 'binary(diagnostics)'
