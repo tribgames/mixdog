@@ -226,9 +226,10 @@ fn hello_name() -> String {
     if is_ipv4 { format!("[{host}]") } else { host }
 }
 
-/// The DNS lookup and the addresses in turn, all inside the connection deadline. As nodemailer orders them: the IPv6
-/// addresses first, each family shuffled; a family that is the only one gets its share of what is left, a mixed list
-/// moves on after a quarter of a second so a dead IPv6 path costs little.
+/// The DNS lookup and the addresses in turn, all inside the connection deadline. nodemailer picks one address at random
+/// and falls back to the others when it fails, each attempt with a full connection timeout; here every address is still
+/// tried, but within the one deadline: the IPv6 addresses first, each family shuffled; a family that is the only one
+/// gets its share of what is left, a mixed list moves on after a quarter of a second so a dead IPv6 path costs little.
 async fn connect_tcp(config: &MailConfig, deadline: Instant) -> Result<TcpStream, MailError> {
     let dns_limit = config.timeout.min(deadline.saturating_duration_since(Instant::now()));
     let resolved = match timeout(dns_limit, lookup_host((config.host.as_str(), config.port))).await {
