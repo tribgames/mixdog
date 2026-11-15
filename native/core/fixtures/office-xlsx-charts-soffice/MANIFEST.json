@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-xlsx-charts-soffice.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 641509,
+      "path": "golden.json",
+      "sha256": "1c2686d92349712c0872f4a85207ff8be4f230c01600a6eaf668a6b197dfd4c1"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "99b50c04c1ac10f929c5800a289e14a1d4927ec7",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 21681
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-charts-soffice.mjs",
+  "set": "office-xlsx-charts-soffice",
+  "totalBytes": 641509
+}
