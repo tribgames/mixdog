@@ -75,18 +75,9 @@ pub struct ArithCx {
     mps: u8,
 }
 
-/// How often the decoder has met the end-of-data marker (PDFium's `StreamState`): the first two times it goes on (the
-/// last symbols of a stream are decoded from the 1 bits the marker stands for), the third time it is looping on
-/// nothing and the data counts as exhausted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
-    DataAvailable,
-    DecodingFinished,
-    Looping,
-}
-
 /// The arithmetic decoder over `data` starting at byte `start`. It reads the bytes the way the JBIG2 stream's byte
-/// cursor does: past the end every byte is 0xFF.
+/// cursor does: past the end every byte is 0xFF. A marker in the data (a 0xFF followed by a byte above 0x8F) does not end
+/// it: the decoder goes on from the 1 bits the marker stands for, and only the end of the data completes it.
 pub struct ArithDecoder<'a> {
     data: &'a [u8],
     index: u32,
@@ -94,7 +85,6 @@ pub struct ArithDecoder<'a> {
     c: u32,
     a: u32,
     ct: i32,
-    state: State,
     complete: bool,
 }
 
@@ -108,7 +98,6 @@ impl<'a> ArithDecoder<'a> {
             c: 0,
             a: 0,
             ct: 0,
-            state: State::DataAvailable,
             complete: false,
         };
         decoder.b = decoder.current_byte();
@@ -151,11 +140,6 @@ impl<'a> ArithDecoder<'a> {
             let b1 = self.next_byte();
             if b1 > 0x8f {
                 self.ct = 0xff;
-                match self.state {
-                    State::DataAvailable => self.state = State::DecodingFinished,
-                    State::DecodingFinished => self.state = State::Looping,
-                    State::Looping => self.complete = true,
-                }
             } else {
                 self.advance();
                 self.b = b1;
@@ -234,8 +218,7 @@ impl<'a> ArithDecoder<'a> {
         }
     }
 
-    /// True once the decoder has run out of data (the stream ended, or the marker was met three times): the region
-    /// decoders stop there.
+    /// True once the decoder has run past the end of the data: the region decoders stop there.
     pub fn is_complete(&self) -> bool {
         self.complete
     }

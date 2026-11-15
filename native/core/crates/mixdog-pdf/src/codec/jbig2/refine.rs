@@ -33,14 +33,25 @@ impl RefinementRegion<'_> {
         self.dx == 0 && self.width == self.reference.width() && (self.template == 1 || self.at == [-1, -1, -1, -1])
     }
 
+    /// The vertical shift the reference is read with. The decoder's byte-wise path (the one that reads padding) takes
+    /// a shift of the reference's height or more as no shift.
+    fn reference_dy(&self) -> i32 {
+        if self.reads_padding() && self.dy.unsigned_abs() >= self.reference.height() as u32 {
+            0
+        } else {
+            self.dy
+        }
+    }
+
     /// The context of pixel (`x`, `y`) of `img` (T.88 figures 12 and 13).
     fn context(&self, img: &Image, x: i32, y: i32) -> usize {
         let padding = self.reads_padding();
+        let dy = self.reference_dy();
         let p = |ox: i32, oy: i32| usize::from(img.get_pixel(x + ox, y + oy));
         let r = |ox: i32, oy: i32| {
             let (rx, ry) = (
                 x.wrapping_sub(self.dx).wrapping_add(ox),
-                y.wrapping_sub(self.dy).wrapping_add(oy),
+                y.wrapping_sub(dy).wrapping_add(oy),
             );
             usize::from(if padding {
                 self.reference.padded_pixel(rx, ry)
