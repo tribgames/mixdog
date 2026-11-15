@@ -37,12 +37,17 @@ pub(crate) fn one_shot_format(payload: &Value) -> Option<&str> {
     payload.get("format").and_then(Value::as_str)
 }
 
+/// The argument that carries the data directory the host keeps its record of the application under.
+const DATA_DIR_ARG: &str = crate::host::ledger::DATA_DIR_FLAG;
+
 /// The arguments the Rust host program is started with.
-pub(crate) fn rust_host_args(session: bool) -> Vec<OsString> {
+pub(crate) fn rust_host_args(session: bool, data_dir: &std::path::Path) -> Vec<OsString> {
     let mut args = vec![OsString::from(HOST_ARG)];
     if session {
         args.push(OsString::from(SESSION_ARG));
     }
+    args.push(OsString::from(DATA_DIR_ARG));
+    args.push(data_dir.as_os_str().to_owned());
     args
 }
 
@@ -75,8 +80,9 @@ mod tests {
     }
 
     #[test]
-    fn the_host_arguments_name_the_kind_of_host() {
-        assert_eq!(rust_host_args(false), [OsString::from("office-com-host")]);
-        assert_eq!(rust_host_args(true), [OsString::from("office-com-host"), OsString::from("--session")]);
+    fn the_host_arguments_name_the_kind_of_host_and_the_data_directory() {
+        let dir = std::path::Path::new("D:\\data");
+        assert_eq!(rust_host_args(false, dir), ["office-com-host", "--data-dir", "D:\\data"].map(OsString::from));
+        assert_eq!(rust_host_args(true, dir), ["office-com-host", "--session", "--data-dir", "D:\\data"].map(OsString::from));
     }
 }
