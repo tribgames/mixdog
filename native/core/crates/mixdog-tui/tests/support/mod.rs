@@ -5,7 +5,7 @@
 //! pseudo-terminal ([`pty`]). The core it connects to is the real `mixdogd`, started by the launcher's `ensure_core` on a
 //! private root ([`daemon`]), and the model it talks to is a stand-in provider the test scripts ([`provider`]). What the
 //! terminal shows is read back through the VT grid of `mixdog_term::testing`.
-#![allow(clippy::disallowed_methods, reason = "the harness lays out an install, runs processes and waits on a pseudo-terminal")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the harness lays out an install, runs processes and waits on a pseudo-terminal")]
 #![allow(dead_code, reason = "each test binary uses its own part of the support")]
 
 pub mod baseline;

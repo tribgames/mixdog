@@ -30,8 +30,7 @@ fn held<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// The text of `grid`, empty rows left out, with row numbers.
 pub fn dump_text(grid: &VtGrid) -> String {
-    grid.dump().iter().enumerate().filter(|(_, row)| !row.is_empty()).map(|(y, row)| format!("{y:>3}| {row}")).collect::<Vec<_>>().join("
-")
+    grid.dump().iter().enumerate().filter(|(_, row)| !row.is_empty()).map(|(y, row)| format!("{y:>3}| {row}")).collect::<Vec<_>>().join("\n")
 }
 
 pub struct TuiSession {
@@ -130,7 +129,7 @@ impl TuiSession {
 
     /// The text of the screen, empty rows left out, with row numbers.
     pub fn screen_text(&self) -> String {
-        self.with_grid(|grid| grid.dump().iter().enumerate().filter(|(_, row)| !row.is_empty()).map(|(y, row)| format!("{y:>3}| {row}")).collect::<Vec<_>>().join("\n"))
+        self.with_grid(dump_text)
     }
 
     /// Every byte the child has written so far.

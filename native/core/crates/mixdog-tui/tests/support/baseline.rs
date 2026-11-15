@@ -27,7 +27,7 @@ impl Baseline {
 pub fn median(samples: &mut [f64]) -> f64 {
     samples.sort_by(f64::total_cmp);
     let middle = samples.len() / 2;
-    if samples.len() % 2 == 0 { (samples[middle - 1] + samples[middle]) / 2.0 } else { samples[middle] }
+    if samples.len().is_multiple_of(2) { (samples[middle - 1] + samples[middle]) / 2.0 } else { samples[middle] }
 }
 
 #[cfg(test)]
