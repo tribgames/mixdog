@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<title>Mixdog</title>
+<style>
+@@PAGE_BASE_CSS@@
+@@PAIRING_CSS@@
+.mxp-actions{gap:20px}
+</style>
+</head>
+<body>
+<div class="mxp-screen">
+<div class="mxp-col">
+<main class="mxp-main">
+<div class="mxp-block">
+<div class="mxp-vis"><img class="mxp-logo" src="@@LOGO_SRC@@" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading">Install Mixdog</h1><p class="mxp-sub" id="after">After installing, open the app and tap Connect with a code.</p>
+</div>
+</main>
+<footer class="mxp-actions">
+<div class="mxp-opt" id="ios"><a class="mxp-btn" id="iosBtn" href="https://testflight.apple.com/join/UNPBM2hU" rel="noopener">Get it for iPhone</a><p class="mxp-fine" id="iosNote">Installs through TestFlight (Apple’s official beta app).</p></div>
+<div class="mxp-opt" id="android"><a class="mxp-btn" id="androidBtn" href="@@ANDROID_URL@@" rel="noopener">Get it for Android</a><p class="mxp-fine" id="androidNote">You may need to allow installs from unknown sources.</p></div>
+</footer>
+</div>
+</div>
+<script>
+(function () {
+  var ko = (navigator.language || '').toLowerCase().indexOf('ko') === 0;
+  var T = ko
+    ? { title: 'Mixdog 설치', ios: 'iPhone용 받기', iosNote: 'TestFlight(Apple 공식 베타 앱)를 통해 설치됩니다.', android: 'Android용 받기', androidNote: '설치할 때 ‘출처를 알 수 없는 앱’ 허용이 필요할 수 있습니다.', after: '설치한 뒤 앱을 열고 ‘코드로 연결’을 누르세요.' }
+    : { title: 'Install Mixdog', ios: 'Get it for iPhone', iosNote: 'Installs through TestFlight (Apple’s official beta app).', android: 'Get it for Android', androidNote: 'You may need to allow installs from unknown sources.', after: 'After installing, open the app and tap Connect with a code.' };
+  document.documentElement.lang = ko ? 'ko' : 'en';
+  var $ = function (id) { return document.getElementById(id); };
+  $('heading').textContent = T.title;
+  $('iosBtn').textContent = T.ios;
+  $('iosNote').textContent = T.iosNote;
+  $('androidBtn').textContent = T.android;
+  $('androidNote').textContent = T.androidNote;
+  $('after').textContent = T.after;
+  var ua = navigator.userAgent;
+  var ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  if (ios) $('android').hidden = true;
+  else if (/Android/i.test(ua)) $('ios').hidden = true;
+})();
+</script>
+</body>
+</html>
