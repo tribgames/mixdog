@@ -254,11 +254,24 @@ impl DiscoveryPublication {
     /// `base` carries the pid, endpoints and the core section with its control port; its
     /// `state`, `blocked`, `drain` and `rpc` are replaced on every publish.
     pub fn new(root: PathBuf, base: Discovery, on_fatal: OnFatal) -> Self {
-        let write: WriteDocument = Box::new(discovery::publish);
-        Self::with_writer(root, base, write, on_fatal)
+        let owned = Arc::new(discovery::OwnedDiscovery::start(root.clone()));
+        let kept = owned.clone();
+        let write: WriteDocument = Box::new(move |_root, document| kept.publish(document));
+        Self::spawn(root, base, write, Some(owned), on_fatal)
     }
 
+    #[cfg(test)]
     fn with_writer(root: PathBuf, base: Discovery, write: WriteDocument, on_fatal: OnFatal) -> Self {
+        Self::spawn(root, base, write, None, on_fatal)
+    }
+
+    fn spawn(
+        root: PathBuf,
+        base: Discovery,
+        write: WriteDocument,
+        owned: Option<Arc<discovery::OwnedDiscovery>>,
+        on_fatal: OnFatal,
+    ) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let instance_id = base.core.instance_id.clone();
         std::thread::Builder::new()
@@ -269,14 +282,18 @@ impl DiscoveryPublication {
                         Job::Publish(document) => {
                             if let Err(error) = write(&root, &document) {
                                 tracing::error!(%error, "discovery was not published");
-                                if document.core.state != CoreState::Draining {
-                                    on_fatal(&error);
-                                }
+                                if document.core.state != CoreState::Draining { on_fatal(&error); }
                             }
                         }
                         Job::Barrier { withdraw, done } => {
-                            if withdraw && let Err(error) = discovery::withdraw(&root, &instance_id) {
-                                tracing::error!(%error, "discovery was not withdrawn");
+                            if withdraw {
+                                let withdrawn = match &owned {
+                                    Some(owned) => owned.release(&instance_id),
+                                    None => discovery::withdraw(&root, &instance_id),
+                                };
+                                if let Err(error) = withdrawn {
+                                    tracing::error!(%error, "discovery was not withdrawn");
+                                }
                             }
                             let _ = done.send(());
                         }
@@ -284,11 +301,7 @@ impl DiscoveryPublication {
                 }
             })
             .expect("the OS refused a discovery thread");
-        Self {
-            base,
-            rpc: Mutex::new(None),
-            jobs: Mutex::new(jobs),
-        }
+        Self { base, rpc: Mutex::new(None), jobs: Mutex::new(jobs) }
     }
 
     /// Records the bound RPC listener; the next `serving` publish names it.

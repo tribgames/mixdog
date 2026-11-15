@@ -388,3 +388,21 @@ fn a_boot_state_that_cannot_be_published_is_fatal_and_a_draining_one_is_only_log
     publication.flush();
     assert!(failures.try_recv().is_ok(), "a failed serving publication is fatal");
 }
+
+#[test]
+fn a_deleted_discovery_file_comes_back_until_the_core_withdraws_it() {
+    let root = tempfile::tempdir().unwrap();
+    let publication = DiscoveryPublication::new(root.path().to_path_buf(), template(), Box::new(|_| {}));
+    publication.publish(&DiscoveryState { phase: DiscoveryPhase::Serving, blocked: None, drain_id: None });
+    publication.flush();
+    let file = discovery::path(root.path());
+    std::fs::remove_file(&file).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !file.is_file() {
+        assert!(std::time::Instant::now() < deadline, "discovery was not restored");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    publication.withdraw();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!file.exists());
+}

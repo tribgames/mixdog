@@ -4183,6 +4183,7 @@ dependencies = [
  "mixdog-trace",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "notify",
  "rand 0.9.5",
  "reqwest",
  "semver",

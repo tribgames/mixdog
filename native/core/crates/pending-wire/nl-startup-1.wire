@@ -1,0 +1,151 @@
+# nl-startup-1: owned discovery restoration
+
+## Verified original contract
+
+C:/Project/mixdog/src/standalone/daemon.mjs:639 installs watchOwnedFiles only after
+claiming ownership. Lines 650-665 follow the owner lock and daemon.json.
+Lines 802-828 republish when readDiscoveryAsync returns no matching pid; this
+includes deletion, unreadable/malformed JSON, and another pid. A document naming
+the same pid is left untouched even if its endpoints/other fields were replaced.
+daemon-owner.mjs:8-10 uses Number(parsed?.pid) || 0, not a strict number-type test.
+The shuttingDown guard disables republication. watched-file-cache.mjs:24 uses a
+50ms debounce; daemon-owned-files.mjs::published explicitly rechecks a missing
+post-write stamp so deletion immediately after publication is not missed.
+
+The corrected Rust implementation uses notify events and the same 50ms debounce,
+not the former 250ms polling. It follows the runtime root and nearest existing
+ancestor, rebinds on changes, and immediately judges current content. Watch loss
+is logged; there is no periodic fallback while blind, matching the original limit.
+Every successful publication also enqueues a recheck. Drop/release serialize with
+an in-flight recheck, clear the retained document, and stop/prevent resurrection.
+
+Ownership is tied to the actual startup transition: startup.rs:152-171 does not
+publish migrating until GateStep::Clear. boot.rs:88 forwards that state. Thus only
+Migrating/Serving documents are retained for automatic publication; Booting and
+Blocked still publish once under the existing lifecycle contract, but cannot
+compete with the owner. Draining disarms the watcher before its fallible write.
+The existing fencing_ownership durability-barrier design remains separate.
+
+## Required cached dependency edge (lead-owned)
+
+native/core/crates/mixdog-app-server-daemon/Cargo.toml [dependencies]:
+    notify = { workspace = true }
+
+notify 8.2.0 already has a workspace entry and is used by mixdog-workspace. No new
+package/download is required. Regenerate only the necessary lock/hakari edges in
+the integration tree; do not copy this worktree's lockfile.
+
+## lifecycle/real.rs (lead-owned)
+
+Inside impl DiscoveryPublication, replace new/with_writer with the following three
+functions. Keep all other methods and fields. Arc, mpsc, Job and CoreState already
+exist in this file.
+
+    pub fn new(root: PathBuf, base: Discovery, on_fatal: OnFatal) -> Self {
+        let owned = Arc::new(discovery::OwnedDiscovery::start(root.clone()));
+        let kept = owned.clone();
+        let write: WriteDocument = Box::new(move |_root, document| kept.publish(document));
+        Self::spawn(root, base, write, Some(owned), on_fatal)
+    }
+
+    fn with_writer(root: PathBuf, base: Discovery, write: WriteDocument, on_fatal: OnFatal) -> Self {
+        Self::spawn(root, base, write, None, on_fatal)
+    }
+
+    fn spawn(
+        root: PathBuf,
+        base: Discovery,
+        write: WriteDocument,
+        owned: Option<Arc<discovery::OwnedDiscovery>>,
+        on_fatal: OnFatal,
+    ) -> Self {
+        let (jobs, inbox) = mpsc::channel::<Job>();
+        let instance_id = base.core.instance_id.clone();
+        std::thread::Builder::new()
+            .name("mixdog-discovery".into())
+            .spawn(move || {
+                for job in inbox {
+                    match job {
+                        Job::Publish(document) => {
+                            if let Err(error) = write(&root, &document) {
+                                tracing::error!(%error, "discovery was not published");
+                                if document.core.state != CoreState::Draining { on_fatal(&error); }
+                            }
+                        }
+                        Job::Barrier { withdraw, done } => {
+                            if withdraw {
+                                let withdrawn = match &owned {
+                                    Some(owned) => owned.release(&instance_id),
+                                    None => discovery::withdraw(&root, &instance_id),
+                                };
+                                if let Err(error) = withdrawn {
+                                    tracing::error!(%error, "discovery was not withdrawn");
+                                }
+                            }
+                            let _ = done.send(());
+                        }
+                    }
+                }
+            })
+            .expect("the OS refused a discovery thread");
+        Self { base, rpc: Mutex::new(None), jobs: Mutex::new(jobs) }
+    }
+
+## lifecycle/real_tests.rs integration assertion (lead-owned)
+
+    #[test]
+    fn a_deleted_discovery_file_comes_back_until_the_core_withdraws_it() {
+        let root = tempfile::tempdir().unwrap();
+        let publication = DiscoveryPublication::new(root.path().to_path_buf(), template(), Box::new(|_| {}));
+        publication.publish(&DiscoveryState { phase: DiscoveryPhase::Serving, blocked: None, drain_id: None });
+        publication.flush();
+        let file = discovery::path(root.path());
+        std::fs::remove_file(&file).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !file.is_file() {
+            assert!(std::time::Instant::now() < deadline, "discovery was not restored");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        publication.withdraw();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!file.exists());
+    }
+
+## Isolated full ensureCore exercise, implemented but NOT run
+
+New ignored discovery::tests::ensure_core_reattaches_after_discovery_republication
+spawns the current Rust test executable as a private helper. Its only state is a
+temp runtime root. It does not run mixdogd, acquire a real profile, initialize a
+store, bind a service, or signal/kill a process. The helper self-expires after 20s
+and normally exits on a private stop marker. On Windows both helpers use hidden
+creation flags. Test-only environment names never enter production behavior.
+
+The Node harness imports the real packages/protocol-client/src/launch/ensure-core.mjs.
+Its first ensureCore invokes the injected launch callback exactly once, opening a
+start gate for the owned Rust child's real OwnedDiscovery publisher. It deletes
+daemon.json, waits for restoration, calls ensureCore again, and checks the same
+live child PID, serving state and one launch total. Cleanup asks only this owned
+child to finish and waits for its normal exit. Node is a test oracle, not a product
+fallback. No real core/profile is used.
+
+After the dependency and real.rs wiring, root can run:
+    cargo test -p mixdog-app-server-daemon --lib discovery::tests
+    cargo test -p mixdog-app-server-daemon --lib discovery::tests::ensure_core_reattaches_after_discovery_republication -- --ignored --exact --nocapture
+
+Also run the real_tests assertion above, existing lifecycle publication/fatal-write
+checks, and lint. The ordinary discovery tests cover deletion immediately after
+publish, root deletion, overwritten/malformed JSON, same-pid numeric-string/lone
+surrogate JSON preservation, blocked contender exclusion, migrating ownership,
+draining/release/drop. No Rust build/test, daemon, deployment or commit was run in
+this corrective worktree; runtime event delivery and full integration remain gates.
+
+Finding status: implemented (uncommitted), pending root wiring and the above tests.
+
+## Root integration validation
+
+Applied notify workspace edge and lifecycle publication ownership/withdraw wiring.
+The test-only writer seam is cfg(test). Discovery and real lifecycle suites pass
+30 tests, including pathless rescan and synchronized root/parent replacement.
+The isolated real ensureCore plus owned self-terminating child test passes too.
+This validates rediscovery/same-PID attachment; it is not a full application RPC
+or installed-profile smoke test. No user core process or real profile was touched.
