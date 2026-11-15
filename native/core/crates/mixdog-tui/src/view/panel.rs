@@ -16,6 +16,7 @@ use mixdog_tui_widgets::picker::{IndexMode, PickerItem, PickerProps, paint_picke
 use mixdog_tui_widgets::question::{QuestionState, paint_question, questions_of};
 use mixdog_tui_widgets::sign_in_url::{CopyStatus, sign_in_url_layout};
 use mixdog_tui_widgets::text_entry::{TextEntryDraft, TextEntryProps, paint_text_entry, render_text_entry_value, text_entry_cursor, text_entry_rows};
+use mixdog_tui_widgets::text_layout::text_entry_reserved_rows;
 use serde_json::Value;
 
 use super::format::tool_approval_description;
@@ -225,6 +226,16 @@ fn settings_props(prompt: &Value, frame_columns: usize) -> TextEntryProps {
     props
 }
 
+/// `onContentRowsChange` of the settings prompt (`setTextEntryLayoutRows`): the content rows the value reserves, which the
+/// shell layout reads back as `text_entry_layout_rows` on the next frame. A single-line entry reserves one row.
+pub fn settings_entry_layout_rows(prompt: &Value, draft: &TextEntryDraft, frame_columns: usize) -> usize {
+    let props = settings_props(prompt, frame_columns);
+    if !props.multiline {
+        return 1;
+    }
+    text_entry_reserved_rows(&draft.value, props.content_cells(), props.max_content_rows)
+}
+
 /// The cell the hardware cursor is parked at for a text entry whose panel top is row `y`: the value box starts after the
 /// border and padding (and, for a multiline value, after the prompt label), on the row of the value, which is the last
 /// content row above the bottom border.
@@ -419,6 +430,16 @@ mod tests {
         assert_eq!(values, [approved.clone(), denied.clone(), denied.clone(), approved.clone(), approved, denied.clone(), denied]);
         assert_eq!(approval_key_decision("x"), None);
         assert_eq!(approval_key_decision(""), None);
+    }
+
+    #[test]
+    fn a_multiline_settings_entry_reports_the_rows_its_value_reserves_and_a_single_line_one_reports_one() {
+        let draft = TextEntryDraft { value: "abcdefghij".to_owned(), ..TextEntryDraft::default() };
+        // 20 columns less the border and padding (4) and "Sentence > " (11) leave 5 cells for the value.
+        let rows = settings_entry_layout_rows(&json!({ "kind": "core-add", "label": "Add" }), &draft, 20);
+        assert_eq!(rows, text_entry_reserved_rows("abcdefghij", 5, PANEL_MAX_VISIBLE));
+        assert!(rows > 1);
+        assert_eq!(settings_entry_layout_rows(&json!({ "kind": "skill-use", "label": "Run" }), &draft, 20), 1);
     }
 
     #[test]
