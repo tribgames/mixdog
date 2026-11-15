@@ -1,0 +1,37 @@
+# nl-startup-3: daemon memory telemetry and the stall sampler
+
+[lib.rs]
+After `pub mod daemon_log;` add:
+    pub mod telemetry;
+
+[composition]
+Where the daemon is composed (the place that builds `DaemonLog` and the `Lifecycle`/session directory, run by serving), build once and spawn:
+
+    let telemetry = telemetry::Telemetry::new(
+        telemetry::Seams {
+            work: Arc::new(move || WorkCounts { /* active_calls: transport active + queued split, model-proxy bridge active;
+                                                   queued_calls: transport queued; busy_sessions: session directory busy count;
+                                                   busy_memory_agents: agent dispatch broker in-flight (memory_agent_watch) */ }),
+            memory: Arc::new(telemetry::process_memory),
+            log: log.line_log(),                       // daemon.log "[daemon] <line>"
+            now_ms: Arc::new(daemon_log::system_now_ms),
+            pid: std::process::id(),
+        },
+        Arc::new(telemetry::DiskProfileStore::new(data_dir.clone())),
+        data_dir.join("profiles"),
+        tokens.maintenance_io,
+        run_cancel.clone(),
+        Arc::new(|| serde_json::Value::Null),          // or Executors::diagnostics() as JSON: kept in a lag profile's "state"
+    );
+    telemetry.boot();                                  // once the daemon is ready (Node: emit('boot') before start())
+    tokio::spawn(telemetry.clone().run(run_cancel.clone()));
+
+and call `telemetry.note_activity()` where Node called `noteDaemonActivity()` (start and settle of every call on both front doors:
+the `reportingIdleActivity` wrapper), next to the idle-GC activity mark if the Rust side has one.
+
+[crash_record.rs]
+`crash_record::memory()` is the same read as `telemetry::process_memory()`; make it call
+`let m = telemetry::process_memory(); (m.rss_bytes, m.heap_bytes)` and delete its two cfg copies (crash_record.rs is not this task's file).
+
+[compose_flip.rs SERVICE_PENDING]
+No protocol method is added: nothing to remove.
