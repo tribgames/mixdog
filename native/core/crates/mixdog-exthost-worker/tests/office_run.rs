@@ -88,7 +88,7 @@ fn refusal(outcome: Result<Value, ExtError>) -> String {
 }
 
 /// A directory link: a junction on Windows (no privilege needed), a symlink elsewhere.
-#[allow(clippy::disallowed_methods, reason = "a test fixture: the link is made by the system's own tool")]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test fixture: the link is made by the system's own tool")]
 fn link_dir(link: &Path, target: &Path) {
     #[cfg(windows)]
     {
