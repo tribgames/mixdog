@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, nodepath, to_number, value_to_string};
+use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_pdf::codec_glue::CodecFilters;
 use mixdog_pdf::write::{LoadOptions, PdfDocument, WriteError};
@@ -48,16 +49,6 @@ pub fn load_pdf(bytes: &[u8], allow_encrypted: bool) -> Result<PdfDocument, Anal
     }
 }
 
-/// What JavaScript's `||` and `!` read as true.
-pub(crate) fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null | Value::Bool(false) => false,
-        Value::String(text) => !text.is_empty(),
-        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        _ => true,
-    }
-}
-
 /// `String(value)` of a property that may be absent (`undefined`).
 pub(crate) fn js_string(value: Option<&Value>) -> String {
     value.map_or_else(|| "undefined".to_owned(), value_to_string)
@@ -66,11 +57,6 @@ pub(crate) fn js_string(value: Option<&Value>) -> String {
 /// `value != null`: neither `undefined` nor `null`.
 pub(crate) fn present(value: Option<&Value>) -> bool {
     value.is_some_and(|value| !value.is_null())
-}
-
-/// `Math.round`: halves go up.
-pub(crate) fn js_round(value: f64) -> f64 {
-    (value + 0.5).floor()
 }
 
 /// A page the operation names: its object and its 0-based position.
@@ -166,7 +152,7 @@ pub(crate) fn read_file<P: mixdog_fsio::ReadProof>(proof: &P, path: &Path) -> Re
 /// `pageSpin(page)`: a page's own `Rotate` normalized to the quarter turns a viewer applies before anyone sees it.
 pub fn page_spin(document: &PdfDocument, page: Ref) -> i64 {
     let angle = document.rotation(page).map_or(0.0, |angle| if angle.is_finite() { angle } else { 0.0 });
-    let rounded = js_round(angle) as i64;
+    let rounded = mixdog_js::math::round(angle) as i64;
     ((rounded % 360) + 360) % 360
 }
 
