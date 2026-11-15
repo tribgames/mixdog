@@ -1,9 +1,6 @@
 //! The raw tool item fields normalised into the counts, progress flags, elapsed label and row budgets every card model
 //! shares (`shared/tool-card-model/card-input.mjs`).
 
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
-
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_end;
 use mixdog_js::json_number;
@@ -17,6 +14,7 @@ use super::inline_text::MIN_RESULT_LINE_CHARS;
 use super::inline_text::RESULT_LINE_HARD_MAX;
 use super::inline_text::clip_plain;
 use super::terminal_status::clamp_failure_count;
+use crate::errors::js_value::system_now_ms;
 use crate::results::summary::Translate;
 use crate::tool_primitives::field;
 use crate::tool_primitives::truthy;
@@ -66,10 +64,6 @@ fn trim_trailing(value: Option<&Value>) -> Option<String> {
     value.filter(|v| !v.is_null()).map(|v| js_trim_end(&value_to_string(v)).to_owned())
 }
 
-fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
-}
-
 /// `readCardInput`: `name` and `args` are the call as shown (after a `call_tool` request is unwrapped).
 pub fn read_card_input<'a>(input: &Value, name: &str, args: Value, options: &CardOptions<'a>) -> CardBase<'a> {
     let default_truncate: Truncate<'a> = &clip_plain;
@@ -92,7 +86,7 @@ pub fn read_card_input<'a>(input: &Value, name: &str, args: Value, options: &Car
     let pending = done_count < group_count;
     let started_at = number_or(field(input, "startedAt"), 0.0);
     let completed_at = number_or(field(input, "completedAt"), 0.0);
-    let now = number_or(field(input, "nowMs"), now_ms());
+    let now = number_or(field(input, "nowMs"), system_now_ms());
     let end = if pending { now } else if completed_at != 0.0 && !completed_at.is_nan() { completed_at } else { now };
     let elapsed_ms = if started_at != 0.0 && !started_at.is_nan() { (end - started_at).max(0.0) } else { 0.0 };
     let is_error = truthy(field(input, "isError"));
