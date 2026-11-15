@@ -3,7 +3,8 @@
 //! code here. Turning on an option that carries a `warning` goes through a confirmation panel showing that warning; turning
 //! an option off never asks.
 
-use mixdog_termtext::wrap::{WrapOptions, wrap_ansi};
+use mixdog_js::js_trim;
+use mixdog_termtext::wrap::wrap_lines;
 use mixdog_tui_style::Key;
 use mixdog_tui_style::theme::theme_color;
 use mixdog_tui_widgets::picker::layout::FooterInput;
@@ -37,13 +38,6 @@ pub struct DeveloperPicker {
     /// The sections as the last read gave them: the rows' options, which the handlers act on.
     sections: Vec<Value>,
     panel: Panel,
-}
-
-/// `wrapText(text, width)`: non-empty lines, or one empty line.
-fn wrapped_lines(text: &str, width: usize) -> Vec<String> {
-    let wrapped = wrap_ansi(text.trim_end(), width, WrapOptions { hard: false, word_wrap: true, trim: false });
-    let lines: Vec<String> = wrapped.split('\n').filter(|line| !line.is_empty()).map(str::to_owned).collect();
-    if lines.is_empty() { vec![String::new()] } else { lines }
 }
 
 fn read_sections(host: &mut dyn PickerHost) -> Vec<Value> {
@@ -184,13 +178,13 @@ impl DeveloperPicker {
     /// Only Accept writes; Cancel and Esc return to the section unchanged.
     fn confirm_option(&mut self, host: &mut dyn PickerHost, section_id: &str, option: &Value) {
         let warning = member(option, "warning");
-        let footer = wrapped_lines(&value_text(warning), WARNING_WRAP_COLUMNS)
+        let footer = wrap_lines(&value_text(warning), WARNING_WRAP_COLUMNS, false)
             .into_iter()
             .enumerate()
             .map(|(index, text)| FooterInput::Object {
                 glyph: if index == 0 { "!" } else { " " }.to_owned(),
                 color: Some(theme_color(Key::Warning)),
-                text: text.trim().to_owned(),
+                text: js_trim(&text).to_owned(),
             })
             .collect();
         let panel = Panel {
