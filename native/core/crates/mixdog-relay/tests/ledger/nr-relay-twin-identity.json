@@ -3,6 +3,7 @@
   {"node":"apps/relay/security.test.mjs::a new registration is persisted before the credential authenticates","twin":"identity/tofu_registration_and_restart"},
   {"node":"apps/relay/security.test.mjs::device authentication accepts headers and rejects URL credentials","twin":"identity/headers_only_credentials"},
   {"node":"apps/relay/security.test.mjs::a wrong secret for a KNOWN device id is charged and then refused","twin":"identity/wrong_secret_charged_then_refused, identity/desktop_registration_rate_limit"},
+  {"node":"apps/relay/security.test.mjs::a revocation that cannot be persisted is reported as a failure","twin":"identity/device_revocation"},
   {"node":"apps/relay/security.test.mjs::browser credentials are isolated per desktop and individually revocable","twin":"identity/browser_credentials_isolated_and_revocable"},
   {"node":"apps/relay/security.test.mjs::browser registration exchanges a pairing token for an individual credential","twin":"identity/browser_registration_exchanges_pairing_token"},
   {"node":"apps/relay/security.test.mjs::per-device browser capacity preserves normal clients and bounds floods","twin":"identity/browser_registration_capacity, identity/ws_gate_client_capacity, identity/ws_gate_connect_rate"},
