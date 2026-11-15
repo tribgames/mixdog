@@ -27,6 +27,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createOfficeFileReader } from './lib/office-files.mjs';
 import { createCapture } from './lib/office-dispatch-capture.mjs';
 import { FIXTURES_ROOT, importFrom, parseArgs, productIdentity, resolveTree, sha256, writeSetManifest } from './lib/common.mjs';
 
@@ -48,9 +49,6 @@ const identity = productIdentity(tree);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const requireFromTree = createRequire(path.join(tree, 'package.json'));
 const JSZip = requireFromTree('jszip');
-const { PDFDocument } = requireFromTree('pdf-lib');
-const analysis = await importFrom(tree, `${OFFICE}/pdf/pdf-analysis.mjs`);
-const forms = await importFrom(tree, `${OFFICE}/pdf/pdf-forms.mjs`);
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -148,31 +146,7 @@ function withoutStamps(xml) {
     at = end;
   }
 }
-const roundMilli = (value) => Math.floor(value * 1000 + 0.5) / 1000;
-
-/** A PDF as the golden holds it: per page its size and the text items the reader finds (text, x, top, width, height; positions to the
- *  thousandth of a point, as the writer's twin compares them), and the fields of a form. The writer's bytes are not Node's (it is
- *  another PDF engine), so the file is read, not hashed. */
-async function pdfFingerprint(bytes) {
-  const directory = mkdtempSync(path.join(tmpdir(), 'office-dispatch-pdf-'));
-  const file = path.join(directory, 'read.pdf');
-  try {
-    writeFileSync(file, bytes);
-    const layout = await analysis.extractPdfTextLayout(file, { shapes: false });
-    const pages = layout.pages.map((page) => ({
-      width: roundMilli(page.width),
-      height: roundMilli(page.height),
-      items: page.items.map((item) => ({ text: item.text, x: roundMilli(item.x), top: roundMilli(item.top), width: roundMilli(item.width), height: roundMilli(item.height) })),
-    }));
-    const document = await PDFDocument.load(bytes);
-    const fields = document.getForm().getFields().map((field, index) => forms.describeFormField(field, document, index));
-    return { pdf: { pages, ...(fields.length ? { fields } : {}) } };
-  } catch (error) {
-    return { pdf: { unreadable: String(error?.message ?? error) } };
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
+const { pdfFingerprint } = await createOfficeFileReader(tree);
 
 const isPackage = (bytes) => bytes.length > 3 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4;
 

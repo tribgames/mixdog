@@ -14,13 +14,18 @@
 //!   to the next call unchanged);
 //! - `.mixdog-backup-<uuid>` and the uuid of a transaction checkpoint name;
 //! - in a zip the `dcterms:created` and `dcterms:modified` values of `docProps/core.xml` and `docProps/app.xml`; a zip is compared by its
-//!   entry names (in order) and the sha256 of each entry's uncompressed bytes, never by its compressed bytes;
+//!   entry names (in order) and the sha256 of each entry's uncompressed bytes, never by its compressed bytes; an entry that is itself a
+//!   zip is its own entries; a PDF is what a reader finds in it and a PNG its size and decoded pixels (`tests/support/file_view.rs`);
 //! - in a data-folder JSON file, ISO timestamps and the numbers under keys that end in `At`, `Ms` or `Time`.
 //!
 //! The wall time of every scenario is recorded by Node. A release build of this test fails when the total here is longer than Node's
 //! (nothing is made slower); a debug build prints both and does not compare them, since an unoptimised build says nothing of speed.
 //! Every difference is listed with its scenario and call; the test fails once, at the end, with all of them.
 //! Re-recording is `twin_live_e2e` (ignored: it runs Node).
+
+#[path = "support/file_view.rs"]
+#[allow(dead_code)]
+mod file_view;
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -46,7 +51,7 @@ use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
 use mixdog_ooxml::zipio::Package;
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
-use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken, LaneTokens, MaintenanceIo};
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken, LaneTokens};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -330,8 +335,16 @@ fn first_difference(expected: &str, produced: &str) -> String {
     format!("at character {at} ({} recorded, {} produced):\n    recorded: {}\n    produced: {}", expected.chars().count(), produced.chars().count(), around(expected), around(produced))
 }
 
-/// One file's bytes as the recorder's `describeBytes` states them: a zip by its entries, anything else exactly.
+/// One file's bytes as the recorder's `describeBytes` states them: a zip by its entries (an entry that is itself a zip, a chart's
+/// workbook, by its own entries), a PDF by what a reader finds in it (with the document properties but for the dates), a PNG by its size
+/// and decoded pixels, anything else exactly.
 fn describe_bytes(bytes: &[u8], scrub: &Scrub) -> Value {
+    if file_view::is_pdf(bytes) {
+        return file_view::pdf_fingerprint(bytes, true);
+    }
+    if file_view::is_png(bytes) {
+        return file_view::png_fingerprint(bytes);
+    }
     if bytes.starts_with(b"PK\x03\x04") {
         let package = match Package::load(bytes) {
             Ok(package) => package,
@@ -344,6 +357,15 @@ fn describe_bytes(bytes: &[u8], scrub: &Scrub) -> Value {
                 continue;
             }
             let raw = package.file(&name).expect("an entry the package lists").to_vec();
+            if raw.starts_with(b"PK\x03\x04") {
+                let mut nested = Map::new();
+                nested.insert("name".to_owned(), Value::from(name.clone()));
+                if let Value::Object(inner) = describe_bytes(&raw, scrub) {
+                    nested.extend(inner);
+                }
+                entries.push(Value::Object(nested));
+                continue;
+            }
             let settled = if STAMPED.contains(&name.as_str()) {
                 STAMP.replace_all_with(&String::from_utf8_lossy(&raw), |found| format!("{}<timestamp>{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or(""))).into_bytes()
             } else {

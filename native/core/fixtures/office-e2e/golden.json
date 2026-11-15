@@ -1,6 +1,6 @@
 {
   "note": "Recorded from the Node entry point (runtime/office/index.mjs executeOfficeTool) inside the write ledger; tests/twin_e2e.rs replays scenarios.json through the Rust engine. ms is the wall time of a scenario.",
-  "totalMs": 3924,
+  "totalMs": 4266,
   "scenarios": [
     {
       "name": "contract: describe, refusals and unknown names",
@@ -540,7 +540,7 @@
           ]
         }
       },
-      "ms": 527
+      "ms": 599
     },
     {
       "name": "docx: tables, fonts, lists, header, footer, page, numbers",
@@ -983,7 +983,7 @@
           ]
         }
       },
-      "ms": 126
+      "ms": 141
     },
     {
       "name": "docx: tracked changes, comments and revisions",
@@ -1705,7 +1705,7 @@
           ]
         }
       },
-      "ms": 177
+      "ms": 208
     },
     {
       "name": "docx: a transaction rolled back and one committed, with a diff",
@@ -2320,7 +2320,7 @@
         }
       },
       "data": [],
-      "ms": 149
+      "ms": 380
     },
     {
       "name": "docx: a picture and a hyperlink, and phrases that are absent",
@@ -2679,7 +2679,7 @@
           ]
         }
       },
-      "ms": 87
+      "ms": 70
     },
     {
       "name": "docx: open an existing file to an output, and the refusals of open",
@@ -3046,7 +3046,7 @@
           ]
         }
       },
-      "ms": 66
+      "ms": 62
     },
     {
       "name": "xlsx: cells, ranges, formulas, styles, sheets",
@@ -3492,7 +3492,7 @@
           ]
         }
       },
-      "ms": 142
+      "ms": 127
     },
     {
       "name": "xlsx: open a minimal workbook to an output and edit it",
@@ -3742,7 +3742,7 @@
           ]
         }
       },
-      "ms": 33
+      "ms": 25
     },
     {
       "name": "xlsx: a chart, merged cells and an image",
@@ -4059,7 +4059,7 @@
           ]
         }
       },
-      "ms": 107
+      "ms": 90
     },
     {
       "name": "pptx: slides, text, shapes, restyle and the review",
@@ -4686,7 +4686,7 @@
           ]
         }
       },
-      "ms": 348
+      "ms": 412
     },
     {
       "name": "pptx: a table and a chart on a slide",
@@ -4866,8 +4866,68 @@
                   },
                   {
                     "name": "ppt/embeddings/chartData1.xlsx",
-                    "size": 3488,
-                    "sha256": "5a8acc708627748bcd78399c0c1f7cb52a57b365ea5fa7fc6484bd9b5d1ca3e6"
+                    "zip": [
+                      {
+                        "name": "[Content_Types].xml",
+                        "size": 931,
+                        "sha256": "f2e52bf1f2def79b1b91b05a7040185333a910e65bfb4923306b9e83f84d75e8"
+                      },
+                      {
+                        "name": "_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "_rels/.rels",
+                        "size": 442,
+                        "sha256": "24f08ece970395ebe6764d80c1611b566713e3ac221bab8d5919a77f5d877d10"
+                      },
+                      {
+                        "name": "docProps/",
+                        "dir": true
+                      },
+                      {
+                        "name": "docProps/core.xml",
+                        "size": 636,
+                        "sha256": "7fe0d3f0d5e6de48c02c3a0379e38c5115164864a6258984c495d87ff92aa832"
+                      },
+                      {
+                        "name": "xl/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/workbook.xml",
+                        "size": 432,
+                        "sha256": "9855ab0e89cf7767e79a4b4f95361446c4d2040026e07d2d42f70d263178856d"
+                      },
+                      {
+                        "name": "xl/_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/_rels/workbook.xml.rels",
+                        "size": 566,
+                        "sha256": "6258d89989950ab32c1c49c76d8e3d939647bb6142b969a3dc88ef0093844799"
+                      },
+                      {
+                        "name": "xl/worksheets/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/worksheets/sheet1.xml",
+                        "size": 590,
+                        "sha256": "6435264b909e736e74b4cf432817536e296023c273c177736889a640c7a947ea"
+                      },
+                      {
+                        "name": "xl/styles.xml",
+                        "size": 735,
+                        "sha256": "8a39e4748ac157aee9599126423f7a72a525f8c205864994c95e31a8bb32bcdd"
+                      },
+                      {
+                        "name": "xl/sharedStrings.xml",
+                        "size": 155,
+                        "sha256": "c248cba6c01dff6c864e2605a4060ad999662329cf1798036279e7c43fa4c0d3"
+                      }
+                    ]
                   },
                   {
                     "name": "ppt/charts/",
@@ -5040,8 +5100,68 @@
                   },
                   {
                     "name": "ppt/embeddings/chartData1.xlsx",
-                    "size": 3488,
-                    "sha256": "5a8acc708627748bcd78399c0c1f7cb52a57b365ea5fa7fc6484bd9b5d1ca3e6"
+                    "zip": [
+                      {
+                        "name": "[Content_Types].xml",
+                        "size": 931,
+                        "sha256": "f2e52bf1f2def79b1b91b05a7040185333a910e65bfb4923306b9e83f84d75e8"
+                      },
+                      {
+                        "name": "_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "_rels/.rels",
+                        "size": 442,
+                        "sha256": "24f08ece970395ebe6764d80c1611b566713e3ac221bab8d5919a77f5d877d10"
+                      },
+                      {
+                        "name": "docProps/",
+                        "dir": true
+                      },
+                      {
+                        "name": "docProps/core.xml",
+                        "size": 636,
+                        "sha256": "7fe0d3f0d5e6de48c02c3a0379e38c5115164864a6258984c495d87ff92aa832"
+                      },
+                      {
+                        "name": "xl/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/workbook.xml",
+                        "size": 432,
+                        "sha256": "9855ab0e89cf7767e79a4b4f95361446c4d2040026e07d2d42f70d263178856d"
+                      },
+                      {
+                        "name": "xl/_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/_rels/workbook.xml.rels",
+                        "size": 566,
+                        "sha256": "6258d89989950ab32c1c49c76d8e3d939647bb6142b969a3dc88ef0093844799"
+                      },
+                      {
+                        "name": "xl/worksheets/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/worksheets/sheet1.xml",
+                        "size": 590,
+                        "sha256": "6435264b909e736e74b4cf432817536e296023c273c177736889a640c7a947ea"
+                      },
+                      {
+                        "name": "xl/styles.xml",
+                        "size": 735,
+                        "sha256": "8a39e4748ac157aee9599126423f7a72a525f8c205864994c95e31a8bb32bcdd"
+                      },
+                      {
+                        "name": "xl/sharedStrings.xml",
+                        "size": 155,
+                        "sha256": "c248cba6c01dff6c864e2605a4060ad999662329cf1798036279e7c43fa4c0d3"
+                      }
+                    ]
                   },
                   {
                     "name": "ppt/charts/",
@@ -5175,8 +5295,68 @@
                   },
                   {
                     "name": "ppt/embeddings/chartData1.xlsx",
-                    "size": 3488,
-                    "sha256": "5a8acc708627748bcd78399c0c1f7cb52a57b365ea5fa7fc6484bd9b5d1ca3e6"
+                    "zip": [
+                      {
+                        "name": "[Content_Types].xml",
+                        "size": 931,
+                        "sha256": "f2e52bf1f2def79b1b91b05a7040185333a910e65bfb4923306b9e83f84d75e8"
+                      },
+                      {
+                        "name": "_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "_rels/.rels",
+                        "size": 442,
+                        "sha256": "24f08ece970395ebe6764d80c1611b566713e3ac221bab8d5919a77f5d877d10"
+                      },
+                      {
+                        "name": "docProps/",
+                        "dir": true
+                      },
+                      {
+                        "name": "docProps/core.xml",
+                        "size": 636,
+                        "sha256": "7fe0d3f0d5e6de48c02c3a0379e38c5115164864a6258984c495d87ff92aa832"
+                      },
+                      {
+                        "name": "xl/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/workbook.xml",
+                        "size": 432,
+                        "sha256": "9855ab0e89cf7767e79a4b4f95361446c4d2040026e07d2d42f70d263178856d"
+                      },
+                      {
+                        "name": "xl/_rels/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/_rels/workbook.xml.rels",
+                        "size": 566,
+                        "sha256": "6258d89989950ab32c1c49c76d8e3d939647bb6142b969a3dc88ef0093844799"
+                      },
+                      {
+                        "name": "xl/worksheets/",
+                        "dir": true
+                      },
+                      {
+                        "name": "xl/worksheets/sheet1.xml",
+                        "size": 590,
+                        "sha256": "6435264b909e736e74b4cf432817536e296023c273c177736889a640c7a947ea"
+                      },
+                      {
+                        "name": "xl/styles.xml",
+                        "size": 735,
+                        "sha256": "8a39e4748ac157aee9599126423f7a72a525f8c205864994c95e31a8bb32bcdd"
+                      },
+                      {
+                        "name": "xl/sharedStrings.xml",
+                        "size": 155,
+                        "sha256": "c248cba6c01dff6c864e2605a4060ad999662329cf1798036279e7c43fa4c0d3"
+                      }
+                    ]
                   },
                   {
                     "name": "ppt/charts/",
@@ -5345,8 +5525,68 @@
             },
             {
               "name": "ppt/embeddings/chartData1.xlsx",
-              "size": 3488,
-              "sha256": "5a8acc708627748bcd78399c0c1f7cb52a57b365ea5fa7fc6484bd9b5d1ca3e6"
+              "zip": [
+                {
+                  "name": "[Content_Types].xml",
+                  "size": 931,
+                  "sha256": "f2e52bf1f2def79b1b91b05a7040185333a910e65bfb4923306b9e83f84d75e8"
+                },
+                {
+                  "name": "_rels/",
+                  "dir": true
+                },
+                {
+                  "name": "_rels/.rels",
+                  "size": 442,
+                  "sha256": "24f08ece970395ebe6764d80c1611b566713e3ac221bab8d5919a77f5d877d10"
+                },
+                {
+                  "name": "docProps/",
+                  "dir": true
+                },
+                {
+                  "name": "docProps/core.xml",
+                  "size": 636,
+                  "sha256": "7fe0d3f0d5e6de48c02c3a0379e38c5115164864a6258984c495d87ff92aa832"
+                },
+                {
+                  "name": "xl/",
+                  "dir": true
+                },
+                {
+                  "name": "xl/workbook.xml",
+                  "size": 432,
+                  "sha256": "9855ab0e89cf7767e79a4b4f95361446c4d2040026e07d2d42f70d263178856d"
+                },
+                {
+                  "name": "xl/_rels/",
+                  "dir": true
+                },
+                {
+                  "name": "xl/_rels/workbook.xml.rels",
+                  "size": 566,
+                  "sha256": "6258d89989950ab32c1c49c76d8e3d939647bb6142b969a3dc88ef0093844799"
+                },
+                {
+                  "name": "xl/worksheets/",
+                  "dir": true
+                },
+                {
+                  "name": "xl/worksheets/sheet1.xml",
+                  "size": 590,
+                  "sha256": "6435264b909e736e74b4cf432817536e296023c273c177736889a640c7a947ea"
+                },
+                {
+                  "name": "xl/styles.xml",
+                  "size": 735,
+                  "sha256": "8a39e4748ac157aee9599126423f7a72a525f8c205864994c95e31a8bb32bcdd"
+                },
+                {
+                  "name": "xl/sharedStrings.xml",
+                  "size": 155,
+                  "sha256": "c248cba6c01dff6c864e2605a4060ad999662329cf1798036279e7c43fa4c0d3"
+                }
+              ]
             },
             {
               "name": "ppt/charts/",
@@ -5369,7 +5609,7 @@
           ]
         }
       },
-      "ms": 297
+      "ms": 267
     },
     {
       "name": "pdf: create from blocks, edit, validate and the refusal to overwrite",
@@ -5394,8 +5634,31 @@
               "path": "doc.pdf",
               "before": null,
               "after": {
-                "bytes": 886,
-                "sha256": "173cdc42d2cde162f2c968537303a72cc8c38dab00af9088e4fe0b69f846cb5a"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "First draft",
+                          "x": 54,
+                          "top": 54,
+                          "width": 46.45,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5447,12 +5710,58 @@
             {
               "path": "doc.pdf",
               "before": {
-                "bytes": 886,
-                "sha256": "173cdc42d2cde162f2c968537303a72cc8c38dab00af9088e4fe0b69f846cb5a"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "First draft",
+                          "x": 54,
+                          "top": 54,
+                          "width": 46.45,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               },
               "after": {
-                "bytes": 888,
-                "sha256": "077c303feee53cc0e89fc456da575c5fdc1a1a8f827603900ea6556d906333c1"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Second draft",
+                          "x": 54,
+                          "top": 54,
+                          "width": 62.37,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5492,12 +5801,65 @@
             {
               "path": "doc.pdf",
               "before": {
-                "bytes": 888,
-                "sha256": "077c303feee53cc0e89fc456da575c5fdc1a1a8f827603900ea6556d906333c1"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Second draft",
+                          "x": 54,
+                          "top": 54,
+                          "width": 62.37,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               },
               "after": {
-                "bytes": 1332,
-                "sha256": "f53d9e99097507d98cd9785d4a69ac385044a1b37a20ebaaf47a163a47937b01"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 841.89,
+                      "height": 595.28,
+                      "items": [
+                        {
+                          "text": "Second draft",
+                          "x": 776.89,
+                          "top": 54,
+                          "width": 11,
+                          "height": 62.37
+                        },
+                        {
+                          "text": "PDF edited",
+                          "x": 20,
+                          "top": 20,
+                          "width": 14,
+                          "height": 70.03
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": "Mixdog PDF",
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5563,7 +5925,7 @@
         }
       ],
       "files": {},
-      "ms": 132
+      "ms": 158
     },
     {
       "name": "pdf: marks, text search and links on an authored document",
@@ -5592,8 +5954,38 @@
               "path": "marks.pdf",
               "before": null,
               "after": {
-                "bytes": 985,
-                "sha256": "7900b82483af7570606f5cd39052accc21615a1d7a751a5ced4b60af5552cc70"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly total due",
+                          "x": 54,
+                          "top": 54,
+                          "width": 142.26,
+                          "height": 16
+                        },
+                        {
+                          "text": "The grand total due is shown on page [page] of the report.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 283.12,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5644,12 +6036,72 @@
             {
               "path": "marks.pdf",
               "before": {
-                "bytes": 985,
-                "sha256": "7900b82483af7570606f5cd39052accc21615a1d7a751a5ced4b60af5552cc70"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly total due",
+                          "x": 54,
+                          "top": 54,
+                          "width": 142.26,
+                          "height": 16
+                        },
+                        {
+                          "text": "The grand total due is shown on page [page] of the report.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 283.12,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               },
               "after": {
-                "bytes": 1522,
-                "sha256": "2f0204cf235cf50949d2b3a8e2a52a7c4c4329e2305a9f60107cf7b8dccca38b"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly total due",
+                          "x": 54,
+                          "top": 54,
+                          "width": 142.26,
+                          "height": 16
+                        },
+                        {
+                          "text": "The grand total due is shown on page [page] of the report.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 283.12,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5696,7 +6148,7 @@
         }
       ],
       "files": {},
-      "ms": 39
+      "ms": 45
     },
     {
       "name": "pdf: begin, qa, render and a finalize that waits for the review",
@@ -5725,8 +6177,38 @@
               "path": "review.pdf",
               "before": null,
               "after": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5763,12 +6245,79 @@
             {
               "path": "review.pdf",
               "before": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               },
               "after": {
-                "bytes": 1370,
-                "sha256": "dec51b6a7007af08469855dd61eeb24949089a2c1afcdb243af51111ee6f5a88"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        },
+                        {
+                          "text": "Visual QA delta",
+                          "x": 30,
+                          "top": 765.89,
+                          "width": 110.27,
+                          "height": 16
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5791,40 +6340,116 @@
               "path": "qa-preview.pdf",
               "before": null,
               "after": {
-                "bytes": 1370,
-                "sha256": "dec51b6a7007af08469855dd61eeb24949089a2c1afcdb243af51111ee6f5a88"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        },
+                        {
+                          "text": "Visual QA delta",
+                          "x": 30,
+                          "top": 765.89,
+                          "width": 110.27,
+                          "height": 16
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             },
             {
               "path": "qa-preview-page-1.png",
               "before": null,
               "after": {
-                "bytes": 14279,
-                "sha256": "09d78510256802445d817948c4f507e719c5d3143bb217e8c21c584b7dcdd254"
+                "png": {
+                  "width": 640,
+                  "height": 906,
+                  "sha256": "4e3b424b562e633f7d55d301d3f84a19a7a673974238f81342a922c16d06533d"
+                }
               }
             },
             {
               "path": "qa-preview-before.pdf",
               "before": null,
               "after": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             },
             {
               "path": "qa-preview-before-page-1.png",
               "before": null,
               "after": {
-                "bytes": 11119,
-                "sha256": "87255f2a6f7649faffd8f634e5797102d2965fff14cd5b34394569dc34792bd2"
+                "png": {
+                  "width": 640,
+                  "height": 906,
+                  "sha256": "9ad06ae84da0fd11fd8572f01e4c66d6deffab92a16cd41b623f21f746ff10d6"
+                }
               }
             },
             {
               "path": "qa-preview-visual-diff-page-1.png",
               "before": null,
               "after": {
-                "bytes": 10602,
-                "sha256": "87912fa5cf9ff4292fd3f4b210beba946aff4069eb54196624ebb7433d32e10a"
+                "png": {
+                  "width": 640,
+                  "height": 906,
+                  "sha256": "e64d4b146e45a84d0d65262f6bd6dfea5f0d2152b9fa6ef90afc041e6debef60"
+                }
               }
             }
           ]
@@ -5841,12 +6466,79 @@
             {
               "path": "review.pdf",
               "before": {
-                "bytes": 1370,
-                "sha256": "dec51b6a7007af08469855dd61eeb24949089a2c1afcdb243af51111ee6f5a88"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        },
+                        {
+                          "text": "Visual QA delta",
+                          "x": 30,
+                          "top": 765.89,
+                          "width": 110.27,
+                          "height": 16
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               },
               "after": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             }
           ]
@@ -5869,16 +6561,49 @@
               "path": "preview.pdf",
               "before": null,
               "after": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             },
             {
               "path": "preview-page-1.png",
               "before": null,
               "after": {
-                "bytes": 11119,
-                "sha256": "87255f2a6f7649faffd8f634e5797102d2965fff14cd5b34394569dc34792bd2"
+                "png": {
+                  "width": 640,
+                  "height": 906,
+                  "sha256": "9ad06ae84da0fd11fd8572f01e4c66d6deffab92a16cd41b623f21f746ff10d6"
+                }
               }
             }
           ]
@@ -5901,16 +6626,49 @@
               "path": "final-preview.pdf",
               "before": null,
               "after": {
-                "bytes": 958,
-                "sha256": "75b18db8a882eccb7e649d9fdc2d258507380fc94200d0cc1dd3bc75708ddc4d"
+                "pdf": {
+                  "pages": [
+                    {
+                      "width": 595.28,
+                      "height": 841.89,
+                      "items": [
+                        {
+                          "text": "Quarterly review",
+                          "x": 54,
+                          "top": 54,
+                          "width": 125.39,
+                          "height": 16
+                        },
+                        {
+                          "text": "Revenue rose in every region.",
+                          "x": 54,
+                          "top": 81.2,
+                          "width": 146.73,
+                          "height": 11
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "title": null,
+                    "author": null,
+                    "subject": null,
+                    "keywords": null,
+                    "creator": "<writer>",
+                    "producer": "<writer>"
+                  }
+                }
               }
             },
             {
               "path": "final-preview-page-1.png",
               "before": null,
               "after": {
-                "bytes": 11119,
-                "sha256": "87255f2a6f7649faffd8f634e5797102d2965fff14cd5b34394569dc34792bd2"
+                "png": {
+                  "width": 640,
+                  "height": 906,
+                  "sha256": "9ad06ae84da0fd11fd8572f01e4c66d6deffab92a16cd41b623f21f746ff10d6"
+                }
               }
             }
           ]
@@ -5963,7 +6721,7 @@
         }
       ],
       "files": {},
-      "ms": 1657
+      "ms": 1643
     },
     {
       "name": "tabular: tsv and csv sessions, refusals and a cancelled call",
@@ -6132,7 +6890,7 @@
           "text": "=cmd()\r\n\r\n1\r\n3\r\n"
         }
       },
-      "ms": 28
+      "ms": 30
     }
   ]
 }

@@ -20,7 +20,10 @@
 //  - `"reviewToken":"<value>"` is `"reviewToken":"<token>"` (the token is carried to the next call as <reviewToken> unchanged);
 //  - in a zip, the `dcterms:created` and `dcterms:modified` values of docProps/core.xml and docProps/app.xml; a zip is compared by its
 //    entry names (in order) and the sha256 of each entry's uncompressed bytes, never by its compressed bytes (the deflate of two
-//    libraries differs);
+//    libraries differs); an entry that is itself a zip (a chart's workbook) is its own entries, stamps settled the same way;
+//  - a PDF is what a reader finds in it (lib/office-files.mjs: page sizes, text items with positions to the thousandth, form fields, the
+//    document properties without the dates), never its bytes (two PDF writers share no object layout); a PNG is its width, height and
+//    the sha256 of its decoded RGBA pixels (two encoders share no chunks or deflate);
 //  - in a data-folder JSON file, ISO timestamps and the numbers under keys ending At, Ms or Time.
 // The text of an answer is otherwise compared as written, so key order is compared too.
 import { createHash } from 'node:crypto';
@@ -28,6 +31,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createOfficeFileReader, isPdf, isPng } from './lib/office-files.mjs';
 import { FIXTURES_ROOT, importFrom, parseArgs, productIdentity, resolveTree, writeSetManifest } from './lib/common.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
@@ -38,6 +42,7 @@ const tree = resolveTree(args);
 const identity = productIdentity(tree);
 const JSZip = createRequire(path.join(tree, 'package.json'))('jszip');
 
+const { pdfFingerprint, pngFingerprint } = await createOfficeFileReader(tree);
 const tool = await importFrom(tree, 'src/runtime/office/index.mjs');
 const ledgers = await importFrom(tree, 'src/runtime/office/core/office-write-ledger.mjs');
 
@@ -93,9 +98,15 @@ const STAMPED = new Set(['docProps/core.xml', 'docProps/app.xml']);
 const settleStamps = (name, text) =>
   STAMPED.has(name) ? text.replace(/(<dcterms:(?:created|modified)[^>]*>)[^<]*(<\/dcterms:(?:created|modified)>)/g, '$1<timestamp>$2') : text;
 
-/** One file's bytes as the replay compares them: a zip by its entries, anything else exactly. */
+const isZip = (bytes) => bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+
+/** One file's bytes as the replay compares them: a zip by its entries (an entry that is itself a zip, a chart's workbook, by its own
+ *  entries), a PDF by what a reader finds in it (with the document properties but for the dates), a PNG by its size and decoded
+ *  pixels, anything else exactly. */
 const describeBytes = async (bytes) => {
-  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+  if (isPdf(bytes)) return await pdfFingerprint(bytes, { properties: true });
+  if (isPng(bytes)) return await pngFingerprint(bytes);
+  if (isZip(bytes)) {
     const zip = await JSZip.loadAsync(bytes);
     const entries = [];
     for (const name of Object.keys(zip.files)) {
@@ -105,6 +116,10 @@ const describeBytes = async (bytes) => {
         continue;
       }
       const raw = await entry.async('nodebuffer');
+      if (isZip(raw)) {
+        entries.push({ name, ...(await describeBytes(raw)) });
+        continue;
+      }
       const settled = STAMPED.has(name) ? Buffer.from(settleStamps(name, raw.toString('utf8')), 'utf8') : raw;
       entries.push({ name, size: raw.length, sha256: sha(settled) });
     }
