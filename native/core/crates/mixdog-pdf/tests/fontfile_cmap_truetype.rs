@@ -72,6 +72,9 @@ fn parse_repr(text: &str) -> CMapValue {
     if let Some(number) = text.strip_prefix('c') {
         return CMapValue::Cid(number.parse().expect("number"));
     }
+    if text == "o" {
+        return CMapValue::Other;
+    }
     let units = text.strip_prefix('s').expect("a string value");
     CMapValue::Str(if units.is_empty() {
         Vec::new()

@@ -15,8 +15,17 @@ use super::Value;
 use super::convert;
 
 /// `CompareInfo.Compare(a, b, CompareOptions.IgnoreCase)` under the user's locale.
-#[cfg(windows)]
 pub fn compare_strings(a: &str, b: &str) -> Ordering {
+    compare_with(a, b, true)
+}
+
+/// `CompareInfo.Compare(a, b, CompareOptions.None)` under the user's locale: what `-ceq` asks (U+212A equals `K`).
+pub fn compare_strings_case_sensitive(a: &str, b: &str) -> Ordering {
+    compare_with(a, b, false)
+}
+
+#[cfg(windows)]
+fn compare_with(a: &str, b: &str, ignore_case: bool) -> Ordering {
     use std::sync::OnceLock;
 
     use windows_sys::Win32::Globalization::CSTR_EQUAL;
@@ -46,7 +55,7 @@ pub fn compare_strings(a: &str, b: &str) -> Ordering {
     let result = unsafe {
         CompareStringEx(
             locale.as_ptr(),
-            NORM_IGNORECASE,
+            if ignore_case { NORM_IGNORECASE } else { 0 },
             left.as_ptr(),
             left.len() as i32,
             right.as_ptr(),
@@ -71,8 +80,8 @@ pub fn compare_strings(a: &str, b: &str) -> Ordering {
 /// Culture-aware comparison is the Windows NLS call; Office is Windows-only, so no host runs elsewhere. Elsewhere the
 /// strings compare by lower-cased text so the crate still builds.
 #[cfg(not(windows))]
-pub fn compare_strings(a: &str, b: &str) -> Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase())
+fn compare_with(a: &str, b: &str, ignore_case: bool) -> Ordering {
+    if ignore_case { a.to_lowercase().cmp(&b.to_lowercase()) } else { a.cmp(b) }
 }
 
 /// `-eq` of two strings: `String.Equals(a, b, CurrentCultureIgnoreCase)`, that is the culture comparison above.

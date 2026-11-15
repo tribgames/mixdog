@@ -32,6 +32,8 @@ const fetchBuiltInCMap = async (name) => ({
 const hex = (bytes) => Buffer.from(bytes).toString('hex');
 const repr = (value) => {
   if (typeof value === 'number') return `c${value}`;
+  // A /Name inside a bfrange array is kept by pdf.js as an object that is neither a number nor a string.
+  if (typeof value !== 'string') return 'o';
   return `s${[...value].map((ch) => ch.charCodeAt(0).toString(16)).join('.')}`;
 };
 const fnv = (text) => {

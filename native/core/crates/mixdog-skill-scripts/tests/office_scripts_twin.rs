@@ -233,6 +233,20 @@ fn clip(text: &str) -> String {
     text.chars().take(300).collect()
 }
 
+/// The files a review packet lists are copied by `Promise.all`, and Node lists them in the order the copies finished:
+/// the recording lists the pages of one packet as 1, 2 in one case and 2, 1 in another. The list is the packet's set of
+/// files, so both sides are compared in the order of their names.
+fn sort_review_inputs(observed: &mut Value) {
+    let Some(files) = observed.get_mut("files").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for written in files.values_mut() {
+        if let Some(inputs) = written.get_mut("inputs").and_then(Value::as_array_mut) {
+            inputs.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+        }
+    }
+}
+
 fn run_kind(kind: &str) -> (usize, Vec<String>) {
     let mut ran = 0;
     let mut differences = Vec::new();
@@ -285,7 +299,10 @@ fn run_kind(kind: &str) -> (usize, Vec<String>) {
         if let Some(dir) = case.get("workFolders").and_then(Value::as_str) {
             got.insert("workFolders".to_owned(), work_folders(root.path(), dir, &norm));
         }
-        let (got, want) = (Value::Object(got), &case["observed"]);
+        let (mut got, mut want) = (Value::Object(got), case["observed"].clone());
+        sort_review_inputs(&mut got);
+        sort_review_inputs(&mut want);
+        let want = &want;
         if got != *want || got.to_string() != want.to_string() {
             let field = ["stdout", "stderr", "status", "files", "office", "exec", "workFolders"]
                 .into_iter()

@@ -108,7 +108,7 @@ pub fn round_trip_text(ticks: i64, utc: bool) -> String {
 }
 
 /// `$date.ToUniversalTime()` of a date of `Kind` `Unspecified` or `Local`, as ticks. Windows converts through the machine's
-/// dynamic time zone. A date before 1601 is refused by the Windows call.
+/// dynamic time zone. A date before 1601 is refused by the Windows call; there the zone's base offset applies, as in .NET.
 #[cfg(windows)]
 pub fn local_ticks_to_utc_ticks(ticks: i64) -> Result<i64, String> {
     use windows_sys::Win32::Foundation::SYSTEMTIME;
@@ -139,6 +139,12 @@ pub fn local_ticks_to_utc_ticks(ticks: i64) -> Result<i64, String> {
     }
     let mut universal: SYSTEMTIME = unsafe { std::mem::zeroed() };
     let converted = unsafe { TzSpecificLocalTimeToSystemTimeEx(&zone, &local, &mut universal) };
+    if converted == 0 && civil.year < 1601 {
+        // Before the first year Windows has time zone rules for, .NET's `ToUniversalTime` applies the zone's base offset
+        // (the standard bias: UTC = local + Bias minutes).
+        // `DateTime.MinValue` and `MaxValue` bound the result, as .NET bounds it.
+        return Ok((ticks + i64::from(zone.Bias) * 60 * 10_000_000).clamp(0, 3_155_378_975_999_999_999));
+    }
     if converted == 0 {
         return Err("The date could not be converted to universal time.".to_string());
     }
