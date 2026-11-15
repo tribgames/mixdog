@@ -81,7 +81,8 @@ fn split_frontmatter(markdown: &str) -> Result<(&str, &str), SkillDocumentError>
     let front_start = first_end + 1;
     let mut offset = front_start;
     for line in text[front_start..].split_inclusive('\n') {
-        if is_fence(line.trim_end_matches('\n')) {
+        // The closing fence follows a line break of its own: a fence right after the opening one is content.
+        if offset > front_start && is_fence(line.trim_end_matches('\n')) {
             let front = text[front_start..offset].trim_end_matches('\n').trim_end_matches('\r');
             return Ok((front, &text[offset + line.len()..]));
         }
@@ -114,6 +115,30 @@ pub fn validate_name(value: &str) -> Result<(), SkillDocumentError> {
     Ok(())
 }
 
+/// The text of a YAML error as the `yaml` package of Node words it. A flow collection left open reads there as
+/// "Flow sequence must end with a ]" at the root of the document and as "... in block collection must be
+/// sufficiently indented and end with a ]" inside a block collection; any other error keeps the parser's words.
+fn yaml_error_text(front: &str, error: &serde_yaml::Error) -> String {
+    let text = error.to_string();
+    for (opens, name, end) in [("flow sequence", "sequence", ']'), ("flow mapping", "map", '}')] {
+        let Some((_, at)) = text.split_once(&format!("while parsing a {opens} at line ")) else { continue };
+        if !text.contains(&format!("did not find expected ',' or '{end}'")) {
+            continue;
+        }
+        let Some((line, column)) = at.split_once(" column ") else { continue };
+        let (Ok(line), Ok(column)) = (line.trim().parse::<usize>(), column.trim().parse::<usize>()) else { continue };
+        let before_on_line: String = front.lines().nth(line - 1).unwrap_or("").chars().take(column - 1).collect();
+        let blank_before = before_on_line.trim().is_empty()
+            && front.lines().take(line - 1).all(|l| l.trim().is_empty() || l.trim_start().starts_with('#'));
+        return if blank_before {
+            format!("Flow {name} must end with a {end}")
+        } else {
+            format!("Flow {name} in block collection must be sufficiently indented and end with a {end}")
+        };
+    }
+    text
+}
+
 /// The frontmatter text of `markdown`, once it is known to parse as a YAML mapping.
 pub(crate) fn frontmatter_of(markdown: &str) -> Result<&str, SkillDocumentError> {
     let (front, _) = split_frontmatter(markdown)?;
@@ -125,7 +150,7 @@ pub(crate) fn frontmatter_of(markdown: &str) -> Result<&str, SkillDocumentError>
             static CORE_TAG: std::sync::LazyLock<mixdog_js::JsRegex> =
                 std::sync::LazyLock::new(|| mixdog_js::JsRegex::new_static(r"!!(null|bool|int|float)(?=[ \t\r\n,\]}]|$)", "g"));
             let neutral = CORE_TAG.replace_all_with(front, |c| format!("!core-{}", c.get(1).unwrap_or_default()));
-            serde_yaml::from_str(&neutral).map_err(|_| SkillDocumentError::InvalidYaml(first.to_string()))?
+            serde_yaml::from_str(&neutral).map_err(|_| SkillDocumentError::InvalidYaml(yaml_error_text(front, &first)))?
         }
     };
     if !yaml.is_mapping() {
@@ -137,7 +162,7 @@ pub(crate) fn frontmatter_of(markdown: &str) -> Result<&str, SkillDocumentError>
 pub fn parse_document(markdown: &str) -> Result<SkillDocument, SkillDocumentError> {
     let (front, body) = split_frontmatter(markdown)?;
     let yaml: serde_yaml::Value =
-        serde_yaml::from_str(front).map_err(|e| SkillDocumentError::InvalidYaml(e.to_string()))?;
+        serde_yaml::from_str(front).map_err(|e| SkillDocumentError::InvalidYaml(yaml_error_text(front, &e)))?;
     if !yaml.is_mapping() {
         return Err(SkillDocumentError::NotMapping);
     }
