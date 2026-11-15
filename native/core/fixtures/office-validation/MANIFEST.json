@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-validation.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 293955,
+      "path": "golden.json",
+      "sha256": "e43dd37a6a2c3e47e51f105a8c00acd80405fafe6847d56fae9a9c46c46f23c9"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "a91cd9226cdb128b006dd0e7f121b5951804db33",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 21681
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-validation.mjs",
+  "set": "office-validation",
+  "totalBytes": 293955
+}
