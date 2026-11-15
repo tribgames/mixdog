@@ -1,0 +1,77 @@
+# nr-office-engine-qa-finalize-dispatch: qa, finalize, save and close, the tool call's dispatch and the engine entry point (modules mixdog-office::actions, ::dispatch and ::engine)
+
+Written without cargo: nothing below has been compiled (rustfmt parsed every file; the twin test replays a recording made by running the recorder
+against C:/Project/mixdog, which ran). The modules are the library the Office tool's worker method (nr-office-worker-office-run) and the skill
+scripts (source-extract, qc-pages) call; this task registers no protocol method and no service, so nothing is removed from SERVICE_PENDING in
+compose_flip.rs.
+
+It calls what the earlier fragments of the track add, so they are applied first: nr-office-engine-open-create.wire (`pub mod create; mode; open;
+working_copy;` in session/mod.rs), nr-office-engine-snapshot.wire, nr-office-engine-inspect.wire, nr-office-engine-render.wire,
+nr-office-engine-transactions-batch.wire (`pub mod batch; pub mod transactions;`) and nr-office-engine-author-actions.wire (`pub mod author;`, and the
+Cargo lines it lists: mixdog-core-api, mixdog-fonts, mixdog-office-author, mixdog-pdf, mixdog-raster).
+
+## native/core/crates/mixdog-office/src/lib.rs
+After the modules the earlier fragments add, and extending the crate documentation by one line ("[`actions`] is `qa`, `finalize`, `save` and `close`;
+[`dispatch`] answers one call of the tool; [`engine`] is the entry point a process calls."):
+
+    pub mod actions;
+    pub mod dispatch;
+    pub mod engine;
+
+## native/core/crates/mixdog-office/Cargo.toml
+Nothing new: every crate the three modules and the test name is a [dependencies] or [dev-dependencies] line already, once the earlier fragments are
+in (mixdog-core-api, mixdog-fonts, mixdog-fsio, mixdog-js, mixdog-office-author, mixdog-office-base, mixdog-office-com, mixdog-office-design,
+mixdog-office-pdf, mixdog-office-quality, mixdog-ooxml, mixdog-pdf, mixdog-raster, mixdog-rt, tokio with `rt`, serde_json; tempfile and
+mixdog-rt with `test-support` as dev-dependencies).
+
+## native/core/Cargo.lock, native/core/crates/mixdog-workspace-hack/Cargo.toml
+Nothing: no new dependency edge, no new external crate.
+
+## native/core/fixtures/MANIFEST.json (the index of the fixture sets)
+Add to `sets`, in name order (after "office-digest" and the sets that sort between it and "office-dispatch"); verify with
+benchmarks/rust-core/recorders/verify-manifests.mjs:
+
+    { "command": "node benchmarks/rust-core/recorders/record-office-dispatch.mjs --tree <tree>", "fileCount": 1,
+      "manifest": "office-dispatch/MANIFEST.json", "manifestSha256": "489cf37eaf2b9cc228fcffe70cc5255e6a6868166bb9f84fba3c1872d9444287",
+      "recorder": "benchmarks/rust-core/recorders/record-office-dispatch.mjs", "set": "office-dispatch", "totalBytes": 30479 }
+
+(native/core/fixtures/office-dispatch/{golden.json,MANIFEST.json} are in this task's commit, written at their paths and added with `git add --sparse`;
+so is the recorder, benchmarks/rust-core/recorders/record-office-dispatch.mjs. The recording was made from the product at C:/Project/mixdog with
+`--tree C:/Project/mixdog`; the manifest's `product` records that tree as "closest commit, not exact". Nothing is launched by the recorder: no
+browser, no Office, no LibreOffice.)
+
+## Interface the worker method and the skill scripts call (crate mixdog-office, `mixdog_office::engine`)
+- `Platform` (trait; `Send + Sync + 'static`) is what a process supplies: `lanes()`, `office() -> &OfficeCom`, `fonts() -> Arc<mixdog_fonts::registry::Registry>`,
+  `font_env() -> &FontEnv`, `svg_fonts() -> &SvgFonts`, `endpoint() -> &dyn BrowserEndpoint`, `design_environment() -> &mixdog_office_design::library::Environment`,
+  `fetch() -> &dyn Fetch`, `indexer() -> &dyn TemplateIndexer<MaintenanceIo>`, `validator() -> &mixdog_ooxml::ooxml_validator::Environment`, and
+  `batch_host() -> &Self::Batch` (`type Batch: BatchHost + Send + Sync`, the PDF operation set, the Word chart as a picture and the brief readings).
+  The real ones exist in the tree (`HttpsFetch`, `OfficeTemplateIndexer`, `Environment::process()`, `Environment::from_process()`); the process that owns the
+  Office transport and the shared browser (the ext-host worker, nr-office-worker-office-run) builds the platform. No platform is composed here.
+- `Engine::new(platform) -> Arc<Engine<P>>`; `Engine::execute(self: &Arc<Self>, args: Value, cwd: PathBuf, data_dir: Option<PathBuf>, ledger:
+  Option<Arc<CallLedger>>, cancel: CancellationToken) -> (Value, Vec<FileChange>)` is `executeOfficeTool`: the tool result (`{ content: [...], isError? }`) and
+  the workspace files the call's write routes changed (`CallLedger::changes`, for the turn review; pass `None` outside a session's turn). An empty `cwd` is the
+  process's folder, no `data_dir` is the Office data folder. The approved-path check stays in the worker method, as in methods.mjs. A cancelled call answers
+  `{ ok: false, code: 'cancelled' }`; an `OfficeConflictError` its details; any other failure `Error: <message>`. `MIXDOG_OFFICE_TRACE` writes one line per call.
+  The call runs as one job on the maintenance lane (the lane proof the document code needs exists only inside a job) and is driven there on a parker of its own;
+  call it from inside the tokio runtime that owns the Office transport.
+- `Engine::known_sessions()` before a call and `Engine::finish_call(thread, &known) -> bool` after it are the pin rule (the worker method reports pin while a
+  thread owns a session); `Engine::is_pinned(thread)`; `Engine::shutdown()` drains every Microsoft Office session host (`closeOfficeSessions`).
+- `Engine::execute` keeps what a session was last sent of its render receipt across calls (`deliveries`) by moving it into the call and back; two calls that
+  run at the same time on different threads may therefore each start from the receipts the other left (a receipt is then sent in full once more).
+- `mixdog_office::actions::Machine` is what one call runs with (a test builds its own; `twin_dispatch` does): `run_office_tool(&args, signal) -> Value` is
+  `runOfficeTool`; `dispatch_session_action`, `qa`, `finalize`, `save`, `close` and `open_create_or_attach` are its actions. `Host` is `OfficeHost + ComHost +
+  ComSessions` (`ComSessions::close_session` is `closeMicrosoftOfficeSession`; `OfficeCom` implements it); `engine::Closer` is the `SessionCloser` the author and
+  create paths use; `engine::AuthoringReads` is the readings a deck's design review is held to.
+- The crate's `README`-level behaviours that stay the caller's: a thread's pin and the approved-path check (worker), the turn-review recording of the changes
+  (`recordToolFileChanges`, tools layer).
+
+## What was not compiled or run
+Nothing was compiled or run in Rust. The places most likely to need a touch at the first compile: the lifetimes of `Machine` and of the per-call contexts in
+`Engine::run_call` (one `'a` for every borrowed context, as `SystemAuthor` has), the generic bounds repeated on the `impl` blocks of `Machine`, the
+`BrowserEndpoint` stand-in of `tests/twin_dispatch.rs` (written without the `async_trait` macro, in the shape the macro generates) and `Platform::Batch`.
+`twin_live_dispatch` (ignored) re-records through Node and was not run in Rust; the recorder itself was run once (Node only) and produced the committed recording.
+
+## The skill scripts (nr-exthost-skill-scripts-office, section 3 of its wire)
+Its `OfficeEngine::call(args, cwd)` is `Engine::execute(args, cwd, None, None, CancellationToken::new())` with the answer's `content[0].text` parsed (or, when
+`isError`, returned as the error text); `measure` stays the portable readers' own. No platform is composed in this task, so that adapter is written where the
+process that runs `mixdogd skill-run` builds its `Platform`.

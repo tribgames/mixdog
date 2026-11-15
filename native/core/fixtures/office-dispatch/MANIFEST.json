@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-dispatch.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 30479,
+      "path": "golden.json",
+      "sha256": "8da87a74ff4f78d1b70a9ed5b8d9fac93721c378427d67c1d01bd12a92ae4ac2"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21682,
+    "refComparison": {
+      "closestCommit": "ff7473bec15bba3c4c711260f2e878360a93f96a",
+      "commitFilesMissingFromTree": 760,
+      "exact": false,
+      "filesDifferingFromCommit": 17863
+    },
+    "srcSha256": "771b012162b9264043ecd07836f0764b71a5d1502982a46340b4e92a86c65c68",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-dispatch.mjs",
+  "set": "office-dispatch",
+  "totalBytes": 30479
+}
