@@ -435,7 +435,7 @@ async fn ctl_request(
 /// leaves the core listed on its own.
 #[cfg(windows)]
 fn adopt_desktop_app_identity() {
-    let app_id: Vec<u16> = "io.mixdog.desktop ".encode_utf16().collect();
+    let app_id: Vec<u16> = "io.mixdog.desktop\0".encode_utf16().collect();
     // SAFETY: `app_id` is a NUL-terminated UTF-16 string that outlives the call; the call only records it for this process.
     #[allow(unsafe_code, reason = "one Win32 call that records this process's AppUserModelID")]
     let _ = unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
