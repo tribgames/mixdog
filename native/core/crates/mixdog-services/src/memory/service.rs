@@ -62,6 +62,10 @@ pub trait MemoryModule: Send + Sync {
     }
     /// The `memory` tool, including `ingest_session`.
     async fn memory(&self, args: Value) -> String;
+    /// The `memory` tool for a request `cancel` ends: a cycle1, flush, rebuild or backfill stops at its next step.
+    async fn memory_cancellable(&self, args: Value, _cancel: &tokio_util::sync::CancellationToken) -> String {
+        self.memory(args).await
+    }
     /// The `recall` tool for a request `cancel` ends.
     async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String;
     /// `getMemoryModule()` in the runtime of session `thread` (`runtime-modules.mjs:16-18`): Node runs one runtime per
@@ -117,17 +121,22 @@ impl LocalMemory {
     /// The `memory` tool's reply, with the error flag the text alone does not carry: the action it names
     /// (`core` when it names none) and, for a name outside the table, the unknown-action answer.
     pub async fn memory_reply(&self, args: &Value) -> ToolReply {
+        self.memory_reply_cancellable(args, &tokio_util::sync::CancellationToken::new()).await
+    }
+
+    /// [`Self::memory_reply`] for a request `cancel` ends (Node's `signal` of `handleMemoryAction`).
+    pub async fn memory_reply_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> ToolReply {
         let action = match maintenance::parse_action(args) {
             Ok(action) => action,
             Err(name) => return maintenance::unknown_action_reply(&name),
         };
-        match self.run_action(action, args).await {
+        match self.run_action(action, args, cancel).await {
             Ok(reply) => reply,
             Err(error) => maintenance::failure_reply(&error),
         }
     }
 
-    async fn run_action(&self, action: Action, args: &Value) -> crate::memory::error::Result<ToolReply> {
+    async fn run_action(&self, action: Action, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> crate::memory::error::Result<ToolReply> {
         Ok(match action {
             Action::Core => {
                 let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
@@ -151,7 +160,7 @@ impl LocalMemory {
             Action::Prune => maintenance::prune(&self.db, args).await?,
             Action::Purge => maintenance::purge(&self.db, args).await?,
             Action::Cycle1 | Action::Flush | Action::Rebuild | Action::Backfill | Action::Manage => match self.maintenance.get() {
-                Some(maintenance) => maintenance.run(&self.db, action, args).await?,
+                Some(maintenance) => maintenance.run(&self.db, action, args, cancel).await?,
                 None => ToolReply::error("memory maintenance is not available in this process"),
             },
         })
@@ -178,6 +187,10 @@ impl MemoryModule for LocalMemory {
 
     async fn memory(&self, args: Value) -> String {
         self.memory_reply(&args).await.text
+    }
+
+    async fn memory_cancellable(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
+        self.memory_reply_cancellable(&args, cancel).await.text
     }
 
     async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
@@ -331,10 +344,10 @@ impl MemoryService {
         self.memory.ready().await.map_err(|_| CoreError::DomainError { domain: "memory".into(), code: None, message: Some(RUNTIME_NOT_READY.into()), detail: None })
     }
 
-    async fn memory_control(&self, params: &Value) -> Result<Value, CoreError> {
+    async fn memory_control(&self, params: &Value, cancel: &tokio_util::sync::CancellationToken) -> Result<Value, CoreError> {
         self.runtime(params.get("threadId").and_then(Value::as_str)).await?;
         let args = params.get("args").filter(|args| truthy(args)).cloned().unwrap_or_else(|| json!({}));
-        Ok(Value::String(self.memory.memory(args).await))
+        Ok(Value::String(self.memory.memory_cancellable(args, cancel).await))
     }
 
     /// `recall(query, args)` of the session runtime.
@@ -410,7 +423,7 @@ impl MemoryService {
 impl DomainService for MemoryService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
-            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params).await?)),
+            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params, &req.ctx.cancel).await?)),
             "memory/recall" => Ok(Reply::Value(self.recall(&req.params, &req.ctx.cancel).await?)),
             _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
         }

@@ -122,6 +122,18 @@ pub fn default_device(model_id: &str) -> &'static str {
     profile(model_id).map_or("auto", |p| p.default_device)
 }
 
+/// The worker's `requestedDevice` / `preferGpu`: DirectML when `MIXDOG_MEMORY_EMBED_DEVICE` (else the
+/// profile's device) is `dml` or `gpu`, or is `auto` on Windows; the CPU otherwise.
+pub fn prefers_gpu(model_id: &str, requested: Option<&str>, windows: bool) -> bool {
+    // `process.env.X || DEFAULT`: only an empty value falls back; a blank one is trimmed to nothing and names no device.
+    let requested = requested.filter(|v| !v.is_empty()).map(|v| js_trim(v).to_lowercase());
+    match requested.as_deref().unwrap_or_else(|| default_device(model_id)) {
+        "dml" | "gpu" => true,
+        "auto" => windows,
+        _ => false,
+    }
+}
+
 /// `getEmbeddingOutputName`: no profile names an output, so the graph's first output is read.
 pub fn output_name(_model_id: &str) -> &'static str {
     ""
@@ -190,4 +202,25 @@ pub fn prepare_input(text: &str, input_type: InputType, model_id: &str) -> Strin
     };
     let prepared = format!("{prefix}{clean}");
     if utf16_len(&prepared) > MAX_TEXT_UNITS { slice_utf16(&prepared, MAX_TEXT_UNITS) } else { prepared }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::*;
+
+    #[test]
+    fn directml_is_asked_for_by_name_or_by_auto_on_windows() {
+        // bge-m3's profile device is `auto`, the small default's is `cpu`.
+        assert!(prefers_gpu("Xenova/bge-m3", None, true));
+        assert!(!prefers_gpu("Xenova/bge-m3", None, false));
+        assert!(!prefers_gpu(DEFAULT_MODEL_ID, None, true));
+        for name in ["dml", " GPU ", "Dml"] {
+            assert!(prefers_gpu(DEFAULT_MODEL_ID, Some(name), false), "{name}");
+        }
+        assert!(prefers_gpu(DEFAULT_MODEL_ID, Some("auto"), true));
+        assert!(!prefers_gpu("Xenova/bge-m3", Some("cpu"), true));
+        // An empty setting is no setting; a blank one is a setting that names no device.
+        assert!(prefers_gpu("Xenova/bge-m3", Some(""), true));
+        assert!(!prefers_gpu("Xenova/bge-m3", Some("  "), true));
+    }
 }
