@@ -16,6 +16,7 @@ publish = false
 ### BEGIN HAKARI SECTION
 [dependencies]
 aho-corasick = { version = "1" }
+arrayvec = { version = "0.7" }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "extern_crate_alloc"] }
 chrono = { version = "0.4", features = ["serde"] }
 crc32fast = { version = "1" }
@@ -62,13 +63,13 @@ rcgen = { version = "0.14" }
 regex = { version = "1" }
 regex-automata = { version = "0.4" }
 regex-syntax = { version = "0.8" }
-regress = { version = "0.10", features = ["utf16"] }
+regress = { path = "../../vendor/regress", features = ["utf16"] }
 reqwest = { version = "0.12", default-features = false, features = ["brotli", "charset", "cookies", "deflate", "gzip", "http2", "json", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots", "socks", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["float_roundtrip", "preserve_order", "raw_value"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order", "raw_value", "unbounded_depth"] }
 sha2 = { version = "0.10" }
 simd-adler32 = { version = "0.3" }
 slab = { version = "0.4" }
@@ -115,7 +116,7 @@ regex = { version = "1" }
 regex-automata = { version = "0.4" }
 regex-syntax = { version = "0.8" }
 serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["float_roundtrip", "preserve_order", "raw_value"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order", "raw_value", "unbounded_depth"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 

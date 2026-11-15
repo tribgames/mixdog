@@ -6400,6 +6400,7 @@ name = "mixdog-workspace-hack"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "arrayvec",
  "bitflags 2.13.2",
  "brotli",
  "bytemuck",
