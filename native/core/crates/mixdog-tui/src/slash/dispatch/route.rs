@@ -75,6 +75,10 @@ fn workflow(host: &mut dyn SlashHost, arg: &str) -> bool {
         open_slash_panel(host, "workflow", "Workflow", Opener::Workflow, json!({}));
         return true;
     }
+    // `store.setWorkflow?.(...).then(...)`: a store without the method does nothing.
+    if !host.has_store_method("setWorkflow") {
+        return true;
+    }
     match host.store_call("setWorkflow", json!([js_trim(arg)])) {
         Ok(result) if truthy(&result) => host.push_notice(&workflow_switch_notice(&result), Tone::Info),
         Ok(_) => host.push_notice("Workflow switch is already running.", Tone::Warn),
@@ -104,6 +108,10 @@ fn outputstyle(host: &mut dyn SlashHost, arg: &str) -> bool {
             }
             Err(error) => report_failure(host, "Couldn\u{2019}t read output style", &error),
         }
+        return true;
+    }
+    // `store.setOutputStyle?.(...).then(...)`: a store without the method does nothing.
+    if !host.has_store_method("setOutputStyle") {
         return true;
     }
     match host.store_call("setOutputStyle", json!([value])) {

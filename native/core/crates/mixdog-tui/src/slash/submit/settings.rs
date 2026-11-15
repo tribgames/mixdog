@@ -227,6 +227,11 @@ fn profile_title(host: &mut dyn SlashHost, target: &TextPrompt, command_text: &s
 /// Extension adds close the prompt immediately; the store call reports back through a notice and reopens the owning picker
 /// on success.
 fn extension_add(host: &mut dyn SlashHost, method: &str, value: Value, reopen: Opener, failure_prefix: &str) -> bool {
+    // `store[method]?.(value).then(...)`: a store without the method only closes the prompt.
+    if !host.has_store_method(method) {
+        host.set_prompt(SETTINGS, None);
+        return true;
+    }
     let result = host.store_call(method, json!([value]));
     host.set_prompt(SETTINGS, None);
     let outcome = result.and_then(|_| host.open(reopen, json!({})));
@@ -282,6 +287,10 @@ fn skill_use(host: &mut dyn SlashHost, target: &TextPrompt, command_text: &str) 
 /// Core memory writes: the prompt closes first; the result (or an error text carried inside a successful reply) lands as a
 /// notice and the picker reopens.
 fn core_memory_write(host: &mut dyn SlashHost, args: Value, success: &str, failure_prefix: &str) -> bool {
+    // `store.memoryControl?.(...).then(...)`: a store without the method reports nothing and reopens nothing.
+    if !host.has_store_method("memoryControl") {
+        return true;
+    }
     match host.store_call("memoryControl", json!([args, {"silent": true}])) {
         Ok(result) => {
             let text = if truthy(&result) { value_text(&result) } else { String::new() };
