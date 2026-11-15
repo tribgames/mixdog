@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use mixdog_term::paste::{PastedImage, PromptContent, PromptPart, build_prompt_content_with_images};
+use mixdog_term::paste::{PastedImage, PromptContent, PromptPart};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::slash::host::{
@@ -33,8 +33,8 @@ pub struct Fake {
     pub provider: Option<TextPrompt>,
     pub settings: Option<TextPrompt>,
     pub images: BTreeMap<u64, PastedImage>,
-    /// The ids of the scenario holders that carry no `type: "image"`: Node builds no image part for those (it filters on
-    /// the type), and the recording kept the text alone. The Rust holder is an image by construction.
+    /// The pasted images whose record has no `type: 'image'`: Node's `buildPromptContentWithImages` takes only typed ones, so such an
+    /// image is referenced and snapshotted but never becomes a content part.
     pub untyped_images: BTreeSet<u64>,
     pub texts: BTreeMap<u64, String>,
     pub open_fails: Vec<String>,
@@ -132,8 +132,44 @@ pub fn content_json(content: &PromptContent) -> Value {
     }
 }
 
-fn options_json(options: &SubmitOptions) -> Value {
+/// What Node's `buildPromptContentWithImages` builds when the images in `untyped` are not images to it: the parts of the others, or
+/// the text alone.
+fn node_content(content: &PromptContent, untyped: &BTreeSet<u64>) -> PromptContent {
+    let PromptContent::Parts(parts) = content else { return content.clone() };
+    if untyped.is_empty() {
+        return content.clone();
+    }
+    let mut kept: Vec<PromptPart> = Vec::new();
+    let mut pending_metadata: Option<PromptPart> = None;
+    let mut text: Option<PromptPart> = None;
+    let mut images = 0;
+    for part in parts {
+        match part {
+            PromptPart::Image { paste_id, .. } if untyped.contains(paste_id) => pending_metadata = None,
+            PromptPart::Image { .. } => {
+                kept.extend(pending_metadata.take());
+                kept.push(part.clone());
+                images += 1;
+            }
+            PromptPart::Text(_) if text.is_none() && kept.is_empty() && pending_metadata.is_none() && parts.first() == Some(part) => text = Some(part.clone()),
+            PromptPart::Text(_) => pending_metadata = Some(part.clone()),
+        }
+    }
+    if images == 0 {
+        return match text {
+            Some(PromptPart::Text(value)) => PromptContent::Text(value),
+            _ => content.clone(),
+        };
+    }
+    PromptContent::Parts(text.into_iter().chain(kept).collect())
+}
+
+fn options_json(options: Option<&SubmitOptions>) -> Value {
     let mut map = Map::new();
+    let Some(options) = options else {
+        map.insert("committed".into(), json!(false));
+        return Value::Object(map);
+    };
     if let Some(text) = &options.display_text {
         map.insert("displayText".into(), json!(text));
     }
@@ -166,18 +202,6 @@ fn ids_json(ids: Option<&BTreeSet<u64>>) -> Value {
 }
 
 impl Fake {
-    /// The content as the Node code built it: without the image parts of the holders it ignores (see `untyped_images`).
-    fn content_as_node_built_it(&self, content: &PromptContent) -> Value {
-        let PromptContent::Parts(parts) = content else { return content_json(content) };
-        if self.untyped_images.is_empty() {
-            return content_json(content);
-        }
-        let Some(PromptPart::Text(text)) = parts.first() else { return content_json(content) };
-        let typed: BTreeMap<u64, PastedImage> =
-            self.images.iter().filter(|(id, _)| !self.untyped_images.contains(id)).map(|(id, image)| (*id, image.clone())).collect();
-        content_json(&build_prompt_content_with_images(text, &typed))
-    }
-
     pub fn new() -> Self {
         Self {
             state: SlashState {
@@ -486,9 +510,8 @@ impl SlashHost for Fake {
         options: Option<&SubmitOptions>,
     ) -> Result<Value, String> {
         self.committed = options.and_then(|options| options.on_committed.clone());
-        let shown = self.content_as_node_built_it(content);
-        let options = options.map_or_else(|| json!({"committed": false}), options_json);
-        self.log.push(json!(["submit", method, shown, options]));
+        let content = node_content(content, &self.untyped_images);
+        self.log.push(json!(["submit", method, content_json(&content), options_json(options)]));
         if method == "submit" {
             return Ok(self.submit_result.clone().unwrap_or(json!(true)));
         }
@@ -522,7 +545,7 @@ pub fn fake_from_spec(spec: &Value) -> Fake {
     for (id, image) in spec.get("pastedImages").and_then(Value::as_object).into_iter().flatten() {
         let id: u64 = id.parse().unwrap_or(0);
         if image.get("type").and_then(Value::as_str) != Some("image") {
-            fake.untyped_images.insert(id);
+            fake.untyped_images.insert(image.get("id").and_then(Value::as_u64).unwrap_or(id));
         }
         fake.images.insert(
             id,

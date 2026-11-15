@@ -585,7 +585,7 @@ impl SlashHost for Host {
         &mut self,
         _method: &str,
         _content: &PromptContent,
-        _options: &SubmitOptions,
+        _options: Option<&SubmitOptions>,
     ) -> Result<Value, String> {
         Ok(Value::Null)
     }

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use mixdog_core_session::session::gateway_usage::RouteSection;
 use mixdog_core_session::session::statusline_agents::RuntimeEntry;
 use mixdog_tui::footer::FooterInputs;
 use mixdog_tui::footer::RenderArgs;
@@ -239,12 +240,36 @@ fn masked(line: &str) -> String {
     out
 }
 
+const OAUTH_CACHE: &str = "gateway-oauth-usage-cache.json";
+
+/// `oauthCache(T, cachedAt)` of the recorder.
+fn oauth_cache(origin: f64, cached_at: f64) -> Value {
+    const HOUR: f64 = 3_600_000.0;
+    serde_json::json!({ "routes": { "openai-oauth": { "cachedAt": cached_at, "source": "codex", "quotaWindows": [
+        { "label": "5H", "source": "openai", "usedPct": 41.26, "resetAt": origin + 3.0 * HOUR },
+        { "label": "7D", "source": "openai", "usedPct": 12, "resetAt": origin + 3.0 * 24.0 * HOUR },
+    ] } } })
+}
+
 #[test]
 fn render_statusline_matches_what_node_renders_step_by_step() {
     let golden = golden();
+    // Node's route section lives in a module the recorder shared between its cases, so a case counts the SESS spend from the first call
+    // that saw its route, whichever case that was.
+    let mut section = RouteSection::default();
     for case in golden["renders"].as_array().expect("renders") {
         let name = text(case, "name");
-        let rig = Rig::new(number(case, "origin"), case["files"].as_object().expect("files"));
+        let origin = number(case, "origin");
+        let mut files = case["files"].as_object().expect("files").clone();
+        // The recording lists the files a case ended with: the usage cache the OAuth case deletes in its seventh step is not there, so the
+        // case's own writer (`oauthCache(T, T + 500)` of the recorder) puts it back.
+        let removes_cache = case["steps"].as_array().expect("steps").iter().any(|step| list(step, "removed").iter().any(|name| name == OAUTH_CACHE));
+        if removes_cache && !files.contains_key(OAUTH_CACHE) {
+            files.insert(OAUTH_CACHE.to_owned(), Value::String(format!("{}
+", oauth_cache(origin, origin + 500.0))));
+        }
+        let rig = Rig::new(origin, &files);
+        rig.renderer.adopt_route_section(section);
         for (index, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
             rig.set_clock(number(step, "now"));
             for removed in list(step, "removed") {
@@ -257,6 +282,7 @@ fn render_statusline_matches_what_node_renders_step_by_step() {
             rig.background.flush();
             assert_eq!(masked(&out), masked(&text(step, "out")), "{name}: step {index}");
         }
+        section = rig.renderer.route_section();
     }
 }
 
