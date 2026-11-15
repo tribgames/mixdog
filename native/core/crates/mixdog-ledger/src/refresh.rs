@@ -8,17 +8,23 @@
 //! the unpriced rows), the pricing is CPU work on `cpu-bulk`, and the write is one transaction
 //! on the writer thread; a refresh never holds the writer while it prices.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::CpuBulk;
 use mixdog_rt::LaneToken;
+use mixdog_rt::MaintenanceIo;
 use rusqlite::params;
 
 use crate::db::Connection;
 use crate::error::LedgerError;
 use crate::error::Result;
+use crate::history::HistoryImporter;
+use crate::history::OriginalTrace;
+use crate::history::Postgres;
 use crate::reader::UsageReader;
 use crate::repair::PriceRequest;
 use crate::repair::Priced;
@@ -36,6 +42,13 @@ pub trait Pricer: Send + Sync + 'static {
     fn revision(&self) -> String;
 
     fn price(&self, request: &PriceRequest) -> Result<Priced>;
+
+    /// The price of a daily sum of a restored legacy day (`historicalAggregate`): a sum cannot
+    /// say which requests crossed a context-size tier, so a route with such tiers is unpriced.
+    /// A table without tiers prices a sum as it prices a request, which is what this does.
+    fn price_aggregate(&self, request: &PriceRequest) -> Result<Priced> {
+        self.price(request)
+    }
 }
 
 /// Unpriced records up to a bound: how many, and the newest one's time.
@@ -104,6 +117,8 @@ pub struct UsageRefresher {
     pricer: Arc<dyn Pricer>,
     cpu_bulk: CpuBulk,
     state: Mutex<State>,
+    /// The import of the earlier daemon's usage history; absent until [`enable_history`](Self::enable_history).
+    history: OnceLock<HistoryImporter>,
 }
 
 /// Ends a refresh however it ends: frees the slot and wakes its waiters.
@@ -128,7 +143,30 @@ impl UsageRefresher {
             pricer,
             cpu_bulk,
             state: Mutex::new(State::default()),
+            history: OnceLock::new(),
         })
+    }
+
+    /// Statistics reads import the usage history the earlier daemon left under `data_dir`
+    /// (`importUsageHistory`): the legacy usage-rollup document, the gateway store, the rotated
+    /// agent traces and the earlier daemon's read-only database, once, whatever is not in the
+    /// ledger yet. The first call wins.
+    pub fn enable_history(&self, data_dir: PathBuf, maintenance: MaintenanceIo) {
+        self.enable_history_from(data_dir, maintenance, Arc::new(Postgres));
+    }
+
+    /// [`enable_history`](Self::enable_history) with another source of the database's rows.
+    pub fn enable_history_from(&self, data_dir: PathBuf, maintenance: MaintenanceIo, trace: Arc<dyn OriginalTrace>) {
+        let importer = HistoryImporter::new(data_dir, maintenance, self.cpu_bulk, self.pricer.clone(), trace);
+        let _ = self.history.set(importer);
+    }
+
+    /// The import of a statistics read; a ledger without history enabled has nothing to import.
+    pub(crate) async fn import_history(&self, writer: &Arc<UsageWriter>, now_ms: i64) -> Result<()> {
+        if let Some(history) = self.history.get() {
+            history.ensure(writer, now_ms).await?;
+        }
+        Ok(())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
