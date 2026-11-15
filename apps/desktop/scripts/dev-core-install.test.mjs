@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { devJsRuntimeManifest } from './core-layout.mjs';
+import { devJsRuntimeManifest, OFFICE_TEMPLATE_FILES, OFFICE_TEMPLATES_DIR, OFFICE_TEMPLATES_SOURCE } from './core-layout.mjs';
 import { modulesTree, put } from './core-layout-fixture.mjs';
 import { writeDevInstall } from './dev-core-install.mjs';
 
@@ -30,6 +30,14 @@ test('the dev install writes the layout core-layout.mjs describes, for a package
   assert.equal(file, join(top, 'target/debug/js-runtime.json'));
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), manifest);
   assert.deepEqual(manifest, devJsRuntimeManifest({ program: options.program, packageRoot: options.packageRoot, ortLibrary: options.ortLibrary }));
+});
+
+test('the dev install puts the Office templates beside the binary', async () => {
+  const { top, options } = devTree();
+  await writeDevInstall(options);
+  for (const file of OFFICE_TEMPLATE_FILES) {
+    assert.deepEqual(readFileSync(join(top, 'target/debug', OFFICE_TEMPLATES_DIR, file)), readFileSync(join(OFFICE_TEMPLATES_SOURCE, file)));
+  }
 });
 
 test('a package root without a directory the core reads is refused', async () => {

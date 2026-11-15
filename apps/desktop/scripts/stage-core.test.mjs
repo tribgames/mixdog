@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 import { manifestBuild } from '../src/main/ssh/server-manifest.mjs';
+import { OFFICE_TEMPLATE_FILES, OFFICE_TEMPLATES_DIR, OFFICE_TEMPLATES_SOURCE } from './core-layout.mjs';
 import { HOST_TARGETS, jsRuntimeManifest, stageCore, stageHostCore, workspaceVersion } from './stage-core.mjs';
 
 function builtTargets(dir, targets) {
@@ -45,6 +46,10 @@ test('a local deploy stages the host core from a plain cargo release build, and 
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'cargo release build');
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdog-askpass.exe'), 'utf8'), 'cargo askpass build');
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), jsRuntimeManifest('win32', 'x64'));
+  // The Office engine reads its templates from assets/templates beside the executable: the bytes of the crate's assets.
+  for (const file of OFFICE_TEMPLATE_FILES) {
+    assert.deepEqual(readFileSync(join(runtimeDir, 'core', OFFICE_TEMPLATES_DIR, file)), readFileSync(join(OFFICE_TEMPLATES_SOURCE, file)));
+  }
   // The SSH install's bundles need every platform's build: a local deploy ships none.
   assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
 
