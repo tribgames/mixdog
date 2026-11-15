@@ -55,7 +55,7 @@ already owns the outcome, extend it instead.
    removing any section would lose judgement, execution, recovery or
    verification.
 3. **Validate:**
-   `node "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs" "<skill-directory>"`.
+   `${MIXDOG_SKILL_NODE} "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs" "<skill-directory>"`.
    Result: no errors; each warning fixed or kept on purpose.
 4. **Exercise** with `references/evaluation.md`: realistic requests, including
    an implicit positive and a near-miss negative. Result: the scenarios pass
