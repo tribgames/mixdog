@@ -415,7 +415,7 @@ mod tests {
         for figure in ["12", "+3.5", "$1,200", "(45)", "3.2배", "120억", "4개월", "\u{2212}7", "5 %", "-", "\u{2013}"] {
             assert!(!text::is_not_match(figure, FIGURE, false).unwrap(), "{figure}");
         }
-        for word in ["abc", "12 apples", "", "1.2.x"] {
+        for word in ["abc", "12 apples", "", "1.2.y"] {
             assert!(text::is_not_match(word, FIGURE, false).unwrap(), "{word}");
         }
     }

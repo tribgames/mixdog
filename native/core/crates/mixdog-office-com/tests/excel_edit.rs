@@ -181,6 +181,11 @@ fn lines_with(log: &[String], needle: &str) -> Vec<String> {
     log.iter().filter(|line| line.contains(needle)).cloned().collect()
 }
 
+/// The calls alone: the reads and writes made on the object a call answered carry its whole path, needle included.
+fn calls_with(log: &[String], needle: &str) -> Vec<String> {
+    log.iter().filter(|line| line.starts_with("call ") && line.contains(needle)).cloned().collect()
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The registry and the refusals that need no workbook.
 
@@ -255,7 +260,7 @@ fn a_defined_name_takes_an_equals_sign_and_answers_what_excel_stored() {
     let record = book.run(r#"{"op":"define_name","name":" Total ","refersTo":"Sheet1!$A$1"}"#).expect("the name is defined");
     assert_eq!(record, r#"{"op":"define_name","changed":true,"name":"Total","refersTo":"=Sheet1!$A$1"}"#);
     // The name Excel is given is the caller's, not the trimmed one the rules were checked on.
-    assert_eq!(lines_with(&book.log(), "Names.Add"), vec![r#"call Book.Names.Add(" Total ", "=Sheet1!$A$1")"#.to_owned()]);
+    assert_eq!(calls_with(&book.log(), "Names.Add"), vec![r#"call Book.Names.Add(" Total ", "=Sheet1!$A$1")"#.to_owned()]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -722,7 +727,7 @@ fn a_picture_is_placed_by_its_cell_with_singles() {
     });
     book.run(r#"{"op":"add_image","path":"C:\\x.png","cell":"D2","width":100,"altText":"logo"}"#).expect("the picture is added");
     assert_eq!(
-        lines_with(&book.log(), ".AddPicture("),
+        calls_with(&book.log(), ".AddPicture("),
         vec!["call Book.ActiveSheet.Shapes.AddPicture(\"C:\\x.png\", false, true, r4:120, r4:30, r4:100, r4:240)".to_owned()]
     );
 }
@@ -861,15 +866,15 @@ fn a_conditional_format_takes_its_formula_with_an_equals_sign_and_reports_its_ki
         Ok(r#"{"op":"add_conditional_format","changed":true,"type":"expression"}"#.to_owned())
     );
     assert_eq!(
-        lines_with(&book.log(), "FormatConditions.Add("),
+        calls_with(&book.log(), "FormatConditions.Add("),
         vec!["call Book.ActiveSheet.Range(\"A1:A9\").FormatConditions.Add(i4:2, missing, \"=A1>5\")".to_owned()]
     );
     assert_eq!(
         book.run(r#"{"op":"add_conditional_format","range":"A1:A9","type":"colorScale","minColor":"FF0000","midColor":"FFFF00","maxColor":"00FF00"}"#),
         Ok(r#"{"op":"add_conditional_format","changed":true,"type":"colorScale"}"#.to_owned())
     );
-    assert_eq!(lines_with(&book.log(), ".AddColorScale(").len(), 1);
-    assert!(lines_with(&book.log(), ".AddColorScale(")[0].ends_with("AddColorScale(i4:3)"));
+    assert_eq!(calls_with(&book.log(), ".AddColorScale(").len(), 1);
+    assert!(calls_with(&book.log(), ".AddColorScale(")[0].ends_with("AddColorScale(i4:3)"));
     assert!(lines_with(&book.log(), "ColorScaleCriteria(i4:3)").iter().any(|line| line.contains("FormatColor")));
 }
 

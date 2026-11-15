@@ -11,7 +11,7 @@
 //! into PowerPoint, and the replayed call logs hold the port to that), each inside the failure the script tolerates and
 //! nowhere else. The casts below are PowerShell's: `$null` is `0` and `''`, a COM boolean of -1 is true.
 
-pub(crate) mod edit;
+pub mod edit;
 pub mod ink;
 pub mod issues;
 pub mod selection;

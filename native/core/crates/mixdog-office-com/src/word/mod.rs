@@ -13,6 +13,7 @@
 //! is the same sequence. The casts of the script (`[int]`, `[double]`, `[string]`, `[bool]`) are those of PowerShell.
 
 pub(crate) mod edit;
+pub use edit::Editor;
 mod issues;
 mod reading;
 mod selection;
