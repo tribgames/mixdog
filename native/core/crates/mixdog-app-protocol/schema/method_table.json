@@ -1692,6 +1692,109 @@
     },
     {
       "class": "C2",
+      "method": "thread/setProgressHint",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "ThreadSetProgressHintParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "threadOrNone"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "thread/rememberPromptHistory",
+      "mutation": {
+        "domain": "thread",
+        "kind": "op"
+      },
+      "opScope": {
+        "field": "threadId",
+        "kind": "thread"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "ThreadRememberPromptHistoryParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "thread"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "thread/restoreOlderTranscript",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "ThreadRestoreTranscriptParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "threadOrNone"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "thread/restoreNewerTranscript",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "ThreadRestoreTranscriptParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "threadOrNone"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "config/getSettingsSnapshot",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "ConfigGetSettingsSnapshotParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "key": "config",
+        "kind": "threadOrSharedRead"
+      }
+    },
+    {
+      "class": "C2",
       "method": "thread/requestWorktree",
       "mutation": {
         "domain": "thread",

@@ -195,6 +195,9 @@ pub mod staged_originals;
 pub mod turn_actions;
 #[cfg(test)]
 mod turn_actions_tests;
+pub mod tui_client_methods;
+#[cfg(test)]
+mod tui_client_methods_tests;
 #[cfg(test)]
 mod agent_control_tests;
 

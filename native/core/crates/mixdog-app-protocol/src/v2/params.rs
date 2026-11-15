@@ -505,6 +505,63 @@ impl crate::common::HasOpId for ThreadPushNoticeParams {
     }
 }
 
+/// Params of `thread/setProgressHint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadSetProgressHintParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    /// Absent or empty: the hint is cleared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// `info` when not sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    /// A finite number is rounded and held in 0..=100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<f64>,
+}
+
+/// Params of `thread/rememberPromptHistory`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadRememberPromptHistoryParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    pub text: String,
+}
+
+impl crate::common::HasOpId for ThreadRememberPromptHistoryParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
+/// Params of `thread/restoreOlderTranscript` and `thread/restoreNewerTranscript`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadRestoreTranscriptParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+}
+
+/// Params of `config/getSettingsSnapshot`: `options` is `{ heavy }` (default on: adds the MCP, plugin and skill status).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ConfigGetSettingsSnapshotParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    #[serde(default)]
+    pub options: Option<JsonValue>,
+}
+
 /// Params of `thread/requestWorktree`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
