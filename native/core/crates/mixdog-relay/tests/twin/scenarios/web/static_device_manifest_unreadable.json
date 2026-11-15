@@ -1,0 +1,40 @@
+{
+  "id": "static_device_manifest_unreadable",
+  "description": "a manifest the relay cannot parse is a 404 with the plain body, and a missing manifest the same",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<!doctype html>",
+      "manifest.webmanifest": "not json at all"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "manifest that is not JSON",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "HEAD",
+      "method": "HEAD",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "the root manifest is served as it is",
+      "path": "/manifest.webmanifest",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "the shell still opens",
+      "path": "/d/11111111-2222-4333-8444-555555555555/",
+      "expect_status": 200
+    }
+  ]
+}

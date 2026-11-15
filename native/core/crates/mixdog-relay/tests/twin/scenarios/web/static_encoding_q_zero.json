@@ -1,0 +1,391 @@
+{
+  "id": "static_encoding_q_zero",
+  "description": "q=0 is a refusal on a staged sibling and on the live gzip path; br is only ever served from a staged sibling",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n",
+      "assets/index-AbCdEf123.css": "body{color:red}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ",
+      "assets/index-AbCdEf123.css.gz": "gzip-body-placeholder",
+      "assets/index-AbCdEf123.css.br": "brotli-body-placeholder",
+      "assets/live-Q0ZzYyXx9.css": "body{color:blue}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                "
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "staged: gzip;q=0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: br;q=0, gzip;q=0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br;q=0, gzip;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: *;q=0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "*;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: gzip;q=0.5",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0.5"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: br;q=0, gzip",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br;q=0, gzip"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: br;q=0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: *;q=0.5",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "*;q=0.5"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: gzip;q=0.001",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0.001"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: gzip; q = 0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip; q = 0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: gzip;q=abc",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=abc"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "staged: gzip;q=1.5, br;q=0",
+      "path": "/assets/index-AbCdEf123.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=1.5, br;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: gzip",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: gzip;q=0",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: *;q=0",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "*;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: br;q=0, gzip;q=0",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br;q=0, gzip;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: br",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: br, gzip",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br, gzip"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: *",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "*"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: *;q=0, gzip",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "*;q=0, gzip"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: gzip;q=0.001",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0.001"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live: identity;q=0, gzip",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity;q=0, gzip"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live HEAD: gzip;q=0",
+      "method": "HEAD",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip;q=0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "live HEAD: gzip",
+      "method": "HEAD",
+      "path": "/assets/live-Q0ZzYyXx9.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ]
+      ],
+      "expect_status": 200
+    }
+  ]
+}

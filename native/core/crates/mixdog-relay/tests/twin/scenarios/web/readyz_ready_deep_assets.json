@@ -1,0 +1,27 @@
+{
+  "id": "readyz_ready_deep_assets",
+  "description": "readiness follows the document links, the worker import list and the manifest icons",
+  "files": {
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script><link rel=\"stylesheet\" href=\"./assets/app-12345678.css\"><script type=\"module\" src=\"/assets/main-12345678.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[{\"src\":\"./icon.svg\"},{\"src\":\"/icon-192.png\"}]}",
+      "sw.js": "importScripts(\"sw-shell.js\");\nimportScripts( 'sw-media.js' );\n",
+      "sw-shell.js": "//",
+      "sw-media.js": "//",
+      "icon.svg": "<svg/>",
+      "icon-192.png": {
+        "base64": "cG5n"
+      },
+      "assets/app-12345678.css": "x",
+      "assets/main-12345678.js": "x"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "path": "/readyz",
+      "expect_status": 200
+    }
+  ]
+}

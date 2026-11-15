@@ -1,0 +1,152 @@
+{
+  "id": "static_spa_fallback_and_missing_files",
+  "description": "extension-less routes fall back to the shell; a missing file with an extension is a 404 with the plain body",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n",
+      "robots.txt": "User-agent: *\n"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "deep link",
+      "path": "/some/deep/link",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "deep link HEAD",
+      "method": "HEAD",
+      "path": "/some/deep/link",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "missing script",
+      "path": "/missing.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "missing script HEAD",
+      "method": "HEAD",
+      "path": "/missing.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "missing hashed asset",
+      "path": "/assets/missing-AbCdEf123.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "a near miss of the shell",
+      "path": "/index.htm",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "the shell by name",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "a dot file that is missing is the shell",
+      "path": "/.hidden",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "a file that exists",
+      "path": "/robots.txt",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "the worker",
+      "path": "/sw.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "query and fragment",
+      "path": "/some/deep/link?x=1#frag",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    }
+  ]
+}

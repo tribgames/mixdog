@@ -1,0 +1,14 @@
+# nr-relay-twin-web
+
+## Cargo and workspace edits
+
+None. The suite is JSON scenarios under native/core/crates/mixdog-relay/tests/twin/scenarios/web/ read by the existing
+`twin` target, and the ledger native/core/crates/mixdog-relay/tests/ledger/nr-relay-twin-web.json.
+compose_flip.rs SERVICE_PENDING: no name is added or removed by this task.
+
+## What the Rust relay must read for these scenarios
+
+- The scenarios seed DATA_DIR/devices.json in the Node store layout (device id -> secretHash, clientTokenHash, clients
+  {id -> tokenHash, name, platform, browser, createdAt, lastSeenAt}, optional appVersion / versionSeenAt): the Rust
+  store must load it as the Node store does (the identity and crossover tasks need the same).
+- Scenarios that use `files.mobile_release` only write valid records (an APK link or the releases-list link) or none.

@@ -1,0 +1,89 @@
+{
+  "id": "static_healthz",
+  "description": "healthz is public, answers GET and HEAD with its body, ignores the query and is not served under other spellings",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "GET",
+      "path": "/healthz",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "HEAD",
+      "method": "HEAD",
+      "path": "/healthz",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "with a query",
+      "path": "/healthz?x=1",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "trailing slash",
+      "path": "/healthz/",
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "label": "percent-encoded",
+      "path": "/%68ealthz",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "upper case",
+      "path": "/HEALTHZ",
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "label": "PUT",
+      "method": "PUT",
+      "path": "/healthz",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "GET with a cookie from the preview frame",
+      "path": "/healthz",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Origin",
+          "null"
+        ],
+        [
+          "Sec-Fetch-Site",
+          "cross-site"
+        ],
+        [
+          "Sec-Fetch-Mode",
+          "cors"
+        ],
+        [
+          "Sec-Fetch-Dest",
+          "empty"
+        ]
+      ],
+      "expect_status": 200
+    }
+  ]
+}

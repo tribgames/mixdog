@@ -1,0 +1,362 @@
+{
+  "id": "static_security_headers_and_cache",
+  "description": "every static answer carries the browser security headers; cache rules by file name (hashed assets immutable, bootstrap files no-cache, the rest one day), content types by extension, HEAD without a body",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n",
+      "style.css": "body{color:red}",
+      "assets/index-AbCdEf123.js": "export const ready = true;",
+      "assets/short-ab12.js": "export const x = 1;",
+      "ui-language.js": "window.lang = 1;",
+      "sw-shell.js": "// shell worker",
+      "sw-media.js": "// media worker",
+      "app.js": "window.app = 1;",
+      "logo.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+      "mixdog-192.png": {
+        "base64": "cG5n"
+      },
+      "data.bin": {
+        "base64": "AQI="
+      },
+      "font.ttf": {
+        "base64": "dHRm"
+      },
+      "font.woff": {
+        "base64": "d29mZg=="
+      },
+      "mod.wasm": {
+        "base64": "AGFzbQ=="
+      },
+      "readme.txt": "hello",
+      "site.ico": {
+        "base64": "aWNv"
+      },
+      "app.js.map": "{\"version\":3}",
+      "index.mjs": "export {};",
+      "index-AbCdEf123.js": "export const top = true;",
+      "assets/dir-AbCdEf123/inner.js": "export {};"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "GET index",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "HEAD index",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET root",
+      "path": "/",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET boot.js",
+      "path": "/boot.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET manifest.webmanifest",
+      "path": "/manifest.webmanifest",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET sw.js",
+      "path": "/sw.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET style.css",
+      "path": "/style.css",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET assets/index-AbCdEf123.js",
+      "path": "/assets/index-AbCdEf123.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET assets/short-ab12.js",
+      "path": "/assets/short-ab12.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET ui-language.js",
+      "path": "/ui-language.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET sw-shell.js",
+      "path": "/sw-shell.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET sw-media.js",
+      "path": "/sw-media.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET app.js",
+      "path": "/app.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET logo.svg",
+      "path": "/logo.svg",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET mixdog-192.png",
+      "path": "/mixdog-192.png",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET data.bin",
+      "path": "/data.bin",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET font.ttf",
+      "path": "/font.ttf",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET font.woff",
+      "path": "/font.woff",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET mod.wasm",
+      "path": "/mod.wasm",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET readme.txt",
+      "path": "/readme.txt",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET site.ico",
+      "path": "/site.ico",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET app.js.map",
+      "path": "/app.js.map",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET index.mjs",
+      "path": "/index.mjs",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET index-AbCdEf123.js",
+      "path": "/index-AbCdEf123.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "GET assets/dir-AbCdEf123/inner.js",
+      "path": "/assets/dir-AbCdEf123/inner.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "HEAD hashed asset",
+      "method": "HEAD",
+      "path": "/assets/index-AbCdEf123.js",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 200
+    }
+  ]
+}
