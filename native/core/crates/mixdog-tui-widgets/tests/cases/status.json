@@ -1,0 +1,1825 @@
+[
+ {
+  "id": "statusline-basic-w120",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 120,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-basic-w100",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-basic-w60",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 60,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-basic-w40",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 40,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-basic-w16",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 16,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-fast",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": true,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-ultrafast-xhigh",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "xhigh",
+   "fast": true,
+   "ultra": true,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-no-effort",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-warning-75",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 750,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-error-95",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 950,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-over-100",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 1500,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-tiny-1",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 5,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-awaiting",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": null,
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-unavailable",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextSource": "unavailable"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-long-model",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 60,
+  "props": {
+   "provider": "openai",
+   "model": "claude-opus-4-8[1m]",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-model-1m-context",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "anthropic",
+   "model": "claude-sonnet-4-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-workflow-name",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null,
+   "workflow": {
+    "name": "Plan"
+   }
+  }
+ },
+ {
+  "id": "statusline-workflow-id",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null,
+   "workflow": {
+    "id": "review"
+   }
+  }
+ },
+ {
+  "id": "statusline-workflow-long",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 30,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null,
+   "workflow": {
+    "name": "A very long workflow name"
+   }
+  }
+ },
+ {
+  "id": "statusline-initial-line-ignored",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": false,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null,
+   "initialLine": "FULL model-one \u001b[38;2;136;136;136m│\u001b[0m 5H 17%"
+  }
+ },
+ {
+  "id": "workflow-default",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   "__undefined__"
+  ]
+ },
+ {
+  "id": "workflow-empty",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   {}
+  ]
+ },
+ {
+  "id": "workflow-name",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   {
+    "name": " Plan ",
+    "id": "x"
+   }
+  ]
+ },
+ {
+  "id": "workflow-id",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   {
+    "id": "review"
+   }
+  ]
+ },
+ {
+  "id": "workflow-blank-name",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   {
+    "name": "   "
+   }
+  ]
+ },
+ {
+  "id": "workflow-number-name",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "workflowModeLabel",
+  "args": [
+   {
+    "name": 5
+   }
+  ]
+ },
+ {
+  "id": "l2-empty",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {},
+   0
+  ]
+ },
+ {
+  "id": "l2-agents",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "agentWorkers": [
+     {
+      "tag": "a",
+      "stage": "running",
+      "startedAt": 1000
+     },
+     {
+      "tag": "b",
+      "status": "idle",
+      "startedAt": 1
+     },
+     {
+      "name": "a",
+      "stage": "working",
+      "startedAt": 5000
+     },
+     {
+      "agent": "c",
+      "stage": "Done"
+     },
+     {
+      "startedAt": 7
+     },
+     {
+      "tag": "d",
+      "status": "timeout"
+     },
+     {
+      "tag": " e ",
+      "status": "starting",
+      "startTime": "2026-01-01T00:00:00Z"
+     }
+    ],
+    "agentJobs": [
+     {
+      "tag": "j",
+      "status": "Running",
+      "startedAt": 500
+     },
+     {
+      "type": "t",
+      "stage": "running again",
+      "startedAt": "2026-01-01T00:00:10Z"
+     },
+     {
+      "task_id": "k",
+      "status": "done"
+     },
+     {
+      "taskId": "z",
+      "status": "running"
+     },
+     {
+      "status": "running"
+     }
+    ]
+   },
+   1767225700000
+  ]
+ },
+ {
+  "id": "l2-agents-one",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "agentWorkers": [
+     {
+      "tag": "solo",
+      "stage": "running",
+      "startedAt": 61000
+     }
+    ]
+   },
+   66000
+  ]
+ },
+ {
+  "id": "l2-agents-no-start",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "agentWorkers": [
+     {
+      "tag": "solo",
+      "stage": "running"
+     }
+    ]
+   },
+   66000
+  ]
+ },
+ {
+  "id": "l2-jobs-only",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "agentJobs": [
+     {
+      "tag": "j",
+      "status": "running",
+      "startedAt": 1000
+     }
+    ]
+   },
+   125000
+  ]
+ },
+ {
+  "id": "l2-web-search",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 2,
+      "startedAt": 61000
+     }
+    }
+   },
+   66000
+  ]
+ },
+ {
+  "id": "l2-web-search-no-start",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1
+     }
+    }
+   },
+   66000
+  ]
+ },
+ {
+  "id": "l2-web-search-zero",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 0,
+      "startedAt": 61000
+     }
+    }
+   },
+   66000
+  ]
+ },
+ {
+  "id": "l2-both",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "agentWorkers": [
+     {
+      "tag": "a",
+      "stage": "running",
+      "startedAt": 1000
+     }
+    ],
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 61000
+     }
+    }
+   },
+   3661000
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-0",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   0
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-119",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   119
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-120",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   120
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-1190",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   1190
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-1199",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   1199
+  ]
+ },
+ {
+  "id": "l2-spinner-frame-1200",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localStatusLineL2",
+  "args": [
+   {
+    "activeTools": {
+     "web_search": {
+      "count": 1,
+      "startedAt": 1
+     }
+    }
+   },
+   1200
+  ]
+ },
+ {
+  "id": "boot-basic",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-fast",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": true,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-ultra",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "xhigh",
+    "fast": true,
+    "ultra": true,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-no-effort",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-warn",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 800,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-error",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 990,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-over",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 5000,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-tiny",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 3,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-none",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": null,
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-pending",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {},
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-unavailable",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextSource": "unavailable"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-estimated-source",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "estimate"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-display-window",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 0,
+    "displayContextWindow": 2000,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-raw-window",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 0,
+    "displayContextWindow": 0,
+    "rawContextWindow": 800,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-no-model",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-1m-context",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8[1m]",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-long-model",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "some-extraordinarily-long-model-identifier-name-v12",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "boot-spaced-model",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "localBootStatusLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": " gpt-5 ",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   }
+  ]
+ },
+ {
+  "id": "normalize-canonical",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "normalizeStatusLine",
+  "args": [
+   "\u001b[38;2;198;198;198mGPT-5\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓\u001b[0m\u001b[38;2;136;136;136m░░\u001b[0m 40%\n\u001b[38;2;0;170;75m⠋\u001b[0m Running 1 Agent"
+  ]
+ },
+ {
+  "id": "normalize-bright-and-roles",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "normalizeStatusLine",
+  "args": [
+   "\u001b[1mBold\u001b[0m \u001b[2mdim\u001b[0m \u001b[31mred\u001b[0m \u001b[32mgreen\u001b[0m \u001b[33myellow\u001b[0m \u001b[36mcyan\u001b[0m \u001b[90mgrey\u001b[0m \u001b[38;2;0;185;88mbright\u001b[0m \u001b[38;2;255;210;80mwarn\u001b[0m\n"
+  ]
+ },
+ {
+  "id": "normalize-percent",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "normalizeStatusLine",
+  "args": [
+   "◇ 5H 17% │ 7D 90%\n"
+  ]
+ },
+ {
+  "id": "normalize-empty",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "normalizeStatusLine",
+  "args": [
+   ""
+  ]
+ },
+ {
+  "id": "normalize-plain",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "normalizeStatusLine",
+  "args": [
+   "plain text"
+  ]
+ },
+ {
+  "id": "snap-cached",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "buildLocalSnapLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   },
+   "\u001b[38;2;198;198;198mGPT-5\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓\u001b[0m\u001b[38;2;136;136;136m░░\u001b[0m 40%\n\u001b[38;2;0;170;75m⠋\u001b[0m Running 1 Agent"
+  ]
+ },
+ {
+  "id": "snap-cached-l1-only",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "buildLocalSnapLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   },
+   "\u001b[38;2;198;198;198mFULL\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m 5H 17%"
+  ]
+ },
+ {
+  "id": "snap-no-cache",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "buildLocalSnapLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   },
+   ""
+  ]
+ },
+ {
+  "id": "snap-blank-cache",
+  "kind": "fn",
+  "module": "localLine",
+  "name": "buildLocalSnapLine",
+  "args": [
+   {
+    "provider": "openai",
+    "model": "gpt-5",
+    "effort": "high",
+    "fast": false,
+    "ultra": false,
+    "stats": {
+     "currentContextTokens": 400,
+     "currentContextSource": "last_api_request"
+    },
+    "contextWindow": 1000,
+    "displayContextWindow": 0,
+    "rawContextWindow": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "activeTools": null
+   },
+   "\n"
+  ]
+ },
+ {
+  "id": "vis-basic",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-no-spinner",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": null
+   }
+  ]
+ },
+ {
+  "id": "vis-input-hidden",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "inputBoxHidden": true
+   }
+  ]
+ },
+ {
+  "id": "vis-palette",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "slashPaletteOpen": true
+   }
+  ]
+ },
+ {
+  "id": "vis-turndone",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "latestTranscriptItem": {
+     "kind": "turndone",
+     "id": 1
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-turndone-command",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "liveSpinnerIsCommand": true,
+    "latestTranscriptItem": {
+     "kind": "turndone",
+     "id": 1
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "streamingTail": {
+     "kind": "assistant",
+     "streaming": true,
+     "text": " hi "
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming-blank",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "streamingTail": {
+     "kind": "assistant",
+     "streaming": true,
+     "text": "  "
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming-not",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "streamingTail": {
+     "kind": "assistant",
+     "streaming": false,
+     "text": "hi"
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming-tool",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "streamingTail": {
+     "kind": "tool",
+     "streaming": true,
+     "text": "hi"
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming-view",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "transcriptViewActive": true,
+    "streamingTail": {
+     "kind": "assistant",
+     "streaming": true,
+     "text": "hi"
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-streaming-command",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "liveSpinnerIsCommand": true,
+    "streamingTail": {
+     "kind": "assistant",
+     "streaming": true,
+     "text": "hi"
+    }
+   }
+  ]
+ },
+ {
+  "id": "vis-other-tail",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isLiveSpinnerMetaVisible",
+  "args": [
+   {
+    "liveSpinner": {
+     "verb": "x"
+    },
+    "latestTranscriptItem": {
+     "kind": "assistant",
+     "id": 2
+    }
+   }
+  ]
+ },
+ {
+  "id": "tail-new",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "turndone",
+    "id": "b"
+   },
+   "a"
+  ]
+ },
+ {
+  "id": "tail-same",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "turndone",
+    "id": "a"
+   },
+   "a"
+  ]
+ },
+ {
+  "id": "tail-statusdone",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "statusdone",
+    "id": "b"
+   },
+   "a"
+  ]
+ },
+ {
+  "id": "tail-no-id",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "statusdone"
+   },
+   "a"
+  ]
+ },
+ {
+  "id": "tail-no-id-no-previous",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "statusdone"
+   },
+   null
+  ]
+ },
+ {
+  "id": "tail-other-kind",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   {
+    "kind": "assistant",
+    "id": "b"
+   },
+   "a"
+  ]
+ },
+ {
+  "id": "tail-none",
+  "kind": "fn",
+  "module": "liveSpinnerVisibility",
+  "name": "isCompletedTranscriptTailAppendedThisCommit",
+  "args": [
+   null,
+   "a"
+  ]
+ },
+ {
+  "id": "statusline-theme-light",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "theme": "light",
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": true,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-theme-dracula",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "theme": "dracula",
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": true,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-theme-onedark",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "theme": "onedark",
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": true,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ },
+ {
+  "id": "statusline-theme-catppuccin",
+  "kind": "frame",
+  "component": "StatusLine",
+  "columns": 100,
+  "theme": "catppuccin",
+  "props": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "effort": "high",
+   "fast": true,
+   "ultra": false,
+   "stats": {
+    "currentContextTokens": 400,
+    "currentContextSource": "last_api_request"
+   },
+   "contextWindow": 1000,
+   "displayContextWindow": 0,
+   "rawContextWindow": 0,
+   "agentWorkers": [],
+   "agentJobs": [],
+   "activeTools": null
+  }
+ }
+]
