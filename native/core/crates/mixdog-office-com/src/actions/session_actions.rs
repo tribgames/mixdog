@@ -239,8 +239,9 @@ fn post_save_validate<P: WriteProof>(
         ("documentSaved", Value::Bool(saved(&document).map_err(text)?)),
     ]);
     if let (Some(snapshot), Value::Object(object)) = (snapshot, &mut value) {
-        object.set("snapshotFingerprint", Value::String(snapshot_fingerprint(&snapshot)));
+        let fingerprint = snapshot_fingerprint(&snapshot);
         object.set("snapshot", snapshot);
+        object.set("snapshotFingerprint", Value::String(fingerprint));
     }
     session_response(state, &actions.env, &fields(vec![("value", value)]))
 }

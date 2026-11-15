@@ -22,6 +22,8 @@ use mixdog_office_com::actions::OneShotEntry;
 use mixdog_office_com::actions::document::render_document;
 use mixdog_office_com::actions::document::restore_excel_checkpoint;
 use mixdog_office_com::actions::dpi::repair_excel_page_setup_dpi;
+use mixdog_office_com::actions::preview::PASSWORD_PROTECTED;
+use mixdog_office_com::actions::preview::assert_preview_not_encrypted;
 use mixdog_office_com::actions::session_actions::invoke_session_action;
 use mixdog_office_com::com::Error;
 use mixdog_office_com::com::Obj;
@@ -756,4 +758,21 @@ fn a_workbook_someone_else_holds_is_refused_instead_of_changed() {
     let refused = repair_excel_page_setup_dpi(&actions, &path).unwrap_err();
     assert!(refused.starts_with("Exception calling \"Open\" with \"4\" argument(s): "), "{refused}");
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The read-only preview's encryption check.
+
+fn input(name: &str) -> String {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("actions").join("inputs").join(name).to_string_lossy().into_owned()
+}
+
+#[test]
+fn an_ole_container_with_a_package_extension_is_refused_as_password_protected_and_a_zip_package_is_not() {
+    let (platform, apps) = (FakePlatform::new(), ScriptedApplications::new());
+    let actions = actions(&platform, &apps, word_drivers(&[], &[]));
+    assert_eq!(assert_preview_not_encrypted(&actions, &input("ole-header.docx")), Err(PASSWORD_PROTECTED.to_owned()));
+    assert_eq!(assert_preview_not_encrypted(&actions, &input("zero-dpi.xlsx")), Ok(()));
+    // A legacy extension is not a package: it is not read at all, so a file that does not exist passes.
+    assert_eq!(assert_preview_not_encrypted(&actions, &input("absent.doc")), Ok(()));
 }
