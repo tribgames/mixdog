@@ -351,6 +351,7 @@ fn typed_of(row: &Value) -> Result<AgentMessage, String> {
     message.tool_timing = timing_of(row.get("toolTiming"));
     message.provider_metadata = row.get("providerMetadata").cloned();
     message.ui_diff = str_of(row, "uiDiff").map(str::to_owned);
+    message.tool_meta = row.get("toolMeta").filter(|m| m.is_object()).cloned();
     match row.get("meta") {
         Some(Value::String(name)) => message.source = Some(source_of(name).ok_or_else(|| format!("meta source {name:?}"))?),
         Some(meta @ Value::Object(_)) => {
@@ -480,6 +481,7 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
     set_or_remove(&mut row, "toolTiming", m.tool_timing.as_ref().map(timing_row));
     set_or_remove(&mut row, "uiDiff", m.ui_diff.as_ref().map(|v| json!(v)));
+    set_or_remove(&mut row, "toolMeta", m.tool_meta.clone());
     set_or_remove(&mut row, "meta", meta_row(m, None, None));
     row
 }
@@ -548,6 +550,9 @@ pub fn row_of(message: &AgentMessage) -> Value {
     }
     if message.ui_diff != was.ui_diff {
         set_or_remove(&mut row, "uiDiff", message.ui_diff.as_ref().map(|v| json!(v)));
+    }
+    if message.tool_meta != was.tool_meta {
+        set_or_remove(&mut row, "toolMeta", message.tool_meta.clone());
     }
     if (message.source, message.attempt, &message.submission_ids, &message.message_id, &message.effort) != (was.source, was.attempt, &was.submission_ids, &was.message_id, &was.effort) {
         set_or_remove(&mut row, "meta", meta_row(message, base.get("meta"), Some(&was)));
@@ -641,6 +646,19 @@ mod tests {
         let row = row_of(&message);
         assert_eq!(row["uiDiff"], "@@ -1 +1 @@");
         assert_eq!(message_of(&row).unwrap().ui_diff.as_deref(), Some("@@ -1 +1 @@"));
+    }
+
+    /// A tool result's `toolMeta` is written into its row and read back.
+    #[test]
+    fn a_tool_rows_tool_meta_is_stored_in_its_body() {
+        let mut message = AgentMessage::user_content(Content::Text("done".into()));
+        message.message.role = Role::Tool;
+        message.message.tool_call_id = Some("c1".into());
+        let meta = json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": "s1" });
+        message.tool_meta = Some(meta.clone());
+        let row = row_of(&message);
+        assert_eq!(row["toolMeta"], meta);
+        assert_eq!(message_of(&row).unwrap().tool_meta, Some(meta));
     }
 
     /// A reference part keeps its object as Node stores it, through the row and into the wire
