@@ -27,3 +27,5 @@ mixdog-ooxml = { workspace = true }
 mixdog-office-base = { workspace = true, features = ["test-support"] }
 base64 = { workspace = true }
 tempfile = { workspace = true }
+# The twin tests start the lane executors a route's file work runs on.
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

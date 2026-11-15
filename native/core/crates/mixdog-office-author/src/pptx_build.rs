@@ -661,11 +661,11 @@ fn add_chart(pres: &mut Presentation, index: usize, u: &Units, item: &Value) -> 
     let data: Vec<ChartData> = match spec.get("series").and_then(Value::as_array) {
         Some(series) => series
             .iter()
-            .map(|series| Ok(ChartData { name: label_text(&series["name"]), labels: vec![labels.clone()], values: chart_values(series.get("values"))? }))
+            .map(|series| Ok(ChartData { name: label_text(&series["name"]), labels: vec![labels.clone()], values: chart_values(series.get("values")).inspect_err(|_| pres.count_failed_chart())? }))
             .collect::<Result<_, String>>()?,
         None => {
             let name = ["name", "unit"].iter().find_map(|key| spec.get(key).filter(|value| truthy(value)).map(label_text)).unwrap_or_else(|| "Value".to_owned());
-            vec![ChartData { name, labels: vec![labels.clone()], values: chart_values(spec.get("values"))? }]
+            vec![ChartData { name, labels: vec![labels.clone()], values: chart_values(spec.get("values")).inspect_err(|_| pres.count_failed_chart())? }]
         }
     };
     let ink = spec_text(spec, "labelColor", "333333");
@@ -1312,7 +1312,7 @@ mod tests {
         assert_eq!(local_pictures(&[json!({ "items": items })]), vec![local]);
         let bytes = build_pptx_from_measure(deck_canvas(), &[json!({ "items": items })], &SvgFonts::none(), &pictures).expect("built");
         let package = mixdog_ooxml::zipio::Package::load(&bytes).expect("a package");
-        let media: Vec<String> = package.names().into_iter().filter(|name| name.starts_with("ppt/media/")).collect();
+        let media: Vec<String> = package.names().into_iter().filter(|name| name.starts_with("ppt/media/") && !name.ends_with('/')).collect();
         assert_eq!(media.len(), 2, "{media:?}");
         // The first picture stood 100 px past the page edge: 300 of its 400 px remain, at twice the density.
         let first = Image::decode(package.file(&media[0]).expect("the first picture")).expect("a png");

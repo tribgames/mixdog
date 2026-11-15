@@ -142,7 +142,9 @@ fn check(what: &str, expected: &Value, actual: &Value) {
     assert!(found.is_empty(), "{what}: {}", found.iter().take(8).cloned().collect::<Vec<_>>().join("; "));
     let (want, got) = (json_stringify(expected), json_stringify(actual));
     let at = want.bytes().zip(got.bytes()).position(|(a, b)| a != b);
-    assert!(want == got, "{what}: the JSON text differs at byte {at:?} (recorded {} bytes, produced {})", want.len(), got.len());
+    assert!(want == got, "{what}: the JSON text differs at byte {at:?} (recorded {} bytes, produced {})
+want {}
+got  {}", want.len(), got.len(), want.chars().take(400).collect::<String>(), got.chars().take(400).collect::<String>());
 }
 
 // ---- no network, no templates -------------------------------------------------------------------------------------------
@@ -225,6 +227,22 @@ fn snapshot<P: ReadProof>(proof: &P, world: &World) -> Value {
     walk(proof, world, &world.library_root(), &mut collected);
     collected.sort_by(|a, b| a.0.cmp(&b.0));
     Value::Object(collected.into_iter().collect())
+}
+
+/// The snapshot with its files in the recording's order. Node lists a folder by file name, and a binding file is named by a
+/// hash of the document's path, which sits in the recorder's own random temporary folder: the order of the binding files
+/// cannot be reproduced in another folder. The files and every value in them are still compared exactly; only the order of
+/// the entries that the recording holds is taken from it (the produced entries it does not hold keep their place after).
+fn in_recorded_order(produced: Value, recorded: Option<&Value>) -> Value {
+    let (Value::Object(mut produced), Some(Value::Object(recorded))) = (produced.clone(), recorded) else { return produced };
+    let mut ordered = serde_json::Map::new();
+    for key in recorded.keys() {
+        if let Some(value) = produced.remove(key) {
+            ordered.insert(key.clone(), value);
+        }
+    }
+    ordered.extend(produced);
+    Value::Object(ordered)
 }
 
 /// What a session shows of its design binding.
@@ -329,7 +347,7 @@ fn replay_script<L: WriteLane>(lane: &InLane<L>, world: &World, script: &[Value]
                 Ok(found.map_or(Value::Null, |handle| Value::String(lock(&handle).id.clone())))
             }
             "registry" => Ok(registry_state(world, &registry)),
-            "snapshot" => Ok(snapshot(lane, world)),
+            "snapshot" => Ok(in_recorded_order(snapshot(lane, world), step.get("value"))),
             other => panic!("unknown op {other}"),
         };
         check(&what, &recorded(step), &attempt(world, result));
