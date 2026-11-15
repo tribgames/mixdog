@@ -378,7 +378,7 @@ pub fn bind_office_content(operation: &Value, model: Option<&Value>) -> Result<B
             // orphan word on a row of otherwise empty cells.
             match prop(metric, "value").filter(|written| !written.is_null()).cloned().or_else(|| prop(resolved, "value").map(clone)) {
                 Some(found) => entry.insert("value".into(), found),
-                None => entry.remove("value"),
+                None => entry.shift_remove("value"),
             };
             entry.insert("label".into(), first_truthy(&[prop(metric, "label"), prop(resolved, "label")]).cloned().unwrap_or(Value::Null));
             if let Some(unit) = first_truthy(&[prop(metric, "unit"), prop(resolved, "unit")]) {
@@ -397,7 +397,7 @@ pub fn bind_office_content(operation: &Value, model: Option<&Value>) -> Result<B
         };
         match facts.resolve_value(&current, &mut used)? {
             Some(resolved) => map.insert(key.into(), resolved),
-            None => map.remove(key),
+            None => map.shift_remove(key),
         };
     }
     let mut sources: Vec<String> = Vec::new();
@@ -531,6 +531,16 @@ mod tests {
         assert_eq!(unknown, "Office semantic operation references unknown claim nope");
         let field = bind_office_content(&json!({ "rows": [{ "factId": "rev", "field": "colour" }] }), Some(&normalized)).expect_err("no such field");
         assert_eq!(field, "Office fact rev has no field colour");
+        // A value that resolves to nothing leaves its key out without moving the keys after it.
+        let unset = bind_office_content(
+            &json!({ "metrics": [{ "factId": "gone", "value": null, "label": "L", "z": 1 }], "rows": { "factId": "gone" }, "after": 1 }),
+            Some(&normalized),
+        )
+        .expect("bound");
+        assert_eq!(
+            json_stringify(&unset.operation),
+            r#"{"metrics":[{"factId":"gone","label":"L","z":1,"detail":"","numberFormat":""}],"after":1}"#
+        );
         let untouched = bind_office_content(&operation, None).expect("no model");
         assert_eq!(untouched, BoundOperation { operation: operation.clone(), binding: None });
     }
