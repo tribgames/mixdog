@@ -127,7 +127,7 @@ pub fn effort_configuration_mode(
             .or_else(|| parameter("mode"))
             .cloned()
             .unwrap_or_else(|| Value::from("standard"));
-        if mode != Value::from("standard") || opt("multiAgent") == Some(&Value::Bool(true)) || parameter("multi_agent") == Some(&Value::Bool(true)) {
+        if mode != "standard" || opt("multiAgent") == Some(&Value::Bool(true)) || parameter("multi_agent") == Some(&Value::Bool(true)) {
             return None;
         }
         return Some(UpdateMode::Responses);
@@ -151,7 +151,7 @@ pub fn effort_configuration_mode(
 /// protocol whose model row declares a non-empty effort level list.
 pub fn custom_auto_effort_capable(provider: &str, protocol: Option<&Value>, model: &Value) -> bool {
     is_custom_provider_name(provider)
-        && protocol.is_some_and(|p| *p == Value::from("openai-chat") || *p == Value::from("openai-responses"))
+        && protocol.is_some_and(|p| *p == "openai-chat" || *p == "openai-responses")
         && custom_levels(model).is_some_and(|levels| !levels.is_empty())
 }
 

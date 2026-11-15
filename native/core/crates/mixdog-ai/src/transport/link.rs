@@ -67,6 +67,7 @@ impl HttpResponse {
 
     /// The whole body. A fault mid-body is a transport error with `Accepted`
     /// delivery: the caller holds a status and no content.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
         let body = drain(&mut self.body).await?;
         Ok(ErrorResponse {
@@ -78,6 +79,7 @@ impl HttpResponse {
 
     /// [`Self::read_all`] with the connection kept out of the pool until the returned body is dropped
     /// ([`BodyStream::hold_connection`]).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn read_all_held(mut self) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
         self.body.hold_connection();
         let body = drain(&mut self.body).await?;
@@ -87,6 +89,7 @@ impl HttpResponse {
 
 /// The whole of `body`. A fault mid-body is a transport error with `Accepted` delivery: the caller holds a status and no
 /// content.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn drain(stream: &mut Box<dyn BodyStream>) -> Result<Vec<u8>, ProviderError> {
     let mut body = Vec::new();
     // A whole-body read is never a stream of content: a `Unary` body already
@@ -549,6 +552,7 @@ fn next_hop(
 
 /// The one place a request meets its [`Exchange`]: the head is bounded for both liveness
 /// classes, and a `Unary` body shares the same total.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn settle(
     exchange: Exchange,
     answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
@@ -599,6 +603,7 @@ impl HttpSend for ReqwestLink {
 
 impl ReqwestLink {
     /// Sends `request` and applies the redirect policy to each answer.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn hops(
         &self,
         mut request: WireRequest,

@@ -189,7 +189,7 @@ impl PkceProvider for OpenAiLogin {
             .filter(|at| *at > 0)
             .or_else(|| {
                 let exp = claims_of(access)?.get("exp")?.as_f64()?;
-                (exp.is_finite() && exp > 0.0).then(|| (exp * 1000.0) as u64)
+                if exp.is_finite() && exp > 0.0 { Some((exp * 1000.0) as u64) } else { None }
             })
             .unwrap_or(0);
         let identity = identity_of(&[text("id_token").unwrap_or_default(), access]);

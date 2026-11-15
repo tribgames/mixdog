@@ -112,6 +112,7 @@ fn sse_error(event: &Value) -> Ended {
 
 /// Reads a warm's response body. `on_chunk` hears every chunk that did not end the read (the idle
 /// watchdog); a failure carries `usage` as reported before it (`None` when none was).
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn read_cache_warm_stream(
     body: &mut dyn BodyStream,
     on_usage: &mut (dyn FnMut(&WarmUsage) + Send),
@@ -125,6 +126,7 @@ pub async fn read_cache_warm_stream(
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn read_frames(
     body: &mut dyn BodyStream,
     usage: &mut WarmUsage,

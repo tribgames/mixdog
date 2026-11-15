@@ -108,6 +108,7 @@ fn error_of(message: &str) -> ProviderError {
 /// aborted after the provider accepted it is still accounted; `report` hears a failure to persist
 /// the warm's refusal (the warm's own error is what the caller gets). A warm the gate skips sends
 /// nothing.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn send_cache_warm(
     ctx: &WarmContext<'_>,
     cancel: &CancellationToken,
@@ -133,6 +134,7 @@ pub async fn send_cache_warm(
 
 type Failed = (WarmFailure, ProviderError);
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn run(
     watchdog: &Arc<Watchdog>,
     ended: &Arc<Mutex<Option<String>>>,

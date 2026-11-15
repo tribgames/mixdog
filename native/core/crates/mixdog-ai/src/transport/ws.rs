@@ -234,6 +234,7 @@ pub struct WsConnection {
 /// Connects with `SO_KEEPALIVE` set before the first byte and PING keepalive
 /// running from the first frame. Returns the upgrade response so callers can
 /// read its headers.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn connect(
     request: impl IntoClientRequest,
     schedule: &KeepaliveSchedule,
@@ -244,6 +245,7 @@ pub async fn connect(
 /// Opens the socket the upgrade runs on: straight to the server, or, when the
 /// network proxy policy names a proxy for it, through a tunnel. A proxy that
 /// cannot be reached or refuses the tunnel is an error, never a direct connect.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn open_stream(
     host: &str,
     port: u16,
@@ -291,6 +293,7 @@ async fn open_stream(
 }
 
 /// [`connect`] following the network proxy policy of `policy`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn connect_via(
     request: impl IntoClientRequest,
     schedule: &KeepaliveSchedule,
@@ -318,6 +321,7 @@ pub async fn connect_via(
 /// the request (url, `Host`, SNI) and everything after the connect are the production path, so a loopback server
 /// receives what the real one would. Compiled for tests and the `test-support` feature only.
 #[cfg(any(test, feature = "test-support"))]
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn connect_pinned(
     request: tungstenite::handshake::client::Request,
     addr: std::net::SocketAddr,
@@ -396,6 +400,7 @@ const RESPONSE_LIMIT: usize = 1 << 20;
 
 /// Writes the upgrade over `io` and reads the answer: the 101 response, the bytes already behind it, and what the
 /// server accepted of the compression offer. Any other answer is [`ConnectError::Rejected`] with its body.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     io: &mut S,
     request: &tungstenite::handshake::client::Request,
@@ -481,6 +486,7 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
 
 /// The upgrade of `request` over an already open `stream`, and the connection that follows. `connector` is the TLS
 /// configuration of the handshake; `None` is tungstenite's default (the native roots).
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn connect_over(
     request: tungstenite::handshake::client::Request,
     stream: Conn,
@@ -511,6 +517,7 @@ async fn connect_over(
 /// request (url, `Host`) and everything after the connect are the production path. Compiled for tests and the
 /// `test-support` feature only.
 #[cfg(any(test, feature = "test-support"))]
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn connect_redirected(
     request: tungstenite::handshake::client::Request,
     addr: std::net::SocketAddr,
@@ -524,6 +531,7 @@ pub async fn connect_redirected(
 }
 
 /// The upgrade of `request` over the connected `stream`, and the connection that follows.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn upgrade_and_start(
     request: tungstenite::handshake::client::Request,
     mut stream: MaybeTlsStream<Conn>,

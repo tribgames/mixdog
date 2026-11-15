@@ -12,6 +12,10 @@
 //! owns the HTTP client, credential stores and admission wrapper); the
 //! registry owns the set, the signatures and the gates.
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type IsProviderOff = dyn Fn(&str) -> bool + Send;
+type BuiltProvider = (String, Result<(Arc<dyn ProviderAdapter>, Option<String>), String>);
+
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -153,7 +157,7 @@ struct Plan {
     rebuild: bool,
     add: bool,
     /// Names a stored decision turned off; `None` when no decision is known.
-    is_off: Option<Box<dyn Fn(&str) -> bool + Send>>,
+    is_off: Option<Box<IsProviderOff>>,
 }
 
 pub struct ProviderRegistry {
@@ -312,7 +316,7 @@ impl ProviderRegistry {
             Box::new(move |name: &str| {
                 d.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false)
                     || (name.starts_with("custom-") && !d.contains_key(name))
-            }) as Box<dyn Fn(&str) -> bool + Send>
+            }) as Box<IsProviderOff>
         });
         let config = self.with_custom_key_ids(record).await?;
         self.apply_plan(Plan { config, rebuild: true, add: false, is_off }).await
@@ -423,7 +427,7 @@ impl ProviderRegistry {
     /// the invalid custom providers it skipped. Sync, so the guard (not `Send`) is out of scope before
     /// the credential probe awaits: an explicit `drop` in an async fn does not end its liveness for the
     /// compiler's `Send` analysis.
-    fn settle(&self, plan: &Plan, built: Vec<(String, Result<(Arc<dyn ProviderAdapter>, Option<String>), String>)>) -> Vec<String> {
+    fn settle(&self, plan: &Plan, built: Vec<BuiltProvider>) -> Vec<String> {
         let mut skipped = Vec::new();
         let mut state = self.state();
         for (name, result) in built {

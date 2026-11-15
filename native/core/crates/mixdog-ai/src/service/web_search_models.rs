@@ -312,6 +312,7 @@ pub trait CatalogFacts: Send + Sync {
     /// `caches.providerModelsCache.models`.
     fn models_cache(&self) -> Option<Vec<Value>>;
     /// `rows.providerModelsFromCacheRows(rows)`.
+    #[allow(clippy::wrong_self_convention, reason = "Preserve the existing public CatalogFacts conversion method and its stateful implementations")]
     fn from_cache_rows(&self, rows: &[Value]) -> Vec<Value>;
     /// `collectProviderModels({ force })`; `Err` is its rejection.
     async fn collect_provider_models(&self, force: bool) -> Result<Vec<Value>, String>;
@@ -397,10 +398,10 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
             return Vec::new();
         }
         let mut models = None;
-        if force {
-            if let Some(Ok(refreshed)) = self.facts.refresh_models(name).await {
-                models = Some(refreshed);
-            }
+        if force
+            && let Some(Ok(refreshed)) = self.facts.refresh_models(name).await
+        {
+            models = Some(refreshed);
         }
         let listed = match models.filter(Value::is_array) {
             Some(listed) => listed,

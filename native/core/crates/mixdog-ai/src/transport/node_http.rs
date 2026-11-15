@@ -215,10 +215,8 @@ pub fn check_headers(headers: &[(String, String)]) -> Result<(), String> {
             }
             "transfer-encoding" | "keep-alive" | "upgrade" => return Err(format!("invalid {lower} header")),
             "expect" => return Err("expect header not supported".into()),
-            "connection" => {
-                if !value.to_ascii_lowercase().split(',').all(|part| token(part.trim())) {
-                    return Err("invalid connection header".into());
-                }
+            "connection" if !value.to_ascii_lowercase().split(',').all(|part| token(part.trim())) => {
+                return Err("invalid connection header".into());
             }
             _ => {}
         }
@@ -454,6 +452,7 @@ impl NodeClient {
         None
     }
     /// The proxy the request goes through, decided before any pooled connection is looked at.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn route(&self, url: &url::Url) -> Result<Option<String>, ProviderError> {
         if self.pinned_addr().is_some() {
             return Ok(None);
@@ -476,6 +475,7 @@ impl NodeClient {
         format!("{epoch}|{}|{}://{}:{port}", proxy.as_deref().unwrap_or(""), url.scheme(), url.host_str().unwrap_or_default())
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn dial(&self, url: &url::Url, proxy: &Option<String>, surface: Surface) -> Result<(Stream, bool), ProviderError> {
         let host = url.host_str().unwrap_or_default().to_owned();
         let bare = host.trim_start_matches('[').trim_end_matches(']').to_owned();
@@ -540,6 +540,7 @@ impl NodeClient {
 
     /// One request, no redirects. A request that provably did not leave whole on a reused connection is sent again
     /// on another one, once; one the server may have executed is not.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn send(&self, request: &WireRequest, writer: Writer, surface: Surface) -> Result<HttpResponse, ProviderError> {
         let url = url::Url::parse(&request.url).map_err(|e| refused(e.to_string(), surface))?;
         check_headers(&request.headers).map_err(|text| refused(text, surface))?;
@@ -628,6 +629,7 @@ impl NodeClient {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn exchange_h1(
         &self,
         mut conn: h1::Conn,
@@ -682,6 +684,7 @@ impl NodeClient {
     }
 
     #[allow(clippy::too_many_arguments, reason = "one exchange's connection, request and surface")]
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn exchange_h2(
         &self,
         key: &str,
@@ -743,6 +746,7 @@ impl NodeClient {
 
 /// The decoder of a response's body (undici's `onHeaders`): none for a body that cannot have codings (`HEAD`, 204,
 /// 304) or whose codings leave it as it came. More codings than undici takes fail the fetch, as its `controller.abort`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn decoding(headers: &[(String, String)], method: &str, status: u16, surface: Surface) -> Result<Option<Decoder>, Failure> {
     if method == "HEAD" || matches!(status, 204 | 304) {
         return Ok(None);

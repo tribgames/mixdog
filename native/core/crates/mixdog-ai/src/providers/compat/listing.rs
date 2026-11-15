@@ -139,6 +139,7 @@ pub(crate) fn compat_rows_of(lookup: &ListingLookup, provider: &str, infos: &[Co
 impl CompatAdapter {
     /// `GET url` with the credential; the console config reloads a rejected
     /// token once, as a send does.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn get_json(&self, url: String, reload_on_401: bool) -> Result<Value, ProviderError> {
         let profile = self.codec.profile();
         let mut key = match &self.key {
@@ -163,6 +164,7 @@ impl CompatAdapter {
     }
 
     /// The `data` array of `GET {base}/models`, or a bare array; anything else lists nothing.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn roster_items(&self) -> Result<Vec<Value>, ProviderError> {
         let body = self.get_json(format!("{}/models", self.codec.base_url()), false).await?;
         Ok(match body {
@@ -200,6 +202,7 @@ impl CompatAdapter {
         compat_rows_of(&self.lookup, self.codec.profile().id, infos, publish_names)
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn compat_listing(&self, rules: &ListingRules, decorate: Option<(&[&str], bool)>) -> Result<Vec<ModelRecord>, ProviderError> {
         let fetched = match self.roster_items().await {
             Ok(items) => parse_models(&Value::Array(items)).into_iter().filter(|info| self.lists(rules, info)).collect(),
@@ -242,6 +245,7 @@ impl CompatAdapter {
     }
 
     /// Muse Code: the roster alone, enriched, named and given its default ladder.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn roster_listing(&self, rules: &ListingRules, default_levels: &[&str]) -> Result<Vec<ModelRecord>, ProviderError> {
         let provider = self.codec.profile().id;
         let items = self.roster_items().await?;
@@ -295,6 +299,7 @@ impl CompatAdapter {
     }
 
     /// OpenCode Go: the organization's console config is the roster.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn console_listing(&self, url: &str, provider_key: &str) -> Result<Vec<ModelRecord>, ProviderError> {
         let provider = self.codec.profile().id;
         let config = self.get_json(url.to_owned(), true).await?;

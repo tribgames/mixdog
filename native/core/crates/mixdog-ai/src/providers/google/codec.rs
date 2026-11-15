@@ -319,6 +319,7 @@ impl GoogleCodec {
     }
 
     /// The location a send of a model that is not Google's Gemini goes to: an express key serves Gemini models only.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn partner_location(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<(String, String), ProviderError> {
         let Target::Vertex { place } = &self.target else {
             return Err(invalid(format!("{} is not a Google-published Vertex AI model", model.qualified())));
@@ -336,12 +337,14 @@ impl GoogleCodec {
     }
 
     /// The HTTP request of an open-model send (`_sendMaas`); `global` sends it to `global`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn maas_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
         let (_, base) = self.partner_location(request, model, global)?;
         maas::wire(request, model, &base)
     }
 
     /// The HTTP request of a Claude send (`_sendClaude`); `global` sends it to `global`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn claude_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
         let (_, base) = self.partner_location(request, model, global)?;
         claude::wire(&self.claude_caps, request, model, &base)
@@ -364,6 +367,7 @@ impl GoogleCodec {
 
     /// The model id as the endpoint's path names it. Vertex routes the id ([`vertex_model`]); only Google's Gemini
     /// models are sent here, open models through [`Self::maas_wire`].
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn model_id<'a>(&self, model: &'a str) -> Result<&'a str, ProviderError> {
         if !matches!(self.target, Target::Vertex { .. }) {
             return Ok(model.strip_prefix("models/").unwrap_or(model));
@@ -411,6 +415,7 @@ pub struct Attach<'a> {
 
 impl GoogleCodec {
     /// The Gemini-shaped request object, before any endpoint envelope.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn build_inner(&self, request: &ModelRequest) -> Result<Value, ProviderError> {
         self.model_id(&request.model)?;
         build_request(request, &self.dialect(), self.traits.as_ref())
@@ -418,6 +423,7 @@ impl GoogleCodec {
 
     /// The HTTP request for `inner`; with `cache` the body carries only the
     /// uncached tail and `cachedContent` (the cache holds the rest).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn wire(
         &self,
         request: &ModelRequest,
@@ -436,6 +442,7 @@ impl GoogleCodec {
     }
 
     /// [`Self::wire`]; `global` sends a Vertex request to `global`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn wire_at(
         &self,
         request: &ModelRequest,
@@ -480,7 +487,7 @@ impl GoogleCodec {
                 headers.insert(0, ("Authorization".into(), String::new()));
                 headers.push(("Accept".into(), "text/event-stream".into()));
                 headers.push(("User-Agent".into(), antigravity_user_agent(&client_version.get())));
-                if super::request::antigravity_claude(&id) {
+                if super::request::antigravity_claude(id) {
                     headers.push(("anthropic-beta".into(), "interleaved-thinking-2025-05-14".into()));
                 }
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();

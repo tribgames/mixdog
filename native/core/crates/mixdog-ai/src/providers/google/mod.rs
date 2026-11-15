@@ -154,6 +154,7 @@ pub fn vertex_express(
 /// `antigravity-oauth`, bound to the signed-in account's Cloud project. A
 /// new sign-in with another project needs a new adapter; the old one then
 /// refuses to send.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub async fn antigravity(
     store: Arc<dyn TokenStore>,
     client_version: crate::client_versions::Live,

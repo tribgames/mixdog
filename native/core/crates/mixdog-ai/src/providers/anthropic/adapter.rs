@@ -153,6 +153,7 @@ fn scrub_refusal(mut refusal: ErrorResponse, secret: &Secret) -> ErrorResponse {
 }
 
 impl Credentials {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current(&self) -> Result<Secret, ProviderError> {
         match self {
             Self::ApiKey(source) => source.key().await.map(Secret),
@@ -162,6 +163,7 @@ impl Credentials {
 
     /// The secret to replay with after the server rejected `rejected`, if
     /// there is a different one.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn after_rejection(&self, rejected: &Secret) -> Result<Option<Secret>, ProviderError> {
         match self {
             Self::ApiKey(source) => {
@@ -290,6 +292,7 @@ impl AnthropicAdapter {
     }
 
     /// The request as `prepareAnthropicImages` leaves it: the lowered body with its images fitted.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
         let mut plain = self.codec.encode_plain(request)?;
         if let Some(fitter) = &self.images {
@@ -328,6 +331,7 @@ impl AnthropicAdapter {
     /// Compression is a bulk-CPU lane job and never skipped for load: this
     /// waits for lane room. Dropping the attempt cancels the wait, or the
     /// queued job, so a cancelled request compresses nothing.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn gzip(&self, body: &[u8]) -> Result<Vec<u8>, ProviderError> {
         let raw = body.to_vec();
         if let Some(compress) = &self.compressor {
@@ -350,6 +354,7 @@ impl AnthropicAdapter {
     }
 
     /// One POST of `wire` with the credential.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
         self.fetch(self.request_with(wire, secret)).await
     }
@@ -360,6 +365,7 @@ impl AnthropicAdapter {
     /// `MIXDOG_ANTHROPIC_REQ_GZIP=0` turned compression off; a compression failure sends the body plain. A 400/415 to
     /// the compressed body is drained and the same request sent once plain; when that plain send succeeds,
     /// compression is off for the rest of the process.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn fetch(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
         let wire = &request;
         let eligible = wire.method.eq_ignore_ascii_case("POST")
@@ -451,6 +457,7 @@ impl AnthropicAdapter {
 
     /// `issueNonStreamingFallback` (anthropic-api-recovery.mjs:41-64): the request once more without streaming, under
     /// the non-streaming timeout, its whole response as the turn's events.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn non_streaming(&self, request: &ModelRequest, wire: &WireRequest, secret: &Secret) -> Result<Box<dyn ModelStream>, ProviderError> {
         let mut wire = wire.clone();
         if let Some(body) = super::nonstream::body(&wire.body) {
@@ -509,6 +516,7 @@ impl AnthropicAdapter {
     }
 
     /// One `GET /v1/models`: no retry, no credential replay, no cache.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn fetch_listing(&self) -> Result<Vec<u8>, ProviderError> {
         let flavor = self.codec.flavor();
         let secret = self.credentials.current().await?;
@@ -546,6 +554,7 @@ impl AnthropicAdapter {
 
     /// The listed models with everything the route's normalizer derives
     /// (family, tier, `latest`, release date, thinking types).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn list_rows(&self) -> Result<Vec<AnthropicModel>, ProviderError> {
         let body = self.fetch_listing().await?;
         parse_listing(&body, self.codec.flavor(), &self.codec.config().caps).map_err(|e| {

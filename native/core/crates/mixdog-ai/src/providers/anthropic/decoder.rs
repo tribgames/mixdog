@@ -392,6 +392,7 @@ impl AnthropicDecoder {
         });
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn on_event(&mut self, event: &Value, name: &str, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
         if name == "error" || kind == "error" || event.get("error").is_some() {
@@ -673,6 +674,7 @@ impl AnthropicDecoder {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn message_delta(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let delta = event.get("delta");
         let stop = delta

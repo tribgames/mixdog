@@ -83,6 +83,7 @@ fn file_part(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     Ok(Some(match part {
         ContentPart::Text(text, _) => json!({ "text": text }),
@@ -111,6 +112,7 @@ fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     }))
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn content_parts(content: &Content) -> Result<Vec<Value>, ProviderError> {
     match content {
         Content::Text(text) if text.is_empty() => Ok(Vec::new()),
@@ -298,6 +300,7 @@ fn metadata_text_parts(message: &Message) -> Option<Vec<Value>> {
     (joined == expected).then_some(out)
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn model_content(
     message: &Message,
     dialect: &Dialect,
@@ -428,6 +431,7 @@ fn claude_gateway_level(value: &str) -> Option<&'static str> {
 
 /// `claudeThinkingConfig` (antigravity-request.mjs:228-243): an explicit token budget as-is, else the effort as
 /// `thinkingLevel`; thoughts always included.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn claude_thinking_config(options: &RequestOptions, cap: u32) -> Result<Map<String, Value>, ProviderError> {
     let mut config = Map::new();
     config.insert("includeThoughts".into(), json!(true));
@@ -480,6 +484,7 @@ fn replayed_calls(parts: &[Value], message: &Message, stamp_ids: bool) -> HashMa
     out
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn tool_result_parts(
     message: &Message,
     names: &HashMap<String, String>,
@@ -523,6 +528,7 @@ fn tool_result_parts(
     Ok(out)
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits) -> Result<Vec<Value>, ProviderError> {
     let family = traits.is_gemini_family(&request.model);
     let chat: Vec<&Message> = request.messages.iter().filter(|m| m.role != Role::System).collect();
@@ -618,6 +624,7 @@ fn param<'a>(options: &'a RequestOptions, key: &str) -> Option<&'a Value> {
     options.model_parameters.as_ref()?.get(key).filter(|v| !v.is_null())
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn thinking_config(
     request: &ModelRequest,
     traits: &dyn ModelTraits,
@@ -729,6 +736,7 @@ pub fn antigravity_claude(model: &str) -> bool {
 }
 
 /// The Gemini-shaped request object for `request`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn build_request(
     request: &ModelRequest,
     dialect: &Dialect,

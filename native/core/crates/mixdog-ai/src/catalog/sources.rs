@@ -134,6 +134,7 @@ impl ModelSource {
     }
 
     /// One fetch: the adapter's records, as the catalog stores them.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         #[cfg(any(test, feature = "test-support"))]
         if let Some(answer) = &self.answer {

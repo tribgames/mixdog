@@ -2,6 +2,10 @@
 //! decoder and the single failure classification. Credentials and gzip are the
 //! adapter's.
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type CapabilityModelLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
+type GatewayEffortLookup = dyn Fn(&ModelRequest) -> Option<String> + Send + Sync;
+
 use std::sync::Arc;
 
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -86,10 +90,10 @@ pub struct AnthropicConfig {
     pub threads: Arc<Threads>,
     /// A gateway's map from its routing slug to the Claude id the capabilities are read from
     /// (`config.capabilityModel`); the request still names the slug.
-    pub capability_model: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    pub capability_model: Option<Arc<CapabilityModelLookup>>,
     /// A gateway's own reasoning control (`config.messagesEffort`): the effort to send, `none` for no thinking at
     /// all, or `None` to keep the engine's own handling.
-    pub gateway_effort: Option<Arc<dyn Fn(&ModelRequest) -> Option<String> + Send + Sync>>,
+    pub gateway_effort: Option<Arc<GatewayEffortLookup>>,
     /// A custom endpoint's own reasoning fields: their `thinking` and `output_config` replace the engine's effort
     /// handling.
     pub custom_reasoning: Option<CustomReasoningFields>,
@@ -209,6 +213,7 @@ impl WireCodec for AnthropicCodec {
 /// builds it for the provider `vertex-ai` with beta headers off (no fast mode, no server-side fallback), and whether the
 /// body defers a tool (the one request feature whose beta Vertex takes under its own name). `model` is the Vertex model
 /// id, which the catalog is asked about.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest, model: &str) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
     let mut sent = request.clone();
     model.clone_into(&mut sent.model);
@@ -301,6 +306,7 @@ impl AnthropicCodec {
     }
 
     /// The full request, unthreaded: what Node's request builder makes and a cache warm sends.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub(super) fn encode_plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
         // A gateway's capabilities are read from the Claude id its slug stands for; the wire names the slug.
         let capability = self.config.capability_model.as_ref().and_then(|map| map(&request.model));
