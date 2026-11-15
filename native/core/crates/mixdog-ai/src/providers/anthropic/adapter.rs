@@ -47,6 +47,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::claude_floors;
 use crate::claude_floors::Feature;
+use crate::providers::idle::IdleWatch;
+use crate::providers::idle::Stalled;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
@@ -473,6 +475,19 @@ impl AnthropicAdapter {
         Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message))))
     }
 
+    /// `PROVIDER_SSE_IDLE_TIMEOUT_MS` unless `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off.
+    fn stream_idle_ms(&self) -> Option<f64> {
+        crate::providers::google::cache::policy::sse_idle_ms(|name| (self.settings)(name))
+    }
+
+    /// `labels.display` of the stream's errors (`OAUTH_STREAM_LABELS`).
+    fn stream_label(&self) -> &'static str {
+        match self.codec.flavor() {
+            Flavor::OAuth => "Anthropic OAuth",
+            Flavor::ApiKey => "Anthropic",
+        }
+    }
+
     async fn failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => self.codec.classify(&scrub_refusal(rejected, secret)),
@@ -681,7 +696,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 let response = self.post(&wire, &secret).await?;
                 if (200..300).contains(&response.status) {
                     let thread = plan.as_mut().and_then(Plan::take_session);
-                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread).with_secret(&secret));
+                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread).with_secret(&secret).with_idle(self.stream_idle_ms(), self.stream_label()));
                     // OAuth replays only a rejected initial response (`_resendAfterRejection`).
                     if self.codec.flavor() != Flavor::ApiKey {
                         return Ok(stream);
@@ -791,12 +806,16 @@ struct AnthropicStream {
     thread: Option<ThreadSession>,
     /// The credential the request was sent with: an error event that echoes it is redacted.
     secret: Option<String>,
+    /// The transport-idle window (`createAnthropicSseWatchdogs`): armed by the first chunk, started again by every chunk,
+    /// keepalives included.
+    idle: IdleWatch,
 }
 
 impl AnthropicStream {
     fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
         Self {
             secret: None,
+            idle: IdleWatch::off(),
             body: Some(body),
             decoder,
             queue: VecDeque::new(),
@@ -810,6 +829,7 @@ impl AnthropicStream {
     fn ready(events: Vec<StreamEvent>) -> Self {
         Self {
             secret: None,
+            idle: IdleWatch::off(),
             body: None,
             decoder: Box::new(super::decoder::AnthropicDecoder::for_model(ProviderId::from(""), "")),
             queue: events.into(),
@@ -821,6 +841,12 @@ impl AnthropicStream {
 
     fn with_thread(mut self, thread: Option<ThreadSession>) -> Self {
         self.thread = thread;
+        self
+    }
+
+    /// The stream under the idle window `window_ms` (`None`: `MIXDOG_ENABLE_STREAM_WATCHDOG` turned it off), naming `label`.
+    fn with_idle(mut self, window_ms: Option<f64>, label: &str) -> Self {
+        self.idle = IdleWatch::new(window_ms, format!("{label} SSE"));
         self
     }
 
@@ -878,8 +904,18 @@ impl ModelStream for AnthropicStream {
                 self.body = None;
                 return None;
             }
-            match body.next().await {
+            let read = match self.idle.read(body.next()).await {
+                Ok(read) => read,
+                Err(Stalled) => {
+                    let mut err = self.idle.stalled(self.decoder.exposure());
+                    err.partial_usage = self.last_usage.clone().map(Box::new);
+                    self.fail(err);
+                    continue;
+                }
+            };
+            match read {
                 Some(Ok(chunk)) => {
+                    self.idle.rearm();
                     if let Some(thread) = self.thread.as_mut() {
                         thread.feed(&chunk);
                     }
@@ -922,4 +958,32 @@ impl ModelStream for AnthropicStream {
 
     /// A leaf: `next` awaits nothing after the wire's terminal event.
     fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use crate::providers::idle::testing::Echo;
+    use crate::providers::idle::testing::Timetable;
+
+    /// The transport window is started by every chunk, a keepalive included: only silence stalls the stream.
+    #[tokio::test(start_paused = true)]
+    async fn keepalives_hold_the_window_and_silence_ends_the_stream() {
+        let body = Timetable::of(&[(0, "a"), (15, "k"), (15, "k")]);
+        let mut stream = AnthropicStream::new(body, Box::new(Echo)).with_idle(Some(20_000.0), "Anthropic OAuth");
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        let err = stream.next().await.expect("the stall").expect_err("a stall");
+        assert_eq!(err.code.as_deref(), Some("ESTREAMSTALL"));
+        assert_eq!(err.message, "Anthropic OAuth SSE stream timed out after 20000ms of inactivity");
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_watchdog_switched_off_leaves_the_read_unbounded() {
+        let mut stream = AnthropicStream::new(Timetable::of(&[(0, "a")]), Box::new(Echo)).with_idle(None, "Anthropic");
+        assert!(stream.next().await.is_some());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err(), "no idle window ends the read");
+    }
 }

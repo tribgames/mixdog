@@ -3,6 +3,9 @@
 //! tunables, prefix identity, whether a session's saved cache can be attached
 //! or reused, and the two request bodies. Pure functions of their inputs.
 
+use std::time::Duration;
+
+use mixdog_core_api::domain::keepalive::PingKeepalive;
 use mixdog_js::js_trim;
 use mixdog_js::json_stringify;
 use mixdog_js::number_to_string;
@@ -78,17 +81,45 @@ pub(crate) fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f
     (warn_s * 1000.0, (warn_s * 1000.0 - 15_000.0).max(1000.0))
 }
 
+/// `PROVIDER_SSE_IDLE_WATCHDOG_ENABLED` (`stall-policy.mjs:115`), the one reader of `MIXDOG_ENABLE_STREAM_WATCHDOG` for every
+/// stream family (Anthropic SSE, the OpenAI HTTP and WebSocket streams, the OpenAI-compatible streams, Gemini): on when unset
+/// or empty, else only for `1`, `true` or `yes`.
+pub fn stream_watchdog_enabled(get: &impl Fn(&str) -> Option<String>) -> bool {
+    get("MIXDOG_ENABLE_STREAM_WATCHDOG").filter(|raw| !raw.is_empty()).is_none_or(|raw| matches!(raw.as_str(), "1" | "true" | "yes"))
+}
+
 /// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS` (stall-policy.mjs:151): the idle window of a stream that produced a payload, in ms;
-/// `None` when `PROVIDER_SSE_IDLE_WATCHDOG_ENABLED` is off (`MIXDOG_ENABLE_STREAM_WATCHDOG` set to anything but `1`,
-/// `true` or `yes`).
+/// `None` when [`stream_watchdog_enabled`] is off.
 pub fn semantic_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
-    if let Some(raw) = get("MIXDOG_ENABLE_STREAM_WATCHDOG").filter(|raw| !raw.is_empty())
-        && !matches!(raw.as_str(), "1" | "true" | "yes")
-    {
-        return None;
-    }
-    let max = (stall_abort_s(&get) * 1000.0 - 15_000.0).max(10_000.0);
-    Some(resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"], 300_000.0, 10_000.0, max))
+    stream_watchdog_enabled(&get).then(|| {
+        let max = (stall_abort_s(&get) * 1000.0 - 15_000.0).max(10_000.0);
+        resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"], 300_000.0, 10_000.0, max)
+    })
+}
+
+/// `PROVIDER_SSE_IDLE_TIMEOUT_MS` (`stall-policy.mjs:121`): the transport-idle window of an Anthropic SSE stream, in ms
+/// (`anthropic-sse-watchdogs.mjs`); `None` when [`stream_watchdog_enabled`] is off.
+pub fn sse_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
+    stream_watchdog_enabled(&get).then(|| stall_deadlines_ms(&get).1)
+}
+
+/// `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (`stall-policy.mjs:254`): the semantic idle window of an OpenAI WebSocket stream,
+/// in ms; `None` when [`stream_watchdog_enabled`] is off.
+pub fn ws_semantic_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
+    stream_watchdog_enabled(&get).then(|| {
+        let max = (stall_abort_s(&get) * 1000.0 - 15_000.0).max(10_000.0);
+        resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS"], 300_000.0, 10_000.0, max)
+    })
+}
+
+/// `PROVIDER_WS_PING_INTERVAL_MS` (`stall-policy.mjs:199`, 5 s up to the provider ceiling) and `PROVIDER_WS_PONG_TIMEOUT_MS`
+/// (`:208`, 1-60 s) over `base`, the schedule's own values when the variable is unset.
+pub fn ws_ping(get: impl Fn(&str) -> Option<String>, base: PingKeepalive) -> PingKeepalive {
+    let (_, max_before_warn) = stall_windows_ms(&get);
+    let ms = |d: Duration| d.as_millis() as f64;
+    let interval = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_PING_INTERVAL_MS"], ms(base.interval), 5_000.0, max_before_warn);
+    let timeout = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS"], ms(base.timeout), 1_000.0, 60_000.0);
+    PingKeepalive { interval: Duration::from_millis(interval as u64), timeout: Duration::from_millis(timeout as u64), ..base }
 }
 
 /// `WS_HEDGE_MS` (`openai-ws-connect.mjs`, 3 s, 0.5-60 s) and `PROVIDER_WS_ACQUIRE_TIMEOUT_MS` (15 s, 5 s up to the
