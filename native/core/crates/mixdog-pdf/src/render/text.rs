@@ -131,6 +131,13 @@ impl Painter<'_> {
     /// `showText` (`showType3Text` for a Type3 font, whose glyph procedures the paint stage draws: here the text
     /// position moves as it does there).
     pub(super) fn show_text(&mut self, items: &[TextItem]) {
+        let Some(drawing) = self.drawing else {
+            self.report_once(
+                "no-fonts",
+                "text was not drawn: no font drawing was supplied to the rasteriser",
+            );
+            return;
+        };
         let Some(font) = self.current.font.clone() else {
             return;
         };
@@ -142,7 +149,6 @@ impl Painter<'_> {
         if font_size == 0.0 {
             return;
         }
-        let drawing = self.drawing;
         let char_spacing = self.current.char_spacing;
         let word_spacing = self.current.word_spacing;
         let direction = self.current.font_direction;
@@ -205,20 +211,13 @@ impl Painter<'_> {
                 scaled_y = 0.0;
             }
             if self.content_visible && (glyph.is_in_font || font.missing_file) {
-                let draw = drawing.map(|drawing| drawing.glyph(&self.current.font_name, glyph));
-                if let Some(draw) = draw {
-                    self.paint_char(draw.path.as_ref(), scaled_x, scaled_y);
-                    if let Some(accent) = &draw.accent {
-                        self.paint_char(
-                            accent.path.as_ref(),
-                            scaled_x + font_size * accent.offset_x,
-                            scaled_y - font_size * accent.offset_y,
-                        );
-                    }
-                } else {
-                    self.report_once(
-                        "no-fonts",
-                        "text was not drawn: no font drawing was supplied to the rasteriser",
+                let draw = drawing.glyph(&self.current.font_name, glyph);
+                self.paint_char(draw.path.as_ref(), scaled_x, scaled_y);
+                if let Some(accent) = &draw.accent {
+                    self.paint_char(
+                        accent.path.as_ref(),
+                        scaled_x + font_size * accent.offset_x,
+                        scaled_y - font_size * accent.offset_y,
                     );
                 }
             }
