@@ -582,11 +582,16 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
 impl Type2Font {
     /// A font over charstrings made elsewhere, as pdf.js reads back a Type 1 font it compiled to CFF: glyph 0 is the
     /// bare `.notdef` (`139 endchar`) and `glyphs` follow; `subrs` are the local subroutines. Every charstring goes
-    /// through the same repair pass as a font read from bytes.
+    /// through the same repair pass as a font read from bytes. An empty charstring is written as `139 endchar`, as
+    /// pdf.js's `CFFCompiler.compileCharStrings` writes it.
     pub fn from_charstrings(glyphs: Vec<Vec<u8>>, subrs: Vec<Vec<u8>>) -> Self {
         let mut all = Vec::with_capacity(glyphs.len() + 1);
         all.push(vec![0x8b, 0x0e]);
-        all.extend(glyphs);
+        all.extend(
+            glyphs
+                .into_iter()
+                .map(|g| if g.is_empty() { vec![0x8b, 0x0e] } else { g }),
+        );
         let mut ctx = Repair {
             glyphs: &mut all,
             gsubrs: Vec::new(),
@@ -1540,6 +1545,13 @@ mod tests {
         let glyph = vec![num(5), 5, 14];
         let font = Type2Font::from_charstrings(vec![glyph], Vec::new());
         assert_eq!(font.glyph(1), Some(&[14u8][..]));
+        assert!(path_of(&font, 1).is_empty());
+    }
+
+    #[test]
+    fn an_empty_charstring_is_compiled_as_a_bare_endchar_with_one_operand() {
+        let font = Type2Font::from_charstrings(vec![Vec::new()], Vec::new());
+        assert_eq!(font.glyph(1), Some(&[0x8b, 0x0e][..]));
         assert!(path_of(&font, 1).is_empty());
     }
 
