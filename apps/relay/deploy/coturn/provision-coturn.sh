@@ -50,8 +50,9 @@ command -v nft >/dev/null || {
 	echo "[coturn] nft is not installed. Install the nftables package (check that nftables.service is not enabled with a config that flushes the ruleset) and rerun." >&2
 	exit 1
 }
-command -v node >/dev/null || {
-	echo "[coturn] node is not installed (the relay's runtime; the egress service runs reserved-ports.mjs with it)." >&2
+RELAY_BIN=/opt/mixdog-relay/mixdog-relay # the egress service runs its reserved-ports subcommand
+[[ -x "$RELAY_BIN" ]] || {
+	echo "[coturn] $RELAY_BIN is not installed (the egress service runs its reserved-ports subcommand). Deploy the relay first and rerun." >&2
 	exit 1
 }
 
@@ -97,7 +98,6 @@ if ! command -v turnserver >/dev/null; then
 fi
 TURNSERVER_BIN="$(command -v turnserver)"
 NFT_BIN="$(command -v nft)"
-NODE_BIN="$(command -v node)" # the relay's own runtime; the egress service uses it for reserved-ports.mjs
 id -u turnserver >/dev/null
 TURN_UID="$(id -u turnserver)"
 
@@ -156,9 +156,9 @@ fi
 # relayed packet reach on this host (ip-sysctl: ip_local_reserved_ports; an
 # explicit bind, which is how coturn picks its relay ports, is unaffected). The
 # egress service merges the range into whatever is already reserved when it
-# starts and takes back only what it added when it stops (reserved-ports.mjs),
-# so ports reserved by anyone else are never overwritten or cleared.
-install -m 0644 -o root -g root "$SRC_DIR/reserved-ports.mjs" "$CONF_DIR/reserved-ports.mjs"
+# starts and takes back only what it added when it stops (`mixdog-relay
+# reserved-ports`), so ports reserved by anyone else are never overwritten or
+# cleared.
 
 # The TLS listener gets its own copy of this domain's certificate, so the
 # turnserver account never gains access to /etc/letsencrypt (deploy.sh keeps
@@ -185,7 +185,7 @@ render_unit() { # <template>: stdout is the unit with its @NAME@ markers filled 
 	text="$(<"$1")"
 	text="${text//@TURNSERVER_BIN@/$TURNSERVER_BIN}"
 	text="${text//@NFT_BIN@/$NFT_BIN}"
-	text="${text//@NODE_BIN@/$NODE_BIN}"
+	text="${text//@RELAY_BIN@/$RELAY_BIN}"
 	text="${text//@TURN_MIN_PORT@/$TURN_MIN_PORT}"
 	text="${text//@TURN_MAX_PORT@/$TURN_MAX_PORT}"
 	printf '%s\n' "$text"
@@ -246,6 +246,6 @@ until LISTENERS="$(ss -H -lunt)" &&
 done
 systemctl is-active --quiet mixdog-coturn-egress
 # Containment, not equality: other services may reserve more than this range.
-"$NODE_BIN" "$CONF_DIR/reserved-ports.mjs" covers "$TURN_MIN_PORT" "$TURN_MAX_PORT"
+"$RELAY_BIN" reserved-ports covers "$TURN_MIN_PORT" "$TURN_MAX_PORT"
 echo "[coturn] listening on :$TURN_PORT (udp+tcp) and :$TURN_TLS_PORT (tls), relay ports $TURN_MIN_PORT-$TURN_MAX_PORT/udp, public $PUBLIC_IP"
 echo "[coturn] the relay reads $ENV_FILE on its next start: deploy the relay, or run: systemctl restart mixdog-relay"
