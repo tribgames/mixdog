@@ -32,7 +32,6 @@
   },
   "files": [
     "bin/",
-    "native-bin/",
     "README.md",
     "NOTICE.md",
     "LICENSES/",
@@ -46,6 +45,9 @@
     "!scripts/smoke-loop*.mjs",
     "!scripts/*-bench.mjs",
     "!scripts/*bench-*.mjs",
+    "!scripts/npm-platforms.mjs",
+    "!scripts/stage-npm-native.mjs",
+    "!scripts/check-npm-packages.mjs",
     "!scripts/*.ps1",
     "!scripts/*.jsx",
     "src/",
