@@ -1,0 +1,3429 @@
+[
+ {
+  "id": "bash-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "bash-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "bash-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "bash-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "bash-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "bash-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "read-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "read-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "read-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "read-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "read-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "read-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "grep-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "grep-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "grep-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "grep-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "grep-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "grep-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "grep",
+   "args": {
+    "pattern": "load",
+    "path": "src"
+   },
+   "result": "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "glob-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "glob-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "glob-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "glob-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "glob-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "glob-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "glob",
+   "args": {
+    "pattern": "**/*.js"
+   },
+   "result": "src/a.js\nsrc/b.js\nsrc/c.js",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "edit-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "edit-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "edit-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "edit-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "edit-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "edit-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "write-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "write-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "write-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "write-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "write-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "write-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "write",
+   "args": {
+    "path": "out.txt",
+    "content": "hello"
+   },
+   "result": "Wrote out.txt (+1 Line)",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "apply_patch-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "apply_patch-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "apply_patch-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "apply_patch-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "apply_patch-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "apply_patch-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "*** Begin Patch\n*** End Patch"
+   },
+   "result": "Applied patch to src/a.js (+2 Lines, -1 Lines)",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_fetch-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_fetch-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_fetch-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_fetch-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_fetch-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_fetch-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "web_fetch",
+   "args": {
+    "url": "https://example.com/page"
+   },
+   "result": "Fetched https://example.com/page\n\nExample Domain\nThis domain is for use in illustrative examples.",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_search-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_search-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_search-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_search-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "web_search-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "web_search-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "web_search",
+   "args": {
+    "query": "mixdog terminal ui"
+   },
+   "result": "1. Result one https://a.example/1\n2. Result two https://b.example/2",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "mcp-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "mcp-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "mcp-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "mcp-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "mcp-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "mcp-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "mcp__files__list_dir",
+   "args": {
+    "path": "/tmp"
+   },
+   "result": "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_spawn-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_spawn-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_spawn-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_spawn-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_spawn-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_spawn-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "spawn",
+    "agent": "worker",
+    "prompt": "do the thing"
+   },
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_result-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_result-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_result-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_result-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "agent_result-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "agent_result-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "agent",
+   "args": {
+    "type": "result",
+    "agent": "worker",
+    "status": "completed"
+   },
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "skill-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "skill-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "skill-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "skill-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "skill-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "skill-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "skill",
+   "args": {
+    "name": "review"
+   },
+   "result": "Loaded skill review",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "load_tool-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "load_tool-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "load_tool-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "load_tool-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "load_tool-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "load_tool-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "load_tool",
+   "args": {
+    "names": [
+     "bash"
+    ]
+   },
+   "result": "Loaded bash\nsecond",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "custom-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "custom-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "custom-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "custom-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "custom-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "custom-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "result": "one\ntwo\nthree",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "markdown-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "markdown-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "markdown-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "markdown-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "markdown-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "markdown-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "custom_notes",
+   "args": {},
+   "result": "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "longline-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "longline-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "longline-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "longline-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "longline-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500
+  }
+ },
+ {
+  "id": "longline-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/long.js"
+   },
+   "result": "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "startedAt": 1000,
+   "completedAt": 3500,
+   "expanded": true
+  }
+ },
+ {
+  "id": "bash-pending-old-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-blink-off-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20600,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-attached-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "attached": true
+  }
+ },
+ {
+  "id": "bash-deferred-ready-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "deferredDisplayReady": true
+  }
+ },
+ {
+  "id": "bash-exit-error-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-exit-error-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "expanded": true,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-failed-call-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "Error: spawn failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "bash-cancelled-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[status: cancelled]\npartial output",
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "read-error-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "missing.js"
+   },
+   "result": "Error: ENOENT: no such file",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "read-attached-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "attached": true
+  }
+ },
+ {
+  "id": "read-not-finalized-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "hook-denied-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "rm -rf x"
+   },
+   "result": "Error: tool \"bash\" denied by hook: nope",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "apply-patch-partial-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "x"
+   },
+   "result": "Error: section 2 failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1,
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };"
+  }
+ },
+ {
+  "id": "raw-only-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "completedCount": 1,
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "bash-pending-old-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-blink-off-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20600,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-attached-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "attached": true
+  }
+ },
+ {
+  "id": "bash-deferred-ready-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "deferredDisplayReady": true
+  }
+ },
+ {
+  "id": "bash-exit-error-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-exit-error-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "expanded": true,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-failed-call-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "Error: spawn failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "bash-cancelled-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[status: cancelled]\npartial output",
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "read-error-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "missing.js"
+   },
+   "result": "Error: ENOENT: no such file",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "read-attached-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "attached": true
+  }
+ },
+ {
+  "id": "read-not-finalized-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "hook-denied-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "rm -rf x"
+   },
+   "result": "Error: tool \"bash\" denied by hook: nope",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "apply-patch-partial-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "x"
+   },
+   "result": "Error: section 2 failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1,
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };"
+  }
+ },
+ {
+  "id": "raw-only-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "completedCount": 1,
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "bash-pending-old-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-blink-off-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20600,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 17000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "bash-pending-fresh-attached-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "attached": true
+  }
+ },
+ {
+  "id": "bash-deferred-ready-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "startedAt": 19800,
+   "completedCount": 0,
+   "deferredDisplayReady": true
+  }
+ },
+ {
+  "id": "bash-exit-error-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-exit-error-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 2]\nboom\nmore",
+   "exitErrorCount": 1,
+   "expanded": true,
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "bash-failed-call-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "Error: spawn failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "bash-cancelled-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[status: cancelled]\npartial output",
+   "startedAt": 1000,
+   "completedAt": 2000
+  }
+ },
+ {
+  "id": "read-error-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "missing.js"
+   },
+   "result": "Error: ENOENT: no such file",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "read-attached-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "attached": true
+  }
+ },
+ {
+  "id": "read-not-finalized-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "read",
+   "args": {
+    "path": "src/load.js"
+   },
+   "result": "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "hook-denied-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "rm -rf x"
+   },
+   "result": "Error: tool \"bash\" denied by hook: nope",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1
+  }
+ },
+ {
+  "id": "apply-patch-partial-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "apply_patch",
+   "args": {
+    "patch": "x"
+   },
+   "result": "Error: section 2 failed",
+   "isError": true,
+   "callErrorCount": 1,
+   "errorCount": 1,
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };"
+  }
+ },
+ {
+  "id": "raw-only-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "name": "custom",
+   "completedCount": 1,
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "group-pending-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "group-partial-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 1,
+   "result": "one done"
+  }
+ },
+ {
+  "id": "group-done-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "completedAt": 4000
+  }
+ },
+ {
+  "id": "group-summary-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta"
+  }
+ },
+ {
+  "id": "group-expanded-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "group-failed-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "edit": 2
+   },
+   "doneCategories": {
+    "edit": 0
+   },
+   "count": 2,
+   "completedCount": 2,
+   "isError": true,
+   "errorCount": 2,
+   "callErrorCount": 2,
+   "result": "Error: both failed"
+  }
+ },
+ {
+  "id": "group-cancelled-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "[status: cancelled]\nstopped"
+  }
+ },
+ {
+  "id": "group-not-finalized-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "group-order-w40",
+  "kind": "frame",
+  "columns": 40,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "args": {
+    "categoryOrder": [
+     "search",
+     "read"
+    ]
+   }
+  }
+ },
+ {
+  "id": "group-pending-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "group-partial-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 1,
+   "result": "one done"
+  }
+ },
+ {
+  "id": "group-done-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "completedAt": 4000
+  }
+ },
+ {
+  "id": "group-summary-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta"
+  }
+ },
+ {
+  "id": "group-expanded-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "group-failed-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "edit": 2
+   },
+   "doneCategories": {
+    "edit": 0
+   },
+   "count": 2,
+   "completedCount": 2,
+   "isError": true,
+   "errorCount": 2,
+   "callErrorCount": 2,
+   "result": "Error: both failed"
+  }
+ },
+ {
+  "id": "group-cancelled-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "[status: cancelled]\nstopped"
+  }
+ },
+ {
+  "id": "group-not-finalized-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "group-order-w80",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "args": {
+    "categoryOrder": [
+     "search",
+     "read"
+    ]
+   }
+  }
+ },
+ {
+  "id": "group-pending-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 0
+  }
+ },
+ {
+  "id": "group-partial-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 1,
+   "result": "one done"
+  }
+ },
+ {
+  "id": "group-done-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "completedAt": 4000
+  }
+ },
+ {
+  "id": "group-summary-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta"
+  }
+ },
+ {
+  "id": "group-expanded-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "summary alpha\nsummary beta",
+   "rawResult": "raw alpha\nraw beta",
+   "expanded": true
+  }
+ },
+ {
+  "id": "group-failed-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "edit": 2
+   },
+   "doneCategories": {
+    "edit": 0
+   },
+   "count": 2,
+   "completedCount": 2,
+   "isError": true,
+   "errorCount": 2,
+   "callErrorCount": 2,
+   "result": "Error: both failed"
+  }
+ },
+ {
+  "id": "group-cancelled-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "result": "[status: cancelled]\nstopped"
+  }
+ },
+ {
+  "id": "group-not-finalized-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "headerFinalized": false
+  }
+ },
+ {
+  "id": "group-order-w120",
+  "kind": "frame",
+  "columns": 120,
+  "now": 20000,
+  "props": {
+   "aggregate": true,
+   "categories": {
+    "read": 2,
+    "search": 1
+   },
+   "count": 3,
+   "startedAt": 1000,
+   "completedCount": 3,
+   "args": {
+    "categoryOrder": [
+     "search",
+     "read"
+    ]
+   }
+  }
+ },
+ {
+  "id": "theme-light-edit",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "expanded": true
+  },
+  "theme": "light"
+ },
+ {
+  "id": "theme-light-bash",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "expanded": true
+  },
+  "theme": "light"
+ },
+ {
+  "id": "theme-dracula-edit",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "edit",
+   "args": {
+    "path": "src/a.js",
+    "old_string": "b = 2",
+    "new_string": "b = 3"
+   },
+   "result": "Edited src/a.js (+2 Lines, -1 Lines)",
+   "uiDiff": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "rawResult": "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   "expanded": true
+  },
+  "theme": "dracula"
+ },
+ {
+  "id": "theme-dracula-bash",
+  "kind": "frame",
+  "columns": 80,
+  "now": 20000,
+  "props": {
+   "name": "bash",
+   "args": {
+    "command": "ls -la && echo done"
+   },
+   "result": "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   "expanded": true
+  },
+  "theme": "dracula"
+ },
+ {
+  "id": "format-shell",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "[exit code: 0]\nfirst line\n\u001b[31mred\u001b[0m line\n\u001b[4munderlined\u001b[24m https://example.com/x\nlast\tline",
+   {
+    "pathArg": "",
+    "isShell": true
+   }
+  ]
+ },
+ {
+  "id": "format-read",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "1→import fs from \"node:fs\";\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, \"utf8\");\n5→}",
+   {
+    "pathArg": "src/load.js",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-readRust",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "1→import fs from 'node:fs';\n2→\n3→export function load(path) {\n4→  return fs.readFileSync(path, 'utf8');\n5→}",
+   {
+    "pathArg": "src/lib.rs",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-grep",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "src/a.js:3:export function load(path) {\nsrc/b.js:12:  return load(path);\nC:\\work\\repo\\c.js:7:load(x)",
+   {
+    "pathArg": "src/a.js",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-diff",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "diff --git a/src/a.js b/src/a.js\nindex 1111111..2222222 100644\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,3 +1,4 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n export { a, b };",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-json",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "{\"name\":\"mixdog\",\"items\":[1,2,3],\"nested\":{\"ok\":true,\"link\":\"https://example.com/a?b=1\"}}",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-jsonPretty",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "{\"a\":1,\"b\":[1,2]}\n[1,2,3]\nplain",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-bigint",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "{\"a\":12345678901234567890}",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-markdown",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "# Title\n\nSome **bold** text and `code`.\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-mdPath",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "plain text without syntax",
+   {
+    "pathArg": "notes.md",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-link",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "see https://example.com/a and (https://b.example/x) end",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-tabs",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "a\tb\tc\r\nd\u0000e",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-ansiShell",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "\u001b[4;31mA\tB\u001b[24;39m\r\nC\u0000D",
+   {
+    "pathArg": "",
+    "isShell": true
+   }
+  ]
+ },
+ {
+  "id": "format-osc",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "\u001b]8;;https://example.test\u0007label\u001b]8;;\u0007",
+   {
+    "pathArg": "",
+    "isShell": true
+   }
+  ]
+ },
+ {
+  "id": "format-empty",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-longJson",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "{\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-many-lines",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\nline 31\nline 32\nline 33\nline 34\nline 35\nline 36\nline 37\nline 38\nline 39\nline 40\nline 41\nline 42\nline 43\nline 44\nline 45\nline 46\nline 47\nline 48\nline 49\nline 50\nline 51\nline 52\nline 53\nline 54\nline 55\nline 56\nline 57\nline 58\nline 59\nline 60\nline 61\nline 62\nline 63\nline 64\nline 65\nline 66\nline 67\nline 68\nline 69\nline 70\nline 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\nline 80\nline 81\nline 82\nline 83\nline 84\nline 85\nline 86\nline 87\nline 88\nline 89\nline 90\nline 91\nline 92\nline 93\nline 94\nline 95\nline 96\nline 97\nline 98\nline 99\nline 100\nline 101\nline 102\nline 103\nline 104\nline 105\nline 106\nline 107\nline 108\nline 109\nline 110\nline 111\nline 112\nline 113\nline 114\nline 115\nline 116\nline 117\nline 118\nline 119\nline 120\nline 121\nline 122\nline 123\nline 124\nline 125\nline 126\nline 127\nline 128\nline 129\nline 130\nline 131\nline 132\nline 133\nline 134\nline 135\nline 136\nline 137\nline 138\nline 139\nline 140\nline 141\nline 142\nline 143\nline 144\nline 145\nline 146\nline 147\nline 148\nline 149\nline 150\nline 151\nline 152\nline 153\nline 154\nline 155\nline 156\nline 157\nline 158\nline 159\nline 160\nline 161\nline 162\nline 163\nline 164\nline 165\nline 166\nline 167\nline 168\nline 169\nline 170\nline 171\nline 172\nline 173\nline 174\nline 175\nline 176\nline 177\nline 178\nline 179\nline 180\nline 181\nline 182\nline 183\nline 184\nline 185\nline 186\nline 187\nline 188\nline 189\nline 190\nline 191\nline 192\nline 193\nline 194\nline 195\nline 196\nline 197\nline 198\nline 199\nline 200\nline 201\nline 202\nline 203\nline 204\nline 205\nline 206\nline 207\nline 208\nline 209\nline 210\nline 211\nline 212\nline 213\nline 214\nline 215\nline 216\nline 217\nline 218\nline 219\nline 220\nline 221\nline 222\nline 223\nline 224\nline 225\nline 226\nline 227\nline 228\nline 229\nline 230\nline 231\nline 232\nline 233\nline 234\nline 235\nline 236\nline 237\nline 238\nline 239\nline 240\nline 241\nline 242\nline 243\nline 244\nline 245\nline 246\nline 247\nline 248\nline 249\nline 250\nline 251\nline 252\nline 253\nline 254\nline 255\nline 256\nline 257\nline 258\nline 259\nline 260\nline 261\nline 262\nline 263\nline 264\nline 265\nline 266\nline 267\nline 268\nline 269\nline 270\nline 271\nline 272\nline 273\nline 274\nline 275\nline 276\nline 277\nline 278\nline 279\nline 280\nline 281\nline 282\nline 283\nline 284\nline 285\nline 286\nline 287\nline 288\nline 289\nline 290\nline 291\nline 292\nline 293\nline 294\nline 295\nline 296\nline 297\nline 298\nline 299\nline 300\nline 301\nline 302\nline 303\nline 304\nline 305\nline 306\nline 307\nline 308\nline 309\nline 310\nline 311\nline 312\nline 313\nline 314\nline 315\nline 316\nline 317\nline 318\nline 319\nline 320\nline 321\nline 322\nline 323\nline 324\nline 325\nline 326\nline 327\nline 328\nline 329\nline 330\nline 331\nline 332\nline 333\nline 334\nline 335\nline 336\nline 337\nline 338\nline 339\nline 340\nline 341\nline 342\nline 343\nline 344\nline 345\nline 346\nline 347\nline 348\nline 349\nline 350\nline 351\nline 352\nline 353\nline 354\nline 355\nline 356\nline 357\nline 358\nline 359\nline 360\nline 361\nline 362\nline 363\nline 364\nline 365\nline 366\nline 367\nline 368\nline 369\nline 370\nline 371\nline 372\nline 373\nline 374\nline 375\nline 376\nline 377\nline 378\nline 379\nline 380\nline 381\nline 382\nline 383\nline 384\nline 385\nline 386\nline 387\nline 388\nline 389\nline 390\nline 391\nline 392\nline 393\nline 394\nline 395\nline 396\nline 397\nline 398\nline 399\nline 400\nline 401\nline 402\nline 403\nline 404\nline 405\nline 406\nline 407\nline 408\nline 409\nline 410\nline 411\nline 412\nline 413\nline 414\nline 415\nline 416\nline 417\nline 418\nline 419\nline 420\nline 421\nline 422\nline 423\nline 424\nline 425\nline 426\nline 427\nline 428\nline 429\nline 430\nline 431\nline 432\nline 433\nline 434\nline 435\nline 436\nline 437\nline 438\nline 439\nline 440\nline 441\nline 442\nline 443\nline 444\nline 445\nline 446\nline 447\nline 448\nline 449\nline 450\nline 451\nline 452\nline 453\nline 454\nline 455\nline 456\nline 457\nline 458\nline 459\nline 460\nline 461\nline 462\nline 463\nline 464\nline 465\nline 466\nline 467\nline 468\nline 469\nline 470\nline 471\nline 472\nline 473\nline 474\nline 475\nline 476\nline 477\nline 478\nline 479\nline 480\nline 481\nline 482\nline 483\nline 484\nline 485\nline 486\nline 487\nline 488\nline 489\nline 490\nline 491\nline 492\nline 493\nline 494\nline 495\nline 496\nline 497\nline 498\nline 499\nline 500\nline 501\nline 502\nline 503\nline 504\nline 505\nline 506\nline 507\nline 508\nline 509\nline 510\nline 511\nline 512\nline 513\nline 514\nline 515\nline 516\nline 517\nline 518\nline 519\nline 520\nline 521\nline 522\nline 523\nline 524\nline 525\nline 526\nline 527\nline 528\nline 529\nline 530\nline 531\nline 532\nline 533\nline 534\nline 535\nline 536\nline 537\nline 538\nline 539\nline 540\nline 541\nline 542\nline 543\nline 544\nline 545\nline 546\nline 547\nline 548\nline 549\nline 550\nline 551\nline 552\nline 553\nline 554\nline 555\nline 556\nline 557\nline 558\nline 559\nline 560\nline 561\nline 562\nline 563\nline 564\nline 565\nline 566\nline 567\nline 568\nline 569\nline 570\nline 571\nline 572\nline 573\nline 574\nline 575\nline 576\nline 577\nline 578\nline 579\nline 580\nline 581\nline 582\nline 583\nline 584\nline 585\nline 586\nline 587\nline 588\nline 589\nline 590\nline 591\nline 592\nline 593\nline 594\nline 595\nline 596\nline 597\nline 598\nline 599\nline 600\nline 601\nline 602\nline 603\nline 604\nline 605\nline 606\nline 607\nline 608\nline 609\nline 610\nline 611\nline 612\nline 613\nline 614\nline 615\nline 616\nline 617\nline 618\nline 619\nline 620\nline 621\nline 622\nline 623\nline 624\nline 625\nline 626\nline 627\nline 628\nline 629\nline 630\nline 631\nline 632\nline 633\nline 634\nline 635\nline 636\nline 637\nline 638\nline 639\nline 640\nline 641\nline 642\nline 643\nline 644\nline 645\nline 646\nline 647\nline 648\nline 649\nline 650\nline 651\nline 652\nline 653\nline 654\nline 655\nline 656\nline 657\nline 658\nline 659\nline 660\nline 661\nline 662\nline 663\nline 664\nline 665\nline 666\nline 667\nline 668\nline 669\nline 670\nline 671\nline 672\nline 673\nline 674\nline 675\nline 676\nline 677\nline 678\nline 679\nline 680\nline 681\nline 682\nline 683\nline 684\nline 685\nline 686\nline 687\nline 688\nline 689\nline 690\nline 691\nline 692\nline 693\nline 694\nline 695\nline 696\nline 697\nline 698\nline 699\nline 700\nline 701\nline 702\nline 703\nline 704\nline 705\nline 706\nline 707\nline 708\nline 709\nline 710\nline 711\nline 712\nline 713\nline 714\nline 715\nline 716\nline 717\nline 718\nline 719\nline 720\nline 721\nline 722\nline 723\nline 724\nline 725\nline 726\nline 727\nline 728\nline 729\nline 730\nline 731\nline 732\nline 733\nline 734\nline 735\nline 736\nline 737\nline 738\nline 739\nline 740\nline 741\nline 742\nline 743\nline 744\nline 745\nline 746\nline 747\nline 748\nline 749\nline 750\nline 751\nline 752\nline 753\nline 754\nline 755\nline 756\nline 757\nline 758\nline 759\nline 760\nline 761\nline 762\nline 763\nline 764\nline 765\nline 766\nline 767\nline 768\nline 769\nline 770\nline 771\nline 772\nline 773\nline 774\nline 775\nline 776\nline 777\nline 778\nline 779\nline 780\nline 781\nline 782\nline 783\nline 784\nline 785\nline 786\nline 787\nline 788\nline 789\nline 790\nline 791\nline 792\nline 793\nline 794\nline 795\nline 796\nline 797\nline 798\nline 799\nline 800\nline 801\nline 802\nline 803\nline 804\nline 805\nline 806\nline 807\nline 808\nline 809\nline 810\nline 811\nline 812\nline 813\nline 814\nline 815\nline 816\nline 817\nline 818\nline 819\nline 820\nline 821\nline 822\nline 823\nline 824\nline 825\nline 826\nline 827\nline 828\nline 829\nline 830\nline 831\nline 832\nline 833\nline 834\nline 835\nline 836\nline 837\nline 838\nline 839\nline 840\nline 841\nline 842\nline 843\nline 844\nline 845\nline 846\nline 847\nline 848\nline 849\nline 850\nline 851\nline 852\nline 853\nline 854\nline 855\nline 856\nline 857\nline 858\nline 859\nline 860\nline 861\nline 862\nline 863\nline 864\nline 865\nline 866\nline 867\nline 868\nline 869\nline 870\nline 871\nline 872\nline 873\nline 874\nline 875\nline 876\nline 877\nline 878\nline 879\nline 880\nline 881\nline 882\nline 883\nline 884\nline 885\nline 886\nline 887\nline 888\nline 889\nline 890\nline 891\nline 892\nline 893\nline 894\nline 895\nline 896\nline 897\nline 898\nline 899\nline 900\nline 901\nline 902\nline 903\nline 904\nline 905\nline 906\nline 907\nline 908\nline 909\nline 910\nline 911\nline 912\nline 913\nline 914\nline 915\nline 916\nline 917\nline 918\nline 919\nline 920\nline 921\nline 922\nline 923\nline 924\nline 925\nline 926\nline 927\nline 928\nline 929\nline 930\nline 931\nline 932\nline 933\nline 934\nline 935\nline 936\nline 937\nline 938\nline 939\nline 940\nline 941\nline 942\nline 943\nline 944\nline 945\nline 946\nline 947\nline 948\nline 949\nline 950\nline 951\nline 952\nline 953\nline 954\nline 955\nline 956\nline 957\nline 958\nline 959\nline 960\nline 961\nline 962\nline 963\nline 964\nline 965\nline 966\nline 967\nline 968\nline 969\nline 970\nline 971\nline 972\nline 973\nline 974\nline 975\nline 976\nline 977\nline 978\nline 979\nline 980\nline 981\nline 982\nline 983\nline 984\nline 985\nline 986\nline 987\nline 988\nline 989\nline 990\nline 991\nline 992\nline 993\nline 994\nline 995\nline 996\nline 997\nline 998\nline 999\nline 1000\nline 1001\nline 1002\nline 1003\nline 1004\nline 1005\nline 1006\nline 1007\nline 1008\nline 1009\nline 1010\nline 1011\nline 1012\nline 1013\nline 1014\nline 1015\nline 1016\nline 1017\nline 1018\nline 1019\nline 1020\nline 1021\nline 1022\nline 1023\nline 1024\nline 1025\nline 1026\nline 1027\nline 1028\nline 1029\nline 1030\nline 1031\nline 1032\nline 1033\nline 1034\nline 1035\nline 1036\nline 1037\nline 1038\nline 1039\nline 1040\nline 1041\nline 1042\nline 1043\nline 1044\nline 1045\nline 1046\nline 1047\nline 1048\nline 1049\nline 1050\nline 1051\nline 1052\nline 1053\nline 1054\nline 1055\nline 1056\nline 1057\nline 1058\nline 1059\nline 1060\nline 1061\nline 1062\nline 1063\nline 1064\nline 1065\nline 1066\nline 1067\nline 1068\nline 1069\nline 1070\nline 1071\nline 1072\nline 1073\nline 1074\nline 1075\nline 1076\nline 1077\nline 1078\nline 1079\nline 1080\nline 1081\nline 1082\nline 1083\nline 1084\nline 1085\nline 1086\nline 1087\nline 1088\nline 1089\nline 1090\nline 1091\nline 1092\nline 1093\nline 1094\nline 1095\nline 1096\nline 1097\nline 1098\nline 1099\nline 1100\nline 1101\nline 1102\nline 1103\nline 1104\nline 1105\nline 1106\nline 1107\nline 1108\nline 1109\nline 1110\nline 1111\nline 1112\nline 1113\nline 1114\nline 1115\nline 1116\nline 1117\nline 1118\nline 1119\nline 1120\nline 1121\nline 1122\nline 1123\nline 1124\nline 1125\nline 1126\nline 1127\nline 1128\nline 1129\nline 1130\nline 1131\nline 1132\nline 1133\nline 1134\nline 1135\nline 1136\nline 1137\nline 1138\nline 1139\nline 1140\nline 1141\nline 1142\nline 1143\nline 1144\nline 1145\nline 1146\nline 1147\nline 1148\nline 1149\nline 1150\nline 1151\nline 1152\nline 1153\nline 1154\nline 1155\nline 1156\nline 1157\nline 1158\nline 1159\nline 1160\nline 1161\nline 1162\nline 1163\nline 1164\nline 1165\nline 1166\nline 1167\nline 1168\nline 1169\nline 1170\nline 1171\nline 1172\nline 1173\nline 1174\nline 1175\nline 1176\nline 1177\nline 1178\nline 1179\nline 1180\nline 1181\nline 1182\nline 1183\nline 1184\nline 1185\nline 1186\nline 1187\nline 1188\nline 1189\nline 1190\nline 1191\nline 1192\nline 1193\nline 1194\nline 1195\nline 1196\nline 1197\nline 1198\nline 1199\nline 1200\nline 1201\nline 1202\nline 1203\nline 1204\nline 1205\nline 1206\nline 1207\nline 1208\nline 1209\nline 1210\nline 1211\nline 1212\nline 1213\nline 1214\nline 1215\nline 1216\nline 1217\nline 1218\nline 1219\nline 1220\nline 1221\nline 1222\nline 1223\nline 1224\nline 1225\nline 1226\nline 1227\nline 1228\nline 1229\nline 1230\nline 1231\nline 1232\nline 1233\nline 1234\nline 1235\nline 1236\nline 1237\nline 1238\nline 1239\nline 1240\nline 1241\nline 1242\nline 1243\nline 1244\nline 1245\nline 1246\nline 1247\nline 1248\nline 1249\nline 1250\nline 1251\nline 1252\nline 1253\nline 1254\nline 1255\nline 1256\nline 1257\nline 1258\nline 1259\nline 1260\nline 1261\nline 1262\nline 1263\nline 1264\nline 1265\nline 1266\nline 1267\nline 1268\nline 1269\nline 1270\nline 1271\nline 1272\nline 1273\nline 1274\nline 1275\nline 1276\nline 1277\nline 1278\nline 1279\nline 1280\nline 1281\nline 1282\nline 1283\nline 1284\nline 1285\nline 1286\nline 1287\nline 1288\nline 1289\nline 1290\nline 1291\nline 1292\nline 1293\nline 1294\nline 1295\nline 1296\nline 1297\nline 1298\nline 1299\nline 1300\nline 1301\nline 1302\nline 1303\nline 1304\nline 1305\nline 1306\nline 1307\nline 1308\nline 1309\nline 1310\nline 1311\nline 1312\nline 1313\nline 1314\nline 1315\nline 1316\nline 1317\nline 1318\nline 1319\nline 1320\nline 1321\nline 1322\nline 1323\nline 1324\nline 1325\nline 1326\nline 1327\nline 1328\nline 1329\nline 1330\nline 1331\nline 1332\nline 1333\nline 1334\nline 1335\nline 1336\nline 1337\nline 1338\nline 1339\nline 1340\nline 1341\nline 1342\nline 1343\nline 1344\nline 1345\nline 1346\nline 1347\nline 1348\nline 1349\nline 1350\nline 1351\nline 1352\nline 1353\nline 1354\nline 1355\nline 1356\nline 1357\nline 1358\nline 1359\nline 1360\nline 1361\nline 1362\nline 1363\nline 1364\nline 1365\nline 1366\nline 1367\nline 1368\nline 1369\nline 1370\nline 1371\nline 1372\nline 1373\nline 1374\nline 1375\nline 1376\nline 1377\nline 1378\nline 1379\nline 1380\nline 1381\nline 1382\nline 1383\nline 1384\nline 1385\nline 1386\nline 1387\nline 1388\nline 1389\nline 1390\nline 1391\nline 1392\nline 1393\nline 1394\nline 1395\nline 1396\nline 1397\nline 1398\nline 1399\nline 1400\nline 1401\nline 1402\nline 1403\nline 1404\nline 1405\nline 1406\nline 1407\nline 1408\nline 1409\nline 1410\nline 1411\nline 1412\nline 1413\nline 1414\nline 1415\nline 1416\nline 1417\nline 1418\nline 1419\nline 1420\nline 1421\nline 1422\nline 1423\nline 1424\nline 1425\nline 1426\nline 1427\nline 1428\nline 1429\nline 1430\nline 1431\nline 1432\nline 1433\nline 1434\nline 1435\nline 1436\nline 1437\nline 1438\nline 1439\nline 1440\nline 1441\nline 1442\nline 1443\nline 1444\nline 1445\nline 1446\nline 1447\nline 1448\nline 1449\nline 1450\nline 1451\nline 1452\nline 1453\nline 1454\nline 1455\nline 1456\nline 1457\nline 1458\nline 1459\nline 1460\nline 1461\nline 1462\nline 1463\nline 1464\nline 1465\nline 1466\nline 1467\nline 1468\nline 1469\nline 1470\nline 1471\nline 1472\nline 1473\nline 1474\nline 1475\nline 1476\nline 1477\nline 1478\nline 1479\nline 1480\nline 1481\nline 1482\nline 1483\nline 1484\nline 1485\nline 1486\nline 1487\nline 1488\nline 1489\nline 1490\nline 1491\nline 1492\nline 1493\nline 1494\nline 1495\nline 1496\nline 1497\nline 1498\nline 1499\nline 1500\nline 1501\nline 1502\nline 1503\nline 1504\nline 1505\nline 1506\nline 1507\nline 1508\nline 1509\nline 1510\nline 1511\nline 1512\nline 1513\nline 1514\nline 1515\nline 1516\nline 1517\nline 1518\nline 1519\nline 1520\nline 1521\nline 1522\nline 1523\nline 1524\nline 1525\nline 1526\nline 1527\nline 1528\nline 1529\nline 1530\nline 1531\nline 1532\nline 1533\nline 1534\nline 1535\nline 1536\nline 1537\nline 1538\nline 1539\nline 1540\nline 1541\nline 1542\nline 1543\nline 1544\nline 1545\nline 1546\nline 1547\nline 1548\nline 1549\nline 1550\nline 1551\nline 1552\nline 1553\nline 1554\nline 1555\nline 1556\nline 1557\nline 1558\nline 1559\nline 1560\nline 1561\nline 1562\nline 1563\nline 1564\nline 1565\nline 1566\nline 1567\nline 1568\nline 1569\nline 1570\nline 1571\nline 1572\nline 1573\nline 1574\nline 1575\nline 1576\nline 1577\nline 1578\nline 1579\nline 1580\nline 1581\nline 1582\nline 1583\nline 1584\nline 1585\nline 1586\nline 1587\nline 1588\nline 1589\nline 1590\nline 1591\nline 1592\nline 1593\nline 1594\nline 1595\nline 1596\nline 1597\nline 1598\nline 1599\nline 1600\nline 1601\nline 1602\nline 1603\nline 1604\nline 1605\nline 1606\nline 1607\nline 1608\nline 1609\nline 1610\nline 1611\nline 1612\nline 1613\nline 1614\nline 1615\nline 1616\nline 1617\nline 1618\nline 1619\nline 1620\nline 1621\nline 1622\nline 1623\nline 1624\nline 1625\nline 1626\nline 1627\nline 1628\nline 1629\nline 1630\nline 1631\nline 1632\nline 1633\nline 1634\nline 1635\nline 1636\nline 1637\nline 1638\nline 1639\nline 1640\nline 1641\nline 1642\nline 1643\nline 1644\nline 1645\nline 1646\nline 1647\nline 1648\nline 1649\nline 1650\nline 1651\nline 1652\nline 1653\nline 1654\nline 1655\nline 1656\nline 1657\nline 1658\nline 1659\nline 1660\nline 1661\nline 1662\nline 1663\nline 1664\nline 1665\nline 1666\nline 1667\nline 1668\nline 1669\nline 1670\nline 1671\nline 1672\nline 1673\nline 1674\nline 1675\nline 1676\nline 1677\nline 1678\nline 1679\nline 1680\nline 1681\nline 1682\nline 1683\nline 1684\nline 1685\nline 1686\nline 1687\nline 1688\nline 1689\nline 1690\nline 1691\nline 1692\nline 1693\nline 1694\nline 1695\nline 1696\nline 1697\nline 1698\nline 1699\nline 1700\nline 1701\nline 1702\nline 1703\nline 1704\nline 1705\nline 1706\nline 1707\nline 1708\nline 1709\nline 1710\nline 1711\nline 1712\nline 1713\nline 1714\nline 1715\nline 1716\nline 1717\nline 1718\nline 1719\nline 1720\nline 1721\nline 1722\nline 1723\nline 1724\nline 1725\nline 1726\nline 1727\nline 1728\nline 1729\nline 1730\nline 1731\nline 1732\nline 1733\nline 1734\nline 1735\nline 1736\nline 1737\nline 1738\nline 1739\nline 1740\nline 1741\nline 1742\nline 1743\nline 1744\nline 1745\nline 1746\nline 1747\nline 1748\nline 1749\nline 1750\nline 1751\nline 1752\nline 1753\nline 1754\nline 1755\nline 1756\nline 1757\nline 1758\nline 1759\nline 1760\nline 1761\nline 1762\nline 1763\nline 1764\nline 1765\nline 1766\nline 1767\nline 1768\nline 1769\nline 1770\nline 1771\nline 1772\nline 1773\nline 1774\nline 1775\nline 1776\nline 1777\nline 1778\nline 1779\nline 1780\nline 1781\nline 1782\nline 1783\nline 1784\nline 1785\nline 1786\nline 1787\nline 1788\nline 1789\nline 1790\nline 1791\nline 1792\nline 1793\nline 1794\nline 1795\nline 1796\nline 1797\nline 1798\nline 1799\nline 1800\nline 1801\nline 1802\nline 1803\nline 1804\nline 1805\nline 1806\nline 1807\nline 1808\nline 1809\nline 1810\nline 1811\nline 1812\nline 1813\nline 1814\nline 1815\nline 1816\nline 1817\nline 1818\nline 1819\nline 1820\nline 1821\nline 1822\nline 1823\nline 1824\nline 1825\nline 1826\nline 1827\nline 1828\nline 1829\nline 1830\nline 1831\nline 1832\nline 1833\nline 1834\nline 1835\nline 1836\nline 1837\nline 1838\nline 1839\nline 1840\nline 1841\nline 1842\nline 1843\nline 1844\nline 1845\nline 1846\nline 1847\nline 1848\nline 1849\nline 1850\nline 1851\nline 1852\nline 1853\nline 1854\nline 1855\nline 1856\nline 1857\nline 1858\nline 1859\nline 1860\nline 1861\nline 1862\nline 1863\nline 1864\nline 1865\nline 1866\nline 1867\nline 1868\nline 1869\nline 1870\nline 1871\nline 1872\nline 1873\nline 1874\nline 1875\nline 1876\nline 1877\nline 1878\nline 1879\nline 1880\nline 1881\nline 1882\nline 1883\nline 1884\nline 1885\nline 1886\nline 1887\nline 1888\nline 1889\nline 1890\nline 1891\nline 1892\nline 1893\nline 1894\nline 1895\nline 1896\nline 1897\nline 1898\nline 1899\nline 1900\nline 1901\nline 1902\nline 1903\nline 1904\nline 1905\nline 1906\nline 1907\nline 1908\nline 1909\nline 1910\nline 1911\nline 1912\nline 1913\nline 1914\nline 1915\nline 1916\nline 1917\nline 1918\nline 1919\nline 1920\nline 1921\nline 1922\nline 1923\nline 1924\nline 1925\nline 1926\nline 1927\nline 1928\nline 1929\nline 1930\nline 1931\nline 1932\nline 1933\nline 1934\nline 1935\nline 1936\nline 1937\nline 1938\nline 1939\nline 1940\nline 1941\nline 1942\nline 1943\nline 1944\nline 1945\nline 1946\nline 1947\nline 1948\nline 1949\nline 1950\nline 1951\nline 1952\nline 1953\nline 1954\nline 1955\nline 1956\nline 1957\nline 1958\nline 1959\nline 1960\nline 1961\nline 1962\nline 1963\nline 1964\nline 1965\nline 1966\nline 1967\nline 1968\nline 1969\nline 1970\nline 1971\nline 1972\nline 1973\nline 1974\nline 1975\nline 1976\nline 1977\nline 1978\nline 1979\nline 1980\nline 1981\nline 1982\nline 1983\nline 1984\nline 1985\nline 1986\nline 1987\nline 1988\nline 1989\nline 1990\nline 1991\nline 1992\nline 1993\nline 1994\nline 1995\nline 1996\nline 1997\nline 1998\nline 1999\nline 2000\nline 2001\nline 2002\nline 2003\nline 2004\nline 2005\nline 2006\nline 2007\nline 2008\nline 2009\nline 2010\nline 2011\nline 2012\nline 2013\nline 2014\nline 2015\nline 2016\nline 2017\nline 2018\nline 2019\nline 2020\nline 2021\nline 2022\nline 2023\nline 2024\nline 2025\nline 2026\nline 2027\nline 2028\nline 2029\nline 2030\nline 2031\nline 2032\nline 2033\nline 2034\nline 2035\nline 2036\nline 2037\nline 2038\nline 2039\nline 2040\nline 2041\nline 2042\nline 2043\nline 2044\nline 2045\nline 2046\nline 2047\nline 2048\nline 2049\nline 2050\nline 2051\nline 2052\nline 2053\nline 2054\nline 2055\nline 2056\nline 2057\nline 2058\nline 2059\nline 2060\nline 2061\nline 2062\nline 2063\nline 2064\nline 2065\nline 2066\nline 2067\nline 2068\nline 2069\nline 2070\nline 2071\nline 2072\nline 2073\nline 2074\nline 2075\nline 2076\nline 2077\nline 2078\nline 2079\nline 2080\nline 2081\nline 2082\nline 2083\nline 2084\nline 2085\nline 2086\nline 2087\nline 2088\nline 2089\nline 2090\nline 2091\nline 2092\nline 2093\nline 2094\nline 2095\nline 2096\nline 2097\nline 2098\nline 2099\nline 2100\nline 2101\nline 2102\nline 2103\nline 2104\nline 2105\nline 2106\nline 2107\nline 2108\nline 2109\nline 2110\nline 2111\nline 2112\nline 2113\nline 2114\nline 2115\nline 2116\nline 2117\nline 2118\nline 2119\nline 2120\nline 2121\nline 2122\nline 2123\nline 2124\nline 2125\nline 2126\nline 2127\nline 2128\nline 2129\nline 2130\nline 2131\nline 2132\nline 2133\nline 2134\nline 2135\nline 2136\nline 2137\nline 2138\nline 2139\nline 2140\nline 2141\nline 2142\nline 2143\nline 2144\nline 2145\nline 2146\nline 2147\nline 2148\nline 2149\nline 2150\nline 2151\nline 2152\nline 2153\nline 2154\nline 2155\nline 2156\nline 2157\nline 2158\nline 2159\nline 2160\nline 2161\nline 2162\nline 2163\nline 2164\nline 2165\nline 2166\nline 2167\nline 2168\nline 2169\nline 2170\nline 2171\nline 2172\nline 2173\nline 2174\nline 2175\nline 2176\nline 2177\nline 2178\nline 2179\nline 2180\nline 2181\nline 2182\nline 2183\nline 2184\nline 2185\nline 2186\nline 2187\nline 2188\nline 2189\nline 2190\nline 2191\nline 2192\nline 2193\nline 2194\nline 2195\nline 2196\nline 2197\nline 2198\nline 2199\nline 2200\nline 2201\nline 2202\nline 2203\nline 2204\nline 2205\nline 2206\nline 2207\nline 2208\nline 2209\nline 2210\nline 2211\nline 2212\nline 2213\nline 2214\nline 2215\nline 2216\nline 2217\nline 2218\nline 2219\nline 2220\nline 2221\nline 2222\nline 2223\nline 2224\nline 2225\nline 2226\nline 2227\nline 2228\nline 2229\nline 2230\nline 2231\nline 2232\nline 2233\nline 2234\nline 2235\nline 2236\nline 2237\nline 2238\nline 2239\nline 2240\nline 2241\nline 2242\nline 2243\nline 2244\nline 2245\nline 2246\nline 2247\nline 2248\nline 2249\nline 2250\nline 2251\nline 2252\nline 2253\nline 2254\nline 2255\nline 2256\nline 2257\nline 2258\nline 2259\nline 2260\nline 2261\nline 2262\nline 2263\nline 2264\nline 2265\nline 2266\nline 2267\nline 2268\nline 2269\nline 2270\nline 2271\nline 2272\nline 2273\nline 2274\nline 2275\nline 2276\nline 2277\nline 2278\nline 2279\nline 2280\nline 2281\nline 2282\nline 2283\nline 2284\nline 2285\nline 2286\nline 2287\nline 2288\nline 2289\nline 2290\nline 2291\nline 2292\nline 2293\nline 2294\nline 2295\nline 2296\nline 2297\nline 2298\nline 2299\nline 2300\nline 2301\nline 2302\nline 2303\nline 2304\nline 2305\nline 2306\nline 2307\nline 2308\nline 2309\nline 2310\nline 2311\nline 2312\nline 2313\nline 2314\nline 2315\nline 2316\nline 2317\nline 2318\nline 2319\nline 2320\nline 2321\nline 2322\nline 2323\nline 2324\nline 2325\nline 2326\nline 2327\nline 2328\nline 2329\nline 2330\nline 2331\nline 2332\nline 2333\nline 2334\nline 2335\nline 2336\nline 2337\nline 2338\nline 2339\nline 2340\nline 2341\nline 2342\nline 2343\nline 2344\nline 2345\nline 2346\nline 2347\nline 2348\nline 2349\nline 2350\nline 2351\nline 2352\nline 2353\nline 2354\nline 2355\nline 2356\nline 2357\nline 2358\nline 2359\nline 2360\nline 2361\nline 2362\nline 2363\nline 2364\nline 2365\nline 2366\nline 2367\nline 2368\nline 2369\nline 2370\nline 2371\nline 2372\nline 2373\nline 2374\nline 2375\nline 2376\nline 2377\nline 2378\nline 2379\nline 2380\nline 2381\nline 2382\nline 2383\nline 2384\nline 2385\nline 2386\nline 2387\nline 2388\nline 2389\nline 2390\nline 2391\nline 2392\nline 2393\nline 2394\nline 2395\nline 2396\nline 2397\nline 2398\nline 2399\nline 2400\nline 2401\nline 2402\nline 2403\nline 2404\nline 2405\nline 2406\nline 2407\nline 2408\nline 2409\nline 2410\nline 2411\nline 2412\nline 2413\nline 2414\nline 2415\nline 2416\nline 2417\nline 2418\nline 2419\nline 2420\nline 2421\nline 2422\nline 2423\nline 2424\nline 2425\nline 2426\nline 2427\nline 2428\nline 2429\nline 2430\nline 2431\nline 2432\nline 2433\nline 2434\nline 2435\nline 2436\nline 2437\nline 2438\nline 2439\nline 2440\nline 2441\nline 2442\nline 2443\nline 2444\nline 2445\nline 2446\nline 2447\nline 2448\nline 2449\nline 2450\nline 2451\nline 2452\nline 2453\nline 2454\nline 2455\nline 2456\nline 2457\nline 2458\nline 2459\nline 2460\nline 2461\nline 2462\nline 2463\nline 2464\nline 2465\nline 2466\nline 2467\nline 2468\nline 2469\nline 2470\nline 2471\nline 2472\nline 2473\nline 2474\nline 2475\nline 2476\nline 2477\nline 2478\nline 2479\nline 2480\nline 2481\nline 2482\nline 2483\nline 2484\nline 2485\nline 2486\nline 2487\nline 2488\nline 2489\nline 2490\nline 2491\nline 2492\nline 2493\nline 2494\nline 2495\nline 2496\nline 2497\nline 2498\nline 2499\nline 2500\nline 2501\nline 2502\nline 2503\nline 2504\nline 2505\nline 2506\nline 2507\nline 2508\nline 2509\nline 2510\nline 2511\nline 2512\nline 2513\nline 2514\nline 2515\nline 2516\nline 2517\nline 2518\nline 2519\nline 2520\nline 2521\nline 2522\nline 2523\nline 2524\nline 2525\nline 2526\nline 2527\nline 2528\nline 2529\nline 2530\nline 2531\nline 2532\nline 2533\nline 2534\nline 2535\nline 2536\nline 2537\nline 2538\nline 2539\nline 2540\nline 2541\nline 2542\nline 2543\nline 2544\nline 2545\nline 2546\nline 2547\nline 2548\nline 2549\nline 2550\nline 2551\nline 2552\nline 2553\nline 2554\nline 2555\nline 2556\nline 2557\nline 2558\nline 2559\nline 2560\nline 2561\nline 2562\nline 2563\nline 2564\nline 2565\nline 2566\nline 2567\nline 2568\nline 2569\nline 2570\nline 2571\nline 2572\nline 2573\nline 2574\nline 2575\nline 2576\nline 2577\nline 2578\nline 2579\nline 2580\nline 2581\nline 2582\nline 2583\nline 2584\nline 2585\nline 2586\nline 2587\nline 2588\nline 2589\nline 2590\nline 2591\nline 2592\nline 2593\nline 2594\nline 2595\nline 2596\nline 2597\nline 2598\nline 2599\nline 2600\nline 2601\nline 2602\nline 2603\nline 2604\nline 2605\nline 2606\nline 2607\nline 2608\nline 2609\nline 2610\nline 2611\nline 2612\nline 2613\nline 2614\nline 2615\nline 2616\nline 2617\nline 2618\nline 2619\nline 2620\nline 2621\nline 2622\nline 2623\nline 2624\nline 2625\nline 2626\nline 2627\nline 2628\nline 2629\nline 2630\nline 2631\nline 2632\nline 2633\nline 2634\nline 2635\nline 2636\nline 2637\nline 2638\nline 2639\nline 2640\nline 2641\nline 2642\nline 2643\nline 2644\nline 2645\nline 2646\nline 2647\nline 2648\nline 2649\nline 2650\nline 2651\nline 2652\nline 2653\nline 2654\nline 2655\nline 2656\nline 2657\nline 2658\nline 2659\nline 2660\nline 2661\nline 2662\nline 2663\nline 2664\nline 2665\nline 2666\nline 2667\nline 2668\nline 2669\nline 2670\nline 2671\nline 2672\nline 2673\nline 2674\nline 2675\nline 2676\nline 2677\nline 2678\nline 2679\nline 2680\nline 2681\nline 2682\nline 2683\nline 2684\nline 2685\nline 2686\nline 2687\nline 2688\nline 2689\nline 2690\nline 2691\nline 2692\nline 2693\nline 2694\nline 2695\nline 2696\nline 2697\nline 2698\nline 2699\nline 2700\nline 2701\nline 2702\nline 2703\nline 2704\nline 2705\nline 2706\nline 2707\nline 2708\nline 2709\nline 2710\nline 2711\nline 2712\nline 2713\nline 2714\nline 2715\nline 2716\nline 2717\nline 2718\nline 2719\nline 2720\nline 2721\nline 2722\nline 2723\nline 2724\nline 2725\nline 2726\nline 2727\nline 2728\nline 2729\nline 2730\nline 2731\nline 2732\nline 2733\nline 2734\nline 2735\nline 2736\nline 2737\nline 2738\nline 2739\nline 2740\nline 2741\nline 2742\nline 2743\nline 2744\nline 2745\nline 2746\nline 2747\nline 2748\nline 2749\nline 2750\nline 2751\nline 2752\nline 2753\nline 2754\nline 2755\nline 2756\nline 2757\nline 2758\nline 2759\nline 2760\nline 2761\nline 2762\nline 2763\nline 2764\nline 2765\nline 2766\nline 2767\nline 2768\nline 2769\nline 2770\nline 2771\nline 2772\nline 2773\nline 2774\nline 2775\nline 2776\nline 2777\nline 2778\nline 2779\nline 2780\nline 2781\nline 2782\nline 2783\nline 2784\nline 2785\nline 2786\nline 2787\nline 2788\nline 2789\nline 2790\nline 2791\nline 2792\nline 2793\nline 2794\nline 2795\nline 2796\nline 2797\nline 2798\nline 2799\nline 2800\nline 2801\nline 2802\nline 2803\nline 2804\nline 2805\nline 2806\nline 2807\nline 2808\nline 2809\nline 2810\nline 2811\nline 2812\nline 2813\nline 2814\nline 2815\nline 2816\nline 2817\nline 2818\nline 2819\nline 2820\nline 2821\nline 2822\nline 2823\nline 2824\nline 2825\nline 2826\nline 2827\nline 2828\nline 2829\nline 2830\nline 2831\nline 2832\nline 2833\nline 2834\nline 2835\nline 2836\nline 2837\nline 2838\nline 2839\nline 2840\nline 2841\nline 2842\nline 2843\nline 2844\nline 2845\nline 2846\nline 2847\nline 2848\nline 2849\nline 2850\nline 2851\nline 2852\nline 2853\nline 2854\nline 2855\nline 2856\nline 2857\nline 2858\nline 2859\nline 2860\nline 2861\nline 2862\nline 2863\nline 2864\nline 2865\nline 2866\nline 2867\nline 2868\nline 2869\nline 2870\nline 2871\nline 2872\nline 2873\nline 2874\nline 2875\nline 2876\nline 2877\nline 2878\nline 2879\nline 2880\nline 2881\nline 2882\nline 2883\nline 2884\nline 2885\nline 2886\nline 2887\nline 2888\nline 2889\nline 2890\nline 2891\nline 2892\nline 2893\nline 2894\nline 2895\nline 2896\nline 2897\nline 2898\nline 2899\nline 2900\nline 2901\nline 2902\nline 2903\nline 2904\nline 2905\nline 2906\nline 2907\nline 2908\nline 2909\nline 2910\nline 2911\nline 2912\nline 2913\nline 2914\nline 2915\nline 2916\nline 2917\nline 2918\nline 2919\nline 2920\nline 2921\nline 2922\nline 2923\nline 2924\nline 2925\nline 2926\nline 2927\nline 2928\nline 2929\nline 2930\nline 2931\nline 2932\nline 2933\nline 2934\nline 2935\nline 2936\nline 2937\nline 2938\nline 2939\nline 2940\nline 2941\nline 2942\nline 2943\nline 2944\nline 2945\nline 2946\nline 2947\nline 2948\nline 2949\nline 2950\nline 2951\nline 2952\nline 2953\nline 2954\nline 2955\nline 2956\nline 2957\nline 2958\nline 2959\nline 2960\nline 2961\nline 2962\nline 2963\nline 2964\nline 2965\nline 2966\nline 2967\nline 2968\nline 2969\nline 2970\nline 2971\nline 2972\nline 2973\nline 2974\nline 2975\nline 2976\nline 2977\nline 2978\nline 2979\nline 2980\nline 2981\nline 2982\nline 2983\nline 2984\nline 2985\nline 2986\nline 2987\nline 2988\nline 2989\nline 2990\nline 2991\nline 2992\nline 2993\nline 2994\nline 2995\nline 2996\nline 2997\nline 2998\nline 2999\nline 3000\nline 3001\nline 3002\nline 3003\nline 3004\nline 3005\nline 3006\nline 3007\nline 3008\nline 3009\nline 3010\nline 3011\nline 3012\nline 3013\nline 3014\nline 3015\nline 3016\nline 3017\nline 3018\nline 3019\nline 3020\nline 3021\nline 3022\nline 3023\nline 3024\nline 3025\nline 3026\nline 3027\nline 3028\nline 3029\nline 3030\nline 3031\nline 3032\nline 3033\nline 3034\nline 3035\nline 3036\nline 3037\nline 3038\nline 3039\nline 3040\nline 3041\nline 3042\nline 3043\nline 3044\nline 3045\nline 3046\nline 3047\nline 3048\nline 3049\nline 3050\nline 3051\nline 3052\nline 3053\nline 3054\nline 3055\nline 3056\nline 3057\nline 3058\nline 3059\nline 3060\nline 3061\nline 3062\nline 3063\nline 3064\nline 3065\nline 3066\nline 3067\nline 3068\nline 3069\nline 3070\nline 3071\nline 3072\nline 3073\nline 3074\nline 3075\nline 3076\nline 3077\nline 3078\nline 3079\nline 3080\nline 3081\nline 3082\nline 3083\nline 3084\nline 3085\nline 3086\nline 3087\nline 3088\nline 3089\nline 3090\nline 3091\nline 3092\nline 3093\nline 3094\nline 3095\nline 3096\nline 3097\nline 3098\nline 3099\nline 3100\nline 3101\nline 3102\nline 3103\nline 3104\nline 3105\nline 3106\nline 3107\nline 3108\nline 3109\nline 3110\nline 3111\nline 3112\nline 3113\nline 3114\nline 3115\nline 3116\nline 3117\nline 3118\nline 3119\nline 3120\nline 3121\nline 3122\nline 3123\nline 3124\nline 3125\nline 3126\nline 3127\nline 3128\nline 3129\nline 3130\nline 3131\nline 3132\nline 3133\nline 3134\nline 3135\nline 3136\nline 3137\nline 3138\nline 3139\nline 3140\nline 3141\nline 3142\nline 3143\nline 3144\nline 3145\nline 3146\nline 3147\nline 3148\nline 3149\nline 3150\nline 3151\nline 3152\nline 3153\nline 3154\nline 3155\nline 3156\nline 3157\nline 3158\nline 3159\nline 3160\nline 3161\nline 3162\nline 3163\nline 3164\nline 3165\nline 3166\nline 3167\nline 3168\nline 3169\nline 3170\nline 3171\nline 3172\nline 3173\nline 3174\nline 3175\nline 3176\nline 3177\nline 3178\nline 3179\nline 3180\nline 3181\nline 3182\nline 3183\nline 3184\nline 3185\nline 3186\nline 3187\nline 3188\nline 3189\nline 3190\nline 3191\nline 3192\nline 3193\nline 3194\nline 3195\nline 3196\nline 3197\nline 3198\nline 3199\nline 3200\nline 3201\nline 3202\nline 3203\nline 3204\nline 3205\nline 3206\nline 3207\nline 3208\nline 3209\nline 3210\nline 3211\nline 3212\nline 3213\nline 3214\nline 3215\nline 3216\nline 3217\nline 3218\nline 3219\nline 3220\nline 3221\nline 3222\nline 3223\nline 3224\nline 3225\nline 3226\nline 3227\nline 3228\nline 3229\nline 3230\nline 3231\nline 3232\nline 3233\nline 3234\nline 3235\nline 3236\nline 3237\nline 3238\nline 3239\nline 3240\nline 3241\nline 3242\nline 3243\nline 3244\nline 3245\nline 3246\nline 3247\nline 3248\nline 3249\nline 3250\nline 3251\nline 3252\nline 3253\nline 3254\nline 3255\nline 3256\nline 3257\nline 3258\nline 3259\nline 3260\nline 3261\nline 3262\nline 3263\nline 3264\nline 3265\nline 3266\nline 3267\nline 3268\nline 3269\nline 3270\nline 3271\nline 3272\nline 3273\nline 3274\nline 3275\nline 3276\nline 3277\nline 3278\nline 3279\nline 3280\nline 3281\nline 3282\nline 3283\nline 3284\nline 3285\nline 3286\nline 3287\nline 3288\nline 3289\nline 3290\nline 3291\nline 3292\nline 3293\nline 3294\nline 3295\nline 3296\nline 3297\nline 3298\nline 3299\nline 3300\nline 3301\nline 3302\nline 3303\nline 3304\nline 3305\nline 3306\nline 3307\nline 3308\nline 3309\nline 3310\nline 3311\nline 3312\nline 3313\nline 3314\nline 3315\nline 3316\nline 3317\nline 3318\nline 3319\nline 3320\nline 3321\nline 3322\nline 3323\nline 3324\nline 3325\nline 3326\nline 3327\nline 3328\nline 3329\nline 3330\nline 3331\nline 3332\nline 3333\nline 3334\nline 3335\nline 3336\nline 3337\nline 3338\nline 3339\nline 3340\nline 3341\nline 3342\nline 3343\nline 3344\nline 3345\nline 3346\nline 3347\nline 3348\nline 3349\nline 3350\nline 3351\nline 3352\nline 3353\nline 3354\nline 3355\nline 3356\nline 3357\nline 3358\nline 3359\nline 3360\nline 3361\nline 3362\nline 3363\nline 3364\nline 3365\nline 3366\nline 3367\nline 3368\nline 3369\nline 3370\nline 3371\nline 3372\nline 3373\nline 3374\nline 3375\nline 3376\nline 3377\nline 3378\nline 3379\nline 3380\nline 3381\nline 3382\nline 3383\nline 3384\nline 3385\nline 3386\nline 3387\nline 3388\nline 3389\nline 3390\nline 3391\nline 3392\nline 3393\nline 3394\nline 3395\nline 3396\nline 3397\nline 3398\nline 3399\nline 3400\nline 3401\nline 3402\nline 3403\nline 3404\nline 3405\nline 3406\nline 3407\nline 3408\nline 3409\nline 3410\nline 3411\nline 3412\nline 3413\nline 3414\nline 3415\nline 3416\nline 3417\nline 3418\nline 3419\nline 3420\nline 3421\nline 3422\nline 3423\nline 3424\nline 3425\nline 3426\nline 3427\nline 3428\nline 3429\nline 3430\nline 3431\nline 3432\nline 3433\nline 3434\nline 3435\nline 3436\nline 3437\nline 3438\nline 3439\nline 3440\nline 3441\nline 3442\nline 3443\nline 3444\nline 3445\nline 3446\nline 3447\nline 3448\nline 3449\nline 3450\nline 3451\nline 3452\nline 3453\nline 3454\nline 3455\nline 3456\nline 3457\nline 3458\nline 3459\nline 3460\nline 3461\nline 3462\nline 3463\nline 3464\nline 3465\nline 3466\nline 3467\nline 3468\nline 3469\nline 3470\nline 3471\nline 3472\nline 3473\nline 3474\nline 3475\nline 3476\nline 3477\nline 3478\nline 3479\nline 3480\nline 3481\nline 3482\nline 3483\nline 3484\nline 3485\nline 3486\nline 3487\nline 3488\nline 3489\nline 3490\nline 3491\nline 3492\nline 3493\nline 3494\nline 3495\nline 3496\nline 3497\nline 3498\nline 3499\nline 3500\nline 3501\nline 3502\nline 3503\nline 3504\nline 3505\nline 3506\nline 3507\nline 3508\nline 3509\nline 3510\nline 3511\nline 3512\nline 3513\nline 3514\nline 3515\nline 3516\nline 3517\nline 3518\nline 3519\nline 3520\nline 3521\nline 3522\nline 3523\nline 3524\nline 3525\nline 3526\nline 3527\nline 3528\nline 3529\nline 3530\nline 3531\nline 3532\nline 3533\nline 3534\nline 3535\nline 3536\nline 3537\nline 3538\nline 3539\nline 3540\nline 3541\nline 3542\nline 3543\nline 3544\nline 3545\nline 3546\nline 3547\nline 3548\nline 3549\nline 3550\nline 3551\nline 3552\nline 3553\nline 3554\nline 3555\nline 3556\nline 3557\nline 3558\nline 3559\nline 3560\nline 3561\nline 3562\nline 3563\nline 3564\nline 3565\nline 3566\nline 3567\nline 3568\nline 3569\nline 3570\nline 3571\nline 3572\nline 3573\nline 3574\nline 3575\nline 3576\nline 3577\nline 3578\nline 3579\nline 3580\nline 3581\nline 3582\nline 3583\nline 3584\nline 3585\nline 3586\nline 3587\nline 3588\nline 3589\nline 3590\nline 3591\nline 3592\nline 3593\nline 3594\nline 3595\nline 3596\nline 3597\nline 3598\nline 3599\nline 3600\nline 3601\nline 3602\nline 3603\nline 3604\nline 3605\nline 3606\nline 3607\nline 3608\nline 3609\nline 3610\nline 3611\nline 3612\nline 3613\nline 3614\nline 3615\nline 3616\nline 3617\nline 3618\nline 3619\nline 3620\nline 3621\nline 3622\nline 3623\nline 3624\nline 3625\nline 3626\nline 3627\nline 3628\nline 3629\nline 3630\nline 3631\nline 3632\nline 3633\nline 3634\nline 3635\nline 3636\nline 3637\nline 3638\nline 3639\nline 3640\nline 3641\nline 3642\nline 3643\nline 3644\nline 3645\nline 3646\nline 3647\nline 3648\nline 3649\nline 3650\nline 3651\nline 3652\nline 3653\nline 3654\nline 3655\nline 3656\nline 3657\nline 3658\nline 3659\nline 3660\nline 3661\nline 3662\nline 3663\nline 3664\nline 3665\nline 3666\nline 3667\nline 3668\nline 3669\nline 3670\nline 3671\nline 3672\nline 3673\nline 3674\nline 3675\nline 3676\nline 3677\nline 3678\nline 3679\nline 3680\nline 3681\nline 3682\nline 3683\nline 3684\nline 3685\nline 3686\nline 3687\nline 3688\nline 3689\nline 3690\nline 3691\nline 3692\nline 3693\nline 3694\nline 3695\nline 3696\nline 3697\nline 3698\nline 3699\nline 3700\nline 3701\nline 3702\nline 3703\nline 3704\nline 3705\nline 3706\nline 3707\nline 3708\nline 3709\nline 3710\nline 3711\nline 3712\nline 3713\nline 3714\nline 3715\nline 3716\nline 3717\nline 3718\nline 3719\nline 3720\nline 3721\nline 3722\nline 3723\nline 3724\nline 3725\nline 3726\nline 3727\nline 3728\nline 3729\nline 3730\nline 3731\nline 3732\nline 3733\nline 3734\nline 3735\nline 3736\nline 3737\nline 3738\nline 3739\nline 3740\nline 3741\nline 3742\nline 3743\nline 3744\nline 3745\nline 3746\nline 3747\nline 3748\nline 3749\nline 3750\nline 3751\nline 3752\nline 3753\nline 3754\nline 3755\nline 3756\nline 3757\nline 3758\nline 3759\nline 3760\nline 3761\nline 3762\nline 3763\nline 3764\nline 3765\nline 3766\nline 3767\nline 3768\nline 3769\nline 3770\nline 3771\nline 3772\nline 3773\nline 3774\nline 3775\nline 3776\nline 3777\nline 3778\nline 3779\nline 3780\nline 3781\nline 3782\nline 3783\nline 3784\nline 3785\nline 3786\nline 3787\nline 3788\nline 3789\nline 3790\nline 3791\nline 3792\nline 3793\nline 3794\nline 3795\nline 3796\nline 3797\nline 3798\nline 3799\nline 3800\nline 3801\nline 3802\nline 3803\nline 3804\nline 3805\nline 3806\nline 3807\nline 3808\nline 3809\nline 3810\nline 3811\nline 3812\nline 3813\nline 3814\nline 3815\nline 3816\nline 3817\nline 3818\nline 3819\nline 3820\nline 3821\nline 3822\nline 3823\nline 3824\nline 3825\nline 3826\nline 3827\nline 3828\nline 3829\nline 3830\nline 3831\nline 3832\nline 3833\nline 3834\nline 3835\nline 3836\nline 3837\nline 3838\nline 3839\nline 3840\nline 3841\nline 3842\nline 3843\nline 3844\nline 3845\nline 3846\nline 3847\nline 3848\nline 3849\nline 3850\nline 3851\nline 3852\nline 3853\nline 3854\nline 3855\nline 3856\nline 3857\nline 3858\nline 3859\nline 3860\nline 3861\nline 3862\nline 3863\nline 3864\nline 3865\nline 3866\nline 3867\nline 3868\nline 3869\nline 3870\nline 3871\nline 3872\nline 3873\nline 3874\nline 3875\nline 3876\nline 3877\nline 3878\nline 3879\nline 3880\nline 3881\nline 3882\nline 3883\nline 3884\nline 3885\nline 3886\nline 3887\nline 3888\nline 3889\nline 3890\nline 3891\nline 3892\nline 3893\nline 3894\nline 3895\nline 3896\nline 3897\nline 3898\nline 3899\nline 3900\nline 3901\nline 3902\nline 3903\nline 3904\nline 3905\nline 3906\nline 3907\nline 3908\nline 3909\nline 3910\nline 3911\nline 3912\nline 3913\nline 3914\nline 3915\nline 3916\nline 3917\nline 3918\nline 3919\nline 3920\nline 3921\nline 3922\nline 3923\nline 3924\nline 3925\nline 3926\nline 3927\nline 3928\nline 3929\nline 3930\nline 3931\nline 3932\nline 3933\nline 3934\nline 3935\nline 3936\nline 3937\nline 3938\nline 3939\nline 3940\nline 3941\nline 3942\nline 3943\nline 3944\nline 3945\nline 3946\nline 3947\nline 3948\nline 3949\nline 3950\nline 3951\nline 3952\nline 3953\nline 3954\nline 3955\nline 3956\nline 3957\nline 3958\nline 3959\nline 3960\nline 3961\nline 3962\nline 3963\nline 3964\nline 3965\nline 3966\nline 3967\nline 3968\nline 3969\nline 3970\nline 3971\nline 3972\nline 3973\nline 3974\nline 3975\nline 3976\nline 3977\nline 3978\nline 3979\nline 3980\nline 3981\nline 3982\nline 3983\nline 3984\nline 3985\nline 3986\nline 3987\nline 3988\nline 3989\nline 3990\nline 3991\nline 3992\nline 3993\nline 3994\nline 3995\nline 3996\nline 3997\nline 3998\nline 3999\nline 4000\nline 4001\nline 4002\nline 4003\nline 4004\nline 4005\nline 4006\nline 4007\nline 4008\nline 4009\nline 4010\nline 4011\nline 4012\nline 4013\nline 4014\nline 4015\nline 4016\nline 4017\nline 4018\nline 4019\nline 4020\nline 4021\nline 4022\nline 4023\nline 4024\nline 4025\nline 4026\nline 4027\nline 4028\nline 4029\nline 4030\nline 4031\nline 4032\nline 4033\nline 4034\nline 4035\nline 4036\nline 4037\nline 4038\nline 4039\nline 4040\nline 4041\nline 4042\nline 4043\nline 4044\nline 4045\nline 4046\nline 4047\nline 4048\nline 4049\nline 4050\nline 4051\nline 4052\nline 4053\nline 4054\nline 4055\nline 4056\nline 4057\nline 4058\nline 4059\nline 4060\nline 4061\nline 4062\nline 4063\nline 4064\nline 4065\nline 4066\nline 4067\nline 4068\nline 4069\nline 4070\nline 4071\nline 4072\nline 4073\nline 4074\nline 4075\nline 4076\nline 4077\nline 4078\nline 4079\nline 4080\nline 4081\nline 4082\nline 4083\nline 4084\nline 4085\nline 4086\nline 4087\nline 4088\nline 4089\nline 4090\nline 4091\nline 4092\nline 4093\nline 4094\nline 4095\nline 4096\nline 4097\nline 4098\nline 4099",
+   {
+    "pathArg": "",
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "format-many-lines-shell",
+  "kind": "fn",
+  "name": "formatExpandedResult",
+  "args": [
+   "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\nline 31\nline 32\nline 33\nline 34\nline 35\nline 36\nline 37\nline 38\nline 39\nline 40\nline 41\nline 42\nline 43\nline 44\nline 45\nline 46\nline 47\nline 48\nline 49\nline 50\nline 51\nline 52\nline 53\nline 54\nline 55\nline 56\nline 57\nline 58\nline 59\nline 60\nline 61\nline 62\nline 63\nline 64\nline 65\nline 66\nline 67\nline 68\nline 69\nline 70\nline 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\nline 80\nline 81\nline 82\nline 83\nline 84\nline 85\nline 86\nline 87\nline 88\nline 89\nline 90\nline 91\nline 92\nline 93\nline 94\nline 95\nline 96\nline 97\nline 98\nline 99\nline 100\nline 101\nline 102\nline 103\nline 104\nline 105\nline 106\nline 107\nline 108\nline 109\nline 110\nline 111\nline 112\nline 113\nline 114\nline 115\nline 116\nline 117\nline 118\nline 119\nline 120\nline 121\nline 122\nline 123\nline 124\nline 125\nline 126\nline 127\nline 128\nline 129\nline 130\nline 131\nline 132\nline 133\nline 134\nline 135\nline 136\nline 137\nline 138\nline 139\nline 140\nline 141\nline 142\nline 143\nline 144\nline 145\nline 146\nline 147\nline 148\nline 149\nline 150\nline 151\nline 152\nline 153\nline 154\nline 155\nline 156\nline 157\nline 158\nline 159\nline 160\nline 161\nline 162\nline 163\nline 164\nline 165\nline 166\nline 167\nline 168\nline 169\nline 170\nline 171\nline 172\nline 173\nline 174\nline 175\nline 176\nline 177\nline 178\nline 179\nline 180\nline 181\nline 182\nline 183\nline 184\nline 185\nline 186\nline 187\nline 188\nline 189\nline 190\nline 191\nline 192\nline 193\nline 194\nline 195\nline 196\nline 197\nline 198\nline 199\nline 200\nline 201\nline 202\nline 203\nline 204\nline 205\nline 206\nline 207\nline 208\nline 209\nline 210\nline 211\nline 212\nline 213\nline 214\nline 215\nline 216\nline 217\nline 218\nline 219\nline 220\nline 221\nline 222\nline 223\nline 224\nline 225\nline 226\nline 227\nline 228\nline 229\nline 230\nline 231\nline 232\nline 233\nline 234\nline 235\nline 236\nline 237\nline 238\nline 239\nline 240\nline 241\nline 242\nline 243\nline 244\nline 245\nline 246\nline 247\nline 248\nline 249\nline 250\nline 251\nline 252\nline 253\nline 254\nline 255\nline 256\nline 257\nline 258\nline 259\nline 260\nline 261\nline 262\nline 263\nline 264\nline 265\nline 266\nline 267\nline 268\nline 269\nline 270\nline 271\nline 272\nline 273\nline 274\nline 275\nline 276\nline 277\nline 278\nline 279\nline 280\nline 281\nline 282\nline 283\nline 284\nline 285\nline 286\nline 287\nline 288\nline 289\nline 290\nline 291\nline 292\nline 293\nline 294\nline 295\nline 296\nline 297\nline 298\nline 299\nline 300\nline 301\nline 302\nline 303\nline 304\nline 305\nline 306\nline 307\nline 308\nline 309\nline 310\nline 311\nline 312\nline 313\nline 314\nline 315\nline 316\nline 317\nline 318\nline 319\nline 320\nline 321\nline 322\nline 323\nline 324\nline 325\nline 326\nline 327\nline 328\nline 329\nline 330\nline 331\nline 332\nline 333\nline 334\nline 335\nline 336\nline 337\nline 338\nline 339\nline 340\nline 341\nline 342\nline 343\nline 344\nline 345\nline 346\nline 347\nline 348\nline 349\nline 350\nline 351\nline 352\nline 353\nline 354\nline 355\nline 356\nline 357\nline 358\nline 359\nline 360\nline 361\nline 362\nline 363\nline 364\nline 365\nline 366\nline 367\nline 368\nline 369\nline 370\nline 371\nline 372\nline 373\nline 374\nline 375\nline 376\nline 377\nline 378\nline 379\nline 380\nline 381\nline 382\nline 383\nline 384\nline 385\nline 386\nline 387\nline 388\nline 389\nline 390\nline 391\nline 392\nline 393\nline 394\nline 395\nline 396\nline 397\nline 398\nline 399\nline 400\nline 401\nline 402\nline 403\nline 404\nline 405\nline 406\nline 407\nline 408\nline 409\nline 410\nline 411\nline 412\nline 413\nline 414\nline 415\nline 416\nline 417\nline 418\nline 419\nline 420\nline 421\nline 422\nline 423\nline 424\nline 425\nline 426\nline 427\nline 428\nline 429\nline 430\nline 431\nline 432\nline 433\nline 434\nline 435\nline 436\nline 437\nline 438\nline 439\nline 440\nline 441\nline 442\nline 443\nline 444\nline 445\nline 446\nline 447\nline 448\nline 449\nline 450\nline 451\nline 452\nline 453\nline 454\nline 455\nline 456\nline 457\nline 458\nline 459\nline 460\nline 461\nline 462\nline 463\nline 464\nline 465\nline 466\nline 467\nline 468\nline 469\nline 470\nline 471\nline 472\nline 473\nline 474\nline 475\nline 476\nline 477\nline 478\nline 479\nline 480\nline 481\nline 482\nline 483\nline 484\nline 485\nline 486\nline 487\nline 488\nline 489\nline 490\nline 491\nline 492\nline 493\nline 494\nline 495\nline 496\nline 497\nline 498\nline 499\nline 500\nline 501\nline 502\nline 503\nline 504\nline 505\nline 506\nline 507\nline 508\nline 509\nline 510\nline 511\nline 512\nline 513\nline 514\nline 515\nline 516\nline 517\nline 518\nline 519\nline 520\nline 521\nline 522\nline 523\nline 524\nline 525\nline 526\nline 527\nline 528\nline 529\nline 530\nline 531\nline 532\nline 533\nline 534\nline 535\nline 536\nline 537\nline 538\nline 539\nline 540\nline 541\nline 542\nline 543\nline 544\nline 545\nline 546\nline 547\nline 548\nline 549\nline 550\nline 551\nline 552\nline 553\nline 554\nline 555\nline 556\nline 557\nline 558\nline 559\nline 560\nline 561\nline 562\nline 563\nline 564\nline 565\nline 566\nline 567\nline 568\nline 569\nline 570\nline 571\nline 572\nline 573\nline 574\nline 575\nline 576\nline 577\nline 578\nline 579\nline 580\nline 581\nline 582\nline 583\nline 584\nline 585\nline 586\nline 587\nline 588\nline 589\nline 590\nline 591\nline 592\nline 593\nline 594\nline 595\nline 596\nline 597\nline 598\nline 599\nline 600\nline 601\nline 602\nline 603\nline 604\nline 605\nline 606\nline 607\nline 608\nline 609\nline 610\nline 611\nline 612\nline 613\nline 614\nline 615\nline 616\nline 617\nline 618\nline 619\nline 620\nline 621\nline 622\nline 623\nline 624\nline 625\nline 626\nline 627\nline 628\nline 629\nline 630\nline 631\nline 632\nline 633\nline 634\nline 635\nline 636\nline 637\nline 638\nline 639\nline 640\nline 641\nline 642\nline 643\nline 644\nline 645\nline 646\nline 647\nline 648\nline 649\nline 650\nline 651\nline 652\nline 653\nline 654\nline 655\nline 656\nline 657\nline 658\nline 659\nline 660\nline 661\nline 662\nline 663\nline 664\nline 665\nline 666\nline 667\nline 668\nline 669\nline 670\nline 671\nline 672\nline 673\nline 674\nline 675\nline 676\nline 677\nline 678\nline 679\nline 680\nline 681\nline 682\nline 683\nline 684\nline 685\nline 686\nline 687\nline 688\nline 689\nline 690\nline 691\nline 692\nline 693\nline 694\nline 695\nline 696\nline 697\nline 698\nline 699\nline 700\nline 701\nline 702\nline 703\nline 704\nline 705\nline 706\nline 707\nline 708\nline 709\nline 710\nline 711\nline 712\nline 713\nline 714\nline 715\nline 716\nline 717\nline 718\nline 719\nline 720\nline 721\nline 722\nline 723\nline 724\nline 725\nline 726\nline 727\nline 728\nline 729\nline 730\nline 731\nline 732\nline 733\nline 734\nline 735\nline 736\nline 737\nline 738\nline 739\nline 740\nline 741\nline 742\nline 743\nline 744\nline 745\nline 746\nline 747\nline 748\nline 749\nline 750\nline 751\nline 752\nline 753\nline 754\nline 755\nline 756\nline 757\nline 758\nline 759\nline 760\nline 761\nline 762\nline 763\nline 764\nline 765\nline 766\nline 767\nline 768\nline 769\nline 770\nline 771\nline 772\nline 773\nline 774\nline 775\nline 776\nline 777\nline 778\nline 779\nline 780\nline 781\nline 782\nline 783\nline 784\nline 785\nline 786\nline 787\nline 788\nline 789\nline 790\nline 791\nline 792\nline 793\nline 794\nline 795\nline 796\nline 797\nline 798\nline 799\nline 800\nline 801\nline 802\nline 803\nline 804\nline 805\nline 806\nline 807\nline 808\nline 809\nline 810\nline 811\nline 812\nline 813\nline 814\nline 815\nline 816\nline 817\nline 818\nline 819\nline 820\nline 821\nline 822\nline 823\nline 824\nline 825\nline 826\nline 827\nline 828\nline 829\nline 830\nline 831\nline 832\nline 833\nline 834\nline 835\nline 836\nline 837\nline 838\nline 839\nline 840\nline 841\nline 842\nline 843\nline 844\nline 845\nline 846\nline 847\nline 848\nline 849\nline 850\nline 851\nline 852\nline 853\nline 854\nline 855\nline 856\nline 857\nline 858\nline 859\nline 860\nline 861\nline 862\nline 863\nline 864\nline 865\nline 866\nline 867\nline 868\nline 869\nline 870\nline 871\nline 872\nline 873\nline 874\nline 875\nline 876\nline 877\nline 878\nline 879\nline 880\nline 881\nline 882\nline 883\nline 884\nline 885\nline 886\nline 887\nline 888\nline 889\nline 890\nline 891\nline 892\nline 893\nline 894\nline 895\nline 896\nline 897\nline 898\nline 899\nline 900\nline 901\nline 902\nline 903\nline 904\nline 905\nline 906\nline 907\nline 908\nline 909\nline 910\nline 911\nline 912\nline 913\nline 914\nline 915\nline 916\nline 917\nline 918\nline 919\nline 920\nline 921\nline 922\nline 923\nline 924\nline 925\nline 926\nline 927\nline 928\nline 929\nline 930\nline 931\nline 932\nline 933\nline 934\nline 935\nline 936\nline 937\nline 938\nline 939\nline 940\nline 941\nline 942\nline 943\nline 944\nline 945\nline 946\nline 947\nline 948\nline 949\nline 950\nline 951\nline 952\nline 953\nline 954\nline 955\nline 956\nline 957\nline 958\nline 959\nline 960\nline 961\nline 962\nline 963\nline 964\nline 965\nline 966\nline 967\nline 968\nline 969\nline 970\nline 971\nline 972\nline 973\nline 974\nline 975\nline 976\nline 977\nline 978\nline 979\nline 980\nline 981\nline 982\nline 983\nline 984\nline 985\nline 986\nline 987\nline 988\nline 989\nline 990\nline 991\nline 992\nline 993\nline 994\nline 995\nline 996\nline 997\nline 998\nline 999\nline 1000\nline 1001\nline 1002\nline 1003\nline 1004\nline 1005\nline 1006\nline 1007\nline 1008\nline 1009\nline 1010\nline 1011\nline 1012\nline 1013\nline 1014\nline 1015\nline 1016\nline 1017\nline 1018\nline 1019\nline 1020\nline 1021\nline 1022\nline 1023\nline 1024\nline 1025\nline 1026\nline 1027\nline 1028\nline 1029\nline 1030\nline 1031\nline 1032\nline 1033\nline 1034\nline 1035\nline 1036\nline 1037\nline 1038\nline 1039\nline 1040\nline 1041\nline 1042\nline 1043\nline 1044\nline 1045\nline 1046\nline 1047\nline 1048\nline 1049\nline 1050\nline 1051\nline 1052\nline 1053\nline 1054\nline 1055\nline 1056\nline 1057\nline 1058\nline 1059\nline 1060\nline 1061\nline 1062\nline 1063\nline 1064\nline 1065\nline 1066\nline 1067\nline 1068\nline 1069\nline 1070\nline 1071\nline 1072\nline 1073\nline 1074\nline 1075\nline 1076\nline 1077\nline 1078\nline 1079\nline 1080\nline 1081\nline 1082\nline 1083\nline 1084\nline 1085\nline 1086\nline 1087\nline 1088\nline 1089\nline 1090\nline 1091\nline 1092\nline 1093\nline 1094\nline 1095\nline 1096\nline 1097\nline 1098\nline 1099\nline 1100\nline 1101\nline 1102\nline 1103\nline 1104\nline 1105\nline 1106\nline 1107\nline 1108\nline 1109\nline 1110\nline 1111\nline 1112\nline 1113\nline 1114\nline 1115\nline 1116\nline 1117\nline 1118\nline 1119\nline 1120\nline 1121\nline 1122\nline 1123\nline 1124\nline 1125\nline 1126\nline 1127\nline 1128\nline 1129\nline 1130\nline 1131\nline 1132\nline 1133\nline 1134\nline 1135\nline 1136\nline 1137\nline 1138\nline 1139\nline 1140\nline 1141\nline 1142\nline 1143\nline 1144\nline 1145\nline 1146\nline 1147\nline 1148\nline 1149\nline 1150\nline 1151\nline 1152\nline 1153\nline 1154\nline 1155\nline 1156\nline 1157\nline 1158\nline 1159\nline 1160\nline 1161\nline 1162\nline 1163\nline 1164\nline 1165\nline 1166\nline 1167\nline 1168\nline 1169\nline 1170\nline 1171\nline 1172\nline 1173\nline 1174\nline 1175\nline 1176\nline 1177\nline 1178\nline 1179\nline 1180\nline 1181\nline 1182\nline 1183\nline 1184\nline 1185\nline 1186\nline 1187\nline 1188\nline 1189\nline 1190\nline 1191\nline 1192\nline 1193\nline 1194\nline 1195\nline 1196\nline 1197\nline 1198\nline 1199\nline 1200\nline 1201\nline 1202\nline 1203\nline 1204\nline 1205\nline 1206\nline 1207\nline 1208\nline 1209\nline 1210\nline 1211\nline 1212\nline 1213\nline 1214\nline 1215\nline 1216\nline 1217\nline 1218\nline 1219\nline 1220\nline 1221\nline 1222\nline 1223\nline 1224\nline 1225\nline 1226\nline 1227\nline 1228\nline 1229\nline 1230\nline 1231\nline 1232\nline 1233\nline 1234\nline 1235\nline 1236\nline 1237\nline 1238\nline 1239\nline 1240\nline 1241\nline 1242\nline 1243\nline 1244\nline 1245\nline 1246\nline 1247\nline 1248\nline 1249\nline 1250\nline 1251\nline 1252\nline 1253\nline 1254\nline 1255\nline 1256\nline 1257\nline 1258\nline 1259\nline 1260\nline 1261\nline 1262\nline 1263\nline 1264\nline 1265\nline 1266\nline 1267\nline 1268\nline 1269\nline 1270\nline 1271\nline 1272\nline 1273\nline 1274\nline 1275\nline 1276\nline 1277\nline 1278\nline 1279\nline 1280\nline 1281\nline 1282\nline 1283\nline 1284\nline 1285\nline 1286\nline 1287\nline 1288\nline 1289\nline 1290\nline 1291\nline 1292\nline 1293\nline 1294\nline 1295\nline 1296\nline 1297\nline 1298\nline 1299\nline 1300\nline 1301\nline 1302\nline 1303\nline 1304\nline 1305\nline 1306\nline 1307\nline 1308\nline 1309\nline 1310\nline 1311\nline 1312\nline 1313\nline 1314\nline 1315\nline 1316\nline 1317\nline 1318\nline 1319\nline 1320\nline 1321\nline 1322\nline 1323\nline 1324\nline 1325\nline 1326\nline 1327\nline 1328\nline 1329\nline 1330\nline 1331\nline 1332\nline 1333\nline 1334\nline 1335\nline 1336\nline 1337\nline 1338\nline 1339\nline 1340\nline 1341\nline 1342\nline 1343\nline 1344\nline 1345\nline 1346\nline 1347\nline 1348\nline 1349\nline 1350\nline 1351\nline 1352\nline 1353\nline 1354\nline 1355\nline 1356\nline 1357\nline 1358\nline 1359\nline 1360\nline 1361\nline 1362\nline 1363\nline 1364\nline 1365\nline 1366\nline 1367\nline 1368\nline 1369\nline 1370\nline 1371\nline 1372\nline 1373\nline 1374\nline 1375\nline 1376\nline 1377\nline 1378\nline 1379\nline 1380\nline 1381\nline 1382\nline 1383\nline 1384\nline 1385\nline 1386\nline 1387\nline 1388\nline 1389\nline 1390\nline 1391\nline 1392\nline 1393\nline 1394\nline 1395\nline 1396\nline 1397\nline 1398\nline 1399\nline 1400\nline 1401\nline 1402\nline 1403\nline 1404\nline 1405\nline 1406\nline 1407\nline 1408\nline 1409\nline 1410\nline 1411\nline 1412\nline 1413\nline 1414\nline 1415\nline 1416\nline 1417\nline 1418\nline 1419\nline 1420\nline 1421\nline 1422\nline 1423\nline 1424\nline 1425\nline 1426\nline 1427\nline 1428\nline 1429\nline 1430\nline 1431\nline 1432\nline 1433\nline 1434\nline 1435\nline 1436\nline 1437\nline 1438\nline 1439\nline 1440\nline 1441\nline 1442\nline 1443\nline 1444\nline 1445\nline 1446\nline 1447\nline 1448\nline 1449\nline 1450\nline 1451\nline 1452\nline 1453\nline 1454\nline 1455\nline 1456\nline 1457\nline 1458\nline 1459\nline 1460\nline 1461\nline 1462\nline 1463\nline 1464\nline 1465\nline 1466\nline 1467\nline 1468\nline 1469\nline 1470\nline 1471\nline 1472\nline 1473\nline 1474\nline 1475\nline 1476\nline 1477\nline 1478\nline 1479\nline 1480\nline 1481\nline 1482\nline 1483\nline 1484\nline 1485\nline 1486\nline 1487\nline 1488\nline 1489\nline 1490\nline 1491\nline 1492\nline 1493\nline 1494\nline 1495\nline 1496\nline 1497\nline 1498\nline 1499\nline 1500\nline 1501\nline 1502\nline 1503\nline 1504\nline 1505\nline 1506\nline 1507\nline 1508\nline 1509\nline 1510\nline 1511\nline 1512\nline 1513\nline 1514\nline 1515\nline 1516\nline 1517\nline 1518\nline 1519\nline 1520\nline 1521\nline 1522\nline 1523\nline 1524\nline 1525\nline 1526\nline 1527\nline 1528\nline 1529\nline 1530\nline 1531\nline 1532\nline 1533\nline 1534\nline 1535\nline 1536\nline 1537\nline 1538\nline 1539\nline 1540\nline 1541\nline 1542\nline 1543\nline 1544\nline 1545\nline 1546\nline 1547\nline 1548\nline 1549\nline 1550\nline 1551\nline 1552\nline 1553\nline 1554\nline 1555\nline 1556\nline 1557\nline 1558\nline 1559\nline 1560\nline 1561\nline 1562\nline 1563\nline 1564\nline 1565\nline 1566\nline 1567\nline 1568\nline 1569\nline 1570\nline 1571\nline 1572\nline 1573\nline 1574\nline 1575\nline 1576\nline 1577\nline 1578\nline 1579\nline 1580\nline 1581\nline 1582\nline 1583\nline 1584\nline 1585\nline 1586\nline 1587\nline 1588\nline 1589\nline 1590\nline 1591\nline 1592\nline 1593\nline 1594\nline 1595\nline 1596\nline 1597\nline 1598\nline 1599\nline 1600\nline 1601\nline 1602\nline 1603\nline 1604\nline 1605\nline 1606\nline 1607\nline 1608\nline 1609\nline 1610\nline 1611\nline 1612\nline 1613\nline 1614\nline 1615\nline 1616\nline 1617\nline 1618\nline 1619\nline 1620\nline 1621\nline 1622\nline 1623\nline 1624\nline 1625\nline 1626\nline 1627\nline 1628\nline 1629\nline 1630\nline 1631\nline 1632\nline 1633\nline 1634\nline 1635\nline 1636\nline 1637\nline 1638\nline 1639\nline 1640\nline 1641\nline 1642\nline 1643\nline 1644\nline 1645\nline 1646\nline 1647\nline 1648\nline 1649\nline 1650\nline 1651\nline 1652\nline 1653\nline 1654\nline 1655\nline 1656\nline 1657\nline 1658\nline 1659\nline 1660\nline 1661\nline 1662\nline 1663\nline 1664\nline 1665\nline 1666\nline 1667\nline 1668\nline 1669\nline 1670\nline 1671\nline 1672\nline 1673\nline 1674\nline 1675\nline 1676\nline 1677\nline 1678\nline 1679\nline 1680\nline 1681\nline 1682\nline 1683\nline 1684\nline 1685\nline 1686\nline 1687\nline 1688\nline 1689\nline 1690\nline 1691\nline 1692\nline 1693\nline 1694\nline 1695\nline 1696\nline 1697\nline 1698\nline 1699\nline 1700\nline 1701\nline 1702\nline 1703\nline 1704\nline 1705\nline 1706\nline 1707\nline 1708\nline 1709\nline 1710\nline 1711\nline 1712\nline 1713\nline 1714\nline 1715\nline 1716\nline 1717\nline 1718\nline 1719\nline 1720\nline 1721\nline 1722\nline 1723\nline 1724\nline 1725\nline 1726\nline 1727\nline 1728\nline 1729\nline 1730\nline 1731\nline 1732\nline 1733\nline 1734\nline 1735\nline 1736\nline 1737\nline 1738\nline 1739\nline 1740\nline 1741\nline 1742\nline 1743\nline 1744\nline 1745\nline 1746\nline 1747\nline 1748\nline 1749\nline 1750\nline 1751\nline 1752\nline 1753\nline 1754\nline 1755\nline 1756\nline 1757\nline 1758\nline 1759\nline 1760\nline 1761\nline 1762\nline 1763\nline 1764\nline 1765\nline 1766\nline 1767\nline 1768\nline 1769\nline 1770\nline 1771\nline 1772\nline 1773\nline 1774\nline 1775\nline 1776\nline 1777\nline 1778\nline 1779\nline 1780\nline 1781\nline 1782\nline 1783\nline 1784\nline 1785\nline 1786\nline 1787\nline 1788\nline 1789\nline 1790\nline 1791\nline 1792\nline 1793\nline 1794\nline 1795\nline 1796\nline 1797\nline 1798\nline 1799\nline 1800\nline 1801\nline 1802\nline 1803\nline 1804\nline 1805\nline 1806\nline 1807\nline 1808\nline 1809\nline 1810\nline 1811\nline 1812\nline 1813\nline 1814\nline 1815\nline 1816\nline 1817\nline 1818\nline 1819\nline 1820\nline 1821\nline 1822\nline 1823\nline 1824\nline 1825\nline 1826\nline 1827\nline 1828\nline 1829\nline 1830\nline 1831\nline 1832\nline 1833\nline 1834\nline 1835\nline 1836\nline 1837\nline 1838\nline 1839\nline 1840\nline 1841\nline 1842\nline 1843\nline 1844\nline 1845\nline 1846\nline 1847\nline 1848\nline 1849\nline 1850\nline 1851\nline 1852\nline 1853\nline 1854\nline 1855\nline 1856\nline 1857\nline 1858\nline 1859\nline 1860\nline 1861\nline 1862\nline 1863\nline 1864\nline 1865\nline 1866\nline 1867\nline 1868\nline 1869\nline 1870\nline 1871\nline 1872\nline 1873\nline 1874\nline 1875\nline 1876\nline 1877\nline 1878\nline 1879\nline 1880\nline 1881\nline 1882\nline 1883\nline 1884\nline 1885\nline 1886\nline 1887\nline 1888\nline 1889\nline 1890\nline 1891\nline 1892\nline 1893\nline 1894\nline 1895\nline 1896\nline 1897\nline 1898\nline 1899\nline 1900\nline 1901\nline 1902\nline 1903\nline 1904\nline 1905\nline 1906\nline 1907\nline 1908\nline 1909\nline 1910\nline 1911\nline 1912\nline 1913\nline 1914\nline 1915\nline 1916\nline 1917\nline 1918\nline 1919\nline 1920\nline 1921\nline 1922\nline 1923\nline 1924\nline 1925\nline 1926\nline 1927\nline 1928\nline 1929\nline 1930\nline 1931\nline 1932\nline 1933\nline 1934\nline 1935\nline 1936\nline 1937\nline 1938\nline 1939\nline 1940\nline 1941\nline 1942\nline 1943\nline 1944\nline 1945\nline 1946\nline 1947\nline 1948\nline 1949\nline 1950\nline 1951\nline 1952\nline 1953\nline 1954\nline 1955\nline 1956\nline 1957\nline 1958\nline 1959\nline 1960\nline 1961\nline 1962\nline 1963\nline 1964\nline 1965\nline 1966\nline 1967\nline 1968\nline 1969\nline 1970\nline 1971\nline 1972\nline 1973\nline 1974\nline 1975\nline 1976\nline 1977\nline 1978\nline 1979\nline 1980\nline 1981\nline 1982\nline 1983\nline 1984\nline 1985\nline 1986\nline 1987\nline 1988\nline 1989\nline 1990\nline 1991\nline 1992\nline 1993\nline 1994\nline 1995\nline 1996\nline 1997\nline 1998\nline 1999\nline 2000\nline 2001\nline 2002\nline 2003\nline 2004\nline 2005\nline 2006\nline 2007\nline 2008\nline 2009\nline 2010\nline 2011\nline 2012\nline 2013\nline 2014\nline 2015\nline 2016\nline 2017\nline 2018\nline 2019\nline 2020\nline 2021\nline 2022\nline 2023\nline 2024\nline 2025\nline 2026\nline 2027\nline 2028\nline 2029\nline 2030\nline 2031\nline 2032\nline 2033\nline 2034\nline 2035\nline 2036\nline 2037\nline 2038\nline 2039\nline 2040\nline 2041\nline 2042\nline 2043\nline 2044\nline 2045\nline 2046\nline 2047\nline 2048\nline 2049\nline 2050\nline 2051\nline 2052\nline 2053\nline 2054\nline 2055\nline 2056\nline 2057\nline 2058\nline 2059\nline 2060\nline 2061\nline 2062\nline 2063\nline 2064\nline 2065\nline 2066\nline 2067\nline 2068\nline 2069\nline 2070\nline 2071\nline 2072\nline 2073\nline 2074\nline 2075\nline 2076\nline 2077\nline 2078\nline 2079\nline 2080\nline 2081\nline 2082\nline 2083\nline 2084\nline 2085\nline 2086\nline 2087\nline 2088\nline 2089\nline 2090\nline 2091\nline 2092\nline 2093\nline 2094\nline 2095\nline 2096\nline 2097\nline 2098\nline 2099\nline 2100\nline 2101\nline 2102\nline 2103\nline 2104\nline 2105\nline 2106\nline 2107\nline 2108\nline 2109\nline 2110\nline 2111\nline 2112\nline 2113\nline 2114\nline 2115\nline 2116\nline 2117\nline 2118\nline 2119\nline 2120\nline 2121\nline 2122\nline 2123\nline 2124\nline 2125\nline 2126\nline 2127\nline 2128\nline 2129\nline 2130\nline 2131\nline 2132\nline 2133\nline 2134\nline 2135\nline 2136\nline 2137\nline 2138\nline 2139\nline 2140\nline 2141\nline 2142\nline 2143\nline 2144\nline 2145\nline 2146\nline 2147\nline 2148\nline 2149\nline 2150\nline 2151\nline 2152\nline 2153\nline 2154\nline 2155\nline 2156\nline 2157\nline 2158\nline 2159\nline 2160\nline 2161\nline 2162\nline 2163\nline 2164\nline 2165\nline 2166\nline 2167\nline 2168\nline 2169\nline 2170\nline 2171\nline 2172\nline 2173\nline 2174\nline 2175\nline 2176\nline 2177\nline 2178\nline 2179\nline 2180\nline 2181\nline 2182\nline 2183\nline 2184\nline 2185\nline 2186\nline 2187\nline 2188\nline 2189\nline 2190\nline 2191\nline 2192\nline 2193\nline 2194\nline 2195\nline 2196\nline 2197\nline 2198\nline 2199\nline 2200\nline 2201\nline 2202\nline 2203\nline 2204\nline 2205\nline 2206\nline 2207\nline 2208\nline 2209\nline 2210\nline 2211\nline 2212\nline 2213\nline 2214\nline 2215\nline 2216\nline 2217\nline 2218\nline 2219\nline 2220\nline 2221\nline 2222\nline 2223\nline 2224\nline 2225\nline 2226\nline 2227\nline 2228\nline 2229\nline 2230\nline 2231\nline 2232\nline 2233\nline 2234\nline 2235\nline 2236\nline 2237\nline 2238\nline 2239\nline 2240\nline 2241\nline 2242\nline 2243\nline 2244\nline 2245\nline 2246\nline 2247\nline 2248\nline 2249\nline 2250\nline 2251\nline 2252\nline 2253\nline 2254\nline 2255\nline 2256\nline 2257\nline 2258\nline 2259\nline 2260\nline 2261\nline 2262\nline 2263\nline 2264\nline 2265\nline 2266\nline 2267\nline 2268\nline 2269\nline 2270\nline 2271\nline 2272\nline 2273\nline 2274\nline 2275\nline 2276\nline 2277\nline 2278\nline 2279\nline 2280\nline 2281\nline 2282\nline 2283\nline 2284\nline 2285\nline 2286\nline 2287\nline 2288\nline 2289\nline 2290\nline 2291\nline 2292\nline 2293\nline 2294\nline 2295\nline 2296\nline 2297\nline 2298\nline 2299\nline 2300\nline 2301\nline 2302\nline 2303\nline 2304\nline 2305\nline 2306\nline 2307\nline 2308\nline 2309\nline 2310\nline 2311\nline 2312\nline 2313\nline 2314\nline 2315\nline 2316\nline 2317\nline 2318\nline 2319\nline 2320\nline 2321\nline 2322\nline 2323\nline 2324\nline 2325\nline 2326\nline 2327\nline 2328\nline 2329\nline 2330\nline 2331\nline 2332\nline 2333\nline 2334\nline 2335\nline 2336\nline 2337\nline 2338\nline 2339\nline 2340\nline 2341\nline 2342\nline 2343\nline 2344\nline 2345\nline 2346\nline 2347\nline 2348\nline 2349\nline 2350\nline 2351\nline 2352\nline 2353\nline 2354\nline 2355\nline 2356\nline 2357\nline 2358\nline 2359\nline 2360\nline 2361\nline 2362\nline 2363\nline 2364\nline 2365\nline 2366\nline 2367\nline 2368\nline 2369\nline 2370\nline 2371\nline 2372\nline 2373\nline 2374\nline 2375\nline 2376\nline 2377\nline 2378\nline 2379\nline 2380\nline 2381\nline 2382\nline 2383\nline 2384\nline 2385\nline 2386\nline 2387\nline 2388\nline 2389\nline 2390\nline 2391\nline 2392\nline 2393\nline 2394\nline 2395\nline 2396\nline 2397\nline 2398\nline 2399\nline 2400\nline 2401\nline 2402\nline 2403\nline 2404\nline 2405\nline 2406\nline 2407\nline 2408\nline 2409\nline 2410\nline 2411\nline 2412\nline 2413\nline 2414\nline 2415\nline 2416\nline 2417\nline 2418\nline 2419\nline 2420\nline 2421\nline 2422\nline 2423\nline 2424\nline 2425\nline 2426\nline 2427\nline 2428\nline 2429\nline 2430\nline 2431\nline 2432\nline 2433\nline 2434\nline 2435\nline 2436\nline 2437\nline 2438\nline 2439\nline 2440\nline 2441\nline 2442\nline 2443\nline 2444\nline 2445\nline 2446\nline 2447\nline 2448\nline 2449\nline 2450\nline 2451\nline 2452\nline 2453\nline 2454\nline 2455\nline 2456\nline 2457\nline 2458\nline 2459\nline 2460\nline 2461\nline 2462\nline 2463\nline 2464\nline 2465\nline 2466\nline 2467\nline 2468\nline 2469\nline 2470\nline 2471\nline 2472\nline 2473\nline 2474\nline 2475\nline 2476\nline 2477\nline 2478\nline 2479\nline 2480\nline 2481\nline 2482\nline 2483\nline 2484\nline 2485\nline 2486\nline 2487\nline 2488\nline 2489\nline 2490\nline 2491\nline 2492\nline 2493\nline 2494\nline 2495\nline 2496\nline 2497\nline 2498\nline 2499\nline 2500\nline 2501\nline 2502\nline 2503\nline 2504\nline 2505\nline 2506\nline 2507\nline 2508\nline 2509\nline 2510\nline 2511\nline 2512\nline 2513\nline 2514\nline 2515\nline 2516\nline 2517\nline 2518\nline 2519\nline 2520\nline 2521\nline 2522\nline 2523\nline 2524\nline 2525\nline 2526\nline 2527\nline 2528\nline 2529\nline 2530\nline 2531\nline 2532\nline 2533\nline 2534\nline 2535\nline 2536\nline 2537\nline 2538\nline 2539\nline 2540\nline 2541\nline 2542\nline 2543\nline 2544\nline 2545\nline 2546\nline 2547\nline 2548\nline 2549\nline 2550\nline 2551\nline 2552\nline 2553\nline 2554\nline 2555\nline 2556\nline 2557\nline 2558\nline 2559\nline 2560\nline 2561\nline 2562\nline 2563\nline 2564\nline 2565\nline 2566\nline 2567\nline 2568\nline 2569\nline 2570\nline 2571\nline 2572\nline 2573\nline 2574\nline 2575\nline 2576\nline 2577\nline 2578\nline 2579\nline 2580\nline 2581\nline 2582\nline 2583\nline 2584\nline 2585\nline 2586\nline 2587\nline 2588\nline 2589\nline 2590\nline 2591\nline 2592\nline 2593\nline 2594\nline 2595\nline 2596\nline 2597\nline 2598\nline 2599\nline 2600\nline 2601\nline 2602\nline 2603\nline 2604\nline 2605\nline 2606\nline 2607\nline 2608\nline 2609\nline 2610\nline 2611\nline 2612\nline 2613\nline 2614\nline 2615\nline 2616\nline 2617\nline 2618\nline 2619\nline 2620\nline 2621\nline 2622\nline 2623\nline 2624\nline 2625\nline 2626\nline 2627\nline 2628\nline 2629\nline 2630\nline 2631\nline 2632\nline 2633\nline 2634\nline 2635\nline 2636\nline 2637\nline 2638\nline 2639\nline 2640\nline 2641\nline 2642\nline 2643\nline 2644\nline 2645\nline 2646\nline 2647\nline 2648\nline 2649\nline 2650\nline 2651\nline 2652\nline 2653\nline 2654\nline 2655\nline 2656\nline 2657\nline 2658\nline 2659\nline 2660\nline 2661\nline 2662\nline 2663\nline 2664\nline 2665\nline 2666\nline 2667\nline 2668\nline 2669\nline 2670\nline 2671\nline 2672\nline 2673\nline 2674\nline 2675\nline 2676\nline 2677\nline 2678\nline 2679\nline 2680\nline 2681\nline 2682\nline 2683\nline 2684\nline 2685\nline 2686\nline 2687\nline 2688\nline 2689\nline 2690\nline 2691\nline 2692\nline 2693\nline 2694\nline 2695\nline 2696\nline 2697\nline 2698\nline 2699\nline 2700\nline 2701\nline 2702\nline 2703\nline 2704\nline 2705\nline 2706\nline 2707\nline 2708\nline 2709\nline 2710\nline 2711\nline 2712\nline 2713\nline 2714\nline 2715\nline 2716\nline 2717\nline 2718\nline 2719\nline 2720\nline 2721\nline 2722\nline 2723\nline 2724\nline 2725\nline 2726\nline 2727\nline 2728\nline 2729\nline 2730\nline 2731\nline 2732\nline 2733\nline 2734\nline 2735\nline 2736\nline 2737\nline 2738\nline 2739\nline 2740\nline 2741\nline 2742\nline 2743\nline 2744\nline 2745\nline 2746\nline 2747\nline 2748\nline 2749\nline 2750\nline 2751\nline 2752\nline 2753\nline 2754\nline 2755\nline 2756\nline 2757\nline 2758\nline 2759\nline 2760\nline 2761\nline 2762\nline 2763\nline 2764\nline 2765\nline 2766\nline 2767\nline 2768\nline 2769\nline 2770\nline 2771\nline 2772\nline 2773\nline 2774\nline 2775\nline 2776\nline 2777\nline 2778\nline 2779\nline 2780\nline 2781\nline 2782\nline 2783\nline 2784\nline 2785\nline 2786\nline 2787\nline 2788\nline 2789\nline 2790\nline 2791\nline 2792\nline 2793\nline 2794\nline 2795\nline 2796\nline 2797\nline 2798\nline 2799\nline 2800\nline 2801\nline 2802\nline 2803\nline 2804\nline 2805\nline 2806\nline 2807\nline 2808\nline 2809\nline 2810\nline 2811\nline 2812\nline 2813\nline 2814\nline 2815\nline 2816\nline 2817\nline 2818\nline 2819\nline 2820\nline 2821\nline 2822\nline 2823\nline 2824\nline 2825\nline 2826\nline 2827\nline 2828\nline 2829\nline 2830\nline 2831\nline 2832\nline 2833\nline 2834\nline 2835\nline 2836\nline 2837\nline 2838\nline 2839\nline 2840\nline 2841\nline 2842\nline 2843\nline 2844\nline 2845\nline 2846\nline 2847\nline 2848\nline 2849\nline 2850\nline 2851\nline 2852\nline 2853\nline 2854\nline 2855\nline 2856\nline 2857\nline 2858\nline 2859\nline 2860\nline 2861\nline 2862\nline 2863\nline 2864\nline 2865\nline 2866\nline 2867\nline 2868\nline 2869\nline 2870\nline 2871\nline 2872\nline 2873\nline 2874\nline 2875\nline 2876\nline 2877\nline 2878\nline 2879\nline 2880\nline 2881\nline 2882\nline 2883\nline 2884\nline 2885\nline 2886\nline 2887\nline 2888\nline 2889\nline 2890\nline 2891\nline 2892\nline 2893\nline 2894\nline 2895\nline 2896\nline 2897\nline 2898\nline 2899\nline 2900\nline 2901\nline 2902\nline 2903\nline 2904\nline 2905\nline 2906\nline 2907\nline 2908\nline 2909\nline 2910\nline 2911\nline 2912\nline 2913\nline 2914\nline 2915\nline 2916\nline 2917\nline 2918\nline 2919\nline 2920\nline 2921\nline 2922\nline 2923\nline 2924\nline 2925\nline 2926\nline 2927\nline 2928\nline 2929\nline 2930\nline 2931\nline 2932\nline 2933\nline 2934\nline 2935\nline 2936\nline 2937\nline 2938\nline 2939\nline 2940\nline 2941\nline 2942\nline 2943\nline 2944\nline 2945\nline 2946\nline 2947\nline 2948\nline 2949\nline 2950\nline 2951\nline 2952\nline 2953\nline 2954\nline 2955\nline 2956\nline 2957\nline 2958\nline 2959\nline 2960\nline 2961\nline 2962\nline 2963\nline 2964\nline 2965\nline 2966\nline 2967\nline 2968\nline 2969\nline 2970\nline 2971\nline 2972\nline 2973\nline 2974\nline 2975\nline 2976\nline 2977\nline 2978\nline 2979\nline 2980\nline 2981\nline 2982\nline 2983\nline 2984\nline 2985\nline 2986\nline 2987\nline 2988\nline 2989\nline 2990\nline 2991\nline 2992\nline 2993\nline 2994\nline 2995\nline 2996\nline 2997\nline 2998\nline 2999\nline 3000\nline 3001\nline 3002\nline 3003\nline 3004\nline 3005\nline 3006\nline 3007\nline 3008\nline 3009\nline 3010\nline 3011\nline 3012\nline 3013\nline 3014\nline 3015\nline 3016\nline 3017\nline 3018\nline 3019\nline 3020\nline 3021\nline 3022\nline 3023\nline 3024\nline 3025\nline 3026\nline 3027\nline 3028\nline 3029\nline 3030\nline 3031\nline 3032\nline 3033\nline 3034\nline 3035\nline 3036\nline 3037\nline 3038\nline 3039\nline 3040\nline 3041\nline 3042\nline 3043\nline 3044\nline 3045\nline 3046\nline 3047\nline 3048\nline 3049\nline 3050\nline 3051\nline 3052\nline 3053\nline 3054\nline 3055\nline 3056\nline 3057\nline 3058\nline 3059\nline 3060\nline 3061\nline 3062\nline 3063\nline 3064\nline 3065\nline 3066\nline 3067\nline 3068\nline 3069\nline 3070\nline 3071\nline 3072\nline 3073\nline 3074\nline 3075\nline 3076\nline 3077\nline 3078\nline 3079\nline 3080\nline 3081\nline 3082\nline 3083\nline 3084\nline 3085\nline 3086\nline 3087\nline 3088\nline 3089\nline 3090\nline 3091\nline 3092\nline 3093\nline 3094\nline 3095\nline 3096\nline 3097\nline 3098\nline 3099\nline 3100\nline 3101\nline 3102\nline 3103\nline 3104\nline 3105\nline 3106\nline 3107\nline 3108\nline 3109\nline 3110\nline 3111\nline 3112\nline 3113\nline 3114\nline 3115\nline 3116\nline 3117\nline 3118\nline 3119\nline 3120\nline 3121\nline 3122\nline 3123\nline 3124\nline 3125\nline 3126\nline 3127\nline 3128\nline 3129\nline 3130\nline 3131\nline 3132\nline 3133\nline 3134\nline 3135\nline 3136\nline 3137\nline 3138\nline 3139\nline 3140\nline 3141\nline 3142\nline 3143\nline 3144\nline 3145\nline 3146\nline 3147\nline 3148\nline 3149\nline 3150\nline 3151\nline 3152\nline 3153\nline 3154\nline 3155\nline 3156\nline 3157\nline 3158\nline 3159\nline 3160\nline 3161\nline 3162\nline 3163\nline 3164\nline 3165\nline 3166\nline 3167\nline 3168\nline 3169\nline 3170\nline 3171\nline 3172\nline 3173\nline 3174\nline 3175\nline 3176\nline 3177\nline 3178\nline 3179\nline 3180\nline 3181\nline 3182\nline 3183\nline 3184\nline 3185\nline 3186\nline 3187\nline 3188\nline 3189\nline 3190\nline 3191\nline 3192\nline 3193\nline 3194\nline 3195\nline 3196\nline 3197\nline 3198\nline 3199\nline 3200\nline 3201\nline 3202\nline 3203\nline 3204\nline 3205\nline 3206\nline 3207\nline 3208\nline 3209\nline 3210\nline 3211\nline 3212\nline 3213\nline 3214\nline 3215\nline 3216\nline 3217\nline 3218\nline 3219\nline 3220\nline 3221\nline 3222\nline 3223\nline 3224\nline 3225\nline 3226\nline 3227\nline 3228\nline 3229\nline 3230\nline 3231\nline 3232\nline 3233\nline 3234\nline 3235\nline 3236\nline 3237\nline 3238\nline 3239\nline 3240\nline 3241\nline 3242\nline 3243\nline 3244\nline 3245\nline 3246\nline 3247\nline 3248\nline 3249\nline 3250\nline 3251\nline 3252\nline 3253\nline 3254\nline 3255\nline 3256\nline 3257\nline 3258\nline 3259\nline 3260\nline 3261\nline 3262\nline 3263\nline 3264\nline 3265\nline 3266\nline 3267\nline 3268\nline 3269\nline 3270\nline 3271\nline 3272\nline 3273\nline 3274\nline 3275\nline 3276\nline 3277\nline 3278\nline 3279\nline 3280\nline 3281\nline 3282\nline 3283\nline 3284\nline 3285\nline 3286\nline 3287\nline 3288\nline 3289\nline 3290\nline 3291\nline 3292\nline 3293\nline 3294\nline 3295\nline 3296\nline 3297\nline 3298\nline 3299\nline 3300\nline 3301\nline 3302\nline 3303\nline 3304\nline 3305\nline 3306\nline 3307\nline 3308\nline 3309\nline 3310\nline 3311\nline 3312\nline 3313\nline 3314\nline 3315\nline 3316\nline 3317\nline 3318\nline 3319\nline 3320\nline 3321\nline 3322\nline 3323\nline 3324\nline 3325\nline 3326\nline 3327\nline 3328\nline 3329\nline 3330\nline 3331\nline 3332\nline 3333\nline 3334\nline 3335\nline 3336\nline 3337\nline 3338\nline 3339\nline 3340\nline 3341\nline 3342\nline 3343\nline 3344\nline 3345\nline 3346\nline 3347\nline 3348\nline 3349\nline 3350\nline 3351\nline 3352\nline 3353\nline 3354\nline 3355\nline 3356\nline 3357\nline 3358\nline 3359\nline 3360\nline 3361\nline 3362\nline 3363\nline 3364\nline 3365\nline 3366\nline 3367\nline 3368\nline 3369\nline 3370\nline 3371\nline 3372\nline 3373\nline 3374\nline 3375\nline 3376\nline 3377\nline 3378\nline 3379\nline 3380\nline 3381\nline 3382\nline 3383\nline 3384\nline 3385\nline 3386\nline 3387\nline 3388\nline 3389\nline 3390\nline 3391\nline 3392\nline 3393\nline 3394\nline 3395\nline 3396\nline 3397\nline 3398\nline 3399\nline 3400\nline 3401\nline 3402\nline 3403\nline 3404\nline 3405\nline 3406\nline 3407\nline 3408\nline 3409\nline 3410\nline 3411\nline 3412\nline 3413\nline 3414\nline 3415\nline 3416\nline 3417\nline 3418\nline 3419\nline 3420\nline 3421\nline 3422\nline 3423\nline 3424\nline 3425\nline 3426\nline 3427\nline 3428\nline 3429\nline 3430\nline 3431\nline 3432\nline 3433\nline 3434\nline 3435\nline 3436\nline 3437\nline 3438\nline 3439\nline 3440\nline 3441\nline 3442\nline 3443\nline 3444\nline 3445\nline 3446\nline 3447\nline 3448\nline 3449\nline 3450\nline 3451\nline 3452\nline 3453\nline 3454\nline 3455\nline 3456\nline 3457\nline 3458\nline 3459\nline 3460\nline 3461\nline 3462\nline 3463\nline 3464\nline 3465\nline 3466\nline 3467\nline 3468\nline 3469\nline 3470\nline 3471\nline 3472\nline 3473\nline 3474\nline 3475\nline 3476\nline 3477\nline 3478\nline 3479\nline 3480\nline 3481\nline 3482\nline 3483\nline 3484\nline 3485\nline 3486\nline 3487\nline 3488\nline 3489\nline 3490\nline 3491\nline 3492\nline 3493\nline 3494\nline 3495\nline 3496\nline 3497\nline 3498\nline 3499\nline 3500\nline 3501\nline 3502\nline 3503\nline 3504\nline 3505\nline 3506\nline 3507\nline 3508\nline 3509\nline 3510\nline 3511\nline 3512\nline 3513\nline 3514\nline 3515\nline 3516\nline 3517\nline 3518\nline 3519\nline 3520\nline 3521\nline 3522\nline 3523\nline 3524\nline 3525\nline 3526\nline 3527\nline 3528\nline 3529\nline 3530\nline 3531\nline 3532\nline 3533\nline 3534\nline 3535\nline 3536\nline 3537\nline 3538\nline 3539\nline 3540\nline 3541\nline 3542\nline 3543\nline 3544\nline 3545\nline 3546\nline 3547\nline 3548\nline 3549\nline 3550\nline 3551\nline 3552\nline 3553\nline 3554\nline 3555\nline 3556\nline 3557\nline 3558\nline 3559\nline 3560\nline 3561\nline 3562\nline 3563\nline 3564\nline 3565\nline 3566\nline 3567\nline 3568\nline 3569\nline 3570\nline 3571\nline 3572\nline 3573\nline 3574\nline 3575\nline 3576\nline 3577\nline 3578\nline 3579\nline 3580\nline 3581\nline 3582\nline 3583\nline 3584\nline 3585\nline 3586\nline 3587\nline 3588\nline 3589\nline 3590\nline 3591\nline 3592\nline 3593\nline 3594\nline 3595\nline 3596\nline 3597\nline 3598\nline 3599\nline 3600\nline 3601\nline 3602\nline 3603\nline 3604\nline 3605\nline 3606\nline 3607\nline 3608\nline 3609\nline 3610\nline 3611\nline 3612\nline 3613\nline 3614\nline 3615\nline 3616\nline 3617\nline 3618\nline 3619\nline 3620\nline 3621\nline 3622\nline 3623\nline 3624\nline 3625\nline 3626\nline 3627\nline 3628\nline 3629\nline 3630\nline 3631\nline 3632\nline 3633\nline 3634\nline 3635\nline 3636\nline 3637\nline 3638\nline 3639\nline 3640\nline 3641\nline 3642\nline 3643\nline 3644\nline 3645\nline 3646\nline 3647\nline 3648\nline 3649\nline 3650\nline 3651\nline 3652\nline 3653\nline 3654\nline 3655\nline 3656\nline 3657\nline 3658\nline 3659\nline 3660\nline 3661\nline 3662\nline 3663\nline 3664\nline 3665\nline 3666\nline 3667\nline 3668\nline 3669\nline 3670\nline 3671\nline 3672\nline 3673\nline 3674\nline 3675\nline 3676\nline 3677\nline 3678\nline 3679\nline 3680\nline 3681\nline 3682\nline 3683\nline 3684\nline 3685\nline 3686\nline 3687\nline 3688\nline 3689\nline 3690\nline 3691\nline 3692\nline 3693\nline 3694\nline 3695\nline 3696\nline 3697\nline 3698\nline 3699\nline 3700\nline 3701\nline 3702\nline 3703\nline 3704\nline 3705\nline 3706\nline 3707\nline 3708\nline 3709\nline 3710\nline 3711\nline 3712\nline 3713\nline 3714\nline 3715\nline 3716\nline 3717\nline 3718\nline 3719\nline 3720\nline 3721\nline 3722\nline 3723\nline 3724\nline 3725\nline 3726\nline 3727\nline 3728\nline 3729\nline 3730\nline 3731\nline 3732\nline 3733\nline 3734\nline 3735\nline 3736\nline 3737\nline 3738\nline 3739\nline 3740\nline 3741\nline 3742\nline 3743\nline 3744\nline 3745\nline 3746\nline 3747\nline 3748\nline 3749\nline 3750\nline 3751\nline 3752\nline 3753\nline 3754\nline 3755\nline 3756\nline 3757\nline 3758\nline 3759\nline 3760\nline 3761\nline 3762\nline 3763\nline 3764\nline 3765\nline 3766\nline 3767\nline 3768\nline 3769\nline 3770\nline 3771\nline 3772\nline 3773\nline 3774\nline 3775\nline 3776\nline 3777\nline 3778\nline 3779\nline 3780\nline 3781\nline 3782\nline 3783\nline 3784\nline 3785\nline 3786\nline 3787\nline 3788\nline 3789\nline 3790\nline 3791\nline 3792\nline 3793\nline 3794\nline 3795\nline 3796\nline 3797\nline 3798\nline 3799\nline 3800\nline 3801\nline 3802\nline 3803\nline 3804\nline 3805\nline 3806\nline 3807\nline 3808\nline 3809\nline 3810\nline 3811\nline 3812\nline 3813\nline 3814\nline 3815\nline 3816\nline 3817\nline 3818\nline 3819\nline 3820\nline 3821\nline 3822\nline 3823\nline 3824\nline 3825\nline 3826\nline 3827\nline 3828\nline 3829\nline 3830\nline 3831\nline 3832\nline 3833\nline 3834\nline 3835\nline 3836\nline 3837\nline 3838\nline 3839\nline 3840\nline 3841\nline 3842\nline 3843\nline 3844\nline 3845\nline 3846\nline 3847\nline 3848\nline 3849\nline 3850\nline 3851\nline 3852\nline 3853\nline 3854\nline 3855\nline 3856\nline 3857\nline 3858\nline 3859\nline 3860\nline 3861\nline 3862\nline 3863\nline 3864\nline 3865\nline 3866\nline 3867\nline 3868\nline 3869\nline 3870\nline 3871\nline 3872\nline 3873\nline 3874\nline 3875\nline 3876\nline 3877\nline 3878\nline 3879\nline 3880\nline 3881\nline 3882\nline 3883\nline 3884\nline 3885\nline 3886\nline 3887\nline 3888\nline 3889\nline 3890\nline 3891\nline 3892\nline 3893\nline 3894\nline 3895\nline 3896\nline 3897\nline 3898\nline 3899\nline 3900\nline 3901\nline 3902\nline 3903\nline 3904\nline 3905\nline 3906\nline 3907\nline 3908\nline 3909\nline 3910\nline 3911\nline 3912\nline 3913\nline 3914\nline 3915\nline 3916\nline 3917\nline 3918\nline 3919\nline 3920\nline 3921\nline 3922\nline 3923\nline 3924\nline 3925\nline 3926\nline 3927\nline 3928\nline 3929\nline 3930\nline 3931\nline 3932\nline 3933\nline 3934\nline 3935\nline 3936\nline 3937\nline 3938\nline 3939\nline 3940\nline 3941\nline 3942\nline 3943\nline 3944\nline 3945\nline 3946\nline 3947\nline 3948\nline 3949\nline 3950\nline 3951\nline 3952\nline 3953\nline 3954\nline 3955\nline 3956\nline 3957\nline 3958\nline 3959\nline 3960\nline 3961\nline 3962\nline 3963\nline 3964\nline 3965\nline 3966\nline 3967\nline 3968\nline 3969\nline 3970\nline 3971\nline 3972\nline 3973\nline 3974\nline 3975\nline 3976\nline 3977\nline 3978\nline 3979\nline 3980\nline 3981\nline 3982\nline 3983\nline 3984\nline 3985\nline 3986\nline 3987\nline 3988\nline 3989\nline 3990\nline 3991\nline 3992\nline 3993\nline 3994\nline 3995\nline 3996\nline 3997\nline 3998\nline 3999\nline 4000\nline 4001\nline 4002\nline 4003\nline 4004\nline 4005\nline 4006\nline 4007\nline 4008\nline 4009\nline 4010\nline 4011\nline 4012\nline 4013\nline 4014\nline 4015\nline 4016\nline 4017\nline 4018\nline 4019\nline 4020\nline 4021\nline 4022\nline 4023\nline 4024\nline 4025\nline 4026\nline 4027\nline 4028\nline 4029\nline 4030\nline 4031\nline 4032\nline 4033\nline 4034\nline 4035\nline 4036\nline 4037\nline 4038\nline 4039\nline 4040\nline 4041\nline 4042\nline 4043\nline 4044\nline 4045\nline 4046\nline 4047\nline 4048\nline 4049\nline 4050\nline 4051\nline 4052\nline 4053\nline 4054\nline 4055\nline 4056\nline 4057\nline 4058\nline 4059\nline 4060\nline 4061\nline 4062\nline 4063\nline 4064\nline 4065\nline 4066\nline 4067\nline 4068\nline 4069\nline 4070\nline 4071\nline 4072\nline 4073\nline 4074\nline 4075\nline 4076\nline 4077\nline 4078\nline 4079\nline 4080\nline 4081\nline 4082\nline 4083\nline 4084\nline 4085\nline 4086\nline 4087\nline 4088\nline 4089\nline 4090\nline 4091\nline 4092\nline 4093\nline 4094\nline 4095\nline 4096\nline 4097\nline 4098\nline 4099",
+   {
+    "pathArg": "",
+    "isShell": true
+   }
+  ]
+ },
+ {
+  "id": "wrap-long-w24",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "short",
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   24,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-wide-glyphs-w24",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 ",
+    "1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック "
+   ],
+   24,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-long-w40",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "short",
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   40,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-wide-glyphs-w40",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 ",
+    "1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック "
+   ],
+   40,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-long-w80",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "short",
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   80,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-wide-glyphs-w80",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 ",
+    "1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック "
+   ],
+   80,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-long-w120",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "1→word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "short",
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   120,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-wide-glyphs-w120",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 한국어 日本語 mixed 문장입니다 ",
+    "1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック 1→ブロック "
+   ],
+   120,
+   {
+    "isShell": false
+   }
+  ]
+ },
+ {
+  "id": "wrap-cap-0-shell",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": true
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "0"
+  }
+ },
+ {
+  "id": "wrap-cap-0",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "0"
+  }
+ },
+ {
+  "id": "wrap-cap-1-shell",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": true
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "1"
+  }
+ },
+ {
+  "id": "wrap-cap-1",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "1"
+  }
+ },
+ {
+  "id": "wrap-cap-3-shell",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": true
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "3"
+  }
+ },
+ {
+  "id": "wrap-cap-3",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "3"
+  }
+ },
+ {
+  "id": "wrap-cap-abc-shell",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": true
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "abc"
+  }
+ },
+ {
+  "id": "wrap-cap-abc",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "abc"
+  }
+ },
+ {
+  "id": "wrap-legacy-cap",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_EXPANDED_MAX_ROWS": "2"
+  }
+ },
+ {
+  "id": "wrap-legacy-ignored",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [
+    "a",
+    "b",
+    "c"
+   ],
+   160,
+   {
+    "isShell": false
+   }
+  ],
+  "env": {
+   "MIXDOG_TUI_EXPANDED_MAX_ROWS": "2",
+   "MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES": "0"
+  }
+ },
+ {
+  "id": "wrap-empty",
+  "kind": "fn",
+  "name": "wrapExpandedResultLines",
+  "args": [
+   [],
+   160,
+   {
+    "isShell": false
+   }
+  ]
+ }
+]
