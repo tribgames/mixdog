@@ -186,14 +186,23 @@ fn byte_offsets_by_unit(text: &str) -> Vec<Option<usize>> {
     at
 }
 
-#[test]
-fn every_prefix_of_the_long_documents_lexes_as_marked_does() {
+/// The prefix cases are cut into this many slices; a case belongs to the slice its unit number is congruent to, so every
+/// case runs in exactly one slice and the slices cost about the same.
+const PREFIX_SLICES: usize = 8;
+
+/// How many of the units `1..=limit` fall in `slice`.
+fn slice_units(limit: usize, slice: usize) -> usize {
+    (1..=limit).filter(|unit| unit % PREFIX_SLICES == slice).count()
+}
+
+fn check_prefix_slice(slice: usize) {
     let golden = parse(GOLDEN);
     let docs = parse(DOCS);
     let prefix = parse(PREFIX);
     let recorded = entries(member(&golden, "prefixes"));
     assert_eq!(entries(&prefix["docs"]).len(), recorded.len());
     let mut wrong = Vec::new();
+    let mut checked = 0;
     for want in recorded {
         let id = id_of(want);
         let text = entries(&docs).iter().find(|doc| id_of(doc) == id).map_or("", text_of);
@@ -201,7 +210,8 @@ fn every_prefix_of_the_long_documents_lexes_as_marked_does() {
         let limit = usize::try_from(want["limit"].as_u64().unwrap_or(0)).unwrap_or(0);
         let digests = want["digests"].as_str().unwrap_or("");
         assert_eq!(digests.len(), limit * 8, "{id}");
-        for unit in 1..=limit {
+        for unit in (1..=limit).filter(|unit| unit % PREFIX_SLICES == slice) {
+            checked += 1;
             let expected = &digests[(unit - 1) * 8..unit * 8];
             // A cut inside a surrogate pair is not a Rust string: the recording has no digest for it either.
             let actual = match offsets.get(unit).copied().flatten() {
@@ -214,5 +224,43 @@ fn every_prefix_of_the_long_documents_lexes_as_marked_does() {
             }
         }
     }
+    let total: usize = recorded.iter().map(|want| slice_units(usize::try_from(want["limit"].as_u64().unwrap_or(0)).unwrap_or(0), slice)).sum();
+    println!("prefix slice {slice}: {checked} cases");
+    assert!(!wrong.is_empty() || checked == total, "every case of the slice ran");
     assert!(wrong.is_empty(), "prefixes that differ: {wrong:?}");
 }
+
+#[test]
+fn the_prefix_slices_cover_every_unit_once() {
+    let golden = parse(GOLDEN);
+    let mut all = 0;
+    for want in entries(member(&golden, "prefixes")) {
+        let limit = usize::try_from(want["limit"].as_u64().unwrap_or(0)).unwrap_or(0);
+        let sliced: usize = (0..PREFIX_SLICES).map(|slice| slice_units(limit, slice)).sum();
+        assert_eq!(sliced, limit, "{}", id_of(want));
+        all += limit;
+    }
+    println!("prefix cases in all slices: {all}");
+}
+
+macro_rules! prefix_slices {
+    ($($name:ident = $slice:expr),*) => {
+        $(
+            #[test]
+            fn $name() {
+                check_prefix_slice($slice);
+            }
+        )*
+    };
+}
+
+prefix_slices!(
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_0 = 0,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_1 = 1,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_2 = 2,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_3 = 3,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_4 = 4,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_5 = 5,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_6 = 6,
+    every_prefix_of_the_long_documents_lexes_as_marked_does_slice_7 = 7
+);

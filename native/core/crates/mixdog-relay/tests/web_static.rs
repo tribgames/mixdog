@@ -231,12 +231,12 @@ fn the_cookie_of_a_cross_site_request_never_authenticates() {
 struct StaticHandler {
     io: InteractiveIo,
     roots: HashMap<String, PathBuf>,
-    inputs: Vec<Value>,
+    inputs: Arc<Vec<Value>>,
 }
 
 impl Handler for StaticHandler {
     fn request(&self, request: Request, response: ResponseWriter) -> HandlerFuture {
-        let (io, roots, inputs) = (self.io, self.roots.clone(), self.inputs.clone());
+        let (io, roots, inputs) = (self.io, self.roots.clone(), Arc::clone(&self.inputs));
         Box::pin(async move {
             let mut response = response;
             let name = request.headers.get("x-case").unwrap().to_owned();
@@ -328,15 +328,24 @@ fn check_body(name: &str, got: &Answered, want: &Value) {
     assert_eq!(sha(&body), want["sha256"].as_str().unwrap(), "{name}: body");
 }
 
-#[tokio::test]
-async fn whole_exchanges_equal_the_ones_node_wrote() {
+/// The recorded exchanges are cut into this many slices; an exchange belongs to the slice its index in the recording
+/// (files first, then manifests) is congruent to, so each runs in exactly one slice.
+const EXCHANGE_SLICES: usize = 16;
+
+fn slice_exchanges(total: usize, slice: usize) -> usize {
+    (0..total).filter(|index| index % EXCHANGE_SLICES == slice).count()
+}
+
+async fn whole_exchanges_of_slice(slice: usize) {
     let fixture = Fixture::new();
     let recorded = recording();
     let roots: HashMap<String, PathBuf> = ["site", "plain"].iter().map(|name| ((*name).to_owned(), fixture.root(name))).collect();
-    let mut inputs: Vec<Value> = recorded["files"].as_array().unwrap().iter().map(|case| case["input"].clone()).collect();
-    inputs.extend(recorded["manifests"].as_array().unwrap().iter().map(|case| case["input"].clone()));
-    let handler = Arc::new(StaticHandler { io: io(), roots, inputs });
-    for case in recorded["files"].as_array().unwrap().iter().chain(recorded["manifests"].as_array().unwrap()) {
+    let cases: Vec<&Value> = recorded["files"].as_array().unwrap().iter().chain(recorded["manifests"].as_array().unwrap()).collect();
+    let inputs: Vec<Value> = cases.iter().map(|case| case["input"].clone()).collect();
+    let handler = Arc::new(StaticHandler { io: io(), roots, inputs: Arc::new(inputs) });
+    let mut ran = 0;
+    for (_, case) in cases.iter().enumerate().filter(|(index, _)| index % EXCHANGE_SLICES == slice) {
+        ran += 1;
         let input = &case["input"];
         let name = input["name"].as_str().unwrap();
         let method = input.get("method").and_then(Value::as_str).unwrap_or("GET");
@@ -345,7 +354,48 @@ async fn whole_exchanges_equal_the_ones_node_wrote() {
         assert_eq!(got.headers, flat(&case["headers"]), "{name}: headers");
         check_body(name, &got, &case["body"]);
     }
+    println!("whole exchanges slice {slice}: {ran} of {} exchanges", cases.len());
+    assert_eq!(ran, slice_exchanges(cases.len(), slice));
 }
+
+#[test]
+fn the_exchange_slices_cover_every_recorded_exchange_once() {
+    let recorded = recording();
+    let total = recorded["files"].as_array().unwrap().len() + recorded["manifests"].as_array().unwrap().len();
+    let sliced: usize = (0..EXCHANGE_SLICES).map(|slice| slice_exchanges(total, slice)).sum();
+    assert_eq!(sliced, total);
+    println!("{total} exchanges in {EXCHANGE_SLICES} slices");
+}
+
+macro_rules! exchange_slices {
+    ($($name:ident = $slice:expr),* $(,)?) => {
+        $(
+            #[tokio::test]
+            async fn $name() {
+                whole_exchanges_of_slice($slice).await;
+            }
+        )*
+    };
+}
+
+exchange_slices!(
+    whole_exchanges_equal_the_ones_node_wrote_slice_00 = 0,
+    whole_exchanges_equal_the_ones_node_wrote_slice_01 = 1,
+    whole_exchanges_equal_the_ones_node_wrote_slice_02 = 2,
+    whole_exchanges_equal_the_ones_node_wrote_slice_03 = 3,
+    whole_exchanges_equal_the_ones_node_wrote_slice_04 = 4,
+    whole_exchanges_equal_the_ones_node_wrote_slice_05 = 5,
+    whole_exchanges_equal_the_ones_node_wrote_slice_06 = 6,
+    whole_exchanges_equal_the_ones_node_wrote_slice_07 = 7,
+    whole_exchanges_equal_the_ones_node_wrote_slice_08 = 8,
+    whole_exchanges_equal_the_ones_node_wrote_slice_09 = 9,
+    whole_exchanges_equal_the_ones_node_wrote_slice_10 = 10,
+    whole_exchanges_equal_the_ones_node_wrote_slice_11 = 11,
+    whole_exchanges_equal_the_ones_node_wrote_slice_12 = 12,
+    whole_exchanges_equal_the_ones_node_wrote_slice_13 = 13,
+    whole_exchanges_equal_the_ones_node_wrote_slice_14 = 14,
+    whole_exchanges_equal_the_ones_node_wrote_slice_15 = 15,
+);
 
 // ---- static-http.test.mjs ----
 

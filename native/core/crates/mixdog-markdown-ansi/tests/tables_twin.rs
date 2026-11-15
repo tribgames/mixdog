@@ -85,17 +85,31 @@ fn table_token(raw: &str) -> Token {
     segment.token().clone()
 }
 
-#[test]
-fn the_table_layout_equals_the_node_one_byte_for_byte() {
+/// The long recorded comparisons are cut into this many slices; a case belongs to the slice its index in the recording
+/// is congruent to, so every case runs in exactly one slice and the slices cost about the same.
+const SLICES: usize = 16;
+
+fn in_slice(index: usize, slice: usize) -> bool {
+    index % SLICES == slice
+}
+
+/// How many of `total` cases fall in `slice`.
+fn slice_cases(total: usize, slice: usize) -> usize {
+    (0..total).filter(|index| in_slice(*index, slice)).count()
+}
+
+fn check_the_table_layout(slice: usize) {
     fix_policy();
     let golden = parse(GOLDEN);
     let widths = numbers(&golden["widths"]);
     let tables = entries(&golden["tables"]);
     assert!(widths.len() > 30 && tables.len() > 100, "tests/goldens/tables.json is not recorded: node tests/recorders/record-tables.mjs --tree C:/Project/mixdog --write tests/goldens/tables.json");
     let mut failures: Vec<String> = Vec::new();
+    let mut cases = 0;
     for (theme_at, theme) in entries(&golden["themes"]).iter().enumerate() {
         set_theme(theme.as_str().unwrap_or(""));
-        for entry in tables {
+        for (entry_at, entry) in tables.iter().enumerate().filter(|(index, _)| in_slice(*index, slice)) {
+            cases += 1;
             let id = str_of(entry, "id");
             let token = table_token(str_of(entry, "raw"));
             let want_digests = entry["themes"][theme_at].as_str().unwrap_or("");
@@ -136,6 +150,19 @@ fn the_table_layout_equals_the_node_one_byte_for_byte() {
         }
     }
     report(&mut failures);
+    let themes = entries(&golden["themes"]).len();
+    println!("table layout slice {slice}: {cases} table-theme cases of {}", slice_cases(tables.len(), slice) * themes);
+    assert_eq!(cases, slice_cases(tables.len(), slice) * themes, "every table of the slice ran under every theme");
+}
+
+#[test]
+fn the_slices_cover_every_recorded_case_once() {
+    let golden = parse(GOLDEN);
+    for total in [entries(&golden["tables"]).len(), entries(&golden["measured"]).len()] {
+        let sliced: usize = (0..SLICES).map(|slice| slice_cases(total, slice)).sum();
+        assert_eq!(sliced, total);
+        println!("{total} cases in {SLICES} slices");
+    }
 }
 
 fn corpus_text<'a>(corpus: &'a [(&str, Value)], group: &str, id: &str) -> Option<&'a str> {
@@ -157,8 +184,7 @@ fn painted_rows(text: &str, columns: usize) -> usize {
     rows.max(1)
 }
 
-#[test]
-fn the_row_measurement_equals_the_node_one_and_the_painted_rows() {
+fn check_the_row_measurement(slice: usize) {
     fix_policy();
     let golden = parse(GOLDEN);
     let corpus = [("strings", parse(STRINGS)), ("edge", parse(EDGE)), ("docs", parse(DOCS))];
@@ -167,7 +193,9 @@ fn the_row_measurement_equals_the_node_one_and_the_painted_rows() {
     let measured = entries(&golden["measured"]);
     assert!(measured.len() > 300, "tests/goldens/tables.json holds no measurement");
     let mut failures: Vec<String> = Vec::new();
-    for entry in measured {
+    let mut cases = 0;
+    for (_, entry) in measured.iter().enumerate().filter(|(index, _)| in_slice(*index, slice)) {
+        cases += 1;
         let (group, id) = (str_of(entry, "group"), str_of(entry, "id"));
         let Some(text) = corpus_text(&corpus, group, id) else {
             failures.push(format!("{group} {id} is not a corpus input"));
@@ -202,7 +230,45 @@ fn the_row_measurement_equals_the_node_one_and_the_painted_rows() {
         }
     }
     report(&mut failures);
+    println!("row measurement slice {slice}: {cases} recorded inputs");
+    assert_eq!(cases, slice_cases(measured.len(), slice));
 }
+
+macro_rules! slices {
+    ($($layout:ident, $rows:ident = $slice:expr);* $(;)?) => {
+        $(
+            #[test]
+            fn $layout() {
+                check_the_table_layout($slice);
+            }
+
+            #[test]
+            fn $rows() {
+                check_the_row_measurement($slice);
+            }
+        )*
+    };
+}
+
+slices!(
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_0, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_0 = 0;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_1, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_1 = 1;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_2, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_2 = 2;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_3, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_3 = 3;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_4, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_4 = 4;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_5, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_5 = 5;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_6, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_6 = 6;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_7, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_7 = 7;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_8, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_8 = 8;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_9, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_9 = 9;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_10, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_10 = 10;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_11, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_11 = 11;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_12, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_12 = 12;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_13, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_13 = 13;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_14, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_14 = 14;
+    the_table_layout_equals_the_node_one_byte_for_byte_slice_15, the_row_measurement_equals_the_node_one_and_the_painted_rows_slice_15 = 15;
+);
+
 
 #[test]
 fn the_painted_rows_of_wide_cells_and_fallbacks_are_the_measured_ones() {
