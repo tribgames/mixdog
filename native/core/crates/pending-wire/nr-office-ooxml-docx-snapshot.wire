@@ -15,7 +15,8 @@ After `pub mod slide_shapes;` / `pub mod snapshot_shared;` add:
 
 ## native/core/fixtures/MANIFEST.json
 
-In the "sets" list, after the entry of office-sheet-xml and before office-startup (the list is sorted by set name), add:
+In the "sets" list, at its place in set-name order (the list is sorted by set name: in mig/int today after the entry of
+office-measure and before office-stats; after office-sheet-xml if another fragment of the wave adds that set first), add:
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-snapshot-docx.mjs --tree <tree>",
