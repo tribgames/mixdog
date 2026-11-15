@@ -1,0 +1,36 @@
+# nr-relay-ingress: wire lines for mixdog-relay (native/core/crates/mixdog-relay): src/legs/ingress.rs, src/legs/ingress/{pool,meter}.rs, tests/legs_ingress.rs
+# Nothing here could be compiled (no cargo in this task).
+
+## 1. native/core/crates/mixdog-relay/Cargo.toml
+Add a test target next to the other `[[test]]` entries (the test reads the pool counters, which exist under `test-support`):
+    [[test]]
+    name = "legs_ingress"
+    path = "tests/legs_ingress.rs"
+    required-features = ["test-support"]
+No new dependency: the crate already has bytes, httparse, serde_json, tokio (dev: macros, io-util, sync, time, rt) and mixdog-rt.
+
+## 2. native/core/Cargo.lock, mixdog-workspace-hack, compose_flip.rs SERVICE_PENDING
+No change. No protocol method is registered.
+
+## 3. src/legs/mod.rs
+Written by this task: `pub mod ingress;` beside `envelope` and `policy` (the nr-relay-frame-policy fragment said to add it).
+
+## 4. What the tasks that run the legs (nr-relay-legs, nr-relay-server) must apply
+- One `ingress::IngressPool` per process (the Node module-level counters); every leg gets a clone.
+- Right after `WebSocketServer::handle_upgrade` and before the first `WsEvents::next`: `IngressLeg::install(&pool, &ws, kind, limits)`
+  - desktop leg: `LegKind::Desktop`, `IngressLimits { limit: max_frame_bytes, ..config's ingress numbers }`;
+  - phone leg: `LegKind::Phone { limit_for }` where `limit_for(binary)` is `oversizeLimitFor` (the path's binary or text ceiling);
+  - hook leg: `LegKind::Hook`, `IngressLimits::hook()` (1 MiB, `HOOK_FRAME_LIMIT_BYTES`).
+  `IngressLimits::with_limit(n)` carries the defaults (ceiling = MAX_INGRESS_BYTES, reservation = INGRESS_RESERVATION_BYTES, window =
+  INGRESS_FREE_WINDOW_BYTES, transport = MAX_WS_PAYLOAD_BYTES); the server's `maxIngressBytes`, `ingressReservationBytes`,
+  `ingressWindowBytes` and `maxPayloadBytes` options override `ceiling`, `reservation`, `window` and `transport` (keep `transport`
+  equal to the ServerOptions max_payload).
+- Every `WsEvent::Message`: `let announced = leg.note_delivery();` first (it returns the leg's reservation to the pool), then
+  `policy::check_oversize(size, limit, announced)`; on `Refused { announce: true }` call `leg.signal_oversize(size, limit, raw, binary)`
+  (the desktop and phone notices of `rejectOversizeFrame`; a hook leg says nothing).
+- On `WsEvent::Close` (and before any close of its own that the sweep makes): `leg.release()`. It also drops the socket handle the leg
+  keeps, which breaks the socket -> tap -> leg -> socket cycle; a leg that is never released leaks its socket.
+- In the heartbeat sweep, per socket, before the ping branch: `match leg.sweep(Instant::now())`: `Sweep::Closed` and `Sweep::Parked`
+  -> `continue` (Closed already released and closed the leg 4008 "slow producer" / 4009 "relay busy"); `Sweep::Clear` -> go on with the
+  ping window. The "draining" grace of the ping branch reads `ws.gate().is_held(Holder::Uplink) || ws.gate().is_held(Holder::Ingress)`.
+- `ingress::IngressPool::stats()` / `reset_stats()` exist under `test-support` only (they are test-only in Node as well).
