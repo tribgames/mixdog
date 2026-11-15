@@ -30,7 +30,7 @@ use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::{js_trim, value_to_string};
 use mixdog_pdf::author::draw::{page_size, parse_color};
 use mixdog_pdf::embed::{EmbedError, Font, FontEnv, FontRequest, StandardFontName, SuffixRng, embed_bold_font, embed_document_font};
-use mixdog_pdf::write::{PdfDocument, SaveOptions, WriteError, flate_stream};
+use mixdog_pdf::write::{DocumentProperties, PdfDocument, SaveOptions, WriteError, flate_stream};
 use mixdog_pdf::{Dict, Obj, Ref};
 use mixdog_raster::svg::SvgFonts;
 use serde_json::{Map, Value, json};
@@ -345,25 +345,20 @@ fn draw_page_footers(flow: &mut Flow, properties: &Value, numbering: bool) -> Wr
     Ok(())
 }
 
-/// `applyDocumentProperties(document, properties)`: title, author, subject and keywords, when present.
+/// `applyDocumentProperties(document, properties)`: title, author, subject and keywords, when present (`!= null`), read
+/// from the caller's JSON as `String(value)` and applied by [`PdfDocument::apply_document_properties`].
 pub fn apply_document_properties(document: &mut PdfDocument, properties: &Value) {
     let present = |key: &str| properties.get(key).filter(|value| !value.is_null());
-    if let Some(title) = present("title") {
-        document.set_title(&value_to_string(title));
-    }
-    if let Some(author) = present("author") {
-        document.set_author(&value_to_string(author));
-    }
-    if let Some(subject) = present("subject") {
-        document.set_subject(&value_to_string(subject));
-    }
-    if let Some(keywords) = present("keywords") {
-        let listed: Vec<String> = match keywords {
+    let text = |key: &str| present(key).map(value_to_string);
+    document.apply_document_properties(&DocumentProperties {
+        title: text("title"),
+        author: text("author"),
+        subject: text("subject"),
+        keywords: present("keywords").map(|keywords| match keywords {
             Value::Array(items) => items.iter().map(value_to_string).collect(),
             other => vec![value_to_string(other)],
-        };
-        document.set_keywords(&listed);
-    }
+        }),
+    });
 }
 
 pub(crate) fn file_error(error: std::io::Error) -> WriterError {
