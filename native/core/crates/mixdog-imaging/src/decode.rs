@@ -208,7 +208,7 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
         Some(Format::Png) => decode_with(PngDecoder::new(Cursor::new(bytes)), Format::Png, pixel_limit),
         Some(Format::Gif) => decode_with(GifDecoder::new(Cursor::new(bytes)), Format::Gif, pixel_limit),
         Some(Format::Webp) => decode_with(WebPDecoder::new(Cursor::new(bytes)), Format::Webp, pixel_limit),
-        Some(Format::Tiff) => decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit),
+        Some(Format::Tiff) => decode_tiff(bytes, pixel_limit),
         Some(Format::Svg) => decode_svg(bytes, pixel_limit),
     }
 }
@@ -243,9 +243,12 @@ fn decode_svg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
     let mut pixmap = tiny_skia::Pixmap::new(width, height)
         .ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
     resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes
+    // the rasterizer's premultiplied pixels back to straight alpha (tiny-skia's own demultiply rounds).
     let data = pixmap.pixels().iter().flat_map(|pixel| {
-        let pixel = pixel.demultiply();
-        [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+        let alpha = u32::from(pixel.alpha());
+        let straight = |channel: u8| if alpha == 0 { 0 } else { (u32::from(channel) * 255 / alpha).min(255) as u8 };
+        [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
     }).collect();
     let raster = Raster { width, height, has_alpha: true, data };
     Ok(Decoded { format: Format::Svg, width, height, orientation: 1, raster })
@@ -254,6 +257,98 @@ fn decode_svg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
 /// The dimensions of the image after one full decode: sharp's `decodedImageMeta`.
 pub fn decoded_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImagingError> {
     decode(bytes, DECODE_PIXEL_LIMIT).map(|decoded| (decoded.width, decoded.height))
+}
+
+/// A TIFF whose strips are JPEG-compressed YCbCr is read here: the `image` crate refuses that colour type. The
+/// strips come out as YCbCr samples, which libjpeg (what libvips asks for RGB) turns into RGB with its fixed-point
+/// tables, reproduced below. Every other TIFF goes through the `image` decoder.
+fn decode_tiff(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+    use tiff::decoder::Decoder;
+    use tiff::decoder::DecodingResult;
+    use tiff::decoder::Limits as TiffLimits;
+    use tiff::tags::Tag;
+    use tiff::ColorType as TiffColor;
+
+    let mut reader = match Decoder::new(Cursor::new(bytes)) {
+        Ok(reader) => reader.with_limits(TiffLimits::unlimited()),
+        Err(_) if jpeg_tables_cut_off(bytes) => return Err(ImagingError::invalid(JPEG_TABLES_MISSING)),
+        Err(_) => return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit),
+    };
+    if !matches!(reader.colortype(), Ok(TiffColor::YCbCr(8))) {
+        return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit);
+    }
+    let (width, height) = reader.dimensions().map_err(|_| corrupt(Format::Tiff, Stage::Header))?;
+    if width == 0 || height == 0 {
+        return Err(corrupt(Format::Tiff, Stage::Header));
+    }
+    check_pixels(width, height, pixel_limit)?;
+    let orientation = reader.find_tag_unsigned::<u8>(Tag::Orientation).ok().flatten().filter(|value| (1..=8).contains(value)).unwrap_or(1);
+    let icc = reader.get_tag_u8_vec(Tag::IccProfile).ok();
+    let samples = match reader.read_image() {
+        Ok(DecodingResult::U8(samples)) => samples,
+        _ => return Err(corrupt(Format::Tiff, Stage::Data)),
+    };
+    if samples.len() != width as usize * height as usize * 3 {
+        return Err(corrupt(Format::Tiff, Stage::Data));
+    }
+    let mut data = Vec::with_capacity(samples.len());
+    for pixel in samples.chunks_exact(3) {
+        data.extend_from_slice(&ycbcr_to_rgb(pixel[0], pixel[1], pixel[2]));
+    }
+    let mut raster = Raster { width, height, has_alpha: false, data };
+    if let Some(icc) = icc.as_deref().filter(|icc| !icc.is_empty()) {
+        color::rgb_to_srgb(&mut raster.data, false, icc);
+    }
+    Ok(Decoded { format: Format::Tiff, width, height, orientation, raster })
+}
+
+/// What libjpeg says inside libtiff when the shared tables of a JPEG-in-TIFF file (the `JPEGTables` tag) lie beyond
+/// the end of the data: the strips then have no quantization table to use.
+const JPEG_TABLES_MISSING: &str = "tiff2vips: Quantization table 0x00 was not defined";
+
+/// Whether the first directory of a classic TIFF says its strips are JPEG-compressed and puts the value of its
+/// `JPEGTables` entry where the data does not reach.
+fn jpeg_tables_cut_off(bytes: &[u8]) -> bool {
+    let little = match bytes.get(..2) {
+        Some(b"II") => true,
+        Some(b"MM") => false,
+        _ => return false,
+    };
+    let read16 = |at: usize| bytes.get(at..at + 2).map(|pair| if little { u16::from_le_bytes([pair[0], pair[1]]) } else { u16::from_be_bytes([pair[0], pair[1]]) });
+    let read32 = |at: usize| {
+        bytes.get(at..at + 4).map(|quad| {
+            let quad = [quad[0], quad[1], quad[2], quad[3]];
+            if little { u32::from_le_bytes(quad) } else { u32::from_be_bytes(quad) }
+        })
+    };
+    if read16(2) != Some(42) {
+        return false;
+    }
+    let Some(directory) = read32(4).map(|offset| offset as usize) else { return false };
+    let Some(entries) = read16(directory) else { return false };
+    let (mut compression, mut tables_end) = (None, None);
+    for index in 0..usize::from(entries) {
+        let at = directory + 2 + index * 12;
+        let (Some(tag), Some(count), Some(value)) = (read16(at), read32(at + 4), read32(at + 8)) else { return false };
+        match tag {
+            259 => compression = read16(at + 8),
+            347 if count > 4 => tables_end = Some(u64::from(value) + u64::from(count)),
+            _ => {}
+        }
+    }
+    compression == Some(7) && tables_end.is_some_and(|end| end > bytes.len() as u64)
+}
+
+/// libjpeg's YCbCr to RGB (`jdcolor.c`): 16-bit fixed point with the same rounding.
+fn ycbcr_to_rgb(y: u8, cb: u8, cr: u8) -> [u8; 3] {
+    const SCALE: i32 = 16;
+    const HALF: i32 = 1 << (SCALE - 1);
+    let fix = |value: f64| (value * f64::from(1 << SCALE) + 0.5) as i32;
+    let (y, cb, cr) = (i32::from(y), i32::from(cb) - 128, i32::from(cr) - 128);
+    let red = y + ((fix(1.402) * cr + HALF) >> SCALE);
+    let green = y + ((-fix(0.34414) * cb + HALF - fix(0.71414) * cr) >> SCALE);
+    let blue = y + ((fix(1.772) * cb + HALF) >> SCALE);
+    [red.clamp(0, 255) as u8, green.clamp(0, 255) as u8, blue.clamp(0, 255) as u8]
 }
 
 fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, pixel_limit: u64) -> Result<Decoded, ImagingError> {
@@ -326,6 +421,39 @@ fn has_adobe_marker(bytes: &[u8]) -> bool {
     false
 }
 
+/// Whether the stream ends with an end-of-image marker after its last scan. libjpeg warns "premature end of JPEG
+/// file" when the data runs out before it, and sharp fails on a warning, so a truncated file is refused even when
+/// every row it holds decoded.
+fn has_end_of_image(bytes: &[u8]) -> bool {
+    let mut at = 2;
+    let mut in_scan = false;
+    while at + 1 < bytes.len() {
+        if bytes[at] != 0xFF {
+            if in_scan {
+                at += 1;
+                continue;
+            }
+            return false;
+        }
+        let marker = bytes[at + 1];
+        match marker {
+            0xFF => at += 1,
+            0x00 | 0xD0..=0xD7 => at += 2,
+            0xD9 => return true,
+            0xD8 | 0x01 => at += 2,
+            _ => {
+                if at + 4 > bytes.len() {
+                    return false;
+                }
+                let length = usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]));
+                at += 2 + length.max(2);
+                in_scan |= marker == 0xDA;
+            }
+        }
+    }
+    false
+}
+
 fn decode_jpeg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
     // A truncated or damaged stream is an error, as it is for sharp (which fails on libjpeg warnings).
     let options = DecoderOptions::default().set_strict_mode(true).set_max_width(usize::from(u16::MAX)).set_max_height(usize::from(u16::MAX));
@@ -348,6 +476,9 @@ fn decode_jpeg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> 
     };
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options.jpeg_set_out_colorspace(output));
     let pixels = decoder.decode().map_err(|error| jpeg_error(&error, Stage::Data))?;
+    if !has_end_of_image(bytes) {
+        return Err(corrupt(Format::Jpeg, Stage::Data));
+    }
     let expected = width as usize * height as usize;
     let raster = match (output, &cmyk) {
         (ColorSpace::Luma, _) if pixels.len() == expected => {
@@ -459,5 +590,25 @@ mod tests {
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="1in" height="1in"/>"#;
         let decoded = decode(svg, DECODE_PIXEL_LIMIT).unwrap();
         assert_eq!((decoded.width, decoded.height), (72, 72));
+    }
+
+    #[test]
+    fn a_jpeg_without_its_end_of_image_marker_is_truncated() {
+        let whole = [0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x03, 0x01, 0x12, 0xFF, 0x00, 0x34, 0xFF, 0xD9];
+        assert!(has_end_of_image(&whole));
+        assert!(!has_end_of_image(&whole[..whole.len() - 2]));
+        // An FFD9 inside a marker segment (an embedded thumbnail) is not the end of the image.
+        let inside = [0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x06, 0xFF, 0xD9, 0x00, 0x00, 0xFF, 0xDA, 0x00, 0x03, 0x01, 0x12, 0x34];
+        assert!(!has_end_of_image(&inside));
+    }
+
+    #[test]
+    fn ycbcr_greys_stay_grey_and_the_extremes_clamp() {
+        for value in [0u8, 17, 128, 255] {
+            assert_eq!(ycbcr_to_rgb(value, 128, 128), [value; 3]);
+        }
+        assert_eq!(ycbcr_to_rgb(255, 255, 255), [255, 121, 255]);
+        assert_eq!(ycbcr_to_rgb(0, 0, 0), [0, 135, 0]);
+        assert!(!jpeg_tables_cut_off(b"not a tiff"));
     }
 }

@@ -12,9 +12,10 @@ workspace = true
 base64 = { workspace = true }
 image = { workspace = true }
 libwebp-sys = { workspace = true }
-moxcms = { workspace = true }
+moxcms = { workspace = true, features = ["options"] }
 resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 sha2 = { workspace = true }
+tiff = "0.10.3"
 zune-core = { workspace = true }
 zune-jpeg = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

@@ -38,6 +38,8 @@ pub(crate) fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
 /// The CMYK-to-sRGB transform of a CMYK profile.
 pub(crate) struct CmykConverter {
     transform: Box<Transform8BitExecutor>,
+    /// What black point compensation does to one sRGB channel value (see [`black_point_curve`]).
+    compensation: [u8; 256],
 }
 
 impl CmykConverter {
@@ -49,7 +51,8 @@ impl CmykConverter {
         }
         // Eight-bit CMYK shares the layout of eight-bit RGBA.
         let transform = profile.create_transform_8bit(Layout::Rgba, &ColorProfile::new_srgb(), Layout::Rgb, TransformOptions::default()).ok()?;
-        Some(Self { transform })
+        let compensation = black_point_curve(black_luminance(&profile).unwrap_or(0.0));
+        Some(Self { transform, compensation })
     }
 
     /// `cmyk` is 4 bytes a pixel; an Adobe file stores the inks inverted (255 is no ink), which `inverted` undoes as
@@ -59,9 +62,40 @@ impl CmykConverter {
         for (source, target) in cmyk.chunks(CHUNK_PIXELS * 4).zip(rgb.chunks_mut(CHUNK_PIXELS * 3)) {
             let inks: Vec<u8> = if inverted { source.iter().map(|ink| 255 - ink).collect() } else { source.to_vec() };
             moxcms::TransformExecutor::transform(self.transform.as_ref(), &inks, target).ok()?;
+            for value in target.iter_mut() {
+                *value = self.compensation[usize::from(*value)];
+            }
         }
         Some(rgb)
     }
+}
+
+/// The luminance (Y, white being 1) of the darkest colorant of a CMYK profile: every ink at its full strength, read
+/// through the profile and kept neutral and no lighter than L* 50, as lcms2 detects a black point.
+fn black_luminance(profile: &ColorProfile) -> Option<f64> {
+    // ProPhoto RGB is a D50 space with a plain 1.8 power curve, so its linear luminance is a fixed mix of the three.
+    let transform = profile.create_transform_f32(Layout::Rgba, &ColorProfile::new_pro_photo_rgb(), Layout::Rgb, TransformOptions::default()).ok()?;
+    let mut black = [0f32; 3];
+    moxcms::TransformExecutor::transform(transform.as_ref(), &[1.0, 1.0, 1.0, 1.0], &mut black).ok()?;
+    let linear = |value: f32| f64::from(value).max(0.0).powf(1.8);
+    let luminance = 0.288_040_2 * linear(black[0]) + 0.711_874_1 * linear(black[1]) + 0.000_085_7 * linear(black[2]);
+    // L* 50 is a luminance of 0.1842.
+    Some(luminance.clamp(0.0, 0.184_187_5))
+}
+
+/// Black point compensation for an sRGB destination whose own black is 0: libvips asks lcms to map the profile's black
+/// onto the destination's, which in linear light takes `y` off every channel and rescales what is left. As each
+/// channel moves alone, the whole conversion is one table over the 256 channel values.
+fn black_point_curve(y: f64) -> [u8; 256] {
+    let mut curve = [0u8; 256];
+    for (value, slot) in curve.iter_mut().enumerate() {
+        let encoded = value as f64 / 255.0;
+        let linear = if encoded <= 0.04045 { encoded / 12.92 } else { ((encoded + 0.055) / 1.055).powf(2.4) };
+        let compensated = ((linear - y) / (1.0 - y)).max(0.0);
+        let back = if compensated <= 0.003_130_8 { compensated * 12.92 } else { 1.055 * compensated.powf(1.0 / 2.4) - 0.055 };
+        *slot = (back * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+    }
+    curve
 }
 
 #[cfg(test)]
@@ -99,5 +133,15 @@ mod tests {
     fn an_rgb_profile_is_not_a_cmyk_profile() {
         let srgb = ColorProfile::new_srgb().encode().expect("sRGB encodes");
         assert!(CmykConverter::new(&srgb).is_none());
+    }
+
+    #[test]
+    fn black_point_compensation_keeps_white_and_takes_the_black_to_zero() {
+        let none = black_point_curve(0.0);
+        assert!((0..=255).all(|value| none[value].abs_diff(value as u8) <= 1));
+        let curve = black_point_curve(0.0159);
+        assert_eq!((curve[0], curve[255]), (0, 255));
+        assert_eq!(curve[30], 0, "a value at the black's own luminance is black");
+        assert!(curve[128] < 128 && curve[128] > 120);
     }
 }
