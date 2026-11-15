@@ -48,13 +48,13 @@ test('the files an entry reaches are listed: its imports and helpers, not what n
   assert.equal(files, reached.length);
 });
 
-test('the real package: the 13 roots, nothing that only the agent runtime or the desktop loads', () => {
+test('the real package: the 5 roots, nothing that only the agent runtime or the desktop loads', () => {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const names = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()].sort();
-  for (const needed of ['pdfjs-dist', 'pdf-lib', 'sharp', 'tesseract.js', 'puppeteer-core', '@napi-rs/canvas', 'jsdom', 'pptxgenjs']) {
+  for (const needed of ['sharp', 'pptxgenjs', '@napi-rs/canvas', 'jszip', 'yaml']) {
     assert.ok(names.includes(needed), needed);
   }
-  for (const absent of ['openai', 'electron']) {
+  for (const absent of ['openai', 'electron', 'pdfjs-dist', 'pdf-lib', 'tesseract.js', 'puppeteer-core', 'jsdom', '@formulajs/formulajs']) {
     assert.equal(names.includes(absent), false, absent);
   }
 });
@@ -75,7 +75,15 @@ test('every shipped skill script is an entry: the packages it loads become roots
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const real = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()];
   // yaml reaches the bundle only through a shipped skill script (skill-creator's validator), not the authoring script.
-  for (const needed of ['yaml', 'pptxgenjs', 'puppeteer-core']) assert.ok(real.includes(needed), needed);
+  for (const needed of ['yaml', 'pptxgenjs']) assert.ok(real.includes(needed), needed);
+});
+
+test('the packages the authoring contract lets a script require are roots though nothing imports them', () => {
+  const root = makeTempDirSync('roots-contract');
+  write(root, 'src/runtime/office/authoring/pptx-script-entry.mjs', `import './pptx-script-contract.mjs';\n`);
+  write(root, 'src/runtime/office/authoring/pptx-script-contract.mjs', `export const CONTRACT = { require: ['pptxgenjs', '@scope/img', 'node:fs', 'node:path'] };\n`);
+  write(root, 'src/skill-script-entry.mjs', `export {};\n`);
+  assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/img', 'pptxgenjs']);
 });
 
 test('a reached dependency missing from the lockfile or the install fails; only inapplicable ones may be absent', () => {

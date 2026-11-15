@@ -10,8 +10,8 @@ runs:
     # stand in for Arial, Times New Roman, and Courier New, and Carlito for
     # Calibri, the workbook default whose digit sizes a column
     # (src/runtime/office/portable/text-metrics.mjs). The PDF suites write
-    # Hangul through NanumGothic.ttf, which heads the Linux list in
-    # pdf-fonts.mjs (a .ttc collection such as Noto CJK cannot be embedded).
+    # Hangul through NanumGothic.ttf, which heads the Linux list of the
+    # Rust PDF writer (a .ttc collection such as Noto CJK cannot be embedded).
     #
     # Ubuntu's LibreOffice 7.3 draws the provisioned variable Noto faces at
     # their default (Thin) instance, and the rendered review then reads the
