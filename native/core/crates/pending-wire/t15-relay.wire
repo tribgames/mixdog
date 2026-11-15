@@ -1,0 +1,2 @@
+# t15-relay: nothing for the lead's hot files. The nr-relay-* fragments asked only for [[test]] rows of mixdog-relay/Cargo.toml (all present)
+# and in-crate wiring; no workspace member, dependency, Cargo.lock, workspace-hack, compose or protocol edit.
