@@ -1,0 +1,131 @@
+{
+  "adopt": {
+    "results": [
+      {
+        "releaseId": "1.5.0-bbbbbbbbbbbb",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.5.0-bbbbbbbbbbbb"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "1.5.0-bbbbbbbbbbbb",
+        "added": false,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.5.0-bbbbbbbbbbbb"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "",
+        "added": false,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.5.0-bbbbbbbbbbbb"
+        ],
+        "dropped": []
+      }
+    ],
+    "index": "{\n  \"schemaVersion\": 1,\n  \"releases\": [\n    {\n      \"id\": \"legacy\",\n      \"desktopVersion\": \"\",\n      \"shellVersion\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"addedAt\": 1767225600000,\n      \"legacy\": true\n    },\n    {\n      \"id\": \"1.5.0-bbbbbbbbbbbb\",\n      \"desktopVersion\": \"1.5.0\",\n      \"shellVersion\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n      \"addedAt\": 1767225600000,\n      \"legacy\": false\n    }\n  ]\n}\n"
+  },
+  "gc": {
+    "results": [
+      {
+        "releaseId": "1.0.0-bbbbbbbbbbbb",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.0.0-bbbbbbbbbbbb"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "1.1.0-cccccccccccc",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.0.0-bbbbbbbbbbbb",
+          "1.1.0-cccccccccccc"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "1.2.0-dddddddddddd",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.0.0-bbbbbbbbbbbb",
+          "1.1.0-cccccccccccc",
+          "1.2.0-dddddddddddd"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "1.3.0-eeeeeeeeeeee",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.1.0-cccccccccccc",
+          "1.2.0-dddddddddddd",
+          "1.3.0-eeeeeeeeeeee"
+        ],
+        "dropped": [
+          "1.0.0-bbbbbbbbbbbb"
+        ]
+      },
+      {
+        "releaseId": "1.4.0-ffffffffffff",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.2.0-dddddddddddd",
+          "1.3.0-eeeeeeeeeeee",
+          "1.4.0-ffffffffffff"
+        ],
+        "dropped": [
+          "1.1.0-cccccccccccc"
+        ]
+      },
+      {
+        "releaseId": "1.8.0-111111111111",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.2.0-dddddddddddd",
+          "1.3.0-eeeeeeeeeeee",
+          "1.4.0-ffffffffffff",
+          "1.8.0-111111111111"
+        ],
+        "dropped": []
+      },
+      {
+        "releaseId": "1.9.0-222222222222",
+        "added": true,
+        "legacy": "legacy",
+        "kept": [
+          "legacy",
+          "1.2.0-dddddddddddd",
+          "1.4.0-ffffffffffff",
+          "1.8.0-111111111111",
+          "1.9.0-222222222222"
+        ],
+        "dropped": [
+          "1.3.0-eeeeeeeeeeee"
+        ]
+      }
+    ],
+    "index": "{\n  \"schemaVersion\": 1,\n  \"releases\": [\n    {\n      \"id\": \"legacy\",\n      \"desktopVersion\": \"\",\n      \"shellVersion\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"addedAt\": 1767225600000,\n      \"legacy\": true\n    },\n    {\n      \"id\": \"1.2.0-dddddddddddd\",\n      \"desktopVersion\": \"1.2.0\",\n      \"shellVersion\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\n      \"addedAt\": 1767225600002,\n      \"legacy\": false\n    },\n    {\n      \"id\": \"1.4.0-ffffffffffff\",\n      \"desktopVersion\": \"1.4.0\",\n      \"shellVersion\": \"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\n      \"addedAt\": 1767225600004,\n      \"legacy\": false\n    },\n    {\n      \"id\": \"1.8.0-111111111111\",\n      \"desktopVersion\": \"1.8.0\",\n      \"shellVersion\": \"1111111111111111111111111111111111111111111111111111111111111111\",\n      \"addedAt\": 1767225600010,\n      \"legacy\": false\n    },\n    {\n      \"id\": \"1.9.0-222222222222\",\n      \"desktopVersion\": \"1.9.0\",\n      \"shellVersion\": \"2222222222222222222222222222222222222222222222222222222222222222\",\n      \"addedAt\": 1767225600011,\n      \"legacy\": false\n    }\n  ]\n}\n"
+  }
+}
