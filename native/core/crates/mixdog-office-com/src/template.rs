@@ -126,9 +126,11 @@ mod tests {
     #[test]
     fn the_value_map_needs_tokens_and_ignores_the_case_of_a_name() {
         assert_eq!(template_value_map(&op("{}")).unwrap_err(), "fill_template requires tokens as an object");
-        let map = template_value_map(&op("{\"tokens\":{\"Name\":\"a\",\"name\":\"b\",\"other\":1}}")).unwrap();
+        let map = template_value_map(&op("{\"tokens\":{\"Name\":\"a\",\"other\":1}}")).unwrap();
         assert_eq!(map.len(), 2);
-        assert_eq!(template_value(&map, "NAME"), Some(&Value::string("b")));
+        assert_eq!(template_value(&map, "NAME"), Some(&Value::string("a")));
+        // Windows PowerShell's ConvertFrom-Json refuses two keys that differ only in case, so such a request never reaches the map.
+        assert!(payload::parse_payload("{\"tokens\":{\"Name\":\"a\",\"name\":\"b\"}}").is_err());
     }
 
     #[test]

@@ -13,7 +13,9 @@ use mixdog_rt::MaintenanceIo;
 use super::apartment::Apartment;
 use super::emit::Emitter;
 use crate::ps::Value;
+#[cfg(test)]
 use crate::ps::convert;
+#[cfg(test)]
 use crate::ps::payload;
 
 /// What a handler may use of the host it runs in.
@@ -103,26 +105,21 @@ pub struct Handlers {
 pub fn registered() -> Handlers {
     Handlers {
         apartment: Box::new(|| Apartment::enter().map(|apartment| Box::new(apartment) as Box<dyn Any>)),
-        one_shot: Box::new(unregistered_one_shot),
-        session: Box::new(unregistered_session),
+        one_shot: Box::new(crate::actions::one_shot_handler),
+        session: Box::new(crate::actions::session_handler),
     }
 }
 
-fn unregistered_one_shot(_env: HostEnv<'_>) -> Box<dyn OneShotHandler + '_> {
-    Box::new(Unregistered)
-}
-
-fn unregistered_session(_env: HostEnv<'_>) -> Box<dyn SessionHandler + '_> {
-    Box::new(Unregistered)
-}
-
 /// The handler of an operation nobody registered: `throw "Unsupported Office host action: $($payload.action)"`.
+#[cfg(test)]
 struct Unregistered;
 
+#[cfg(test)]
 fn unsupported(payload: &Value) -> String {
     format!("Unsupported Office host action: {}", convert::to_ps_string(&payload::property(payload, "action")))
 }
 
+#[cfg(test)]
 impl OneShotHandler for Unregistered {
     fn handle(&mut self, _out: &mut Emitter, payload: &Value) -> Result<Value, String> {
         Err(unsupported(payload))
@@ -131,6 +128,7 @@ impl OneShotHandler for Unregistered {
     fn finish(&mut self, _out: &mut Emitter) {}
 }
 
+#[cfg(test)]
 impl SessionHandler for Unregistered {
     fn session_id(&self) -> Option<String> {
         None

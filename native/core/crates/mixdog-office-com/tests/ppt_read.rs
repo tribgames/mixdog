@@ -197,11 +197,12 @@ fn a_slide_out_of_range_is_refused_with_the_scripts_text_after_the_count_was_rea
 }
 
 #[test]
+// A one-element array of 0 is false in PowerShell (`if ($payload.pages)`), so the request names two pages.
 fn a_slide_number_below_one_is_refused_without_reading_the_count_again() {
     let mut log = Log::default();
     log.slide_count(3);
     let fake = log.fake();
-    assert_eq!(snapshot(&fake, &json!({"pages": [0]})), Err("PowerPoint slide out of range: 0".to_owned()));
+    assert_eq!(snapshot(&fake, &json!({"pages": [0, 2]})), Err("PowerPoint slide out of range: 0".to_owned()));
     fake.finish();
 }
 
