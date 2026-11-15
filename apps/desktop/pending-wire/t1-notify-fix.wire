@@ -1,0 +1,31 @@
+# t1-notify-fix -> lead (desktop hot files)
+
+The host notification presenter (apps/desktop/src/main/host/notification.ts) now opens the session a click names, hides the toast of a session the
+pet overlay shows, reports every step of a toast, and words the test notification in this PC's language. Its presenter interface gained
+`activate(threadId?)`, `showsThread?`, `diagnostic?` and `translate?`; bind them where the presenter is built.
+
+## apps/desktop/src/main/index.ts (symbol: `notifications:` in the `createDesktopHost` options, near `primaryActivation`)
+1. `activate: () => primaryActivation.activate(),`  ->  `activate: (threadId) => primaryActivation.activate(threadId),`
+   (`createPrimaryWindowActivation().activate(sessionId = '')` already raises the window, builds it again when it was closed for real and opens the
+   session once it exists; a click used to carry no session.)
+2. Add to the same object:
+   `showsThread: (threadId) => desktopPet?.showsSession(threadId) ?? false,`
+   (`desktopPet.showsSession` had no caller since the TypeScript notifier was unwired: the overlay's shown session suppresses its toast again.)
+3. Add to the same object:
+   `diagnostic: (event, details) => diagnostics?.write(event, details),`
+   (`event` is already named `turn-notification-<step>`: suppressed, requested, os-show, sound, sound-failed, closed, failed, clicked.)
+4. Add to the same object:
+   `translate: (key) => nativeT(key),`
+   (the test notification's fixed body, `TEST_NOTIFICATION_BODY` = "Notifications from Mixdog appear like this.", is shown in this PC's language.)
+
+## apps/desktop/scripts/i18n/core-native-keys.json
+5. Add "Notifications from Mixdog appear like this." (sorted among the others) so native-ui-catalogs.json keeps its translation now that the main process
+   asks for it through `translate`.
+
+## Not wired by this task
+`apps/desktop/src/main/ipc.ts` still answers `sendTestNotification` and `getNotificationPreferences` (x-del-notify-ts removes them); the test
+notification's unsupported answer is the exact key "This computer does not support notifications." and the renderer panel localises it.
+
+## apps/desktop/src/main/host/index.ts (symbol: `registerNotificationHost(connection, options.notifications)`)
+6. `registerNotificationHost` now returns a function that closes every toast the host still holds (the old notifier's `dispose` did it at quit).
+   Keep the result and call it where the host is disposed / the app quits (next to the other host disposers); ignoring it changes nothing else.

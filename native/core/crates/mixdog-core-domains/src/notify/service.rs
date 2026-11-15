@@ -25,6 +25,8 @@ use mixdog_core_base::support::wrong_method;
 
 /// `target` of `notify/test` that names this PC (`NOTIFICATION_PC_DEVICE_ID`).
 const PC_DEVICE: &str = "pc";
+const STATUS: Method = Method("host/notification/status");
+const UNSUPPORTED: &str = "This computer does not support notifications.";
 const SHOW: Method = Method("host/notification/show");
 const NO_RELAY: &str = "This PC is not connected to the relay, so paired devices cannot be reached.";
 const NOT_PAIRED: &str = "That device is not paired with this PC.";
@@ -94,6 +96,16 @@ impl NotifyService {
             Some(PC_DEVICE) => TestTarget::Desktop,
             Some(id) => TestTarget::Device(id.to_owned()),
         };
+        // Status and delivery use the same Notifications capability claimant. The one-way show
+        // notification cannot carry the old showTestNotification failure back to the caller.
+        if matches!(target, TestTarget::Desktop) {
+            let status = self.host.request(HostCapability::Notifications, STATUS, json!({})).await;
+            match status.ok().and_then(|value| value.get("supported").and_then(Value::as_bool)) {
+                Some(true) => {}
+                Some(false) => return json!({ "ok": false, "message": UNSUPPORTED }),
+                None => return json!({ "ok": false, "message": NO_WINDOW }),
+            }
+        }
         let audience = self.audience.audience("").await;
         // Node's order (notification-center.ts:122-130): a device that is not paired first, then the relay.
         if let TestTarget::Device(id) = &target {
@@ -149,5 +161,109 @@ impl DomainService for NotifyService {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use mixdog_core_api::host::HostError;
+    use crate::notify::decision::{DevicePreferences, PreferencesView};
+    use crate::notify::engine::{HostConnection, PairedDevice, ToastStyle};
+
+    struct Listeners;
+    #[async_trait]
+    impl AudienceSource for Listeners {
+        async fn audience(&self, _: &str) -> Audience {
+            let view = || PreferencesView { preferences: DevicePreferences::default(), overrides: vec![] };
+            Audience {
+                pc: view(), hosts: vec![HostConnection { connection_id: "desktop".into(), foreground_thread: None }],
+                devices: ["phone", "browser"].into_iter().map(|id| PairedDevice {
+                    device_id: id.into(), view: view(), foreground_thread: None,
+                }).collect(), desktop_active: false,
+            }
+        }
+        async fn settings(&self) -> Value { panic!("test must not mutate notification preference defaults") }
+    }
+    struct Host {
+        status: Option<Value>,
+        requests: Mutex<usize>,
+        sent: Mutex<Vec<Value>>,
+        fail_send: bool,
+    }
+    #[async_trait]
+    impl HostChannel for Host {
+        async fn request(&self, capability: HostCapability, method: Method, _: Value) -> Result<Value, HostError> {
+            assert_eq!(capability, HostCapability::Notifications);
+            assert_eq!(method.as_str(), STATUS.as_str());
+            *self.requests.lock().unwrap() += 1;
+            self.status.clone().ok_or(HostError::Core(CoreError::ConnectionClosed))
+        }
+        fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
+            assert_eq!(capability, HostCapability::Notifications);
+            assert_eq!(method.as_str(), SHOW.as_str());
+            if self.fail_send { return Err(CoreError::ConnectionClosed); }
+            self.sent.lock().unwrap().push(params);
+            Ok(())
+        }
+    }
+    #[derive(Default)]
+    struct Push(Mutex<Vec<String>>);
+    #[async_trait]
+    impl PushSink for Push {
+        async fn push(&self, request: &PushRequest) -> Result<(), String> {
+            self.0.lock().unwrap().push(request.device_id.clone()); Ok(())
+        }
+        fn connected(&self) -> bool { true }
+    }
+
+    #[tokio::test]
+    async fn desktop_test_checks_support_and_preserves_failure_and_delivery_results() {
+        for (status, fail_send, message) in [
+            (Some(json!({"supported": false})), false, Some(UNSUPPORTED)),
+            (None, false, Some(NO_WINDOW)),
+            (Some(json!({})), false, Some(NO_WINDOW)),
+            (Some(json!({"supported": "false"})), false, Some(NO_WINDOW)),
+            (Some(json!({"supported": true})), false, None),
+            (Some(json!({"supported": true})), true, Some("ConnectionClosed")),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let host = Arc::new(Host { status, requests: Mutex::new(0), sent: Mutex::new(vec![]), fail_send });
+            let push = Arc::new(Push::default());
+            let service = NotifyService::new(Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
+                Arc::new(Listeners), host.clone(), push.clone(), mixdog_core_base::support::testing::scopes(dir.path(), "notify").await);
+            let result = service.test(Some("pc")).await;
+            assert_eq!(result, match message {
+                Some(message) => json!({"ok": false, "message": message}),
+                None => json!({"ok": true}),
+            });
+            assert_eq!(*host.requests.lock().unwrap(), 1);
+            assert_eq!(host.sent.lock().unwrap().len(), usize::from(message.is_none()));
+            assert!(push.0.lock().unwrap().is_empty());
+            if message.is_none() {
+                let sent = host.sent.lock().unwrap();
+                assert_eq!(sent[0]["body"], "Notifications from Mixdog appear like this.");
+                assert_eq!(sent[0]["title"], "Mixdog");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn paired_and_all_tests_do_not_gain_a_desktop_support_gate() {
+        for (target, toasts, devices) in [
+            ("phone", 0, vec!["phone"]), ("browser", 0, vec!["browser"]),
+            ("all", 1, vec!["phone", "browser"]),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let host = Arc::new(Host { status: None, requests: Mutex::new(0), sent: Mutex::new(vec![]), fail_send: false });
+            let push = Arc::new(Push::default());
+            let service = NotifyService::new(Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
+                Arc::new(Listeners), host.clone(), push.clone(), mixdog_core_base::support::testing::scopes(dir.path(), "notify").await);
+            assert_eq!(service.test(Some(target)).await, json!({"ok": true}));
+            assert_eq!(*host.requests.lock().unwrap(), 0);
+            assert_eq!(host.sent.lock().unwrap().len(), toasts);
+            assert_eq!(*push.0.lock().unwrap(), devices);
+        }
     }
 }

@@ -141,6 +141,19 @@ pub enum TestTarget {
     All,
 }
 
+/// This PC's decision for a toast of `event` on a host that shows the thread (`foreground`) or does not.
+fn toast_decision(event: &ThreadEvent, audience: &Audience, foreground: bool) -> Decision {
+    decide(&DecisionInput {
+        event: event.event,
+        conversation: &event.conversation,
+        view: &audience.pc,
+        now_ms: event.now_ms,
+        clock: LocalClock::at(event.now_ms),
+        foreground,
+        desktop_active: false,
+    })
+}
+
 pub struct NotificationEngine {
     style: ToastStyleReader,
     /// Toasts the PC wanted while no host was attached, newest per thread.
@@ -175,18 +188,7 @@ impl NotificationEngine {
     pub fn toasts_with_queue(&self, event: &ThreadEvent, audience: &Audience) -> (Vec<(String, HostToast)>, bool) {
         let mut queued = false;
         let body = notification_preview(&event.body_markdown);
-        let clock = LocalClock::at(event.now_ms);
-        let decide_for = |foreground: bool| {
-            decide(&DecisionInput {
-                event: event.event,
-                conversation: &event.conversation,
-                view: &audience.pc,
-                now_ms: event.now_ms,
-                clock,
-                foreground,
-                desktop_active: false,
-            })
-        };
+        let decide_for = |foreground: bool| toast_decision(event, audience, foreground);
         let mut toasts = Vec::new();
         if audience.hosts.is_empty() {
             // No UI attached: the PC's decision is kept for the next host that attaches.
@@ -207,6 +209,26 @@ impl NotificationEngine {
             }
         }
         (toasts, queued)
+    }
+
+    /// Why this PC shows no toast of `event`: the first refusal of its decision, over every host that could show it (none
+    /// attached: the toast that would wait for one). `None` when some host would show it.
+    pub fn toast_refusal(&self, event: &ThreadEvent, audience: &Audience) -> Option<SkipReason> {
+        let shown_by = |host: &HostConnection| host.foreground_thread.as_deref() == Some(event.thread_id.as_str());
+        let mut foregrounds: Vec<bool> = audience.hosts.iter().map(shown_by).collect();
+        if foregrounds.is_empty() {
+            foregrounds.push(false);
+        }
+        let mut refusal = None;
+        for foreground in foregrounds {
+            match toast_decision(event, audience, foreground) {
+                Decision::Notify => return None,
+                Decision::Skip(reason) => {
+                    refusal.get_or_insert(reason);
+                }
+            }
+        }
+        refusal
     }
 
     /// The relay pushes of one event: each paired device decides for itself (`sendPush` through `deliveryGate`).

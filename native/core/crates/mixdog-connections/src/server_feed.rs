@@ -201,7 +201,8 @@ pub enum FinalAnswerStatus {
 }
 
 impl FinalAnswer {
-    fn parse(value: &Json) -> Option<Self> {
+    /// The answer a read returned: `{ id, at, status: done | failed | cancelled, text, reacted? }`; `None` for no answer yet.
+    pub fn parse(value: &Json) -> Option<Self> {
         let fields = value.as_object()?;
         let status = match fields.get("status")?.as_str()? {
             "done" => FinalAnswerStatus::Done,
