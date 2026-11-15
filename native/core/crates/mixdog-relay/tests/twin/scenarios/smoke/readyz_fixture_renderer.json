@@ -1,0 +1,24 @@
+{
+  "id": "readyz_fixture_renderer",
+  "description": "/readyz on a renderer tree that satisfies the readiness inspection (its index digest is a content hash and stays compared)",
+  "files": {
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "path": "/readyz",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}
