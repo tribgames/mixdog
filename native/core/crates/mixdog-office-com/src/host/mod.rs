@@ -24,6 +24,7 @@ use std::ffi::OsString;
 
 use mixdog_rt::Backend;
 use mixdog_rt::InLane;
+use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use mixdog_rt::TaskClass;
 use mixdog_rt::exec::RtConfig;
