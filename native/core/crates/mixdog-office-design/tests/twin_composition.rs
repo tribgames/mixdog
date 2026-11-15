@@ -102,7 +102,7 @@ fn replay_batches(g: &Value) {
             "reviewDefault": review_office_composition_sequence(format, None, None, false),
         });
         let mut expected = want.clone();
-        expected.as_object_mut().expect("value").remove("usage");
+        expected.as_object_mut().expect("value").shift_remove("usage");
         check("batch", &name, &json!({ "value": expected }), &json!({ "value": actual }));
     }
 }

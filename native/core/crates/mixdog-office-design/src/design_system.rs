@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use mixdog_js::{js_to_lowercase, js_trim, json_number, math, to_number_of};
+use mixdog_js::{js_to_lowercase, json_number, math, to_number_of};
 use mixdog_office_base::values::{clone, plain_object};
 use serde_json::{Map, Value, json};
 
@@ -190,7 +190,9 @@ pub fn apply_pdf_design(blocks: &[Value], design_request: &Value, library: Optio
     let styled: Vec<Value> = blocks
         .iter()
         .map(|block| {
-            let type_name = js_to_lowercase(js_trim(&first_text(&[prop(block, "type"), Some(&json!("paragraph"))])));
+            // `String(block?.type || 'paragraph').toLowerCase()`: not trimmed, so a type written with spaces is no
+            // block type the preset styles.
+            let type_name = js_to_lowercase(&first_text(&[prop(block, "type"), Some(&json!("paragraph"))]));
             match type_name.as_str() {
                 "heading" => {
                     heading_index += 1;
