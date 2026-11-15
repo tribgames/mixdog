@@ -61,7 +61,7 @@ async fn adopt_moves_gen2_files() {
     rig.put("profile", "remote-hosts.json", b"[\"b\"]");
     rig.put("profile", "window-state.json", b"{}");
     let answer = rig.adopt(&path(rig.dir("profile"))).await.unwrap();
-    assert_eq!(answer["generation"], json!(2));
+    assert_eq!(answer["generation"], json!(supplement::GENERATION));
     let mut moved: Vec<String> = serde_json::from_value(answer["moved"].clone()).unwrap();
     moved.sort();
     assert_eq!(moved, ["remote-hosts.json", "ssh-hosts.json"]);
@@ -104,7 +104,7 @@ async fn adopt_is_idempotent() {
     let first = rig.adopt(&path(rig.dir("profile"))).await.unwrap();
     assert_eq!(first["moved"], json!(["server-windows.json"]));
     let again = rig.adopt(&path(rig.dir("profile"))).await.unwrap();
-    assert_eq!(again, json!({ "generation": 2, "moved": [] }));
+    assert_eq!(again, json!({ "generation": supplement::GENERATION, "moved": [] }));
     assert_eq!(std::fs::read(rig.dir("data").join("desktop/server-windows.json")).unwrap(), b"[1]");
 }
 
@@ -115,5 +115,5 @@ async fn status_reports_generation() {
     rig.put("profile", "ssh-hosts.json", b"[]");
     let profile = path(rig.dir("profile"));
     rig.adopt(&profile).await.unwrap();
-    assert_eq!(rig.status().await, json!({ "generation": 2, "profile": profile, "completedWithProfile": true }));
+    assert_eq!(rig.status().await, json!({ "generation": supplement::GENERATION, "profile": profile, "completedWithProfile": true }));
 }
