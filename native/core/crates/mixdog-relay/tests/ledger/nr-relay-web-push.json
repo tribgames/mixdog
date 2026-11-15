@@ -1,0 +1,42 @@
+[
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the relay mints its VAPID identity once, keeps it, and signs with it",
+    "rust": "web_push::the_relay_mints_its_vapid_identity_once_keeps_it_and_signs_with_it"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::an unreadable identity disables web push instead of being replaced",
+    "rust": "web_push::an_unreadable_identity_disables_web_push_instead_of_being_replaced"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::only endpoints on a known push service are accepted, in one canonical spelling",
+    "rust": "web_push::only_endpoints_on_a_known_push_service_are_accepted_in_one_canonical_spelling"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the sender re-checks the endpoint and never posts outside the push services",
+    "rust": "web_push::the_sender_rechecks_the_endpoint_and_never_posts_outside_the_push_services"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the web app reads the relay key, the same one after a restart",
+    "rust": "web_push::the_relay_key_is_the_one_in_the_identity_file_and_each_pc_sees_its_own_box"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::each PC delivers through its own association; unauthorized senders are refused",
+    "rust": "web_push::each_pc_delivers_through_its_own_association_and_a_pc_cannot_borrow_anothers"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::associations are persisted, and a retired subscription (410) is dropped for every PC",
+    "rust": "web_push::a_retired_subscription_is_dropped_for_every_pc_and_each_holder_is_told"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::a browser registers only with PCs that deliver through the relay",
+    "rust": "web_push::a_pc_delivers_through_the_relay_once_it_says_so_and_is_remembered"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::an unregister that cannot be stored is refused and kept, never resurrected",
+    "rust": "web_push::a_store_that_fails_leaves_memory_as_it_was"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::re-stating an unchanged registration writes and announces nothing, and mutations are rate limited",
+    "rust": "web_push::mutations_have_their_own_budget_per_credential"
+  }
+]
