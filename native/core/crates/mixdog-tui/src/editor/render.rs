@@ -183,7 +183,8 @@ mod tests {
         v.hint = "type a message";
         v.hint_tone = HintTone::Error;
         let render = render_prompt(&v);
-        assert_eq!(texts(&render), ["type a", "message"]);
+        // Ink wraps with trim off: the space a word leaves behind stays on the row it ended.
+        assert_eq!(texts(&render), ["type a ", "message"]);
         assert_eq!(render.rows[0][0].fg, Key::Error);
         assert_eq!(render.caret, Some(Caret { row: 0, col: 0 }));
         let typed = Draft::at_end("x");
