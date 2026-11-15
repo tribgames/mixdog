@@ -268,10 +268,9 @@ impl Face {
         Ok(face)
     }
 
-    /// The first face of the file at `path`, described from `data` (the file's bytes), which are not kept: the face
-    /// reads the file again when it is first used.
+    /// The first face at `path`, retaining the supplied snapshot rather than reopening the path.
     pub fn described(path: &Path, data: &[u8]) -> Result<Self, FontError> {
-        let mut face = Self::describe(data, 0)?;
+        let mut face = Self::new(Arc::from(data), 0)?;
         face.path = Some(path.to_path_buf());
         Ok(face)
     }
@@ -283,7 +282,16 @@ impl Face {
         (0..count).map(|index| Self::new(Arc::clone(&data), index)).collect()
     }
 
-    /// The first face of the file at `path` (what `GlobalFonts.registerFromPath` registers).
+    /// Every face in a supplied file snapshot, sharing its immutable bytes and retaining its source path.
+    pub fn load_all_at(path: &Path, data: Vec<u8>) -> Result<Vec<Self>, FontError> {
+        let mut faces = Self::load_all(data)?;
+        for face in &mut faces {
+            face.path = Some(path.to_path_buf());
+        }
+        Ok(faces)
+    }
+
+    /// The first face of the file at `path`.
     pub fn from_file<P: ReadProof>(proof: &P, path: &Path) -> Result<Self, FontError> {
         let bytes = mixdog_fsio::read(proof, path).map_err(|error| FontError::Unreadable(format!("{}: {error}", path.display())))?;
         let mut face = Self::new(Arc::from(bytes), 0)?;

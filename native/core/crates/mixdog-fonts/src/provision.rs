@@ -8,7 +8,7 @@
 //! (the faces of Excel, Word, PowerPoint or Outlook, which are never registered with the system) is registered first,
 //! the first app bundle found being the one Excel draws with.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use mixdog_fsio::ReadProof;
 use sha2::Digest;
@@ -104,13 +104,30 @@ pub fn mac_office_font_dir<P: ReadProof>(proof: &P, env: &HostEnv) -> Option<Pat
 /// What became of one provisioned face.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Provisioned {
-    /// Registered under the table's family name.
+    /// Registered under the table's family name; retained bytes match the verified snapshot.
     Registered(FaceId),
     /// Not installed.
     Absent,
     /// Installed, but not registered: the file could not be read, did not match the pinned size or sha256, or is not a
     /// font. The text says why.
     Rejected(String),
+}
+
+// Only the verified provisioning seam checks snapshot collisions. Ordinary registry dedup keeps its
+// existing semantics. Check before registration so rejection cannot add part of a collection.
+fn register_verified(def: &FontDef, path: &Path, bytes: Vec<u8>, registry: &mut Registry) -> Result<FaceId, String> {
+    verify(def, &bytes)?;
+    if let Some(ids) = registry.family(def.family) {
+        for &id in ids {
+            // family() also resolves aliases; register_bytes deduplicates actual registered names only.
+            if registry.family_of(id) == def.family && registry.path_of(id) == Some(path)
+                && registry.face(id).bytes().map(|data| data.as_ref()) != Some(bytes.as_slice())
+            {
+                return Err(format!("Font {} registration conflicts with a retained snapshot: {}", def.family, path.display()));
+            }
+        }
+    }
+    registry.register_bytes(path, bytes, Some(def.family)).map(|ids| ids[0]).map_err(|error| error.to_string())
 }
 
 /// `warmupInstalledOfficeFonts`: the Office-for-Mac folder, then every installed Noto face in table order. The
@@ -125,8 +142,7 @@ pub fn register_installed<P: ReadProof>(proof: &P, env: &HostEnv, registry: &mut
             let Some(path) = installed_path(proof, env, def) else { return (def.id, Provisioned::Absent) };
             let outcome = mixdog_fsio::read(proof, &path)
                 .map_err(|error| format!("{}: {error}", path.display()))
-                .and_then(|bytes| verify(def, &bytes).map(|()| bytes))
-                .and_then(|bytes| registry.register_described(&path, &bytes, Some(def.family)).map_err(|error| error.to_string()));
+                .and_then(|bytes| register_verified(def, &path, bytes, registry));
             (def.id, outcome.map_or_else(Provisioned::Rejected, Provisioned::Registered))
         })
         .collect()
@@ -158,6 +174,49 @@ mod tests {
             verify(&hello, b"HELLO"),
             Err("Font Hello sha256 mismatch: expected 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824, got 3733cd977ff8eb18b987357e22ced99f46097f31ecb239e878ae63760e83e4d5".to_owned())
         );
+    }
+
+    // The fixtures are read explicitly; no HostEnv or installed-font discovery is involved.
+    fn pinned_fixture(bold: bool) -> (FontDef, Vec<u8>) {
+        let (file_name, bytes, sha256) = if bold {
+            ("NotoSansLisu-Bold.ttf", 54280, "2940c8397a096f2bb295a869a318a5d91fbbf3b70e09995308febe9c483eb9e2")
+        } else {
+            ("NotoSansLisu-Regular.ttf", 54508, "7aa2279848cc8647198185807616555759bd68b8a3edb21ecc467d071aa7a6a4")
+        };
+        let path = mixdog_office_base::twin::repo_root().join("native/core/fixtures/office-measure/faces").join(file_name);
+        let data = std::fs::read(path).unwrap();
+        (FontDef { id: "fixture", family: "Pinned", file_name, registry_name: "", path: "", bytes, sha256 }, data)
+    }
+
+    #[test]
+    fn verified_new_bytes_cannot_certify_an_older_retained_snapshot() {
+        let path = Path::new("isolated-not-read/snapshot.ttf");
+        let (old_def, old) = pinned_fixture(false);
+        let (new_def, new) = pinned_fixture(true);
+        verify(&old_def, &old).unwrap();
+        verify(&new_def, &new).unwrap();
+        let mut registry = Registry::new();
+        let id = registry.register_described(path, &old, Some("Pinned")).unwrap();
+        let outcome = register_verified(&new_def, path, new, &mut registry)
+            .map_or_else(Provisioned::Rejected, Provisioned::Registered);
+        assert!(matches!(outcome, Provisioned::Rejected(ref message) if message.contains("retained snapshot")));
+        assert_eq!(registry.len(), 1);
+        assert_eq!(registry.face(id).bytes().unwrap().as_ref(), old.as_slice());
+        assert_eq!(registry.face(id).style.weight, 400);
+        assert_eq!(register_verified(&old_def, path, old.clone(), &mut registry), Ok(id));
+        assert_eq!(register_verified(&old_def, path, old, &mut registry), Ok(id));
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn verified_identical_new_registration_is_repeatable() {
+        let path = Path::new("isolated-not-read/snapshot.ttf");
+        let (def, bytes) = pinned_fixture(true);
+        let mut registry = Registry::new();
+        let id = register_verified(&def, path, bytes.clone(), &mut registry).unwrap();
+        assert_eq!(registry.face(id).bytes().unwrap().as_ref(), bytes.as_slice());
+        assert_eq!(register_verified(&def, path, bytes, &mut registry), Ok(id));
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]

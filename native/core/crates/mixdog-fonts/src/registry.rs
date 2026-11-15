@@ -75,31 +75,37 @@ impl Registry {
         id
     }
 
-    /// `GlobalFonts.registerFromPath(path, family)`: the first face of the file, kept in memory.
+    /// Registers all faces in the file, returning the first face id for compatibility.
     pub fn register_file<P: ReadProof>(&mut self, proof: &P, path: &Path, family: Option<&str>) -> Result<FaceId, FontError> {
-        let face = Face::from_file(proof, path)?;
-        Ok(self.register(Arc::new(face), family, Some(path)))
-    }
-
-    /// Registers the first face of the file at `path` from its bytes without keeping them: the face reads the file
-    /// when it is first used.
-    pub fn register_described(&mut self, path: &Path, data: &[u8], family: Option<&str>) -> Result<FaceId, FontError> {
-        let face = Face::described(path, data)?;
-        Ok(self.register(Arc::new(face), family, Some(path)))
-    }
-
-    fn scan_file<P: ReadProof>(&mut self, proof: &P, path: &Path) -> Result<FaceId, FontError> {
         let bytes = mixdog_fsio::read(proof, path).map_err(|error| FontError::Unreadable(format!("{}: {error}", path.display())))?;
-        self.register_described(path, &bytes, None)
+        self.register_bytes(path, bytes, family).map(|ids| ids[0])
     }
 
-    /// `GlobalFonts.loadFontsFromDir(dir)`: every font file of the folder and its sub-folders, described and not kept in
-    /// memory, in the order of their upper-cased names (the order NTFS lists a folder in). Files that are not fonts are skipped. Returns how many
-    /// faces were registered.
+    /// Registers all faces from a retained snapshot, returning the first face id for compatibility.
+    pub fn register_described(&mut self, path: &Path, data: &[u8], family: Option<&str>) -> Result<FaceId, FontError> {
+        self.register_bytes(path, data.to_vec(), family).map(|ids| ids[0])
+    }
+
+    /// Registers every collection member in index order. Parsing finishes before the registry is changed.
+    /// All members share immutable bytes; a later change to the source file cannot change this registration.
+    pub fn register_bytes(&mut self, path: &Path, data: Vec<u8>, family: Option<&str>) -> Result<Vec<FaceId>, FontError> {
+        let faces = Face::load_all_at(path, data)?;
+        if faces.is_empty() {
+            return Err(FontError::NotAFont("font collection contains no faces".to_owned()));
+        }
+        Ok(faces.into_iter().map(|face| self.register(Arc::new(face), family, Some(path))).collect())
+    }
+
+    /// Registers files recursively in upper-cased name order and collection members in index order.
+    /// Invalid files are skipped. Returns the number of newly registered faces (duplicates do not count).
     pub fn register_dir<P: ReadProof>(&mut self, proof: &P, dir: &Path) -> usize {
         let mut files = Vec::new();
         collect_font_files(proof, dir, 0, &mut files);
-        files.into_iter().filter(|path| self.scan_file(proof, path).is_ok()).count()
+        let before = self.len();
+        for path in files {
+            let _ = self.register_file(proof, &path, None);
+        }
+        self.len() - before
     }
 
     /// `GlobalFonts.setAlias(font_name, alias)`: `alias` resolves to the family `font_name`. An alias never hides a
