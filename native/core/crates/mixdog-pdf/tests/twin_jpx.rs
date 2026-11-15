@@ -68,6 +68,31 @@ fn every_output_equals_the_recording() {
         assert_eq!(pixels.data.len(), want.len(), "{name}: delivered bytes");
         assert_eq!(pixels.data.len() as u64, case["openjpeg"]["pixelBytes"].as_u64().unwrap(), "{name}: pixelBytes");
         let tolerance = if lossless(&image) { 0 } else { 1 };
+        // The wrapper hands each component's plane at its own size, one sample per pixel in reading order, and reads
+        // past the end of a plane smaller than the first (heap bytes, not a behaviour). Such a component is checked
+        // on the samples the recording defines: the plane read back from its prefix, expanded onto the first grid.
+        let first = &decoded.planes[0];
+        let grids_differ = decoded.planes.iter().take(numcomps).any(|p| (p.dx, p.dy) != (first.dx, first.dy));
+        if grids_differ {
+            let (w, h) = (first.width as usize, first.height as usize);
+            for (c, plane) in decoded.planes.iter().take(numcomps).enumerate() {
+                assert_eq!(plane.precision, 8, "{name}: precision");
+                let (pw, ph) = (plane.width as usize, plane.height as usize);
+                for j in 0..h {
+                    for i in 0..w {
+                        // The first component's grid position, on this component's grid, relative to its origin.
+                        let gx = (first.x0 as usize + i) * first.dx as usize / plane.dx as usize;
+                        let gy = (first.y0 as usize + j) * first.dy as usize / plane.dy as usize;
+                        let x = gx.saturating_sub(plane.x0 as usize).min(pw - 1);
+                        let y = gy.saturating_sub(plane.y0 as usize).min(ph - 1);
+                        let got = pixels.data[(j * w + i) * numcomps + c];
+                        let wanted = want[(y * pw + x) * numcomps + c];
+                        assert!(got.abs_diff(wanted) <= tolerance, "{name}: component {c} pixel ({i}, {j}): got {got}, recorded {wanted}");
+                    }
+                }
+            }
+            continue;
+        }
         let worst = pixels.data.iter().zip(&want).enumerate().max_by_key(|(_, (g, w))| g.abs_diff(**w));
         if let Some((at, (got, wanted))) = worst {
             assert!(got.abs_diff(*wanted) <= tolerance, "{name}: sample {at}: got {got}, recorded {wanted}");

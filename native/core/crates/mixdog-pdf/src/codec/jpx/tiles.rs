@@ -32,9 +32,14 @@ pub(super) struct TileEntry {
     pub bodies: Vec<Range<usize>>,
     /// The packed packet headers (PPM or PPT) of the tile, when it has them.
     pub packed: Option<Vec<u8>>,
+    /// The packet headers the tile reads when the PPM headers of all tile-parts are one stream the tiles take from in
+    /// the order OpenJPEG decodes them (see `Codestream::decoded_tile`); `None` without PPM.
+    pub stream_packed: Option<Vec<u8>>,
     /// Packet lengths of the PLT markers.
     pub packet_lengths: Vec<u32>,
     pub parts: u32,
+    /// The position, among all tile-parts of the codestream, of the tile's last one.
+    pub last_part: usize,
 }
 
 /// Reads every tile-part header from the first SOT, in codestream order. Stops without an error at the end of the
@@ -91,8 +96,10 @@ pub(super) fn assemble(data: &[u8], head: &MainHeader) -> Result<(Vec<Option<Til
             builder: head.builder.for_tile(),
             bodies: Vec::new(),
             packed: None,
+            stream_packed: None,
             packet_lengths: Vec::new(),
             parts: 0,
+            last_part: 0,
         });
         let mut ppt: Vec<(u8, Vec<u8>)> = Vec::new();
         loop {
@@ -129,6 +136,7 @@ pub(super) fn assemble(data: &[u8], head: &MainHeader) -> Result<(Vec<Option<Til
                 packed.extend_from_slice(chunk);
             }
         }
+        entry.last_part = sequence;
         if !ppt.is_empty() {
             ppt.sort_by_key(|p| p.0);
             let packed = entry.packed.get_or_insert_with(Vec::new);

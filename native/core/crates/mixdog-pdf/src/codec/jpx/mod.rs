@@ -71,6 +71,25 @@ pub struct Codestream {
     tiles: Vec<Option<TileEntry>>,
 }
 
+/// Gives every tile the packet headers of the PPM markers it reads. The headers of all tile-parts are one stream and
+/// each tile takes what its packets use of it, the tiles in the order their last tile-part ends in the codestream
+/// (the order OpenJPEG decodes them in): a stream whose tile-parts of different tiles are interleaved is read the
+/// way OpenJPEG reads it, not tile-part by tile-part.
+fn deal_packed_headers(data: &[u8], siz: &Siz, tiles: &mut [Option<TileEntry>], stream: &[u8]) {
+    let mut order: Vec<usize> = (0..tiles.len()).filter(|&t| tiles[t].is_some()).collect();
+    order.sort_by_key(|&t| tiles[t].as_ref().map_or(0, |e| e.last_part));
+    let mut cursor = 0usize;
+    for index in order {
+        let Some(entry) = tiles[index].as_mut() else { continue };
+        let Ok(mut tile) = build_tile(siz, index as u32, &entry.builder.params) else { continue };
+        let body: Vec<u8> = entry.bodies.iter().flat_map(|r| data[r.clone()].iter().copied()).collect();
+        let Ok(used) = packets::read_packets(&mut tile, &body, Some(&stream[cursor.min(stream.len())..])) else { continue };
+        let end = (cursor + used).min(stream.len());
+        entry.stream_packed = Some(stream[cursor.min(end)..end].to_vec());
+        cursor = end;
+    }
+}
+
 /// Reads a JP2 file or a bare codestream.
 pub fn parse(data: &[u8]) -> Result<Image, JpxError> {
     let info = parse_container(data)?;
@@ -83,7 +102,10 @@ impl Codestream {
     /// Reads the main header and every tile-part header of a codestream (the bytes from SOC).
     pub fn open(data: &[u8]) -> Result<Self, JpxError> {
         let head: MainHeader = read_main_header(data)?;
-        let (tiles, truncated) = assemble(data, &head)?;
+        let (mut tiles, truncated) = assemble(data, &head)?;
+        if let Some(chunks) = &head.ppm {
+            deal_packed_headers(data, &head.siz, &mut tiles, &chunks.concat());
+        }
         Ok(Codestream {
             data: data.to_vec(),
             main: head.builder.params.clone(),
@@ -129,12 +151,25 @@ impl Codestream {
 
     /// The geometry of tile `index` with its packets read; `None` when the codestream has no tile-part of it.
     pub fn tile(&self, index: u32) -> Result<Option<TileStructure>, JpxError> {
+        self.read_tile(index, false)
+    }
+
+    /// The tile as the decoder reads it. It differs from [`Codestream::tile`] only for a PPM stream whose tile-parts
+    /// of different tiles are interleaved: the packet headers of all tile-parts are one stream that OpenJPEG hands to
+    /// the tiles in the order it decodes them, so a tile reads what the tiles before it left, not its own tile-parts'
+    /// chunks (the recording of pdf.js decodes such a stream that way).
+    pub fn decoded_tile(&self, index: u32) -> Result<Option<TileStructure>, JpxError> {
+        self.read_tile(index, true)
+    }
+
+    fn read_tile(&self, index: u32, as_decoded: bool) -> Result<Option<TileStructure>, JpxError> {
         let Some(Some(entry)) = self.tiles.get(index as usize) else {
             return Ok(None);
         };
         let mut tile = build_tile(&self.siz, index, &entry.builder.params)?;
         let body: Vec<u8> = entry.bodies.iter().flat_map(|r| self.data[r.clone()].iter().copied()).collect();
-        packets::read_packets(&mut tile, &body, entry.packed.as_deref())?;
+        let packed = if as_decoded { entry.stream_packed.as_ref().or(entry.packed.as_ref()) } else { entry.packed.as_ref() };
+        packets::read_packets(&mut tile, &body, packed.map(Vec::as_slice))?;
         Ok(Some(tile))
     }
 }

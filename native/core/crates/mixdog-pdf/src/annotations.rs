@@ -220,6 +220,18 @@ fn parse_annotation(
             data.quad_points = quad_points(&dict, None, document)?;
             quad_points_valid = data.quad_points.is_some();
         }
+        Some("Text") => {
+            // `TextAnnotation`: the note icon is 22 px, so a smaller rectangle grows to the right and downward from its top-left corner.
+            const DEFAULT_ICON_SIZE: f64 = 22.0;
+            let mut grown = rect;
+            if grown[2] - grown[0] < DEFAULT_ICON_SIZE {
+                grown[2] = grown[0] + DEFAULT_ICON_SIZE;
+            }
+            if grown[3] - grown[1] < DEFAULT_ICON_SIZE {
+                grown[1] = grown[3] - DEFAULT_ICON_SIZE;
+            }
+            data.rect = Some(grown);
+        }
         Some("Popup") => {
             if rect[2] - rect[0] == 0.0 || rect[3] - rect[1] == 0.0 {
                 data.rect = None;
