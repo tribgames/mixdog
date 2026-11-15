@@ -17,6 +17,7 @@ export const SECTION_NAMES = [
   'providerSetup', 'providerAccounts', 'usage', 'hostShellJobs', 'terminalActivity', 'terminalTabs', 'remote',
   'notice', 'update', 'hostState', 'computer', 'approvalInbox', 'core', 'coreHealth', 'migration', 'reviewDiff',
   'gitStatus', 'lspStatus', 'lspDiagnostics', 'mediaJobs', 'ports',
+  'connections',
 ] as const;
 
 /** Sections that are a tell, not state (Node's `turn-review-changed` desktop event): a change notifies the listeners that
