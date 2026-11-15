@@ -7,6 +7,8 @@
 //! - `panic`: panics.
 //! - `pin {pin}`: answers the worker's process id and reports `pin`.
 //! - and the document methods the real worker serves (`register_document_methods`).
+//! - `--clock-ms N` (an argument): `office.sweepJournals` ages the journals by the clock N (milliseconds since the epoch)
+//!   instead of the wall clock, so a test replays a recorded sweep at its recorded time.
 #![allow(
     clippy::disallowed_methods,
     reason = "a test worker: its sleep method waits on the real clock, which no replay drives"
@@ -22,6 +24,15 @@ use serde_json::json;
 fn registry() -> Registry {
     let mut registry = Registry::new();
     mixdog_exthost_worker::methods::register_document_methods(&mut registry);
+    let mut args = std::env::args().skip_while(|arg| arg != "--clock-ms");
+    if let Some(now_ms) = args.nth(1).and_then(|text| text.parse::<f64>().ok()) {
+        registry.register_blocking("office.sweepJournals", move |ctx| {
+            let dir = ctx.params["dataDir"].as_str().unwrap_or_default();
+            mixdog_office_base::journal::list_office_journals_at(&mixdog_fsio::Unlaned, std::path::Path::new(dir), true, now_ms)
+                .map_err(|error| mixdog_exthost_worker::CodedError::new("failed", error.to_string()))?;
+            Ok(Outcome::value(serde_json::Value::Null))
+        });
+    }
     registry.register("echo", |ctx| async move {
         Ok(Outcome::value(
             json!({"params": ctx.params, "paths": ctx.paths, "thread": ctx.thread}),

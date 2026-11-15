@@ -21,9 +21,9 @@ use std::sync::mpsc;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 use mixdog_exthost::ExtDocumentText;
-use mixdog_exthost::RoutedExtPool;
+use mixdog_exthost::ExtHostPool;
 
-use crate::compose::ExtHostConfigs;
+use mixdog_exthost::ExtHostConfig;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::index::IndexProjector;
 use mixdog_migrate::index::ServingIndex;
@@ -143,7 +143,7 @@ impl ServingIndex for ServingProjector {
 pub struct Behind {
     back: Back,
     /// The migration's own extension host (its office extractor reads through it), closed when the conversion ends.
-    pool: Arc<RoutedExtPool>,
+    pool: Arc<ExtHostPool>,
     runtime: tokio::runtime::Handle,
     projector: Arc<ServingProjector>,
     /// Set when the core stops: the conversion ends at its next step, as a kill would end it, and the next start resumes it.
@@ -265,14 +265,14 @@ pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &
 
 /// The migration's front on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
 /// The host it uses is its own, closed when the migration ends; the core's starts later. `None`: the migration is complete.
-fn migrate_data(data_dir: &Path, host: ExtHostConfigs, tokens: LaneTokens, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
+fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
                 let roots = migration_roots(data_dir, &|name| std::env::var_os(name), std::env::home_dir())?;
                 let _entered = runtime.enter();
                 recover_malformed_config(&roots.data, &tokens, runtime)?;
-                let pool = Arc::new(crate::compose::ext_host_pool(host).map_err(|error| format!("starting the extension host: {error}"))?);
+                let pool = Arc::new(ExtHostPool::new(host).map_err(|error| format!("starting the extension host: {error}"))?);
                 let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.clone() };
                 let projector = Arc::new(ServingProjector::default());
                 let stopped = Arc::new(AtomicBool::new(false));
@@ -317,7 +317,7 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfigs, tokens: LaneTokens, runti
 
 /// Runs LR §3 steps 1 to 5 over `data_dir`. A `release{pid}` decision reaches the verdict gate through `Booting::release`; a start the interrupt abandons returns
 /// `StartupError::Interrupted` with `B` untouched.
-pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfigs, given: StartIn) -> Result<Begun, ServeError> {
+pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, given: StartIn) -> Result<Begun, ServeError> {
     let (decide, releases) = mpsc::channel::<u32>();
     let interrupt = Arc::new(Interrupt::new().map_err(ServeError::Interrupt)?);
     let discovery_path = crate::discovery::path(&given.runtime_root);

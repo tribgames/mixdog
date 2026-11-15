@@ -411,7 +411,6 @@ async fn every_row_of_nodes_media_table_replays_equal() {
         mixdog_exthost::ExtHostPool::new(mixdog_exthost::ExtHostConfig {
             program: worker_binary(),
             args: Vec::new(),
-            electron: false,
             workers: 1,
             pending_cap: 64,
             spawn_io: tokens.spawn_io,

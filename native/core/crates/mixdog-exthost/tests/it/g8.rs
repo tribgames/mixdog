@@ -94,7 +94,6 @@ fn pool(scratch: &Scratch, workers: usize) -> Arc<ExtHostPool> {
     Arc::new(ExtHostPool::new(ExtHostConfig {
         program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
         args: vec!["g8".into()],
-        electron: false,
         workers,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,

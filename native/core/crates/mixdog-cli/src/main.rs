@@ -11,12 +11,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_exthost::ExtDocumentText;
-use mixdog_exthost::ExtHostConfig;
-use mixdog_exthost::RoutedExtPool;
-use mixdog_exthost::RenderBrowserConfig;
-use mixdog_exthost::worker_count;
+use mixdog_exthost::ExtHostPool;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
 use mixdog_rt::Backend;
@@ -220,21 +216,7 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     let runtime = executors.handle(TaskClass::Work);
     let pool = {
         let _context = runtime.enter();
-        let script = ExtHostConfig {
-            program: js.program,
-            args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
-            electron: js.electron,
-            workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
-            pending_cap: DEFAULT_PENDING_CAP,
-            spawn_io: tokens.spawn_io,
-            render_browser: RenderBrowserConfig {
-                command: None,
-                profile_root: roots.data.join("render-browser"),
-                no_sandbox: false,
-            },
-        };
-        let worker = ExtHostConfig { program: js.core_program, args: vec!["ext-worker".into()], electron: false, ..script.clone() };
-        RoutedExtPool::new(worker, script, mixdog_app_server_daemon::compose::native_ext_methods())
+        ExtHostPool::new(mixdog_app_server_daemon::compose::ext_host_config(&js, &roots.data, &tokens))
     };
     let pool = match pool {
         Ok(pool) => Arc::new(pool),

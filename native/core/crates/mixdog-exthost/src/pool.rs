@@ -68,7 +68,7 @@ pub fn timer_grace() -> GraceWait {
 }
 
 /// How long a worker has to leave on the close's `BYE` before it is ended with its job: its office session hosts quit the
-/// applications they own first (`closeOfficeSessions`, `src/ext-host/methods.mjs`), 3 to 5 s for a Word and an Excel.
+/// applications they own first (`closeOfficeSessions`), 3 to 5 s for a Word and an Excel.
 const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Calls accepted and not yet released by their consumer; beyond it a call is `Overloaded`.
@@ -76,12 +76,9 @@ pub const DEFAULT_PENDING_CAP: usize = 64;
 
 #[derive(Clone, Debug)]
 pub struct ExtHostConfig {
-    /// The JavaScript runtime and the worker entry (`node src/ext-host/worker.mjs`).
+    /// The worker program and its arguments (the core executable run as `ext-worker`).
     pub program: PathBuf,
     pub args: Vec<OsString>,
-    /// `program` is an Electron binary run in node mode (`JsRuntime.electron`): workers are
-    /// started with `ELECTRON_RUN_AS_NODE=1`.
-    pub electron: bool,
     /// Worker processes at most (W).
     pub workers: usize,
     pub pending_cap: usize,
@@ -116,28 +113,19 @@ impl ExtHostPool {
     /// one (the host is never on the boot path). Must run inside the Tokio runtime; fails when the
     /// child-exit signal cannot be registered.
     pub fn new(config: ExtHostConfig) -> Result<Self, ExtHostError> {
-        Self::build(config, timer_grace(), None)
-    }
-
-    /// A second pool that uses `first`'s render browser instead of starting its own: one Chromium for
-    /// both, one launch count, and the browser is closed by `first`'s close (a pool that shares does not
-    /// close it), so `first` must be closed after this pool. `config.render_browser` is not used.
-    /// Same requirements as [`Self::new`].
-    pub fn sharing_browser(config: ExtHostConfig, first: &ExtHostPool) -> Result<Self, ExtHostError> {
-        Self::build(config, timer_grace(), Some((first.browser.clone(), first.browser_launches.clone())))
+        Self::build(config, timer_grace())
     }
 
     /// [`Self::new`] with the cancel grace waited out by `grace`. A test seam: a product build (which refuses
     /// `test-support`, see `build.rs`) cannot shorten the grace.
     #[cfg(feature = "test-support")]
     pub fn with_grace(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
-        Self::build(config, grace, None)
+        Self::build(config, grace)
     }
 
     fn build(
         config: ExtHostConfig,
         grace: GraceWait,
-        shared: Option<(BrowserHandle, Arc<AtomicU64>)>,
     ) -> Result<Self, ExtHostError> {
         let exits = ChildExits::watch()?;
         let (events, inbox) = mpsc::unbounded_channel();
@@ -146,23 +134,18 @@ impl ExtHostPool {
         let dispatcher_events = events.clone();
         let dispatcher_status = status.clone();
         let rt = Handle::current();
-        let owns_browser = shared.is_none();
-        let (browser, browser_launches) = shared.unwrap_or_else(|| {
-            let launches = Arc::new(AtomicU64::new(0));
-            let browser = browser::start(
-                config.render_browser.clone(),
-                config.spawn_io,
-                rt.clone(),
-                launches.clone(),
-                exits.clone(),
-            );
-            (browser, launches)
-        });
+        let browser_launches = Arc::new(AtomicU64::new(0));
+        let browser = browser::start(
+            config.render_browser.clone(),
+            config.spawn_io,
+            rt.clone(),
+            browser_launches.clone(),
+            exits.clone(),
+        );
         let dispatcher_browser = browser.clone();
         mixdog_rt::spawn("exthost.dispatch", TaskClass::Work, async move {
             let mut dispatcher =
                 Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace);
-            dispatcher.owns_browser = owns_browser;
             dispatcher.run(inbox).await;
         });
         Ok(Self {
@@ -309,8 +292,6 @@ struct Dispatcher {
     /// The last spawn failed; no new spawn until another call arrives.
     spawn_failed: bool,
     shutting_down: bool,
-    /// This pool started the render browser and ends it on close; a pool that shares another's does not.
-    owns_browser: bool,
     closers: Vec<oneshot::Sender<()>>,
     grace: GraceWait,
 }
@@ -341,7 +322,6 @@ impl Dispatcher {
             seq: 0,
             spawn_failed: false,
             shutting_down: false,
-            owns_browser: true,
             closers: Vec::new(),
         }
     }
@@ -353,11 +333,9 @@ impl Dispatcher {
                 break;
             }
         }
-        // Every worker owner has reaped; the shared browser's owner is next, so nothing of the
+        // Every worker owner has reaped; the render browser's owner is next, so nothing of the
         // host is left running when `close` returns.
-        if self.owns_browser {
-            self.browser.shutdown().await;
-        }
+        self.browser.shutdown().await;
         for closer in self.closers.drain(..) {
             let _ = closer.send(());
         }
@@ -588,16 +566,13 @@ impl Dispatcher {
         );
         let program = self.config.program.clone();
         let args = self.config.args.clone();
-        // An Electron binary runs a script only in node mode.
-        let node_mode: &'static [(&str, &str)] =
-            if self.config.electron { &[("ELECTRON_RUN_AS_NODE", "1")] } else { &[] };
         let rt = self.rt.clone();
         let events = self.events.clone();
         let submitted = self
             .config
             .spawn_io
             .submit(&CancellationToken::new(), move |_lane| {
-                process::spawn_command(&program, &args, node_mode, &rt).map_err(|e| e.to_string())
+                process::spawn_command(&program, &args, &[], &rt).map_err(|e| e.to_string())
             });
         mixdog_rt::spawn("exthost.spawn", TaskClass::Work, async move {
             let result = match submitted {
@@ -669,7 +644,6 @@ pub(crate) mod tests {
         let config = ExtHostConfig {
             program: fake_binary("ext_fake_worker"),
             args: Vec::new(),
-            electron: false,
             workers: 1,
             pending_cap: 4,
             spawn_io,

@@ -120,7 +120,7 @@ jobs:
       - name: Clippy
         run: cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings
 
-      # WP-INSTALL's slow test: the real trimmed staging and `npm ci`, then the ext-host suites from
+      # WP-INSTALL's slow test: the real trimmed staging and `npm ci`, then the pptxgenjs authoring entry and the skill scripts from
       # the payload under the pinned node.
       - name: Trimmed remote bundle (linux-x64)
         if: runner.os == 'Linux' && runner.arch == 'X64'

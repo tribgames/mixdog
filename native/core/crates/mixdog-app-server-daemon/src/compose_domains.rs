@@ -64,7 +64,7 @@ use mixdog_core_config::config::SettingsEffects;
 use mixdog_core_config::tool_modules::FeatureEffects;
 use mixdog_core_config::tool_modules::ToolModules;
 use mixdog_exthost::BrowserService;
-use mixdog_exthost::RoutedExtPool;
+use mixdog_exthost::ExtHostPool;
 use mixdog_exthost::VisualizeService;
 use mixdog_rt::LaneTokens;
 use mixdog_services::tidy::process::Processes;
@@ -245,7 +245,7 @@ pub struct DomainInputs {
     pub config: Config,
     pub scoped_feeds: Arc<dyn ScopedFeeds>,
     pub host: Arc<dyn HostChannel>,
-    pub ext_host: Arc<RoutedExtPool>,
+    pub ext_host: Arc<ExtHostPool>,
     /// `ComposedCore::tidy_processes()`: the one process manager of Tidy and the local provider.
     pub processes: Processes,
     pub catalog: Arc<CatalogService>,

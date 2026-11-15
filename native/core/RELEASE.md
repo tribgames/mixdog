@@ -22,8 +22,8 @@ Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked
     (`electron: true`) and at `runtime.asar/node_modules/mixdog`.
   - Remote: each `server-cores/<os>-<arch>/bundle.tgz` holds `mixdogd` and `payload/`: the pinned
     Node binary (`js/node`, `js/LICENSE-node`), the production package root
-    (`js/pkg/node_modules/mixdog`, with `src/skill-script-entry.mjs`, `src/ext-host/` and its
-    production dependencies, including the office/PDF stack) and `js-runtime.json`
+    (`js/pkg/node_modules/mixdog`, with `src/skill-script-entry.mjs`, the pptxgenjs authoring entry under `src/runtime/office/` and
+    the production dependencies they reach) and `js-runtime.json`
     (`{"program":"js/node","packageRoot":"js/pkg/node_modules/mixdog","electron":false}`).
     `server-ensure` publishes the binary and `payload/` as one `versions/<id>/` directory, so
     install, gc and version handling stay one path. No system Node is used or installed.
