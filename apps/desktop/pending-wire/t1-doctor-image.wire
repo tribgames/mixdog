@@ -1,4 +1,5 @@
 # t1-doctor-image: the producers of js-runtime.json's nodeVersion (the doctor's script-runtime version)
+# Wire audit (t19): the core side is applied (mixdog-app-server-daemon js_runtime.rs Manifest.node_version, compose.rs JsRuntime.node_version, compose_flip.rs ScriptRuntime), so emitting nodeVersion no longer breaks the daemon start; the contract fragment nr-exthost-doctor-updater.wire is deleted. NOT applied here: core-layout.mjs, stage-js-bundle.mjs (line 211 returns {nodeVersion} for another purpose; remoteJsRuntimeManifest has no nodeVersion) and the three test files below.
 
 Contract: native/core/crates/pending-wire/nr-exthost-doctor-updater.wire (Manifest.node_version, JsRuntime.node_version).
 The doctor never spawns the interpreter, so the version must be written by whoever lays the install out. All paths are

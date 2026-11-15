@@ -1,44 +1,6 @@
-# nr-office-engine-digest: the model-facing result digest (finalizeOfficeResult, officeDocumentDigest, bounded, stableJson) of crate mixdog-office.
+# nr-office-engine-digest.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-The code is in native/core/crates/mixdog-office/src/digest/{mod,common,docx,xlsx,pptx,pdf,tabular}.rs and
-native/core/crates/mixdog-office/src/bounded.rs. It was not compiled by this task (no cargo run): the three edits below
-to files this task does not own are needed before it can be.
-
-## native/core/crates/mixdog-office/src/lib.rs
-
-After `pub mod capabilities;` add (and extend the crate doc by one line saying `digest` is what a model reads of a result and
-`bounded` its length-bounded form):
-
-    pub mod bounded;
-    pub mod digest;
-
-## native/core/crates/mixdog-office/Cargo.toml
-
-[dependencies]: add, after `indexmap`:
-
-    mixdog-js = { workspace = true }
-    mixdog-office-base = { workspace = true }
-
-[dev-dependencies]: add (the helpers of the twin tests, as mixdog-office-base's own manifest describes):
-
-    mixdog-office-base = { workspace = true, features = ["test-support"] }
-
-(mixdog-js and mixdog-office-base are already [workspace.dependencies] and workspace members. `serde_json` already has
-`preserve_order` workspace-wide, which the digest relies on for Node's key order.)
-
-## native/core/Cargo.lock
-
-Package `mixdog-office`: add the dependencies `mixdog-js` and `mixdog-office-base` (both already packages of the lock; nothing
-else changes: `cargo update -w` offline).
-
-## native/core/crates/mixdog-workspace-hack/Cargo.toml
-
-Nothing to add by hand: no new external crate and no new feature (serde_json, mixdog-js and mixdog-office-base's own
-dependencies are already unified). Run the hakari check after the manifest edit and take its output if it asks for a line.
-
-## native/core/fixtures/MANIFEST.json (the index of the fixture sets)
-
-Add this entry right after the `office-detect` entry (the list is sorted by `set`):
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-digest.mjs --tree <tree>",
@@ -48,23 +10,4 @@ Add this entry right after the `office-detect` entry (the list is sorted by `set
       "recorder": "benchmarks/rust-core/recorders/record-office-digest.mjs",
       "set": "office-digest",
       "totalBytes": 127712
-    },
-
-(The set was recorded from the product tree at C:/Project/mixdog, which is not an exact commit export, so its manifest
-`product.commit` is null. A re-record from the exact archive tree the other office sets use changes the manifest and its
-sha256 in this entry; the golden's cases do not depend on it.)
-
-## SERVICE_PENDING (compose_flip.rs)
-
-No name to remove: this task registers no service.
-
-## Later tasks
-
-- The session layer (office-sessions port) fills `digest::ResultSession` from its session (`target`, `format`, `file_kind`,
-  `authored`, `facts_mode_sample` from `authoredBrief.factsMode === 'sample'`) and keeps `delivered_design` /
-  `delivered_model_review` on the stored session between results; it calls `finalize_office_result(copy_of_value,
-  FinalizeOptions { action, session, elapsed_ms })` with `elapsed_ms` = `performance.now() - startedAt`, and
-  `bounded::bounded(&value, max_chars, Some(model_facing_length))`, where `modelFacingLength` is the UTF-16 length of the
-  serialisation of the value with `digest::office_document_digest` applied to its `document` (office-sessions.mjs).
-- `digest::FACTS_SAMPLE_DISCLOSURE` is the text of `FACTS_SAMPLE_DISCLOSURE` in authoring/pptx-brief.mjs; the authoring port
-  reuses the constant rather than writing it again.
+    }

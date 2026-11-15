@@ -1,36 +1,4 @@
-# nr-office-journal-ledger: what the lead applies (nothing here is a protocol row; no SERVICE_PENDING name changes).
+# nr-office-journal-ledger: reduced by the wire audit (t19). Already applied: the mixdog-office-base dependency edges and lock entries (mixdog-fsio, mixdog-rt, mixdog-statefile), the office-journal fixture index entry, list_office_journals used by office.sweepJournals (exthost worker).
 
-[cargo-lock]
-# crate mixdog-office-base got new workspace dependency edges (its own Cargo.toml is already edited). Cargo.lock: in the
-# [[package]] entry of "mixdog-office-base", `dependencies` gains
-#   "mixdog-fsio", "mixdog-rt", "mixdog-statefile"
-# and (dev-dependencies are listed in the same array) "base64", "tempfile", "tokio". All of them are crates already in
-# the lock; nothing new is fetched. `mixdog-rt` is used with features test-support + virtual-clock by this crate's tests
-# (the same set mixdog-statefile's tests use), `tokio` with feature rt.
-# mixdog-workspace-hack/Cargo.toml: re-run cargo hakari generate so tokio/rt, tempfile and base64 are unified for
-# mixdog-office-base (a test build only).
-
-[workspace-members]
-# no change: mixdog-office-base is already a member; the benchmarks recorder needs no Cargo entry.
-
-[fixtures]
-# native/core/fixtures/office-journal/ (golden.json + MANIFEST.json) is added by this task, and native/core/fixtures/MANIFEST.json
-# carries the new index entry for set "office-journal" (after "office-detect"). benchmarks/rust-core/recorders/record-office-journal.mjs
-# re-records it (and prints `golden.json <n> bytes`); with `--read-dir <dir>` it prints what Node reads from a data dir Rust wrote.
-
-[consumers]
-# The seam the engine (mixdog-office, nr-office-*-engine tasks) and the wiring use:
-#   mixdog_office_base::ledger::CallLedger::new(cwd, data_dir) -> io::Result<CallLedger>   (impl WriteNote; one per tool call)
-#   CallLedger::changes(&proof) -> Vec<FileChange { path: PathBuf, before: ChangeSide, after: ChangeSide }>
-#   ChangeSide::{Absent, Bytes(Vec<u8>), Uncaptured { size: u64, reason: Option<String> }}
-# mixdog-tools office.rs `WriteReceipt` is built from a FileChange one to one:
-#   path = change.path.to_string_lossy(), and ChangeSide::X -> WriteSide::X (identical variants and fields). The lead/wiring
-#   task that registers the in-process office service does that conversion (mixdog-tools must not be depended on by
-#   mixdog-office-base, so the type lives here and is mapped there).
-# mixdog_office_base::journal::{write_office_journal, read_office_journal, remove_office_journal, list_office_journals}
-#   serve office.transactions / recover / begin / commit and `office.sweepJournals` (nr-office-ext-router calls
-#   list_office_journals(proof, data_dir, true) from a maintenance/durability lane job).
-# Every blocking function takes the proof of the lane job it runs in (&InLane<_> or mixdog_fsio::Unlaned in tests); the
-# one exception is the WriteNote seam of CallLedger, whose trait method carries no proof: it reads through
-# mixdog_fsio::Unlaned, so the engine's writers (which already run inside a lane job) must call note_write from there, or
-# use CallLedger::note_write_in(&lane_proof, path) directly.
+## Consumer wiring (whoever registers office.run in the worker / the in-process office service)
+mixdog_office_base::ledger::CallLedger has no caller outside its crate. The call must create one CallLedger per tool call (CallLedger::new(cwd, data_dir); it is the WriteNote of the engine's writers, called from inside the lane job, or through note_write_in(&lane_proof, path)) and map CallLedger::changes(&proof) -> Vec<FileChange> to the tool layer's WriteReceipt one to one: path = change.path.to_string_lossy(), ChangeSide::{Absent, Bytes, Uncaptured{size, reason}} -> WriteSide::{same variants and fields} (mixdog-tools office.rs; mixdog-office-base must not depend on mixdog-tools).

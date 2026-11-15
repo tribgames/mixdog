@@ -1,41 +1,5 @@
-# t15-tui: what is left of the nr-tui-* fragments for the lead (hot files and other owners' crates)
+# t15-tui: reduced by the wire audit (t19). Everything else in this fragment is applied (members, lock entries, entry calls mixdog_repl::run / run_tui in mixdog-entry/src/interactive.rs, validateOnly in route set, statusline_port reading MIXDOG_CONFIG_DIR, getSettingsSnapshot voice member, has_action in mixdog-session-view).
 
-Everything that was an edit inside mixdog-tui, mixdog-tui-widgets, mixdog-term and mixdog-repl is applied (their Cargo.toml edges
-and features, the dev-dependencies, the module lines, the three recorder MODULES lines of
-mixdog-tui-widgets/tests/recorders/record-ink-frames.mjs, and the removal of the private copies of
-`is_live_spinner_meta_visible` / `completed_tail_appended_this_commit` in mixdog-tui/src/surface/layout in favour of
-mixdog_tui_widgets::spinner). The original fragments nr-tui-app-run, -slash, -surface-layout, -widgets-panels, -term-os, -editor,
--mouse, -repl, -view, -footer, -panels and -pickers-{extensions,model,settings} are deleted.
-
-## native/core/Cargo.toml, native/core/Cargo.lock
-
-Already in the tree: members `crates/mixdog-repl`, `crates/mixdog-tui`, workspace dependencies `mixdog-repl`, `mixdog-tui`, and the
-lock entries of `mixdog-tui` (incl. dev-dependencies portable-pty, vte, tempfile, mixdog-cli, mixdog-core) and `mixdog-repl`.
-`cargo nextest run -p mixdog-tui --locked` accepts the lock as it is (no regeneration needed for these two packages).
-
-## native/core/crates/mixdog-workspace-hack/Cargo.toml
-
-Run the workspace-hack refresh once for the new members `mixdog-tui` and `mixdog-repl` (both Cargo.toml files already carry the
-`mixdog-workspace-hack` edge). The two crates take no external dependency that is not already in the lock.
-
-## native/core/crates/mixdog-cli main.rs / the entry (nr-tui-entry-argv, nr-tui-switch)
-
-* `--plain`: `mixdog_repl::run(mixdog_repl::ReplOptions { provider, model, tool_mode, cwd }, Arc<dyn mixdog_repl::Footer>)`; the footer is
-  `Arc::new(mixdog_tui::footer::StatuslineRenderer)` built as the footer fragment describes; exit code 0 / 130 / 1; the process
-  lifecycle ledger brackets the call; `--help` is the entry's argv handling.
-* the terminal UI: `mixdog_tui::run::run_tui(TuiOptions { .., tool_mode, remote, force_onboarding, worktree, resume })`.
-
-## compose*.rs / protocol tables
-
-No row, no SERVICE_PENDING change from any of these fragments.
-
-## For other owners (not hot, not in my crates)
-
-* mixdog-core-domains route_set_service.rs: accept `validateOnly` in the `route/set` selection (add it to `OPTION_KEYS`, pass it as
-  `SetRouteOptions.validate_only`) so `/model <name>` of the plain REPL can validate before it compacts (Node order).
-* mixdog-app-server-daemon statusline_port.rs reads `settings.json` / `cc-statusline-last.json` from `CLAUDE_CONFIG_DIR` / `~/.claude`;
-  Node reads them from `MIXDOG_CONFIG_DIR` (default `~/.mixdog`), as the footer here does.
-* `getSettingsSnapshot` has no `voice: { enabled }` member (the settings row costs one extra `getVoiceStatus` call); the application's
-  `AppCtx::store_call` must add the session `threadId` to `toggleVoice` or the install runs without visible progress.
-* `mixdog-session-view` does not export the router's table of targets: `AppStore::has_method` answers true for every name
-  (a missing method answers with its own `Err` instead of Node's silent `null`); exporting `has_action(name)` restores it.
+## Still open
+- mixdog-workspace-hack: run the refresh once for the members mixdog-tui and mixdog-repl.
+- In-crate (mixdog-tui): the application's AppCtx::store_call must add the session threadId to toggleVoice, or the install runs without visible progress (mixdog-tui/src/app/slash_host.rs store_call and pickers/settings/toggles.rs call "toggleVoice" with the target only; not verified that the session threadId is added further down).

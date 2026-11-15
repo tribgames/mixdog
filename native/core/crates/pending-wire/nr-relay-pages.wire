@@ -1,27 +1,8 @@
-# nr-relay-pages: the public pages of mixdog-relay (src/pages/{mod,app,connect,update_pc}.rs, assets/pages/, tests/pages.rs).
-# Nothing here was compiled (no cargo in this task). No Cargo edge is needed: the pages use regex, serde_json, mixdog-fsio and
-# the crate's own js/logline, and the tests tempfile and mixdog-testkit, all already in native/core/crates/mixdog-relay/Cargo.toml.
+# nr-relay-pages: reduced by the wire audit (t19). Already applied: the router and startup calls (AppPages::load, connect_page, update_pc_page / is_native_app_request in web/gate.rs), the crate manifest.
 
-## 1. native/core/fixtures/MANIFEST.json
-Add the set relay-pages (files: golden.json, record.mjs, extract-assets.mjs) beside the other sets, with the manifest hash the verifier
-(benchmarks/rust-core/recorders/verify-manifests.mjs) computes. record.mjs regenerates golden.json from a Node tree:
+## native/core/fixtures/MANIFEST.json (lead hot file)
+Index the set relay-pages (files: golden.json, record.mjs, extract-assets.mjs). It has no MANIFEST.json yet: run "node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index" so the verifier writes the set manifest and the index row (no entry text can be given before that; it computes the digest). record.mjs regenerates golden.json from a Node tree:
     node native/core/fixtures/relay-pages/record.mjs <tree>/apps/relay/lib > native/core/fixtures/relay-pages/golden.json
-It is run once, before the Node pages are deleted (the byte-equality test then keeps pinning the recorded Node bytes).
 
-## 2. The router (the task that writes the relay's request routing, src/server): what it must call
-    use mixdog_relay::pages::{PageReply, PageRequest, app::AppPages, connect::connect_page, update_pc::{is_native_app_request, update_pc_page}};
-- At startup, once: `let app = AppPages::load(&config.install_dir);` (reads <install dir>/mobile-release.json, writes the one
-  warning line if it is unusable, builds /app and /app/latest.json).
-- `/app`: `app.app_page(PageRequest { method, user_agent })`; `/app/latest.json`: `app.latest_release(..)`; `/connect`: `connect_page(..)`.
-- The "update your PC" page, where Node calls `isNativeAppRequest(request)` and `sendUpdatePcPage(request, response, details)`:
-  `is_native_app_request(user_agent)` and `update_pc_page(method, current, min)`.
-- Writing a PageReply: status, then the headers in the order given (they are Node's writeHead order), then the body when Some; a None
-  body is `end()` with no data (HEAD, 302, 404, 405). user_agent is the first User-Agent header (Node keeps the first of duplicates).
-
-## 3. mixdog-app-server-daemon compose_flip.rs
-Nothing: no protocol method belongs to this task, SERVICE_PENDING is unchanged.
-
-## 4. Later deletion task (the Node pages)
-apps/desktop/src/renderer/connect-copy.test.mjs imports sendConnectPage from apps/relay/lib/connect-page.mjs to read the served CSS.
-When that Node file is deleted the test must read native/core/crates/mixdog-relay/assets/pages/pairing.css instead (that file is the
-shared block, kept contiguous: it is exactly apps/mobile/src/index.html from ".mxp-screen{" to "</style>").
+## Later deletion task (the Node pages)
+apps/desktop/src/renderer/connect-copy.test.mjs still imports sendConnectPage from apps/relay/lib/connect-page.mjs to read the served CSS. When that Node file is deleted the test must read native/core/crates/mixdog-relay/assets/pages/pairing.css instead (that file is exactly apps/mobile/src/index.html from ".mxp-screen{" to "</style>").
