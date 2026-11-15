@@ -134,6 +134,11 @@ fn examine<P: WriteProof>(proof: &P, path: &Path, cleanup: bool, now: f64) -> io
     Ok(Outcome::Kept(record))
 }
 
+/// `listOfficeJournals` with the caller's clock (`Date.now()` of a process whose clock is injected), in milliseconds.
+pub fn list_office_journals_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -> io::Result<Vec<Value>> {
+    list_at(proof, data_dir, cleanup, now)
+}
+
 fn list_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -> io::Result<Vec<Value>> {
     let directory = office_journal_directory(data_dir)?;
     mixdog_fsio::create_dir_all(proof, &directory)?;

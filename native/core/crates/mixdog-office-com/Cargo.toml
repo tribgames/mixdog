@@ -180,3 +180,7 @@ path = "tests/word_edit.rs"
 [[test]]
 name = "word_edit_live"
 path = "tests/word_edit_live.rs"
+
+[[test]]
+name = "switch_word_live"
+path = "tests/switch_word_live.rs"

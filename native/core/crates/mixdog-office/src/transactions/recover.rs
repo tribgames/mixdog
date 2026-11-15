@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use mixdog_fsio::WriteLane;
 use mixdog_js::{js_to_lowercase, js_trim, value_to_string};
 use mixdog_office_base::formats::document_file_kind;
-use mixdog_office_base::journal::{list_office_journals, read_office_journal};
+use mixdog_office_base::journal::{list_office_journals_at, read_office_journal};
 use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
 
@@ -56,7 +56,7 @@ fn journal_summary(record: &Value) -> Value {
 
 /// `pendingOfficeTransactions(dataDir)`: the journals on disk (the ones older than 30 days are removed first), newest first.
 pub fn pending_office_transactions<L: WriteLane, H>(cx: &TransactionContext<'_, L, H>, data_dir: &Path) -> Result<Vec<Value>, String> {
-    let records = list_office_journals(cx.lane(), data_dir, true).map_err(|error| error.to_string())?;
+    let records = list_office_journals_at(cx.lane(), data_dir, true, (cx.env.now_ms)()).map_err(|error| error.to_string())?;
     Ok(records.iter().map(journal_summary).collect())
 }
 
