@@ -9,7 +9,6 @@
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_js::JsRegex;
 use zip::result::ZipError;
@@ -60,7 +59,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 pub(crate) fn utc_now() -> UtcNow {
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs()) as i64;
+    let seconds = (mixdog_office_base::clock::now_ms() / 1000.0).floor() as i64;
     let (year, month, day) = civil_from_days(seconds.div_euclid(86_400));
     let of_day = seconds.rem_euclid(86_400) as u32;
     UtcNow { year, month, day, hour: of_day / 3_600, minute: of_day % 3_600 / 60, second: of_day % 60 }

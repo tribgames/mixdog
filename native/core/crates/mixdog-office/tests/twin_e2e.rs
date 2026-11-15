@@ -477,6 +477,8 @@ fn put_setup(scenario: &Value, docs: &Path, lane: &InLane<DurabilityIo>) {
 
 /// Replays one scenario; answers what differs from the recording and the wall time of its calls.
 fn replay_scenario(scenario: &Value, recorded: &Value) -> (Vec<String>, Duration) {
+    // The recorder runs under its own `Date` (every stamp a document carries is that instant).
+    mixdog_office_base::clock::pin(Some(CLOCK));
     let name = text(&scenario["name"]).to_owned();
     let directory = tempfile::tempdir().expect("temp dir");
     let dir = directory.path().to_path_buf();

@@ -7,7 +7,6 @@
 //! value column is an empty cell, the table range of a category chart ends in a stray quote, and every label cell of a
 //! row names the same shared string.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_ooxml::zipio::Package;
 
@@ -70,7 +69,7 @@ pub(super) fn column_name(index: usize) -> String {
 
 /// `new Date().toISOString()`.
 fn iso_millis_now() -> String {
-    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis());
+    let millis = mixdog_office_base::clock::now_ms() as u128;
     let seconds = i64::try_from(millis / 1_000).unwrap_or(0);
     let days = seconds / 86_400;
     let of_day = seconds % 86_400;
