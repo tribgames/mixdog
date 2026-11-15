@@ -8,7 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use mixdog_pdf::inspect::{Detail, InspectError, InspectOptions, PageRange, Run, inspect_pdf_buffer, page_body_text};
+use mixdog_pdf::inspect::{
+    Detail, InspectError, InspectOptions, MAX_PDF_PAGES, PageRange, Run, inspect_pdf_buffer, page_body_text,
+};
 use serde_json::Value;
 
 fn fixtures() -> PathBuf {
@@ -54,8 +56,10 @@ fn intake_bytes(scenario: &Value) -> Vec<u8> {
     }
 }
 
-fn measuring() -> InspectOptions {
-    InspectOptions { measure_text: true, max_pages: None, ..InspectOptions::default() }
+/// The options the intake measures with (`store.mjs`): the page limit for a provider that takes the PDF natively, none for one
+/// that takes its text.
+fn measuring(native: bool) -> InspectOptions {
+    InspectOptions { measure_text: true, max_pages: native.then_some(MAX_PDF_PAGES), ..InspectOptions::default() }
 }
 
 #[test]
@@ -65,7 +69,14 @@ fn the_intake_scenarios_count_what_the_intake_recorded() {
     for scenario in manifest["scenarios"].as_array().expect("the scenarios") {
         let name = scenario.as_str().expect("a name");
         let recording = json(fixtures().join(format!("pdf-intake/{name}.json")));
-        let outcome = inspect_pdf_buffer(&intake_bytes(&recording), &measuring());
+        let native = recording["nativePdf"] == Value::Bool(true);
+        let outcome = inspect_pdf_buffer(&intake_bytes(&recording), &measuring(native));
+        if name == "size-over-limit" {
+            // The intake refuses a PDF over 20 MiB by its size before inspecting it; the bytes themselves read.
+            assert_eq!(outcome.expect("one space more than the file at the limit").page_count, 1, "{name}");
+            replayed += 1;
+            continue;
+        }
         if let Some(recorded) = recording.get("error") {
             let failure = outcome.expect_err(name);
             assert_eq!(failure.message(), recorded["message"].as_str().expect("a message"), "{name}: message");
