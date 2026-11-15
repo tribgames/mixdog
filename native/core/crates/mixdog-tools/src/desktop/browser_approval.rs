@@ -103,9 +103,10 @@ impl Drop for CardHold {
 /// What the core knows of the asking session, read where the composition holds it.
 #[async_trait]
 pub trait ApprovalContext: Send + Sync {
-    /// The session's facts as the turn path reads them; the port keeps their life mark. Whose own session it is comes from the
-    /// session id alone ([`own_bot_of_session`]), as the desktop read it: a run's owner never makes another session a bot's.
-    fn facts(&self, thread: &ThreadId) -> SessionFacts;
+    /// The session's facts as the turn path reads them: its life mark, and the unattended run that owns it (`unattendedRunOf`) with
+    /// that run's owner as `agent_id`. Whose own session it is comes from the session id alone ([`own_bot_of_session`]), as the
+    /// desktop read it: a run's owner never makes another session a bot's.
+    async fn facts(&self, thread: &ThreadId) -> SessionFacts;
 
     /// The "Allow all actions" developer option as it stands now.
     fn settings(&self) -> PolicySettings;
@@ -374,7 +375,7 @@ impl ApprovalPort for BrowserApprovals {
         // A standing allow is a bot's own (its home chat or room seat, read from the session id alone); nothing else (a sub-agent, a
         // task session, a coding session, a session a run owns) is asked.
         let bot = own_bot_of_session(&prompt.session_id);
-        let mut facts = self.context.facts(&thread);
+        let mut facts = self.context.facts(&thread).await;
         // A schedule or webhook run the core hosts is unattended exactly as the Node runtime marked it (`unattendedRunOf` read through
         // `isGrantedRun`: a room member is no run): its owner is the session's agent. A command the bridge carried marks itself.
         let core_run = !prompt.unattended && facts.run.is_some_and(RunKind::is_granted);
@@ -513,7 +514,7 @@ mod tests {
 
     #[async_trait]
     impl ApprovalContext for Ctx {
-        fn facts(&self, thread: &ThreadId) -> SessionFacts {
+        async fn facts(&self, thread: &ThreadId) -> SessionFacts {
             // `sess_home_<bot>` is a bot's own chat; any other session is no bot's, unless a run's owner acts for it (the turn path's
             // facts name the run's owner for every session the run owns).
             let owner = self.run_owner.lock().unwrap().clone();
@@ -878,7 +879,9 @@ mod tests {
                 assert!(!shown, "{session}");
                 assert_eq!(outcome.unwrap_err().message_for_model, PAYMENT_IN_RUN, "{session}");
             }
-            // An operator `confirm` still asks, in every session, and offers nothing to remember.
+            // An operator `confirm` still asks, in every session, and offers nothing to remember (the answers readied for the steps
+            // above that raised no card are dropped first, so each card takes its own).
+            rig.ctx.gate.answers.lock().unwrap().clear();
             for session in [MARKETER, "sess_task"] {
                 let (shown, outcome) = rig.ask(step(session, &[Confirm]), decided(true, Some(ApprovalRemember::Agent), None)).await;
                 assert!(shown, "{session}");
@@ -896,6 +899,8 @@ mod tests {
         let (shown, outcome) = rig.ask(step("sess_task", &[Submit]), decided(true, None, None)).await;
         assert!(!shown);
         assert_eq!(outcome.unwrap_err().message_for_model, NO_RUN_OWNER);
+        // The answer readied for the refused step was never taken: drop it so each card below takes its own.
+        rig.ctx.gate.answers.lock().unwrap().clear();
         // The same session once the run ended is attended again: a bot's own session asks, a task session runs.
         *rig.ctx.run.lock().unwrap() = None;
         *rig.ctx.run_owner.lock().unwrap() = None;

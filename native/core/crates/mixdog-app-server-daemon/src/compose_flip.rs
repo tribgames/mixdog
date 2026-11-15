@@ -1629,6 +1629,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     names: definition_names.clone(),
                     catalog: engine_catalog.clone(),
                     run_gates: run_gates.clone(),
+                    unattended: unattended.clone(),
                 }),
                 engine_files.clone(),
             ),
