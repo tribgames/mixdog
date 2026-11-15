@@ -108,13 +108,32 @@ pub fn get_operator_list(
     page: &Page,
     fonts: Option<&dyn FontProvider>,
 ) -> Result<OperatorList> {
+    Ok(get_page_operators(document, page, fonts)?.list)
+}
+
+/// A page's operator list with the fonts it was made with: what the display layer holds in `commonObjs`, the glyph
+/// procedures of the Type3 fonts (`charProcOperatorList`) among them.
+pub struct PageOperators {
+    pub list: OperatorList,
+    pub fonts: Vec<FontHandle>,
+}
+
+/// [`get_operator_list`] and the fonts the list names.
+pub fn get_page_operators(
+    document: &Document,
+    page: &Page,
+    fonts: Option<&dyn FontProvider>,
+) -> Result<PageOperators> {
     document.guard().check_now()?;
     let content = page.content(document)?;
     let resources = merged_resources(document, page)?;
     let mut evaluator = interpreter::Evaluator::new(document, fonts, page.index);
     let mut list = OperatorList::new();
     evaluator.get_operator_list(content, None, &resources, &mut list, None, &[])?;
-    Ok(list)
+    Ok(PageOperators {
+        list,
+        fonts: evaluator.into_fonts(),
+    })
 }
 
 /// `Page.#getMergedResources`: when `/Contents` is one stream with a non-empty `/Resources` of its own, that
