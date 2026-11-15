@@ -4,6 +4,7 @@
 use mixdog_term::frame::{CursorPos, Grid};
 use mixdog_term::paint::Painter;
 use mixdog_tui_widgets::Line;
+use mixdog_tui_widgets::palette::SlashCommand as WidgetCommand;
 use mixdog_tui_widgets::sign_in_url::CopyStatus;
 use mixdog_tui_widgets::text_entry::TextEntryDraft;
 use serde_json::{Map, Value, json};
@@ -14,11 +15,14 @@ use crate::surface::layout::{
     BtwPanel, HintText, PickerLayout, QueuedCommand, ShellLayoutInput, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail,
     compute_shell_layout,
 };
+use crate::slash::palette::{PaletteItem, PaletteKind};
+use crate::transcript::scroll::anchor::Geometry;
+use crate::transcript::scroll::lock::{CommitFrame, RowIndex as LockRows};
 use crate::transcript::window::heights::{HeightParams, item_id, item_kind};
 use crate::transcript::window::render_window::{WindowTuning, transcript_render_window};
 use crate::transcript::window::row_index::Items;
 use crate::transcript::window::visible_items::{overlay_hint_placement, visible_transcript_items};
-use crate::view::panel::{PanelSlots, PickerSlot, TextEntrySlot, fit_picker};
+use crate::view::panel::{PaletteSlot, PanelSlots, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker};
 use crate::view::rows::{MountInput, mount_rows};
 use crate::view::{AppViewProps, render_app};
 
@@ -88,7 +92,12 @@ impl AppState {
             .map_or(&[], Vec::as_slice);
         let tail = if view_items.is_some() { None } else { state.get("streamingTail").filter(|tail| tail.is_object()) };
         let list = Items::new(items, tail);
+        if self.take_follow_request() {
+            self.scroll.arm_transcript_follow();
+        }
         let (selected, confirm_focus) = self.picker_selection().unwrap_or((0, -1));
+        let palette = self.palette();
+        let palette_selected = self.palette_selection(&palette);
         let picker = self.surface.picker().cloned();
         let btw_panel = self.btw.panel().cloned();
         let input = ShellLayoutInput {
@@ -99,7 +108,7 @@ impl AppState {
             context_panel: self.surface.context().is_some(),
             usage_panel: self.surface.usage().is_some(),
             btw_panel: btw_panel.as_ref().map(|panel| BtwPanel { done: text(panel, "status") == "done", text: text(panel, "text") }),
-            slash_palette_open: false,
+            slash_palette_open: palette.slash_palette_open,
             tui_ready: self.chrome.is_ready(),
             state: shell_state(&state, items),
             rows: rows_used,
@@ -121,8 +130,41 @@ impl AppState {
 
         let params = HeightParams { columns: frame_columns, tool_output_expanded: self.tool_output_expanded };
         let revision = state.get("structureRevision").and_then(Value::as_u64).unwrap_or(0);
+        let ids: Vec<Value> = (0..list.len()).map(|at| list.get(at).and_then(|item| item.get("id")).filter(|id| !id.is_null()).cloned().unwrap_or(Value::Null)).collect();
+        let session = text(&state, "sessionId");
+        if session != self.window_session {
+            // A resumed or new session replaces the transcript: the window returns to its tail.
+            self.window_session = session;
+            self.prev_total_rows = 0;
+            self.scroll.reset_transcript_scroll();
+            self.scroll.geom = Geometry::default();
+        }
+        self.scroll.swap_reset(&ids);
         let index = self.row_index.build(&list, &mut self.heights, &params, revision);
-        let window = transcript_render_window(index, self.scroll.scroll_offset as f64, layout.transcript_content_height as f64, &WindowTuning::current());
+        let view_rows = layout.transcript_content_height.max(1);
+        let render_offset = self.scroll.resolve_render_scroll_offset(&ids, LockRows { total_rows: index.total_rows, prefix_rows: Some(&index.prefix_rows) }, view_rows, layout.floating_panel_rows);
+        let window = transcript_render_window(index, render_offset, layout.transcript_content_height as f64, &WindowTuning::current());
+        // The commit of the frame: the geometry a manual scroll reads, then the anchor lock and the follow rule against it.
+        let previous_total_rows = std::mem::replace(&mut self.prev_total_rows, window.total_rows);
+        self.scroll.geom = Geometry { prefix_rows: Some(index.prefix_rows.clone()), ids: ids.clone(), total_rows: window.total_rows, view_rows, render_offset: window.effective_scroll_offset as f64 };
+        self.scroll.max_scroll_rows = window.max_scroll_rows;
+        self.scroll.bottom_slack_rows = layout.transcript_bottom_slack_rows;
+        let offset_before = (self.scroll.scroll_offset, self.scroll.target.to_bits());
+        let drag_active = self.mouse.as_ref().is_some_and(|mouse| mouse.drag.active);
+        self.scroll.sync_reading_anchor_after_commit(&CommitFrame {
+            drag_active,
+            total_rows: window.total_rows,
+            previous_total_rows,
+            prefix_rows: Some(&index.prefix_rows),
+            ids: &ids,
+            view_rows,
+            max_rows: window.max_scroll_rows,
+        });
+        self.scroll.reset_scroll_when_unanchored();
+        self.scroll.clamp_scroll_to_overflow(window.max_scroll_rows);
+        if (self.scroll.scroll_offset, self.scroll.target.to_bits()) != offset_before {
+            self.frame_requested = true;
+        }
         let rendered = visible_transcript_items(&list, &window);
         let overlay = overlay_hint_placement(&rendered, &window, layout.overlay_hint_requested, layout.floating_panel_rows, layout.transcript_guard_rows);
         let streaming_tail_id = tail.and_then(|tail| tail.get("id")).and_then(Value::as_str);
@@ -153,6 +195,19 @@ impl AppState {
             settings_prompt: settings_value.as_ref().map(|prompt| TextEntrySlot { prompt, draft: &entry_draft, status: CopyStatus::Idle }),
             ..PanelSlots::default()
         };
+        let palette_commands: Vec<WidgetCommand> = palette.slash_commands.iter().map(widget_command).collect();
+        let palette_query = palette.active_slash_query.clone().unwrap_or_default();
+        let approval_request = state.get("toolApproval").filter(|approval| approval.is_object());
+        let panels = PanelSlots {
+            tool_approval: approval_request.map(|request| ToolApprovalSlot { request, selected: self.approval_selected, question: self.question_state.as_ref() }),
+            slash_palette: palette.slash_palette_open.then_some(PaletteSlot {
+                commands: &palette_commands,
+                selected: palette_selected,
+                query: &palette_query,
+                skills: palette.palette_kind == PaletteKind::Skills,
+            }),
+            ..panels
+        };
         let queued: &[Value] = state.get("queued").and_then(Value::as_array).map_or(&[], Vec::as_slice);
         let spinner: &[Line] = &[];
         let footer_line = self.statusline_line().to_owned();
@@ -175,8 +230,54 @@ impl AppState {
         };
         let mut grid = Grid::new(columns, rows);
         let frame = render_app(&props, &mut Painter::new(&mut grid));
+        if let Some(mouse) = self.mouse.as_mut() {
+            if let Some(viewport) = self.shell_refs.transcript_viewport {
+                mouse.set_transcript_viewport(viewport.top as f64, viewport.bottom as f64);
+            }
+            mouse.set_frame(rows_used as f64, frame_columns);
+            mouse.set_selection_background(super::input::theme_selection_background());
+        }
+        if let (Some(layout), Some(editor)) = (frame.prompt_box, self.editor.as_mut()) {
+            let enabled = !(self.prompt.exit.requested() || !self.chrome.is_ready());
+            let _ = editor.cursor_anchor(&layout, enabled);
+            self.prompt.box_rect = editor.box_rect();
+            if let Some(mouse) = self.mouse.as_mut() {
+                mouse.set_prompt_box_rect(self.prompt.box_rect.map(|rect| crate::mouse::PromptBoxRect {
+                    top: rect.top,
+                    left: rect.left,
+                    height: i32::try_from(rect.height).unwrap_or(1),
+                    content_width: i32::try_from(rect.content_width).unwrap_or(1),
+                }));
+            }
+        }
+        // The grid as the layout drew it serves the word and line bounds of a click; the highlight goes on a copy the writer takes.
+        self.rendered_grid = Some(grid.clone());
+        self.render_selection.apply(&mut grid, &[]);
         // Writes the surface made since the last frame are what this frame shows.
         let _ = self.surface.take_events();
         (grid, frame.cursor)
+    }
+}
+
+/// A palette row as the palette widget takes it.
+fn widget_command(item: &PaletteItem) -> WidgetCommand {
+    match item {
+        PaletteItem::Command(command) => WidgetCommand {
+            name: command.name.to_owned(),
+            label: String::new(),
+            usage: command.usage.to_owned(),
+            aliases: command.aliases.iter().map(|alias| (*alias).to_owned()).collect(),
+            alias_usage: command.alias_usage.iter().map(|usage| (*usage).to_owned()).collect(),
+            show_alias_usage: command.show_alias_usage != Some(false),
+            description: command.description.to_owned(),
+        },
+        PaletteItem::Skill { name, label, description } => WidgetCommand {
+            name: name.clone(),
+            label: label.clone(),
+            usage: name.clone(),
+            description: description.clone(),
+            show_alias_usage: true,
+            ..WidgetCommand::default()
+        },
     }
 }

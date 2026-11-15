@@ -426,6 +426,11 @@ const READ_TIMEOUT: Duration = Duration::from_millis(3000);
 
 /// The PowerShell that saves the clipboard image to the path in `MIXDOG_CLIPBOARD_IMAGE_PATH` (exit 2: no image).
 pub const WINDOWS_CLIPBOARD_IMAGE_SCRIPT: &str = "$p=$env:MIXDOG_CLIPBOARD_IMAGE_PATH; Add-Type -AssemblyName System.Drawing; $img=Get-Clipboard -Format Image; if ($null -eq $img) { exit 2 }; $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png)";
+/// Base64 of `bytes` (the standard alphabet, padded).
+pub fn base64_encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
 /// The PowerShell that writes the clipboard text to stdout as base64 of UTF-8, so non-ASCII survives the console code page.
 pub const WINDOWS_CLIPBOARD_TEXT_SCRIPT: &str = "$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))";
 

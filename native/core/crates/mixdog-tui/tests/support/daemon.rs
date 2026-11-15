@@ -175,18 +175,14 @@ impl Drop for Workspace {
 /// A user-level `hooks.json` whose PreToolUse handler answers `ask` for `tool`.
 fn write_ask_hook(data_dir: &Path, install: &Path, tool: &str) {
     let answer = r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"pty end-to-end"}}"#;
-    let script = if cfg!(windows) {
-        let path = install.join("ask.cmd");
-        std::fs::write(&path, format!("@echo off\r\necho {answer}\r\n")).expect("the hook script");
-        path
-    } else {
-        let path = install.join("ask.sh");
-        std::fs::write(&path, format!("#!/bin/sh\ncat > /dev/null\nprintf '%s' '{answer}'\n")).expect("the hook script");
-        make_executable(&path);
-        path
-    };
-    let command = format!("\"{}\"", script.display());
-    let hooks = json!({ "hooks": { "PreToolUse": [ { "matcher": tool, "hooks": [ { "type": "command", "command": command } ] } ] } });
+    // A script run by `node` as an exec (`command` and `args`): a command line without `args` goes through the handler's shell
+    // (`bash -lc` on Windows too), which would take the backslashes of a script path for escapes. It answers at once: the hook is
+    // asked about one call and needs nothing of the payload.
+    let script = install.join("ask.mjs");
+    let body = format!("process.stdout.write('{answer}');\n");
+    std::fs::write(&script, body).expect("the hook script");
+    let handler = json!({ "type": "command", "command": "node", "args": [script.to_string_lossy()] });
+    let hooks = json!({ "hooks": { "PreToolUse": [ { "matcher": tool, "hooks": [ handler ] } ] } });
     std::fs::write(data_dir.join("hooks.json"), hooks.to_string()).expect("hooks.json");
 }
 
@@ -212,6 +208,3 @@ fn make_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("a mode");
 }
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}
