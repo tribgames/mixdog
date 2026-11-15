@@ -1,0 +1,8266 @@
+{
+ "scenarios": [
+  {
+   "name": "interleaved-deltas/every-1",
+   "feed": "interleaved-deltas",
+   "tickEvery": 1,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 1,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 2,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "m1",
+       "from": 0,
+       "text": "Hel",
+       "tail": {
+        "kind": "assistant",
+        "id": "m1",
+        "at": 1,
+        "model": "m",
+        "provider": "p",
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 4,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "m2",
+       "from": 0,
+       "text": "seed",
+       "tail": {
+        "kind": "assistant",
+        "id": "m2",
+        "at": 2,
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "m1",
+       "from": 0,
+       "text": "lo",
+       "tail": {
+        "id": "m1",
+        "kind": "assistant",
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 6,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": {
+       "id": "m2",
+       "kind": "assistant",
+       "streaming": true,
+       "text": " 😀\n"
+      },
+      "streamingPartial": {
+       "id": "m2",
+       "from": 4,
+       "text": "second"
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": {
+       "id": "m2",
+       "kind": "assistant",
+       "streaming": true,
+       "text": " 😀\nsecond line\n"
+      },
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 8,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": {
+       "id": "m2",
+       "kind": "assistant",
+       "streaming": true,
+       "text": " 😀\nsecond line\n"
+      },
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 9,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 10,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "ghost",
+       "from": 0,
+       "text": "unknown id",
+       "tail": {
+        "id": "ghost",
+        "kind": "assistant",
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 11,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": {
+       "id": "ghost",
+       "kind": "assistant",
+       "streaming": true,
+       "text": "unknown id\n"
+      },
+      "streamingPartial": {
+       "id": "ghost",
+       "from": 11,
+       "text": "more"
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 12,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 13,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 14,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       },
+       {
+        "kind": "assistant",
+        "id": "after",
+        "text": "   ",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 3,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "interleaved-deltas/every-4",
+   "feed": "interleaved-deltas",
+   "tickEvery": 4,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "m1",
+       "from": 0,
+       "text": "Hel",
+       "tail": {
+        "kind": "assistant",
+        "id": "m1",
+        "at": 1,
+        "model": "m",
+        "provider": "p",
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 0,
+      "streamingTail": {
+       "id": "m2",
+       "kind": "assistant",
+       "streaming": true,
+       "text": " 😀\nsecond line\n"
+      },
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 11,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": {
+       "id": "ghost",
+       "kind": "assistant",
+       "streaming": true,
+       "text": "unknown id\n"
+      },
+      "streamingPartial": {
+       "id": "ghost",
+       "from": 11,
+       "text": "more"
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 14,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "m1",
+        "text": "Hello",
+        "at": 1
+       },
+       {
+        "kind": "assistant",
+        "id": "m2",
+        "text": "seed 😀\nsecond line\n",
+        "at": 2
+       },
+       {
+        "kind": "assistant",
+        "id": "after",
+        "text": "   ",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 3,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop-during-tools/every-1",
+   "feed": "stop-during-tools",
+   "tickEvery": 1,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 1,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 2,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1000
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1000,
+        "deferredDisplayReady": true
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1000
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1000,
+        "deferredDisplayReady": true
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1001
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1001,
+        "deferredDisplayReady": true
+       }
+      ],
+      "structureRevision": 3,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 4,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1001
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1001,
+        "deferredDisplayReady": true
+       }
+      ],
+      "structureRevision": 4,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       }
+      ],
+      "structureRevision": 5,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 6,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "[Request interrupted by user]",
+        "at": 1600
+       }
+      ],
+      "structureRevision": 6,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "[Request interrupted by user]",
+        "at": 1600
+       },
+       {
+        "kind": "turndone",
+        "id": "te",
+        "elapsedMs": 1234,
+        "status": "interrupted",
+        "at": 2000
+       }
+      ],
+      "structureRevision": 7,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 8,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "[Request interrupted by user]",
+        "at": 1600
+       },
+       {
+        "kind": "turndone",
+        "id": "te",
+        "elapsedMs": 1234,
+        "status": "interrupted",
+        "at": 2000
+       }
+      ],
+      "structureRevision": 7,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stop-during-tools/every-4",
+   "feed": "stop-during-tools",
+   "tickEvery": 4,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1000
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1000,
+        "deferredDisplayReady": true
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "count": 1,
+        "completedCount": 0,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": null,
+          "rawResult": null,
+          "isError": false,
+          "errorCount": 0,
+          "callErrorCount": 0,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 0,
+          "headerFinalized": false,
+          "startedAt": 1001
+         }
+        ],
+        "aggregate": true,
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "expanded": false,
+        "headerFinalized": false,
+        "startedAt": 1001,
+        "deferredDisplayReady": true
+       }
+      ],
+      "structureRevision": 3,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "[Request interrupted by user]",
+        "at": 1600
+       },
+       {
+        "kind": "turndone",
+        "id": "te",
+        "elapsedMs": 1234,
+        "status": "interrupted",
+        "at": 2000
+       }
+      ],
+      "structureRevision": 7,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 8,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run it",
+        "at": 900
+       },
+       {
+        "kind": "tool",
+        "id": "c1",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Shell|Running|Ran|command|commands"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Shell|Running|Ran|command|commands": {
+          "key": "Shell|Running|Ran|command|commands",
+          "category": "Shell",
+          "active": "Running",
+          "done": "Ran",
+          "noun": "command",
+          "pluralNoun": "commands",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k1",
+          "name": "bash",
+          "args": {
+           "command": "sleep 100"
+          },
+          "result": "Error: aborted",
+          "rawResult": "Error: aborted",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1000,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. bash\nError: aborted",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1000,
+        "completedAt": 1500
+       },
+       {
+        "kind": "tool",
+        "id": "c2",
+        "name": "__aggregate__",
+        "args": {
+         "categoryOrder": [
+          "Read|Reading|Read|file|files"
+         ]
+        },
+        "aggregate": true,
+        "categories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "doneCategories": {
+         "Read|Reading|Read|file|files": {
+          "key": "Read|Reading|Read|file|files",
+          "category": "Read",
+          "active": "Reading",
+          "done": "Read",
+          "noun": "file",
+          "pluralNoun": "files",
+          "effect": false,
+          "count": 1
+         }
+        },
+        "completedCount": 1,
+        "result": "[status: cancelled]\n1 Failed",
+        "text": "[status: cancelled]\n1 Failed",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "toolMembers": [
+         {
+          "kind": "tool",
+          "id": "k2",
+          "name": "read",
+          "args": {
+           "path": "a"
+          },
+          "result": "Error: [Request interrupted by user]",
+          "rawResult": "[Request interrupted by user]",
+          "isError": true,
+          "errorCount": 1,
+          "callErrorCount": 1,
+          "exitErrorCount": 0,
+          "count": 1,
+          "completedCount": 1,
+          "headerFinalized": true,
+          "startedAt": 1001,
+          "completedAt": 1500
+         }
+        ],
+        "rawResult": "1. read\n[Request interrupted by user]",
+        "expanded": false,
+        "headerFinalized": true,
+        "deferredDisplayReady": true,
+        "startedAt": 1001,
+        "completedAt": 1500
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "[Request interrupted by user]",
+        "at": 1600
+       },
+       {
+        "kind": "turndone",
+        "id": "te",
+        "elapsedMs": 1234,
+        "status": "interrupted",
+        "at": 2000
+       }
+      ],
+      "structureRevision": 7,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "history-reset/every-1",
+   "feed": "history-reset",
+   "tickEvery": 1,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "three",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a2",
+        "text": "four",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 1,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "three",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a2",
+        "text": "four",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 2,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "three",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a2",
+        "text": "four",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": {
+       "kind": "assistant",
+       "id": "live",
+       "streaming": true,
+       "text": "typing\n"
+      },
+      "streamingPartial": {
+       "id": "live",
+       "from": 7,
+       "text": "par"
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 4,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": {
+       "id": "live2",
+       "from": 0,
+       "text": "again",
+       "tail": {
+        "kind": "assistant",
+        "id": "live2",
+        "streaming": true
+       }
+      },
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 6,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       },
+       {
+        "kind": "user",
+        "id": "u9",
+        "text": "after the reset",
+        "at": 900
+       }
+      ],
+      "structureRevision": 3,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 4,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 8,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "a9",
+        "text": "fresh",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 5,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 9,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "a9",
+        "text": "fresh",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 5,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "history-reset/every-4",
+   "feed": "history-reset",
+   "tickEvery": 4,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       },
+       {
+        "kind": "user",
+        "id": "u2",
+        "text": "three",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a2",
+        "text": "four",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "transcriptHasOlder": true,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "one",
+        "at": 900
+       },
+       {
+        "kind": "assistant",
+        "id": "a1",
+        "text": "two",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 2,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [],
+      "structureRevision": 4,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0
+     }
+    },
+    {
+     "after": 9,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "desktopSessionTitle": "Reset me",
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "assistant",
+        "id": "a9",
+        "text": "fresh",
+        "at": 1100
+       }
+      ],
+      "structureRevision": 5,
+      "streamingTail": null,
+      "streamingPartial": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "approvals/every-1",
+   "feed": "approvals",
+   "tickEvery": 1,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 1,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "tool": "bash",
+       "command": "run r1",
+       "id": "r1"
+      },
+      "toolApprovalsWaiting": 2,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 2,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "toolApprovalResult": {
+       "id": "r1",
+       "decision": "allow"
+      },
+      "handoffQuestions": [
+       {
+        "q": 1
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "tool": "bash",
+       "command": "run r2",
+       "id": "r2"
+      },
+      "toolApprovalsWaiting": 1,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "toolApprovalResult": {
+       "id": "r1",
+       "decision": "allow"
+      },
+      "handoffQuestions": [
+       {
+        "q": 1
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "questions": [
+        {
+         "question": "q q1"
+        }
+       ],
+       "kind": "question",
+       "id": "q1"
+      },
+      "toolApprovalsWaiting": 1,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 4,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "tool": "bash",
+       "command": "run same-a",
+       "id": "same-a"
+      },
+      "toolApprovalsWaiting": 1,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "approvals/every-4",
+   "feed": "approvals",
+   "tickEvery": 4,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "toolApprovalResult": {
+       "id": "r1",
+       "decision": "allow"
+      },
+      "handoffQuestions": [
+       {
+        "q": 1
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "questions": [
+        {
+         "question": "q q1"
+        }
+       ],
+       "kind": "question",
+       "id": "q1"
+      },
+      "toolApprovalsWaiting": 1,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": null,
+      "goal": null,
+      "quotaResume": null,
+      "todo": null,
+      "agentScope": null,
+      "queued": [],
+      "busy": true,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "run things",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "promptHistoryList": [],
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteEnabled": false,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": {
+       "tool": "bash",
+       "command": "run same-a",
+       "id": "same-a"
+      },
+      "toolApprovalsWaiting": 1,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "sections/every-1",
+   "feed": "sections",
+   "tickEvery": 1,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": "anthropic",
+      "sessionModel": "m",
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "busy": true,
+      "spinner": {
+       "label": "Thinking",
+       "since": 1
+      },
+      "toasts": [
+       {
+        "id": "t"
+       }
+      ],
+      "effort": "high",
+      "cwd": "/w",
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 1,
+     "state": {
+      "sessionProvider": "anthropic",
+      "sessionModel": "m",
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "busy": false,
+      "effort": "high",
+      "cwd": "/w",
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 2,
+     "state": {
+      "sessionProvider": "anthropic",
+      "sessionModel": "m",
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "effort": "high",
+      "cwd": "/w",
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 4,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 5,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 6,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 8,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o2"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 9,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 10,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 11,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 12,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 13,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 14,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 15,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 16,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 17,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "desktopSessionTitle": "Renamed",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 18,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 19,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "q2",
+        "submittedAt": 8,
+        "text": "later",
+        "displayText": "later",
+        "mode": "prompt",
+        "priority": "next"
+       },
+       "odd",
+       null
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 20,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 21,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "  a  ",
+       "b"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 22,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "c\td",
+       "  a  ",
+       "b"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 23,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 24,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 25,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 26,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 27,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 28,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [
+       {
+        "q": 2
+       }
+      ],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       },
+       {
+        "kind": "typing",
+        "id": "ty",
+        "speaker": "bo"
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 2,
+       "elapsedLabel": "2s",
+       "jobs": [
+        {
+         "id": "j"
+        }
+       ],
+       "finished": []
+      },
+      "toolApproval": {
+       "id": "room-card"
+      },
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      },
+      "busy": true
+     }
+    },
+    {
+     "after": 29,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 2,
+       "elapsedLabel": "2s",
+       "jobs": [
+        {
+         "id": "j"
+        }
+       ],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 30,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 2,
+       "elapsedLabel": "2s",
+       "jobs": [
+        {
+         "id": "j"
+        }
+       ],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 31,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": "yes",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 2,
+       "elapsedLabel": "2s",
+       "jobs": [
+        {
+         "id": "j"
+        }
+       ],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "sections/every-4",
+   "feed": "sections",
+   "tickEvery": 4,
+   "published": [
+    {
+     "after": 0,
+     "state": {
+      "sessionProvider": "anthropic",
+      "sessionModel": "m",
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "busy": true,
+      "spinner": {
+       "label": "Thinking",
+       "since": 1
+      },
+      "toasts": [
+       {
+        "id": "t"
+       }
+      ],
+      "effort": "high",
+      "cwd": "/w",
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 3,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": {
+       "items": [
+        1
+       ]
+      },
+      "agentScope": null,
+      "contextPercent": 12,
+      "stats": {
+       "a": 1
+      },
+      "agentWorkers": [
+       {
+        "id": "w"
+       }
+      ],
+      "workflow": "w1",
+      "orchestrationMode": "solo",
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 7,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": {
+       "objective": "o"
+      },
+      "quotaResume": {
+       "at": 1
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "shellJobs": {
+       "count": 1,
+       "elapsedLabel": "1s",
+       "jobs": [],
+       "finished": []
+      },
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 11,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": {
+       "text": "p"
+      },
+      "workspace": {
+       "root": "/w"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "a",
+       "to": "b"
+      },
+      "remoteEnabled": true,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 15,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "setupUiRequest": {
+       "id": "s",
+       "at": 1
+      },
+      "desktopSessionTitle": "Titled",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "sub1",
+        "submittedAt": 7,
+        "text": "next",
+        "displayText": "next",
+        "mode": "steer",
+        "priority": "now",
+        "source": "bot",
+        "images": [
+         {
+          "n": 1
+         }
+        ]
+       },
+       {
+        "id": "shaped",
+        "text": "kept"
+       }
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 19,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "b",
+       "a"
+      ],
+      "queued": [
+       {
+        "id": "q2",
+        "submittedAt": 8,
+        "text": "later",
+        "displayText": "later",
+        "mode": "prompt",
+        "priority": "next"
+       },
+       "odd",
+       null
+      ],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 23,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 27,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": false,
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    },
+    {
+     "after": 31,
+     "state": {
+      "sessionProvider": null,
+      "sessionModel": null,
+      "promptRestore": null,
+      "workspace": {
+       "root": "/x"
+      },
+      "goal": null,
+      "quotaResume": {
+       "at": 2
+      },
+      "todo": null,
+      "agentScope": null,
+      "handoffQuestions": [],
+      "providerAccountChange": {
+       "from": "b",
+       "to": "c"
+      },
+      "remoteEnabled": "yes",
+      "transcriptHasOlder": true,
+      "promptHistoryList": [
+       "x",
+       "y"
+      ],
+      "queued": [],
+      "model": "x",
+      "contextTokens": 5,
+      "pendingWorkflowSwitch": {
+       "to": "x"
+      },
+      "sessionId": "lead",
+      "items": [
+       {
+        "kind": "user",
+        "id": "u1",
+        "text": "hi",
+        "at": 900
+       }
+      ],
+      "structureRevision": 1,
+      "streamingTail": null,
+      "transcriptViewItems": null,
+      "transcriptViewRevision": 0,
+      "transcriptHistoryBefore": false,
+      "transcriptHistoryAfter": false,
+      "transcriptArchive": null,
+      "lastTurn": null,
+      "themeEpoch": 0,
+      "remoteSessionId": null,
+      "shellJobs": {
+       "count": 0,
+       "elapsedLabel": "",
+       "jobs": [],
+       "finished": []
+      },
+      "hostShellJobs": {
+       "count": 2,
+       "elapsedLabel": "2s",
+       "jobs": [
+        {
+         "id": "j"
+        }
+       ],
+       "finished": []
+      },
+      "toolApproval": null,
+      "toolApprovalsWaiting": 0,
+      "transcriptSpilled": {
+       "epoch": 0,
+       "rows": 0
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
