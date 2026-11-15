@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mixdog_office_base::data_dir::default_office_data_dir;
+use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_office_pdf::{OcrContext, recognize_pdf_page_texts};
 use serde_json::{Value, json};
@@ -18,17 +19,6 @@ use crate::registry::{HandlerResult, Outcome, Registry};
 
 pub(super) fn register(registry: &mut Registry) {
     registry.register("pdf.ocr", ocr);
-}
-
-/// JavaScript truthiness of a parameter.
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0 && !number.is_nan()),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
 }
 
 /// `dataDir || defaultOfficeDataDir()`.
@@ -56,7 +46,8 @@ async fn ocr(ctx: CallCtx) -> HandlerResult {
     let file = ctx.approved_path(&js_string(ctx.params.get("path")), "")?;
     let data_dir = data_dir(&ctx.params)?;
     let pages = page_numbers(&ctx.params);
-    let context = OcrContext::new(lanes()?, fonts().await?, Arc::new(NoWriteNote), data_dir);
+    let lanes = lanes()?;
+    let context = OcrContext::new(lanes, fonts(lanes, &ctx.cancel).await?, Arc::new(NoWriteNote), data_dir);
     let texts = recognize_pdf_page_texts(&context, &file, &pages, ctx.params.get("languages"), Some(ctx.cancel.clone()))
         .await
         .map_err(|error| failure(&ctx, &error))?;
