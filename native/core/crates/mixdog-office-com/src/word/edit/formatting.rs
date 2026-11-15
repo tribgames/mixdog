@@ -163,7 +163,7 @@ pub(super) fn set_list_item_inset(format: &Com, props: &Value) -> Result<()> {
         return Ok(());
     }
     format.set_member("LeftIndent", Com::R4(cast_single(&left)? + 18.0))?;
-    format.set_member("FirstLineIndent", Com::R4(-18.0))
+    format.set_member("FirstLineIndent", Com::I4(-18))
 }
 
 /// A line's alignment name (left, center or centre, right, justify) or the refusal that names the operation's field.

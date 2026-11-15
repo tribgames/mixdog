@@ -56,7 +56,8 @@ pub(super) fn end_paragraph(document: &Obj, for_table: bool) -> Result<i32> {
     if quiet && document.put("TrackFormatting", Com::Bool(false)).is_err() {
         quiet = false;
     }
-    let reset = lists::reset_paragraph(&Para::Real(document.get("Paragraphs")?.member("Last")?));
+    // `$doc.Paragraphs.Last` is read inside the script's try, so TrackFormatting comes back when that read fails too.
+    let reset = document.get("Paragraphs").and_then(|paragraphs| paragraphs.member("Last")).and_then(|last| lists::reset_paragraph(&Para::Real(last)));
     if quiet {
         let _ = document.put("TrackFormatting", Com::Bool(true));
     }
