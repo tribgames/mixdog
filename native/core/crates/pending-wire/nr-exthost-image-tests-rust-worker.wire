@@ -1,0 +1,33 @@
+# nr-exthost-image-tests-rust-worker
+
+The four image test suites (mixdog-exthost tests/it composer_resize and compact_reencode, mixdog-core
+run_host/media_wire_table, mixdog-services media/renditions tests) start the Rust worker `ext_worker_dev` instead of
+`node src/ext-host/worker.mjs`, and compare the bytes sharp recorded under the twin's rules (class, mime, dimensions and
+token-gate branch exact; pixels by PSNR 38 dB / mean difference 2.0 of a 32x32 thumbnail; a JPEG's size within 15 percent).
+
+## Dev-dependencies (three manifests; no new crate: mixdog-imaging is already a workspace dependency, Cargo.lock gains only edges)
+
+native/core/crates/mixdog-exthost/Cargo.toml, [dev-dependencies]:
+native/core/crates/mixdog-core/Cargo.toml, [dev-dependencies]:
+native/core/crates/mixdog-services/Cargo.toml, [dev-dependencies]:
+
+    mixdog-imaging = { workspace = true }
+
+(mixdog-workspace-hack: refresh offline as usual for the three new edges.)
+
+## The binary the tests start
+
+Cargo gives CARGO_BIN_EXE_* only to the package that owns the binary, so each test finds `ext_worker_dev` next to its own
+test binary's `deps` directory (the way mixdog-exthost's pool tests find `ext_fake_worker`). It must be built before the
+suites run, with the same profile and target dir:
+
+    cargo build -p mixdog-exthost-worker --features test-support --bin ext_worker_dev --offline
+
+A whole-workspace build with test-support unified (cargo nextest run --workspace) builds it already. A test fails with
+"the Rust worker is not built: <path>" when it is missing (it never falls back to Node).
+
+## Not done here (file ownership)
+
+The comparison helper (thumbnail PSNR rule) is written three times (mixdog-exthost composer_resize.rs, mixdog-core
+media_wire_table.rs, mixdog-services renditions.rs tests) because the shared places (mixdog-testkit, mixdog-imaging) are not
+owned by this task. When a later task owns mixdog-testkit, move `same_picture` and `worker_binary` there.
