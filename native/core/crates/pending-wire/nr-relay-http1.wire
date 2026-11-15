@@ -1,0 +1,29 @@
+# nr-relay-http1: the HTTP/1.1 server layer (mixdog-relay src/http1, src/net) and its tests.
+# Nothing here could be compiled (no cargo in this task): the sources use only what mixdog-relay's Cargo.toml already lists.
+
+## 1. native/core/crates/mixdog-relay/Cargo.toml
+No edit. Used from [dependencies]: bytes, httparse, mixdog-fsio, mixdog-js, mixdog-rt, pem, rustls (ring, std, tls12), serde_json (tests),
+thiserror, tokio (rt, net, time, io-util, sync, macros), tokio-rustls (ring, tls12), url. From [dev-dependencies]: rcgen, tempfile, tokio
+(rt-multi-thread, test-util). The new test target native/core/crates/mixdog-relay/tests/http1.rs is found by Cargo's own discovery (no [[test]] row;
+the file needs no test-support feature). `cargo nextest run -p mixdog-relay --features test-support --offline -E 'binary(http1)'` runs it.
+
+## 2. native/core/Cargo.lock, mixdog-workspace-hack
+No change: no dependency is added to any package.
+
+## 3. compose_flip.rs SERVICE_PENDING
+Nothing: the crate registers no protocol method.
+
+## 4. Test data added beside the tests (not a fixture of native/core/fixtures)
+native/core/crates/mixdog-relay/tests/fixtures/node-http-echo.mjs (the Node server and the recorder) and node-http-echo.recording.json (what Node 22.20
+answered, recorded once with `node tests/fixtures/node-http-echo.mjs --record`; re-record only by hand). The ledger is tests/ledger/nr-relay-http1.json.
+
+## 5. What the server assembly (nr-relay-server) calls
+    use mixdog_relay::http1::{Handler, HandlerFuture, Request, ResponseWriter, UpgradeRequest, Limits, fail_request};
+    use mixdog_relay::net::{Server, tls, bind_error_message};
+    let tls = if !config.tls_cert.is_empty() && !config.tls_key.is_empty() { Some(tls::load(&config.tls_cert, &config.tls_key)?) } else { None };
+    let server = Server::start(config.listen_port()?, tls, Arc::new(handler), Limits::default()).await;   // Err(e) => bind_error_message(&e, port)
+    server.port()   // the bound port (PORT=0)
+    server.terminate_connections() / server.close().await   // closeRelay's server.close()
+`Handler::request` runs once per request; a panic in it is answered as guardedHttpHandler answers a throw. `Handler::upgrade` takes the
+UpgradeRequest (headers, url, remote_address, encrypted, leftover bytes, raw io); `UpgradeRequest::into_stream()` reads the leftover first.
+Refusals written on a raw upgrade socket use `mixdog_relay::http1::refusal_bytes(status, reason)`.
