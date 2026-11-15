@@ -388,7 +388,8 @@ fn revisions_of_one_author_are_settled_one_by_one_from_the_last() {
     let world = World::new();
     let settled = Rc::new(RefCell::new(Vec::new()));
     let revisions = world.obj().items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "A", &settled, "three")]).build();
-    let document = bare_document(&world, |document| document.child("Revisions", revisions.clone()));
+    let application = world.obj().prop("UserName", text("Owner")).build();
+    let document = bare_document(&world, |document| document.child("Application", application.clone()).child("Revisions", revisions.clone()));
     let result = operate(&document, r#"{"op":"resolve_revisions","author":"a","resolution":"reject"}"#).expect("the operation");
     assert_eq!(json_of(&result), r#"{"op":"resolve_revisions","changed":true,"resolved":2,"author":"a","resolution":"reject"}"#);
     assert_eq!(*settled.borrow(), ["reject three", "reject one"]);
@@ -399,7 +400,8 @@ fn an_author_that_matches_nobody_gets_the_reviewers_listed() {
     let world = World::new();
     let settled = Rc::new(RefCell::new(Vec::new()));
     let revisions = world.obj().items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "a", &settled, "three")]).build();
-    let document = bare_document(&world, |document| document.child("Revisions", revisions.clone()));
+    let application = world.obj().prop("UserName", text("Owner")).build();
+    let document = bare_document(&world, |document| document.child("Application", application.clone()).child("Revisions", revisions.clone()));
     let result = operate(&document, r#"{"op":"resolve_revisions","author":"Zed"}"#).expect("the operation");
     assert_eq!(
         json_of(&result),

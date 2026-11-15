@@ -184,7 +184,7 @@ pub(super) fn matrix_item(matrix: &Com, row: i32, column: i32) -> Com {
 }
 
 /// `Excel-ColumnLetters`: `A` for 1, `AA` for 27; nothing for a column below 1.
-pub(super) fn column_letters(column: i32) -> String {
+pub(crate) fn column_letters(column: i32) -> String {
     let mut column = column;
     let mut letters = String::new();
     while column > 0 {

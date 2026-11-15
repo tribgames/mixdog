@@ -15,7 +15,11 @@ static READERS: &[(&str, &dyn FormatReader)] = &[
 ];
 
 /// The editors: one line per format, `("docx", &crate::word::Editor)`.
-static EDITORS: &[(&str, &dyn FormatEditor)] = &[];
+static EDITORS: &[(&str, &dyn FormatEditor)] = &[
+    ("docx", &crate::word::Editor),
+    ("xlsx", &crate::excel::edit::Editor),
+    ("pptx", &crate::ppt::edit::Editor),
+];
 
 /// The tables the actions run against; a test passes tables of its own.
 #[derive(Clone, Copy)]
