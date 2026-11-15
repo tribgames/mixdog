@@ -235,3 +235,20 @@ async fn a_duplicate_op_answers_the_recorded_outcome() {
     let second = value(&rig.service, request(ROUTE_SET, params, Some(1))).await.unwrap();
     assert_eq!(first, second);
 }
+
+#[test]
+fn validate_only_is_an_option_of_the_write_not_part_of_the_route() {
+    let selection = obj(&json!({ "provider": "openai", "model": "gpt-x", "validateOnly": true }));
+    match plan(&selection, &obj(&json!({}))) {
+        Plan::Write(requested, options) => {
+            assert!(options.validate_only);
+            assert!(!requested.contains_key("validateOnly"));
+        }
+        _ => panic!("a write"),
+    }
+    let selection = obj(&json!({ "provider": "openai", "model": "gpt-x" }));
+    match plan(&selection, &obj(&json!({}))) {
+        Plan::Write(_, options) => assert!(!options.validate_only),
+        _ => panic!("a write"),
+    }
+}

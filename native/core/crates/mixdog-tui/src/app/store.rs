@@ -58,10 +58,8 @@ impl AppStore for SessionStoreIo {
     }
 
     fn has_method(&self, name: &str) -> bool {
-        // A name the router has no row for may still be a published section or a method of its own shape (`target_of`);
-        // the call itself answers an action that is truly unknown.
-        let _ = name;
-        true
+        // The router's rows, the targets of its table and the prompt surface: any other name is no function of the store.
+        mixdog_session_view::store::has_action(name)
     }
 
     fn state(&self) -> Arc<Value> {
