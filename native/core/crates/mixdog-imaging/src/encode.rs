@@ -178,7 +178,7 @@ pub fn encode_in_format(raster: &Raster, format: Format) -> Result<Vec<u8>, Imag
         Format::Jpeg => Ok(encode_jpeg(raster, DEFAULT_JPEG_QUALITY, 0)),
         // sharp rasterizes SVG input to PNG on toBuffer(), while the resize
         // wrapper keeps metadata().format ("svg") in its MIME field.
-        Format::Png | Format::Svg => encode_png(raster),
+        Format::Png | Format::Svg | Format::Avif => encode_png(raster),
         Format::Gif => encode_gif(raster),
         Format::Tiff => encode_tiff(raster),
         Format::Webp => still::encode_webp(raster, DEFAULT_WEBP_QUALITY),

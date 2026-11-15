@@ -9,10 +9,12 @@ description = "The image codec behind the image.* methods and the read tool: dec
 workspace = true
 
 [dependencies]
+avif-parse = "=2.1.0"
 base64 = { workspace = true }
 image = { workspace = true }
 libwebp-sys = { workspace = true }
 moxcms = { workspace = true, features = ["options"] }
+rav1d = { version = "=1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
 resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 sha2 = { workspace = true }
 tiff = "0.10.3"

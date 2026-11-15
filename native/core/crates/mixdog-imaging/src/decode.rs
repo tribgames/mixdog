@@ -8,9 +8,8 @@
 //! exposed for the callers that rotate. The whole image is decoded once: a corrupt stream that the header does not
 //! show is rejected here, as `decodedImageMeta` does, and the pixel limit is enforced before any pixel is read.
 //!
-//! SVG buffers are rasterized through resvg. AVIF/HEIF decoding remains a parity
-//! blocker: sharp accepts them even when a caller labels the bytes as PNG. Native
-//! image routing must wait for that gap; it is not an intentional removal.
+//! SVG buffers are rasterized through resvg. AVIF is decoded by `crate::avif` (sharp accepts it even when a
+//! caller labels the bytes as PNG); HEVC HEIC is not sniffed and stays an unsupported format.
 
 use std::io::Cursor;
 
@@ -53,6 +52,8 @@ pub enum Format {
     Webp,
     Tiff,
     Svg,
+    /// AVIF, which libvips names `heif`.
+    Avif,
 }
 
 impl Format {
@@ -72,6 +73,8 @@ impl Format {
             || bytes.starts_with(&[b'M', b'M', 0x00, 0x2B])
         {
             Some(Self::Tiff)
+        } else if crate::avif::is_avif(bytes) {
+            Some(Self::Avif)
         } else if bytes.starts_with(&[0x1f, 0x8b]) || Self::looks_like_svg_text(bytes) {
             // XML (including declarations/comments) and SVGZ are parsed by usvg;
             // malformed SVG still fails the actual decode.
@@ -98,6 +101,7 @@ impl Format {
             Self::Webp => "webp",
             Self::Tiff => "tiff",
             Self::Svg => "svg",
+            Self::Avif => "heif",
         }
     }
 }
@@ -164,6 +168,7 @@ fn corrupt(format: Format, stage: Stage) -> ImagingError {
         (Format::Tiff, Stage::Header) => UNSUPPORTED_FORMAT.to_owned(),
         (Format::Tiff, Stage::Data) => "tiff2vips: read error".to_owned(),
         (Format::Svg, _) => corrupt_header("invalid SVG data"),
+        (Format::Avif, _) => corrupt_header("heifload_buffer: unable to parse the AVIF"),
     };
     ImagingError::invalid(sentence)
 }
@@ -210,6 +215,10 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
         Some(Format::Webp) => decode_with(WebPDecoder::new(Cursor::new(bytes)), Format::Webp, pixel_limit),
         Some(Format::Tiff) => decode_tiff(bytes, pixel_limit),
         Some(Format::Svg) => decode_svg(bytes, pixel_limit),
+        Some(Format::Avif) => {
+            let image = crate::avif::decode_avif(bytes, pixel_limit)?;
+            Ok(Decoded { format: Format::Avif, width: image.width, height: image.height, orientation: 1, raster: image.raster })
+        }
     }
 }
 
@@ -519,7 +528,8 @@ mod tests {
         assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?>\n<!-- c --><SVG/>"), Some(Format::Svg));
         assert_eq!(Format::sniff(b"<!doctype html><html><body>not an image</body></html>"), None);
         assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?><note/>"), None);
-        assert_eq!(Format::sniff(b"\0\0\0\x1cftypavif"), None);
+        assert_eq!(Format::sniff(b"\0\0\0\x1cftypavif\0\0\0\0mif1avif"), Some(Format::Avif));
+        assert_eq!(Format::sniff(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"), None);
         assert_eq!(Format::sniff(b""), None);
     }
 
