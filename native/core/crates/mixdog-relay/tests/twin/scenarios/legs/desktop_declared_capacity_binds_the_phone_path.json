@@ -1,0 +1,120 @@
+{
+  "id": "desktop_declared_capacity_binds_the_phone_path",
+  "description": "the phone ceiling is what the leg declared for this connection less the routing header, never configuration: a frame past it is refused with that number and a frame inside it crosses",
+  "knobs": {
+    "maxFrameBytes": 131072,
+    "uplinkCapacityBytes": 131072
+  },
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"38298baa833bf3396a90bc4e29361fb2a84134e2b849e81945bc06d50cfa3bb6\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80",
+        "0123456789abcdef"
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"desktop-lanes\",\"media\":false,\"maxPayloadBytes\":98304}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "ws_open",
+      "conn": "p",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "cid",
+          "from": "frame_json",
+          "path": "clientId"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "p",
+      "frame": {
+        "kind": "oversize",
+        "op": "binary",
+        "declared": 98304,
+        "send": 98304
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "p",
+      "frame": {
+        "kind": "oversize",
+        "op": "binary",
+        "declared": 90112,
+        "send": 90112
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "p",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p",
+      "frames": 0,
+      "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "wait",
+      "ms": 60
+    }
+  ]
+}
