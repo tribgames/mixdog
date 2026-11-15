@@ -180,7 +180,8 @@ pub fn independent_text_unit(shapes: &[RelationBox], at: usize, index: &Relation
                     && index.get(&other.id).copied().flatten() == Some(other_at)
             })
         }),
-        "table-cell" if relation.group.is_some() && relation.row.is_some() && relation.column.is_some() => {
+        // `relation.group && relation.row && relation.column`: an empty identifier counts as absent.
+        "table-cell" if [&relation.group, &relation.row, &relation.column].iter().all(|item| item.as_deref().is_some_and(|text| !text.is_empty())) => {
             shapes.iter().enumerate().any(|(other_at, shape)| {
                 other_at != at
                     && shape.relation.as_ref().is_some_and(|other| {
