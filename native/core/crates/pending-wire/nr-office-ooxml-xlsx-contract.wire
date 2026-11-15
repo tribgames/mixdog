@@ -1,0 +1,44 @@
+# nr-office-ooxml-xlsx-contract: what the wiring applies (nothing here was compiled: cargo was not run)
+
+Four modules of the existing crate mixdog-ooxml (the Node files xlsx-audit-support, xlsx-sheet-hygiene, xlsx-conventions
+and xlsx-contract) and their twin test. No new crate, no new dependency edge, no protocol method, no service and no
+SERVICE_PENDING name: everything they use (mixdog-js, mixdog-office-base a1 and xlsx_validation, serde_json) is already a
+dependency of the crate; the twin test needs only mixdog-office-base with feature test-support, already a dev-dependency.
+
+## 1. native/core/crates/mixdog-ooxml/src/lib.rs (not owned by this task)
+
+After the line `pub mod xlsx_cell_values;` add:
+
+    pub mod xlsx_audit_support;
+    pub mod xlsx_contract;
+    pub mod xlsx_conventions;
+    pub mod xlsx_sheet_hygiene;
+
+(The module doc of lib.rs may name them: "the XLSX audit helpers, the sheet hygiene and layout audits, the convention
+summary and the operation contract".) The modules read `crate::sheet_xml` (parse_area_range, quote_sheet_name,
+sheet_qualified_areas, Area) and `crate::sheet_styles::is_general_number_format`, which the task nr-office-ooxml-sheet-xml
+provides; they do not compile before that task's modules are in lib.rs.
+
+## 2. native/core/fixtures/MANIFEST.json (index of fixture sets)
+
+In `"sets"`, after the entry `office-xlsx` (or by set name order if the list is regenerated), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-xlsx-contract.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-xlsx-contract/MANIFEST.json",
+      "manifestSha256": "01a1b6124cad44655daecc4b5e4402b5104ea103752d59355a453227dd93657e",
+      "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-contract.mjs",
+      "set": "office-xlsx-contract",
+      "totalBytes": 474734
+    }
+
+The files themselves (native/core/fixtures/office-xlsx-contract/{golden.json,MANIFEST.json}) are in the commit of this
+task. Recompute manifestSha256 and totalBytes from the committed MANIFEST.json and golden.json if the tool that keeps this
+file reorders or reformats them.
+
+## 3. Not compiled
+
+The first build of the modules and `cargo test -p mixdog-ooxml --test twin_xlsx_contract` is the check. The twin test
+replays native/core/fixtures/office-xlsx-contract and needs no Node; twin_live_xlsx_contract (ignored) re-records through
+Node.
