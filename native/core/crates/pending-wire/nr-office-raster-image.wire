@@ -1,0 +1,41 @@
+# nr-office-raster-image: the crate mixdog-raster (sharp replacement of the office stack)
+
+Not compiled: the crate is not a workspace member yet, so cargo was not run on it.
+
+## native/core/Cargo.toml
+
+[workspace] members, in sorted place (after "crates/mixdog-pdf-codec" / before "crates/mixdog-rt" by the list's order):
+
+    "crates/mixdog-raster",
+
+[workspace.dependencies], next to `mixdog-pdf-codec = { path = "crates/mixdog-pdf-codec" }`:
+
+    mixdog-raster = { path = "crates/mixdog-raster" }
+
+The workspace `image` entry already has the png, gif, tiff and webp features (all cached): nothing to change there.
+
+## Cargo.lock and mixdog-workspace-hack
+
+`cargo update --workspace --offline` and `cargo hakari generate` (mixdog-raster depends on image, mixdog-imaging, mixdog-rt,
+mixdog-workspace-hack; dev: base64, mixdog-testkit, serde_json; all already in the lock). No new external crate.
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" (keep the list sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-sharp.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-sharp/MANIFEST.json",
+      "manifestSha256": "0ee840b42cc20503406d78098b689b88d8438f0f5e99afdc9a4667dcbc653b10",
+      "recorder": "benchmarks/rust-core/recorders/record-office-sharp.mjs",
+      "set": "office-sharp",
+      "totalBytes": 3746969
+    }
+
+(Recompute manifestSha256 with the verifier if the line endings of office-sharp/MANIFEST.json were changed on checkout.)
+
+## Consumers (later tasks)
+
+nr-office-raster-canvas and nr-office-raster-svg add modules to this crate (their own fragments add lib.rs lines); the office
+crates take `mixdog-raster = { workspace = true }`. No service, protocol method or SERVICE_PENDING name comes from this task.
