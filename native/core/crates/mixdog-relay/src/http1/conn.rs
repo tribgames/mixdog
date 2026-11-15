@@ -478,7 +478,7 @@ where
         }
         if minor == 1 {
             if let Some(expect) = headers.get("expect") {
-                if expect.eq_ignore_ascii_case("100-continue") {
+                if has_word(expect, "100-continue") {
                     if let Some(wr) = self.wr.as_mut() {
                         if wr.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await.is_err() || wr.flush().await.is_err() {
                             return Flow::Destroy;
