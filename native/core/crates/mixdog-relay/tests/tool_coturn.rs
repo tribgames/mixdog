@@ -2,6 +2,12 @@
 //! `udp-sink` and `turn-credential` helpers, and (on unix) the cases of `render-turnserver-conf.test.mjs`, which run the
 //! unchanged `render-turnserver-conf.sh` under bash.
 
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "a test thread sleeps to see that nothing more arrives, and the render cases run bash on the shipped script"
+)]
+
 use std::io;
 use std::net::{Ipv4Addr, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -9,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use mixdog_fsio::Unlaned;
 use mixdog_relay::ice::turn::{turn_password, verify_turn_credential};
 use mixdog_relay::tools::coturn::credential::credential_line;
 use mixdog_relay::tools::coturn::reserved_ports::{
@@ -33,16 +40,16 @@ impl Sysctl {
         let dir = tempfile::tempdir().expect("temp dir");
         let proc = dir.path().join("proc");
         let record = dir.path().join("added");
-        std::fs::write(&proc, format!("{initial}\n")).expect("write proc");
+        mixdog_fsio::write(&Unlaned, &proc, format!("{initial}\n")).expect("write proc");
         Sysctl { _dir: dir, proc, record }
     }
 
     fn value(&self) -> String {
-        std::fs::read_to_string(&self.proc).expect("read proc").trim().to_owned()
+        mixdog_fsio::read_to_string(&Unlaned, &self.proc).expect("read proc").trim().to_owned()
     }
 
     fn set(&self, text: &str) {
-        std::fs::write(&self.proc, format!("{text}\n")).expect("write proc");
+        mixdog_fsio::write(&Unlaned, &self.proc, format!("{text}\n")).expect("write proc");
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
@@ -58,7 +65,7 @@ impl Sysctl {
             if writes == nth {
                 return Err(io::Error::other(format!("write {nth} failed")));
             }
-            std::fs::write(path, data)
+            mixdog_fsio::write(&Unlaned, path, data)
         })
     }
 
@@ -71,7 +78,7 @@ impl Sysctl {
     }
 
     fn record_text(&self) -> String {
-        std::fs::read_to_string(&self.record).expect("read record").trim().to_owned()
+        mixdog_fsio::read_to_string(&Unlaned, &self.record).expect("read record").trim().to_owned()
     }
 
     /// The ranges the ownership record names.
@@ -163,7 +170,7 @@ fn ownership_is_recorded_before_the_reservation_changes_a_failed_save_leaves_not
     let record = s.record.to_str().unwrap();
     assert!(s.run_failing_write(1, &["apply", "49152", "65535", record]).unwrap_err().contains("write 1 failed"));
     assert_eq!(s.value(), "8080", "the sysctl was not touched");
-    assert!(!s.record.exists());
+    assert!(!mixdog_fsio::exists(&Unlaned, &s.record).unwrap());
 }
 
 #[test]
@@ -218,7 +225,7 @@ fn a_release_whose_sysctl_write_fails_keeps_the_record_so_it_can_be_retried() {
 #[test]
 fn a_damaged_ownership_record_is_refused_not_guessed_at() {
     let s = Sysctl::new("");
-    std::fs::write(&s.record, "garbage\n").unwrap();
+    mixdog_fsio::write(&Unlaned, &s.record, "garbage\n").unwrap();
     assert!(s.release().unwrap_err().contains("not an ownership record"));
     assert!(s.apply("49152", "65535").unwrap_err().contains("not an ownership record"));
 }
@@ -239,7 +246,7 @@ fn a_bad_command_or_port_is_refused() {
     assert!(s.apply("0", "10").unwrap_err().contains("not a port"));
     assert!(s.apply("10", "70000").unwrap_err().contains("not a port"));
     assert!(s.apply("10", "9").unwrap_err().contains("not a port range"), "a reversed range is refused before anything is written");
-    assert!(!s.record.exists());
+    assert!(!mixdog_fsio::exists(&Unlaned, &s.record).unwrap());
 }
 
 // ---- stun-probe ----
@@ -511,7 +518,7 @@ mod render {
 
     fn deploy(name: &str) -> String {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay/deploy/coturn").join(name);
-        root.canonicalize().expect("deploy file").to_string_lossy().into_owned()
+        mixdog_fsio::canonicalize(&mixdog_fsio::Unlaned, root).expect("deploy file").to_string_lossy().into_owned()
     }
 
     fn values() -> BTreeMap<&'static str, &'static str> {
@@ -596,7 +603,7 @@ mod render {
     fn a_template_marker_the_renderer_does_not_know_fails_the_render_without_the_secret_in_the_error() {
         let directory = tempfile::tempdir().unwrap();
         let template = directory.path().join("turnserver.conf.template");
-        std::fs::write(&template, "static-auth-secret=@TURN_AUTH_SECRET@\nunknown=@TURN_UNKNOWN@\n").unwrap();
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, &template, "static-auth-secret=@TURN_AUTH_SECRET@\nunknown=@TURN_UNKNOWN@\n").unwrap();
         let result = render(&values(), template.to_str().unwrap());
         assert!(!result.status.success());
         assert!(result.stdout.is_empty());

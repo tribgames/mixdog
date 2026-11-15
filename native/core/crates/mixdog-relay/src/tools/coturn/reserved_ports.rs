@@ -15,6 +15,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use mixdog_fsio::Unlaned;
+
 /// A port is 16 bits (RFC 9293 section 3.1).
 const MAX_PORT: u64 = 65_535;
 
@@ -108,7 +110,7 @@ pub fn add_ranges(current: &[(u32, u32)], added: &[(u32, u32)]) -> Ranges {
 }
 
 fn read_ranges(path: &Path) -> Result<Ranges, String> {
-    let text = std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let text = mixdog_fsio::read_to_string(&Unlaned, path).map_err(|error| format!("{}: {error}", path.display()))?;
     parse_ranges(&text)
 }
 
@@ -117,7 +119,7 @@ fn read_ranges(path: &Path) -> Result<Ranges, String> {
 /// reserved yet; `applied` means they are. Either way they are ours to take back, because they were unreserved when the record
 /// was made.
 fn read_record(path: &Path) -> Result<Ranges, String> {
-    let text = match std::fs::read_to_string(path) {
+    let text = match mixdog_fsio::read_to_string(&Unlaned, path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(format!("{}: {error}", path.display())),
@@ -143,7 +145,7 @@ fn save_record(path: &Path, state: &str, ranges: &[(u32, u32)], write: &mut Writ
     let temp = PathBuf::from(temp);
     let body = if ranges.is_empty() { format!("{state}\n") } else { format!("{state} {}\n", format_ranges(ranges)) };
     write(&temp, &body).map_err(|error| format!("{}: {error}", temp.display()))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("{}: {error}", path.display()))
+    mixdog_fsio::rename(&Unlaned, &temp, path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 fn write_sysctl(proc: &Path, ranges: &[(u32, u32)], write: &mut Writer) -> Result<(), String> {
@@ -218,7 +220,7 @@ pub fn proc_path() -> PathBuf {
 }
 
 pub fn main(args: &[String]) -> ExitCode {
-    match run(args, &proc_path(), &mut |path, data| std::fs::write(path, data)) {
+    match run(args, &proc_path(), &mut |path, data| mixdog_fsio::write(&Unlaned, path, data)) {
         Ok(line) => {
             println!("{line}");
             ExitCode::SUCCESS
