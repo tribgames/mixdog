@@ -167,11 +167,19 @@ async fn start(pipelining: bool) -> Server {
     let port = listener.local_addr().unwrap().port();
     let captures: Arc<Mutex<Vec<Capture>>> = Arc::default();
     let shared = captures.clone();
-    tokio::spawn(async move {
-        while let Ok((tcp, _)) = listener.accept().await {
-            tokio::spawn(serve(tcp, acceptor.clone(), pipelining, shared.clone()));
-        }
-    });
+    // "localhost" is looked up by each client its own way (nodemailer may try ::1 alone), so both loopbacks answer.
+    let mut listeners = vec![listener];
+    if let Ok(v6) = TcpListener::bind(("::1", port)).await {
+        listeners.push(v6);
+    }
+    for listener in listeners {
+        let (acceptor, shared) = (acceptor.clone(), shared.clone());
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                tokio::spawn(serve(tcp, acceptor.clone(), pipelining, shared.clone()));
+            }
+        });
+    }
     Server { port, captures, root, pem }
 }
 
@@ -373,7 +381,10 @@ fn parse_message(data: &[u8]) -> Parsed {
     let headers: Vec<(String, String)> = root.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("Date")).cloned().collect();
     let content_type = root.header("Content-Type").expect("a content type").to_owned();
     if !content_type.starts_with("multipart/mixed") {
-        return Parsed { headers, text: String::from_utf8(root.content).unwrap(), attachments: Vec::new() };
+        // The last line break of a single-part body is the one the DATA terminator follows, not part of the text.
+        let content = String::from_utf8(root.content).unwrap();
+        let text = content.strip_suffix("\r\n").map(str::to_owned).unwrap_or(content);
+        return Parsed { headers, text, attachments: Vec::new() };
     }
     let boundary = Regex::new(r#"boundary="([^"]+)""#).unwrap().captures(&content_type).expect("a boundary")[1].to_owned();
     let body = wire.split_once("\r\n\r\n").unwrap().1;
