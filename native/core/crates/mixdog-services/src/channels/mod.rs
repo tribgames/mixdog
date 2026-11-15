@@ -12,6 +12,7 @@ pub mod running;
 pub mod runtime;
 pub mod service;
 pub mod setup;
+pub mod status_snapshot;
 pub mod tools;
 
 #[cfg(test)]

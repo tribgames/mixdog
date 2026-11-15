@@ -819,3 +819,21 @@ async fn a_start_ended_during_initdb_leaves_no_cluster_and_the_next_start_makes_
     assert!(!dir.path().join("pgdata.init").exists(), "the cluster was renamed into place");
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }
+
+/// The first-start notice of the database covers the whole opening: whoever is bound to its end is told when the opening ends, even when the runtime install
+/// failed (the notice would otherwise stay up for an opening that is over).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_end_of_an_opening_is_told_once_it_fails_too() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (install, _installs, _entered) = install_of(|_, _| Box::pin(async { Err(MemoryError::Runtime("no network in this test".to_owned())) }));
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let told = Arc::new(AtomicUsize::new(0));
+    let counted = told.clone();
+    stack.on_opening_end(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    }));
+    assert_eq!(told.load(Ordering::SeqCst), 0, "nothing opens until the database is used");
+    let used = stack.opened_as(false).await.map(drop);
+    assert!(message(used).contains("no network in this test"));
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
