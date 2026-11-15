@@ -8,7 +8,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+mixdog-highlight = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-termtext = { workspace = true }
+mixdog-tui-style = { workspace = true }
 regress = { workspace = true }
 serde = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
