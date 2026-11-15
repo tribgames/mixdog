@@ -78,8 +78,14 @@ fn publish_draft(host: &mut dyn PromptHost, flow: &mut RestoreFlow, next: Draft)
 
 /// The draft the prompt shows now: the editor's live one when it is current, else the last published one, else the value
 /// with the caret at its end.
+/// The editor's live draft as the prompt's value holds it: a lone surrogate the editor carries is U+FFFD there (the
+/// callbacks give the store that text), and is one UTF-16 unit either way, so the caret and the anchor stay.
+fn live_draft(host: &dyn PromptHost) -> Option<Draft> {
+    host.current_draft().map(|draft| Draft { value: mixdog_termtext::lone::stored(&draft.value).into_owned(), ..draft })
+}
+
 fn current_draft(host: &mut dyn PromptHost, flow: &RestoreFlow) -> Draft {
-    let latest = if flow.live_draft { host.current_draft() } else { None };
+    let latest = if flow.live_draft { live_draft(host) } else { None };
     let ref_value = host.prompt().value.clone();
     match latest {
         Some(latest) if latest.value == ref_value => latest,
@@ -159,7 +165,7 @@ pub fn restore_queued_to_prompt(host: &mut dyn PromptHost, options: &RestoreOpti
     if queued_count == 0 {
         return false;
     }
-    let initial = if options.live_draft { host.current_draft() } else { None };
+    let initial = if options.live_draft { live_draft(host) } else { None };
     let before = initial.unwrap_or_else(|| Draft::at_end(current_text));
     let optimistic_draft = merge_queued_restore_draft(&projection.text, &before);
     let optimistic_prefix = queued_restore_prefix(&projection.text, &before.value);
