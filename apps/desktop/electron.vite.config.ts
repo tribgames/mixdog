@@ -9,9 +9,10 @@ import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { OutputChunk } from 'rollup';
-import { type Plugin, searchForWorkspaceRoot } from 'vite';
+import { isFileLoadingAllowed, type Plugin, searchForWorkspaceRoot } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
 import { chunkPrefetchPlugin } from './scripts/chunk-prefetch';
+import { linkedModuleRoots, otherDriveAssets } from './scripts/dev-linked-assets';
 import { cssSubjectBuckets } from './scripts/css-subject-buckets';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
 import { remoteWebrtcSenderCspPlugin } from './scripts/remote-webrtc-sender-csp.mjs';
@@ -434,13 +435,16 @@ export default defineConfig({
         settings: resolve(__dirname, 'src/renderer/settings/SettingsView.tsx'),
       }),
       react(),
+      // A font of a package that really lives on another drive (a linked node_modules): scripts/dev-linked-assets.ts.
+      otherDriveAssets(isFileLoadingAllowed),
     ],
     server: {
       host: '127.0.0.1',
       ...(devRendererPort ? { port: devRendererPort, strictPort: true } : {}),
       // The translated changelogs (repo-root changelog/*.md) load as lazy
       // chunks, which the dev server only serves from allowed folders.
-      fs: { allow: [searchForWorkspaceRoot(__dirname), resolve(__dirname, '../../changelog')] },
+      // The real location of a linked node_modules: Vite names a package's fonts by it (scripts/dev-linked-assets.ts).
+      fs: { allow: [searchForWorkspaceRoot(__dirname), resolve(__dirname, '../../changelog'), ...linkedModuleRoots(__dirname)] },
     },
   } : undefined,
 });

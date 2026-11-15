@@ -24,6 +24,11 @@ const MODEL_SELECTION_KEYS: [&str; 10] = [
     "fallbacks",
     "onlyIfEmpty",
 ];
+/// The options of the write a `route/set` selection carries beside the route: `setRoute(opts)` of `createRouteWrite`
+/// (`tui/session/session-api/routes-write.mjs`), which the remote chat sends on every model pick and the main-model
+/// choice sends as `keepMainModel: false`. Node compares each with `=== true` or `!== false`, so a value of any type is
+/// taken; `onlyIfEmpty` is the selection's own key.
+const ROUTE_WRITE_OPTION_KEYS: [&str; 3] = ["applyToCurrentSession", "keepMainModel", "sessionOnly"];
 const MODEL_CATALOG_OPTION_KEYS: [&str; 3] = ["force", "refresh", "quick"];
 const TOOL_APPROVAL_KEYS: [&str; 8] =
     ["approved", "reason", "answers", "reply", "response", "editedArgs", "remember", "scope"];
@@ -34,7 +39,8 @@ const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 /// `None`: this group does not own `method`.
 pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorData>> {
     Some(match method {
-        "route/set" | "thread/continueInModel" => route(params, false),
+        "route/set" => route_write(params),
+        "thread/continueInModel" => route(params, false),
         "thread/fork" => route(params, true),
         "model/list" => catalog_options(params),
         "thread/approval/answer" => decision(params),
@@ -94,6 +100,21 @@ fn route(params: Option<&Value>, nullable: bool) -> Checked {
         None => Ok(()),
         Some(Value::Null) if nullable => Ok(()),
         Some(value) => model_selection(value, "/route"),
+    }
+}
+
+/// The `route` of `route/set`: `requiredModelSelection` of the selection without the options of the write.
+fn route_write(params: Option<&Value>) -> Checked {
+    match field(params, "route") {
+        Some(Value::Object(object)) if ROUTE_WRITE_OPTION_KEYS.iter().any(|key| object.contains_key(*key)) => {
+            let selection: Map<String, Value> = object
+                .iter()
+                .filter(|(key, _)| !ROUTE_WRITE_OPTION_KEYS.contains(&key.as_str()))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            model_selection(&Value::Object(selection), "/route")
+        }
+        _ => route(params, false),
     }
 }
 
@@ -305,6 +326,28 @@ mod tests {
             }
         }
         assert!(seen > 0);
+    }
+
+    /// What the remote chat sends on a model pick (`remote-protocol-chat.ts` `setModelRoute`) and what the main-model
+    /// choice sends (`setRoute(route, { keepMainModel: false })`): the options of the write are not part of the selection.
+    #[test]
+    fn validate_model_route_set_takes_the_options_of_the_write() {
+        let picked = json!({ "threadId": "thread-1", "route": { "provider": "p2", "model": "m2", "applyToCurrentSession": true, "keepMainModel": true } });
+        assert_eq!(verdict("route/set", &picked), Ok(()));
+        let main = json!({ "route": { "provider": "custom-1", "model": "smoke", "keepMainModel": false } });
+        assert_eq!(verdict("route/set", &main), Ok(()));
+        let session_only = json!({ "threadId": "thread-1", "route": { "effort": "high", "sessionOnly": true, "onlyIfEmpty": false } });
+        assert_eq!(verdict("route/set", &session_only), Ok(()));
+        // The selection beside them is still held to the desktop's rule.
+        let unknown = json!({ "route": { "provider": "p", "model": "m", "keepMainModel": false, "extra": 1 } });
+        assert_eq!(verdict("route/set", &unknown), refuse("/route", "model selection contains an unsupported field."));
+        let typed = json!({ "route": { "provider": 7, "keepMainModel": false } });
+        assert_eq!(verdict("route/set", &typed), refuse("/route/provider", "selection.provider must be a string."));
+        // They are options of `route/set` alone: a selection of another method, and a fallback entry, carry none.
+        let other = json!({ "threadId": "thread-1", "route": { "provider": "p", "model": "m", "keepMainModel": false } });
+        assert_eq!(verdict("thread/continueInModel", &other), refuse("/route", "model selection contains an unsupported field."));
+        let nested = json!({ "route": { "provider": "p", "model": "m", "keepMainModel": false, "fallbacks": [{ "provider": "q", "model": "n", "keepMainModel": false }] } });
+        assert_eq!(verdict("route/set", &nested), refuse("/route/fallbacks/0", "model selection contains an unsupported field."));
     }
 
     #[test]
