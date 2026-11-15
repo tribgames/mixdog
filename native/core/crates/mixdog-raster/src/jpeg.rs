@@ -180,25 +180,26 @@ fn extend(value: i32, bits: u32) -> i32 {
     }
 }
 
-const FIX_0_298631336: i32 = 2446;
-const FIX_0_390180644: i32 = 3196;
-const FIX_0_541196100: i32 = 4433;
-const FIX_0_765366865: i32 = 6270;
-const FIX_0_899976223: i32 = 7373;
-const FIX_1_175875602: i32 = 9633;
-const FIX_1_501321110: i32 = 12299;
-const FIX_1_847759065: i32 = 15137;
-const FIX_1_961570560: i32 = 16069;
-const FIX_2_053119869: i32 = 16819;
-const FIX_2_562915447: i32 = 20995;
-const FIX_3_072711026: i32 = 25172;
+const FIX_0_298631336: i64 = 2446;
+const FIX_0_390180644: i64 = 3196;
+const FIX_0_541196100: i64 = 4433;
+const FIX_0_765366865: i64 = 6270;
+const FIX_0_899976223: i64 = 7373;
+const FIX_1_175875602: i64 = 9633;
+const FIX_1_501321110: i64 = 12299;
+const FIX_1_847759065: i64 = 15137;
+const FIX_1_961570560: i64 = 16069;
+const FIX_2_053119869: i64 = 16819;
+const FIX_2_562915447: i64 = 20995;
+const FIX_3_072711026: i64 = 25172;
 
-fn descale(value: i32, bits: u32) -> i32 {
+fn descale(value: i64, bits: u32) -> i64 {
     (value + (1 << (bits - 1))) >> bits
 }
 
 /// One 8-point pass of libjpeg's accurate integer inverse DCT: the eight inputs to the eight outputs before descaling.
-fn idct_line(i: [i32; 8]) -> [i32; 8] {
+/// The sums are 64-bit, as libjpeg-turbo's `JLONG` is on the 64-bit builds sharp ships: a damaged file cannot overflow.
+fn idct_line(i: [i64; 8]) -> [i64; 8] {
     let z1 = (i[2] + i[6]) * FIX_0_541196100;
     let tmp2 = z1 + i[6] * -FIX_1_847759065;
     let tmp3 = z1 + i[2] * FIX_0_765366865;
@@ -232,8 +233,8 @@ fn idct_line(i: [i32; 8]) -> [i32; 8] {
 }
 
 /// The inverse DCT of one dequantised block into 8x8 samples at `out` (row stride `stride`).
-fn idct_block(block: &[i32; 64], out: &mut [u8], stride: usize) {
-    let mut work = [0i32; 64];
+fn idct_block(block: &[i64; 64], out: &mut [u8], stride: usize) {
+    let mut work = [0i64; 64];
     for column in 0..8 {
         let line = idct_line([block[column], block[8 + column], block[16 + column], block[24 + column], block[32 + column], block[40 + column], block[48 + column], block[56 + column]]);
         for (row, value) in line.iter().enumerate() {
@@ -355,6 +356,7 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
     let (mut width, mut height) = (0usize, 0usize);
     let mut restart = 0usize;
     let mut profile_chunks: Vec<(u8, Vec<u8>)> = Vec::new();
+    let mut jfif = false;
     let mut at = 2usize;
     let scan_header: &[u8];
     loop {
@@ -436,6 +438,7 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
             // A colour profile is handed back to be applied; an Adobe transform changes the colours the general decoder applies.
             0xE2 if body.starts_with(b"ICC_PROFILE\0") && body.len() >= 14 => profile_chunks.push((body[12], body[14..].to_vec())),
             0xEE if body.starts_with(b"Adobe") => return None,
+            0xE0 if body.starts_with(b"JFIF ") => jfif = true,
             0xDA => {
                 scan_header = body;
                 at += length;
@@ -446,6 +449,10 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
         at += length;
     }
     if components.is_empty() || (width as u64) * (height as u64) > pixel_limit {
+        return None;
+    }
+    // Without a JFIF marker libjpeg-turbo reads three components named R, G and B as RGB, not YCbCr.
+    if !jfif && components.iter().map(|c| c.id).eq([b'R', b'G', b'B']) {
         return None;
     }
     // The scan header: every component in one interleaved scan, baseline parameters.
@@ -488,8 +495,8 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
         }
     }
     let mut bits = Bits::new(bytes, at);
-    let mut predictors = vec![0i32; components.len()];
-    let mut block = [0i32; 64];
+    let mut predictors = vec![0i64; components.len()];
+    let mut block = [0i64; 64];
     let mut done = 0usize;
     let total = mcus_x * mcus_y;
     for mcu in 0..total {
@@ -514,8 +521,8 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
                         return None;
                     }
                     let diff = extend(bits.receive(size), size);
-                    predictors[index] += diff;
-                    block[0] = predictors[index] * quant[0];
+                    predictors[index] += i64::from(diff);
+                    block[0] = predictors[index] * i64::from(quant[0]);
                     let mut k = 1usize;
                     while k < 64 {
                         let symbol = bits.decode(ac)?;
@@ -532,7 +539,7 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
                             return None;
                         }
                         let value = extend(bits.receive(size), size);
-                        block[ZIGZAG[k]] = value * quant[ZIGZAG[k]];
+                        block[ZIGZAG[k]] = i64::from(value) * i64::from(quant[ZIGZAG[k]]);
                         k += 1;
                     }
                     let (column, row) = (mx * blocks_x + bx, my * blocks_y + by);
@@ -582,7 +589,7 @@ mod tests {
 
     #[test]
     fn a_block_with_only_a_dc_term_is_flat() {
-        let mut block = [0i32; 64];
+        let mut block = [0i64; 64];
         block[0] = 8 * 40;
         let mut out = [0u8; 64];
         idct_block(&block, &mut out, 8);
