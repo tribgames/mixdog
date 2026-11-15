@@ -72,8 +72,30 @@ fn layouts_of(value: &Value) -> Vec<LayoutPart> {
         .collect()
 }
 
-fn elements(found: &[mixdog_ooxml::xml::Element]) -> Value {
-    Value::Array(found.iter().map(|item| json!({ "name": item.name, "start": item.start, "end": item.end, "xml": item.xml })).collect())
+/// The recording counts positions in UTF-16 units (a JS string index); the crate slices by byte offset. The harness
+/// translates at the boundary, so a position names the same character on both sides.
+fn units_at(source: &str, byte: usize) -> usize {
+    source[..byte].encode_utf16().count()
+}
+
+fn bytes_at(source: &str, units: usize) -> usize {
+    let mut seen = 0;
+    for (at, c) in source.char_indices() {
+        if seen >= units {
+            return at;
+        }
+        seen += c.len_utf16();
+    }
+    source.len()
+}
+
+fn elements(source: &str, found: &[mixdog_ooxml::xml::Element]) -> Value {
+    Value::Array(
+        found
+            .iter()
+            .map(|item| json!({ "name": item.name, "start": units_at(source, item.start), "end": units_at(source, item.end), "xml": item.xml }))
+            .collect(),
+    )
 }
 
 fn pure(name: &str, args: &[Value]) -> Result<Value, String> {
@@ -138,13 +160,14 @@ fn pure(name: &str, args: &[Value]) -> Result<Value, String> {
         "selectedShapeSpans" => {
             let tree = Container { start: 0, end: 0, inner: text(&arg(0)["inner"]).to_owned() };
             let (shapes, selected) = selected_shape_spans(&tree, list(arg(1)))?;
-            json!({ "shapes": elements(&shapes), "selected": elements(&selected) })
+            json!({ "shapes": elements(&tree.inner, &shapes), "selected": elements(&tree.inner, &selected) })
         }
         "writeShapeTree" => {
             let bounds = arg(1);
+            let slide = text(arg(0));
             let tree = Container {
-                start: bounds["start"].as_u64().expect("a start") as usize,
-                end: bounds["end"].as_u64().expect("an end") as usize,
+                start: bytes_at(slide, bounds["start"].as_u64().expect("a start") as usize),
+                end: bytes_at(slide, bounds["end"].as_u64().expect("an end") as usize),
                 inner: String::new(),
             };
             let shapes: Vec<String> = list(arg(2)).iter().map(|shape| text(shape).to_owned()).collect();

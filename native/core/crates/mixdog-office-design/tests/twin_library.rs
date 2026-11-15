@@ -155,7 +155,8 @@ fn recorded(entry: &Value) -> Value {
 /// The output equals the recording value for value, and as JSON text.
 fn check(what: &str, expected: &Value, actual: &Value) {
     let found = twin::differences(expected, actual);
-    assert!(found.is_empty(), "{what}: {}", found.iter().take(8).cloned().collect::<Vec<_>>().join("; "));
+    let shown: String = actual.to_string().chars().take(400).collect();
+    assert!(found.is_empty(), "{what}: {}; produced {shown}", found.iter().take(8).cloned().collect::<Vec<_>>().join("; "));
     let (want, got) = (json_stringify(expected), json_stringify(actual));
     let at = want.bytes().zip(got.bytes()).position(|(a, b)| a != b);
     assert!(want == got, "{what}: the JSON text differs at byte {at:?} (recorded {} bytes, produced {})", want.len(), got.len());
@@ -418,7 +419,7 @@ fn replay_script<L: mixdog_fsio::WriteLane>(lane: &InLane<L>, world: &World, scr
             "snapshot" => Some(Ok(snapshot(lane, world))),
             "resolve" => {
                 let config = config_of(world, step);
-                let request = step.get("request").cloned().unwrap_or(Value::Null);
+                let request = world.root.unscrub(step.get("request").unwrap_or(&Value::Null));
                 let (document_path, source_path) = (text_of("documentPath"), text_of("sourcePath"));
                 let input = ResolveRequest {
                     data_dir: &world.data_dir,
