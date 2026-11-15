@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use crate::error::{Guard, PdfError};
 use crate::object::{Dict, Obj, Ref};
+use crate::repair::triggers_rebuild;
 use crate::stream::{Decryptor, DecryptorFactory, StreamFilters};
 use crate::write::store::ObjectStore;
 use crate::xref::{Xref, XrefOptions};
@@ -149,6 +150,26 @@ fn is_bookkeeping_stream(obj: &Obj) -> bool {
     )
 }
 
+/// Every object the table names, the bookkeeping streams left out. An object that cannot be read is left out and the
+/// rest is read, as pdf-lib does; a fatal error, and one after which the table is rebuilt, end the read.
+fn read_objects(xref: &Xref, guard: &Guard, recovered: bool) -> Result<ObjectStore, PdfError> {
+    let mut store = ObjectStore::new();
+    for num in 1..xref.entries_len() {
+        guard.tick()?;
+        let Some(entry) = xref.entry(num) else {
+            continue;
+        };
+        let generation = if entry.uncompressed { entry.generation } else { 0 };
+        match xref.fetch(Ref::new(num, generation), false) {
+            Ok(obj) if is_bookkeeping_stream(&obj) => {}
+            Ok(obj) => store.insert_loaded(Ref::new(num, generation), obj),
+            Err(error) if error.is_fatal() || triggers_rebuild(&error, recovered) => return Err(error),
+            Err(error) => tracing::warn!("object {num} {generation} is skipped: {error}"),
+        }
+    }
+    Ok(store)
+}
+
 impl PdfDocument {
     /// `PDFDocument.load(bytes, { ignoreEncryption, updateMetadata: false })`.
     pub fn load(data: impl Into<Arc<[u8]>>, options: &LoadOptions) -> Result<PdfDocument, WriteError> {
@@ -164,21 +185,20 @@ impl PdfDocument {
         if encrypted && !options.ignore_encryption {
             return Err(WriteError::Encrypted);
         }
-        let mut store = ObjectStore::new();
-        for num in 1..xref.entries_len() {
-            options.guard.tick()?;
-            let Some(entry) = xref.entry(num) else {
-                continue;
-            };
-            let generation = if entry.uncompressed { entry.generation } else { 0 };
-            match xref.fetch(Ref::new(num, generation), false) {
-                Ok(obj) if is_bookkeeping_stream(&obj) => {}
-                Ok(obj) => store.insert_loaded(Ref::new(num, generation), obj),
-                Err(error) if error.is_fatal() => return Err(error.into()),
-                // As pdf-lib does with an object it cannot parse: it is left out and the rest is read.
-                Err(error) => tracing::warn!("object {num} {generation} is skipped: {error}"),
+        // pdf-lib reads every object of the file whatever its cross-reference table says: an entry that leads to the
+        // wrong object has the table rebuilt from the file (once, as the reader does) and the objects read again.
+        let mut recovered = false;
+        let mut store = loop {
+            match read_objects(&xref, &options.guard, recovered) {
+                Ok(store) => break store,
+                Err(error) if triggers_rebuild(&error, recovered) => {
+                    tracing::warn!("the cross-reference table is rebuilt: {error}");
+                    xref.rebuild()?;
+                    recovered = true;
+                }
+                Err(error) => return Err(error.into()),
             }
-        }
+        };
         let trailer = xref
             .trailer()
             .ok_or_else(|| WriteError::Invalid("the file has no trailer".to_owned()))?;
