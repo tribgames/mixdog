@@ -1,11 +1,10 @@
 //! `notification_clicks`: a click on a desktop toast, reported by the host as
 //! `host/notification/clicked{threadId}`.
 //!
-//! In Node the whole reaction is the desktop's own: `createNativePresenter`
-//! (`desktop-turn-notifier.ts`) releases the toast, reports `clicked` to the desktop diagnostics
-//! log as `turn-notification-clicked {sessionId}` and calls `openSession`, which raises the
-//! window and opens the thread in the renderer. The host process keeps doing all three at the
-//! click, so the core owes only the trace of it that Node's diagnostics log carries (decisions.md,
+//! In Node the whole reaction is the desktop's own: the toast is released, the click is reported to the desktop diagnostics log as
+//! `turn-notification-clicked {sessionId}`, and the session is opened in the renderer after the window is raised. The host process
+//! still does all three at the click (`apps/desktop/src/main/host/notification.ts`: the presenter's `activate(threadId)` raises the
+//! window and opens the session it names), so the core owes only the trace of it that Node's diagnostics log carries (decisions.md,
 //! "Notification clicks").
 
 use mixdog_core_domains::domains::host::NotificationClicks;

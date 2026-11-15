@@ -13,19 +13,21 @@
 //!   answer by a reaction alone, a cancelled turn and a routine "nothing new" reply tell nothing; a failed turn is an error.
 //! - One answer read is in flight at a time, each with `READ_DEADLINE`; a failed read is retried after `STABILIZE_MS`, doubling
 //!   up to `READ_RETRY_MAX_MS`, and abandoned after `READ_FAILURE_LIMIT` failures; a session whose record is gone is not read again.
-//! - A session that STARTS waiting on a tool approval or a question is told once per approval (the copies a hand-off or a
-//!   sub-agent docks in other chats carry its id), as the chat it shows in. A replayed state is not a new wait.
+//! - A session that STARTS waiting on a tool approval or a question is told on this PC once per approval (the copies a hand-off or
+//!   a sub-agent docks in other chats carry its id), as the chat it shows in; a paired phone is told once per session that shows
+//!   it, under that session. A replayed state is not a new wait.
 //! - A paired phone is told the same events by its own preferences; one that holds while this PC is in use is told after
 //!   `DESKTOP_HOLD_MS` if the turn is still unread or the wait still open.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use mixdog_rt::CancellationToken;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_connections::notifier::{AnswerReadError, AttachmentKind, FinalAnswers};
-use mixdog_connections::server_feed::{FinalAnswer, FinalAnswerStatus};
+use mixdog_connections::notifier::{
+    AnswerWatch, AttachmentKind, FinalAnswers, Settled, TurnEnd, TurnFacts, WatchWake,
+};
 use mixdog_core_api::host::{HostCapability, HostChannel};
 use mixdog_core_api::ids::Method;
 use mixdog_core_domains::notify::decision::{Conversation, DESKTOP_HOLD_MS, Event, Origin, SessionFields};
@@ -36,26 +38,11 @@ use mixdog_core_domains::notify::service::{AudienceSource, PushSink};
 use mixdog_core_session::session::approval_notification::allow_once_decision;
 use mixdog_core_session::session::delegation::AgentNames;
 use mixdog_protocol::ThreadSummary;
-use mixdog_services::bots::routine::is_routine_quiet_reply;
 use mixdog_services::task_reports::chain::sessions_with_pending_work;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-/// Background agents settling can be followed at once by a new Lead turn that takes their results; waiting this long and
-/// re-checking keeps that hand-off quiet.
-pub const STABILIZE_MS: u64 = 2_500;
-/// A Lead that finished its own turn is confirmed by the turn's recorded answer, not by waiting; the short delay lets the
-/// transcript projection land.
-pub const LEAD_FINISHED_MS: u64 = 300;
-pub const ANSWER_POLL_MS: u64 = 500;
-/// A failed answer read is retried after `STABILIZE_MS`, doubling up to this cap, and abandoned after `READ_FAILURE_LIMIT`
-/// consecutive failures.
-pub const READ_RETRY_MAX_MS: u64 = 60_000;
-pub const READ_FAILURE_LIMIT: u32 = 6;
-/// One answer read gets this long before it is counted as a transient failure, so a read that never settles cannot hold the
-/// single read slot (and with it every notification) forever.
-pub const READ_DEADLINE: Duration = Duration::from_secs(30);
 /// The longest session title a notification carries (UTF-16 units, the last of them an ellipsis when cut).
 const TITLE_UNITS: usize = 80;
 const SHOW: Method = Method("host/notification/show");
@@ -125,11 +112,10 @@ enum Msg {
     Approval { session_id: String, approval: Option<Value>, replay: bool },
     Goal { session_id: String, key: Option<String> },
     HostAttached,
-    /// The quiet period of a completion ended: read its answer.
-    Deliver { session_id: String, generation: u64 },
-    Read { session_id: String, generation: u64, result: Result<Option<FinalAnswer>, AnswerReadError> },
-    /// The name of the bot a wait is told under was read.
-    WaitNamed { tell: Box<WaitTell>, name: String },
+    /// The final-answer watcher's own timers and reads.
+    Watch(WatchWake),
+    /// The name of the bot a wait is told under was read (`None`: this PC's toast is not owed, the approval was told already).
+    WaitNamed { tell: Box<WaitTell>, name: Option<String> },
     /// The hold of the devices that wait for this PC to be idle ended.
     HoldDue { event: Box<ThreadEvent>, held: HashSet<String>, due: Delivery },
 }
@@ -362,6 +348,10 @@ impl Row {
         }
     }
 
+    fn facts(&self) -> TurnFacts {
+        TurnFacts { working: self.working, lead_busy: self.lead_busy, silent: self.archived || self.agent_session }
+    }
+
     /// The host's shared read cursor: a turn is unread while its messages run past it.
     fn unread(&self) -> bool {
         self.read_message_count < self.message_count
@@ -370,61 +360,17 @@ impl Row {
 
 // ---- which turns just finished
 
+/// What a toast of a finished turn needs of its session.
 struct Completion {
     session_id: String,
     title: String,
     agent_home: Option<String>,
     fields: SessionFields,
-    /// The Lead's own turn ended in this roster push. False when the session went idle because its background agents settled:
-    /// the Lead may take their results into a new turn at once.
-    lead_finished: bool,
-    started_at: i64,
 }
 
-#[derive(Default)]
-struct Tracker {
-    working: HashMap<String, bool>,
-    lead_working: HashMap<String, bool>,
-    started: HashMap<String, i64>,
-}
-
-impl Tracker {
-    /// Feeds one roster row; the turn that just finished, if it did. `pending_work` names sessions whose Lead stopped only to
-    /// wait for its own child agents: that is not the final answer.
-    fn observe(&mut self, row: &Row, now: i64, pending_work: &HashSet<String>) -> Option<Completion> {
-        let id = row.id.as_str();
-        let busy = row.working || pending_work.contains(id);
-        let was_busy = self.working.get(id) == Some(&true);
-        let lead_was_busy = self.lead_working.get(id) == Some(&true);
-        if (row.lead_busy && !lead_was_busy) || (busy && !self.started.contains_key(id)) {
-            self.started.insert(id.to_owned(), now);
-        }
-        self.lead_working.insert(id.to_owned(), row.lead_busy);
-        self.working.insert(id.to_owned(), busy);
-        // Archived sessions are hidden from the app, and a sub-agent session reports back to its Lead: only the Lead's own
-        // final answer is worth a notification.
-        if !was_busy || busy || row.archived || row.agent_session {
-            return None;
-        }
-        Some(Completion {
-            session_id: id.to_owned(),
-            title: row.title.clone(),
-            agent_home: row.agent_home.clone(),
-            fields: row.fields.clone(),
-            lead_finished: lead_was_busy,
-            started_at: self.started.get(id).copied().unwrap_or(now),
-        })
-    }
-
-    fn forget(&mut self, id: &str) {
-        self.working.remove(id);
-        self.lead_working.remove(id);
-        self.started.remove(id);
-    }
-
-    /// Still idle? Delivery waits out a quiet period and re-asks, so a turn that resumed immediately never notifies.
-    fn is_idle(&self, id: &str) -> bool {
-        self.working.get(id) == Some(&false)
+impl Completion {
+    fn of(row: &Row) -> Self {
+        Self { session_id: row.id.clone(), title: row.title.clone(), agent_home: row.agent_home.clone(), fields: row.fields.clone() }
     }
 }
 
@@ -463,15 +409,19 @@ impl Delivery {
     }
 }
 
-/// One wait to tell: the approval of `origin`'s state, shown in the chat `target`.
+/// One wait to tell: the approval of `origin`'s state. This PC's toast names the chat `target` it is answered in, and is
+/// told once per approval (`announce`); a paired phone is told once per session that shows the approval, under that session.
 struct WaitTell {
     origin: String,
     delivery: Delivery,
     target: String,
     key: String,
     wait: Wait,
+    announce: bool,
     allow_once: bool,
-    row_title: String,
+    /// The origin session's own title and conversation: the phone's push is about it.
+    origin_title: String,
+    origin_fields: SessionFields,
     agent_home: Option<String>,
     fields: SessionFields,
 }
@@ -481,6 +431,11 @@ struct Ctx {
     env: ProducerEnv,
     wake: mpsc::UnboundedSender<Msg>,
     pending_toasts: Mutex<HashMap<String, Delivery>>,
+}
+
+/// `turn-notification-<step> {details}`: the line of one step of a notification.
+fn step_line(step: &str, details: &Value) -> String {
+    format!("turn-notification-{step} {details}")
 }
 
 fn placeholder_kind(title: &str) -> Option<AttachmentKind> {
@@ -511,6 +466,11 @@ impl Ctx {
 
     fn log(&self, detail: &str) {
         (self.env.log)(&format!("[mixdog-turn-notification] {detail}"));
+    }
+
+    /// One step of a notification, as the desktop's diagnostics log wrote it (`turn-notification-<step>`).
+    fn step(&self, step: &str, details: Value) {
+        self.log(&step_line(step, &details));
     }
 
     /// A session title as people read it on this PC: the attachment placeholder in this PC's language.
@@ -595,6 +555,8 @@ impl Ctx {
                     pending.insert(toast.thread_id.clone(), due.clone());
                 } else if !shown.is_empty() {
                     pending.remove(&toast.thread_id);
+                } else if let Some(reason) = self.env.engine.toast_refusal(toast, &audience) {
+                    self.step("suppressed", json!({ "sessionId": toast.thread_id, "reason": reason.diagnostic() }));
                 }
                 drop(pending);
                 for (_, shown) in shown {
@@ -651,31 +613,36 @@ impl Ctx {
         self.tell(Some(&toast), push, due).await;
     }
 
-    async fn wait(&self, tell: WaitTell, name: String) {
+    async fn wait(&self, tell: WaitTell, name: Option<String>) {
         if !self.enabled() {
             return;
         }
-        let conversation = self.conversation(&tell.target, &tell.fields).await;
         let (event, approval) = match tell.wait {
             Wait::Approval => (Event::Approval, Some(PushApproval { id: tell.key.clone(), allow_once: tell.allow_once })),
             Wait::Question => (Event::Question, None),
         };
-        let toast = ThreadEvent {
-            thread_id: tell.target.clone(),
-            event,
-            approval: None,
-            conversation,
-            title: format!("{name} · {}", self.env.texts.waiting(tell.wait)),
-            body_markdown: String::new(),
-            now_ms: (self.env.now_ms)(),
+        let toast = match name {
+            Some(name) => Some(ThreadEvent {
+                thread_id: tell.target.clone(),
+                event,
+                approval: None,
+                conversation: self.conversation(&tell.target, &tell.fields).await,
+                title: format!("{name} · {}", self.env.texts.waiting(tell.wait)),
+                body_markdown: String::new(),
+                now_ms: (self.env.now_ms)(),
+            }),
+            None => None,
         };
         let push = ThreadEvent {
-            title: Self::push_title(if tell.row_title.is_empty() { DEFAULT_TITLE } else { &tell.row_title }),
-            body_markdown: if tell.wait == Wait::Question { QUESTION_PUSH_TEXT.to_owned() } else { String::new() },
+            thread_id: tell.origin.clone(),
+            event,
             approval,
-            ..toast.clone()
+            conversation: self.conversation(&tell.origin, &tell.origin_fields).await,
+            title: Self::push_title(if tell.origin_title.is_empty() { DEFAULT_TITLE } else { &tell.origin_title }),
+            body_markdown: if tell.wait == Wait::Question { QUESTION_PUSH_TEXT.to_owned() } else { String::new() },
+            now_ms: (self.env.now_ms)(),
         };
-        self.tell(Some(&toast), push, tell.delivery).await;
+        self.tell(toast.as_ref(), push, tell.delivery).await;
     }
 
     /// A blocked goal waits for the user: a phone is told, this PC's window shows it itself.
@@ -697,22 +664,12 @@ impl Ctx {
 
 // ---- the producer
 
-struct Pending {
-    generation: u64,
-    completion: Completion,
-    waiting_reported: bool,
-    failures: u32,
-}
-
 struct Notifier {
     ctx: Arc<Ctx>,
-    generation: u64,
-    tracker: Tracker,
+    /// The turns that ended and whose answers are read.
+    watch: AnswerWatch<Completion>,
     rows: HashMap<String, Row>,
     pending_work: HashSet<String>,
-    pending: HashMap<String, Pending>,
-    queue: VecDeque<(String, u64)>,
-    reading: bool,
     /// The approval each session's state shows now.
     waits: HashMap<String, String>,
     /// The approvals already told (or refused), for as long as some session shows them.
@@ -734,15 +691,23 @@ impl Drop for Notifier {
 
 impl Notifier {
     fn new(ctx: Arc<Ctx>) -> Self {
+        let watch = {
+            let to_loop = ctx.wake.clone();
+            let log = ctx.env.log.clone();
+            AnswerWatch::new(
+                ctx.env.answers.clone(),
+                Arc::new(move |watched| {
+                    let _ = to_loop.send(Msg::Watch(watched));
+                }),
+                ctx.env.enabled.clone(),
+                Arc::new(move |step, _, details| log(&format!("[mixdog-turn-notification] {}", step_line(step, &details)))),
+            )
+        };
         Self {
             ctx,
-            generation: 0,
-            tracker: Tracker::default(),
+            watch,
             rows: HashMap::new(),
             pending_work: HashSet::new(),
-            pending: HashMap::new(),
-            queue: VecDeque::new(),
-            reading: false,
             waits: HashMap::new(),
             told: HashSet::new(),
             goals: HashMap::new(),
@@ -788,11 +753,10 @@ impl Notifier {
                     delivery.while_current(|| self.ctx.show(&toast));
                 }
             }
-            Msg::Deliver { session_id, generation } => self.on_deliver(session_id, generation),
-            Msg::Read { session_id, generation, result } => {
-                self.reading = false;
-                self.settle_read(&session_id, generation, result);
-                self.pump();
+            Msg::Watch(wake) => {
+                if let Some(settled) = self.watch.on_wake(wake) {
+                    self.settled(settled);
+                }
             }
             Msg::WaitNamed { tell, name } => {
                 // Answered while the bot's name was read: nothing to tell.
@@ -831,9 +795,9 @@ impl Notifier {
             self.ctx.env.engine.thread_read(&row.id);
         }
         let now = self.now();
-        let completion = self.tracker.observe(&row, now, &self.pending_work);
+        let ended = self.watch.observe(&row.id, &row.facts(), now, &self.pending_work).map(|end| (end, Completion::of(&row)));
         self.rows.insert(row.id.clone(), row);
-        self.after_observe(completion.into_iter().collect());
+        self.after_observe(ended.into_iter().collect());
     }
 
     fn on_row_gone(&mut self, id: &str) {
@@ -843,8 +807,7 @@ impl Notifier {
             });
         }
         self.rows.remove(id);
-        self.tracker.forget(id);
-        self.pending.remove(id);
+        self.watch.forget(id);
         self.on_approval(&SessionWait { session_id: id.to_owned(), ..Default::default() });
         self.goals.remove(id);
         self.ctx.env.engine.thread_read(id);
@@ -855,155 +818,29 @@ impl Notifier {
         // Background work settling with no new Lead turn means the answer the Lead already gave was the final one.
         self.pending_work = sessions_with_pending_work(pool);
         let now = self.now();
-        let Self { tracker, rows, pending_work, .. } = self;
-        let completions = rows.values().filter_map(|row| tracker.observe(row, now, pending_work)).collect();
-        self.after_observe(completions);
-    }
-
-    fn after_observe(&mut self, completions: Vec<Completion>) {
-        let stale: Vec<String> = self
-            .pending
-            .keys()
-            .filter(|id| !self.tracker.is_idle(id) || !self.rows.get(*id).is_some_and(|row| !row.archived))
-            .cloned()
+        let Self { watch, rows, pending_work, .. } = self;
+        let ended = rows
+            .values()
+            .filter_map(|row| watch.observe(&row.id, &row.facts(), now, pending_work).map(|end| (end, Completion::of(row))))
             .collect();
-        for id in stale {
-            tracing::debug!(session = %id, "final answer cancelled: state changed");
-            self.pending.remove(&id);
-        }
-        for completion in completions {
+        self.after_observe(ended);
+    }
+
+    fn after_observe(&mut self, ended: Vec<(TurnEnd, Completion)>) {
+        let rows = &self.rows;
+        self.watch.drop_stale(|id| rows.get(id).is_some_and(|row| !row.archived));
+        for (end, completion) in ended {
             let id = completion.session_id.clone();
-            let delay = if completion.lead_finished { LEAD_FINISHED_MS } else { STABILIZE_MS };
-            self.generation += 1;
-            let generation = self.generation;
-            tracing::debug!(session = %id, "turn finished: detected");
-            self.pending.insert(id.clone(), Pending { generation, completion, waiting_reported: false, failures: 0 });
-            self.schedule(&id, generation, delay);
+            self.watch.begin(&id, end, completion);
         }
     }
 
-    fn current(&self, session_id: &str, generation: u64) -> bool {
-        self.ctx.enabled()
-            && self.pending.get(session_id).is_some_and(|entry| entry.generation == generation)
-            && self.tracker.is_idle(session_id)
-    }
-
-    fn schedule(&self, session_id: &str, generation: u64, delay_ms: u64) {
-        let wake = self.ctx.wake.clone();
-        let session_id = session_id.to_owned();
-        drop(tokio::spawn(async move {
-            mixdog_rt::time::sleep(Duration::from_millis(delay_ms)).await;
-            let _ = wake.send(Msg::Deliver { session_id, generation });
-        }));
-    }
-
-    fn on_deliver(&mut self, session_id: String, generation: u64) {
-        if !self.current(&session_id, generation) {
-            if self.pending.get(&session_id).is_some_and(|entry| entry.generation == generation) {
-                self.pending.remove(&session_id);
-            }
-            return;
-        }
-        self.queue.push_back((session_id, generation));
-        self.pump();
-    }
-
-    /// At most one answer read in flight: a burst of completions queues behind it instead of piling reads onto the session store.
-    fn pump(&mut self) {
-        while !self.reading {
-            let Some((session_id, generation)) = self.queue.pop_front() else { return };
-            if !self.current(&session_id, generation) {
-                if self.pending.get(&session_id).is_some_and(|entry| entry.generation == generation) {
-                    self.pending.remove(&session_id);
-                }
-                continue;
-            }
-            let Some(entry) = self.pending.get(&session_id) else { continue };
-            let started_at = entry.completion.started_at;
-            self.reading = true;
-            let answers = self.ctx.env.answers.clone();
-            let wake = self.ctx.wake.clone();
-            drop(tokio::spawn(async move {
-                let result = match mixdog_rt::time::timeout(READ_DEADLINE, answers.read(&session_id, started_at)).await {
-                    Ok(result) => result,
-                    Err(_) => Err(AnswerReadError::Failed(format!(
-                        "final answer read timed out after {} ms",
-                        READ_DEADLINE.as_millis()
-                    ))),
-                };
-                let _ = wake.send(Msg::Read { session_id, generation, result });
-            }));
-        }
-    }
-
-    fn settle_read(&mut self, session_id: &str, generation: u64, result: Result<Option<FinalAnswer>, AnswerReadError>) {
-        let answer = match result {
-            Err(AnswerReadError::SessionMissing) => {
-                // Terminal: the record is gone, so no retry can ever succeed.
-                if self.pending.get(session_id).is_some_and(|entry| entry.generation == generation) {
-                    tracing::debug!(session = session_id, "final answer cancelled: session missing");
-                    self.pending.remove(session_id);
-                }
-                return;
-            }
-            Err(AnswerReadError::Failed(error)) => {
-                self.ctx.log(&format!("read-failed {error}"));
-                if !self.current(session_id, generation) {
-                    return;
-                }
-                let Some(entry) = self.pending.get_mut(session_id) else { return };
-                entry.failures += 1;
-                if entry.failures >= READ_FAILURE_LIMIT {
-                    tracing::debug!(session = session_id, "final answer cancelled: read kept failing");
-                    self.pending.remove(session_id);
-                    return;
-                }
-                let delay = (STABILIZE_MS << (entry.failures - 1)).min(READ_RETRY_MAX_MS);
-                self.schedule(session_id, generation, delay);
-                return;
-            }
-            Ok(answer) => answer,
-        };
-        // The read may cross a new turn, an archive or a restart: idleness alone cannot identify the turn that was asked.
-        if !self.current(session_id, generation) {
-            return;
-        }
-        let Some(entry) = self.pending.get_mut(session_id) else { return };
-        entry.failures = 0;
-        let started_at = entry.completion.started_at;
-        // A turn answered by a reaction alone raises no notification.
-        if answer.as_ref().is_some_and(|answer| answer.reacted && answer.at >= started_at) {
-            self.pending.remove(session_id);
-            tracing::debug!(session = session_id, "notification suppressed: reaction");
-            return;
-        }
-        let ready = answer
-            .filter(|answer| answer.at >= started_at && !(answer.status == FinalAnswerStatus::Done && answer.text.trim().is_empty()));
-        let Some(answer) = ready else {
-            if !entry.waiting_reported {
-                tracing::debug!(session = session_id, "waiting for the turn's answer");
-                entry.waiting_reported = true;
-            }
-            let delay = if entry.completion.lead_finished { ANSWER_POLL_MS } else { STABILIZE_MS };
-            self.schedule(session_id, generation, delay);
-            return;
-        };
-        let Some(Pending { completion, .. }) = self.pending.remove(session_id) else { return };
-        // A turn the user cancelled is no news; one that failed is an error notification.
-        let (event, text) = match answer.status {
-            FinalAnswerStatus::Cancelled => {
-                tracing::debug!(session = session_id, "notification suppressed: cancelled");
-                return;
-            }
-            FinalAnswerStatus::Done if is_routine_quiet_reply(&answer.text) => {
-                tracing::debug!(session = session_id, "notification suppressed: routine quiet");
-                return;
-            }
-            FinalAnswerStatus::Failed => (Event::Error, String::new()),
-            FinalAnswerStatus::Done => (Event::Finished, answer.text),
-        };
-        let due = Delivery::new(session_id.to_owned());
-        if let Some(previous) = self.results_live.insert(session_id.to_owned(), due.clone()) { previous.invalidate(); }
+    /// A turn whose answer is ready: a failed one is an error notification, an answer is told by its text.
+    fn settled(&mut self, settled: Settled<Completion>) {
+        let Settled { session_id, detail: completion, failed, text } = settled;
+        let event = if failed { Event::Error } else { Event::Finished };
+        let due = Delivery::new(session_id.clone());
+        if let Some(previous) = self.results_live.insert(session_id, due.clone()) { previous.invalidate(); }
         let ctx = self.ctx.clone();
         drop(tokio::spawn(async move {
             let delivery = due.clone();
@@ -1040,14 +877,16 @@ impl Notifier {
             return;
         }
         let Some(approval) = update.approval.as_ref().filter(|_| !key.is_empty()) else { return };
-        if self.told.contains(&key) || key == previous {
+        // A session tells its own wait once; this PC's toast is once per approval, whichever session shows it first.
+        if key == previous {
             return;
         }
-        self.told.insert(key.clone());
+        let announce = self.told.insert(key.clone());
         let wait = if approval.get("kind").and_then(Value::as_str) == Some("question") { Wait::Question } else { Wait::Approval };
         // A sub-agent's request is answered in the top-level chat it shows in.
         let target = approval.get("surfaceSessionId").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or(session_id).to_owned();
         let row = self.rows.get(&target);
+        let origin_row = self.rows.get(session_id);
         let delivery = Delivery::new(target.clone());
         self.waits_live.insert(session_id.to_owned(), delivery.clone());
         let tell = WaitTell {
@@ -1056,8 +895,10 @@ impl Notifier {
             target: target.clone(),
             key,
             wait,
+            announce,
             allow_once: wait == Wait::Approval && allow_once_decision(approval).is_some(),
-            row_title: row.map(|row| row.push_title.clone()).unwrap_or_default(),
+            origin_title: origin_row.map(|row| row.push_title.clone()).unwrap_or_default(),
+            origin_fields: origin_row.map(|row| row.fields.clone()).unwrap_or_default(),
             agent_home: row.and_then(|row| row.agent_home.clone()),
             fields: row.map(|row| row.fields.clone()).unwrap_or_default(),
         };
@@ -1066,9 +907,13 @@ impl Notifier {
         drop(tokio::spawn(async move {
             let delivery = tell.delivery.clone();
             delivery.run(async {
-                let name = match ctx.bot_name(tell.agent_home.as_deref()).await {
-                    Some(name) => name,
-                    None => ctx.toast_title(&fallback),
+                let name = if tell.announce {
+                    Some(match ctx.bot_name(tell.agent_home.as_deref()).await {
+                        Some(name) => name,
+                        None => ctx.toast_title(&fallback),
+                    })
+                } else {
+                    None
                 };
                 let _ = ctx.wake.send(Msg::WaitNamed { tell: Box::new(tell), name });
             }).await;
