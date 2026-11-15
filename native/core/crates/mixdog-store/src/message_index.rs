@@ -338,7 +338,7 @@ pub(crate) fn open_view(
     let (state, count, real, preview, line, routine, incoming) = if now {
         // The tail is kept for every fork: a fork of this fork may want it.
         let s = read_stats(tx, base, true)?;
-        let (line, routine) = s.last.map_or((String::new(), "null".to_owned()), |l| l);
+        let (line, routine) = s.last.unwrap_or((String::new(), "null".to_owned()));
         ("ready", s.count as i64, s.real as i64, s.preview, line, routine, serde_json::to_string(&s.incoming).expect("places encode"))
     } else {
         ("pending", 0, 0, String::new(), String::new(), "null".to_owned(), "[]".to_owned())

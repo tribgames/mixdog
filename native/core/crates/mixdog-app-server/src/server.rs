@@ -417,12 +417,11 @@ impl Shared {
             self.reject_core(conn, &id, &denied);
             return Inbound::Continue;
         }
-        if let Some(window) = self.window(conn.id) {
-            if let Err(denied) = window_gate(&window, spec.method, request.params.as_ref()) {
-                let denied = CoreError::PermissionDenied { method: denied.method.into(), origin };
-                self.reject_core(conn, &id, &denied);
-                return Inbound::Continue;
-            }
+        if let Some(window) = self.window(conn.id)
+            && let Err(denied) = window_gate(&window, spec.method, request.params.as_ref()) {
+            let denied = CoreError::PermissionDenied { method: denied.method.into(), origin };
+            self.reject_core(conn, &id, &denied);
+            return Inbound::Continue;
         }
         if let Err(error) = self.lifecycle_gate(spec) {
             self.reject_core(conn, &id, &error);
@@ -535,12 +534,11 @@ impl Shared {
         let shared = Arc::clone(self);
         let conn = Arc::clone(conn);
         mixdog_rt::spawn("param-refs", TaskClass::Work, async move {
-            if let Some(params) = request.params.as_mut() {
-                if let Err(error) = crate::param_refs::expand(spec.method, params, &conn.cancel).await {
-                    drop(slot);
-                    shared.reject_core(&conn, &request.id, &error);
-                    return;
-                }
+            if let Some(params) = request.params.as_mut()
+                && let Err(error) = crate::param_refs::expand(spec.method, params, &conn.cancel).await {
+                drop(slot);
+                shared.reject_core(&conn, &request.id, &error);
+                return;
             }
             let _ = shared.checked(&conn, request, spec, origin, slot);
         });
@@ -569,12 +567,11 @@ impl Shared {
             self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
             return Inbound::Continue;
         }
-        if spec.method != INITIALIZE {
-            if let Err(data) = validate::check(spec.method, request.params.as_ref()) {
-                drop(slot);
-                self.reject(conn, &id, &data);
-                return Inbound::Continue;
-            }
+        if spec.method != INITIALIZE
+            && let Err(data) = validate::check(spec.method, request.params.as_ref()) {
+            drop(slot);
+            self.reject(conn, &id, &data);
+            return Inbound::Continue;
         }
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.
@@ -602,7 +599,7 @@ impl Shared {
         let params = params.unwrap_or_else(empty_result);
         // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
         let after = AfterAnswer::default();
-        match self.dispatch(conn, &id, origin, typed, (params, lone_surrogates), spec, &after) {
+        match self.dispatch(conn, (&id, origin), typed, (params, lone_surrogates), spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, cleaned(outcome));
@@ -725,11 +722,10 @@ impl Shared {
             return Inbound::Continue;
         }
         let window = self.window(conn.id);
-        if window.is_some() {
-            if let Err(denied) = window_scope::allows_initialize(&params) {
-                self.reject_core(conn, id, &CoreError::PermissionDenied { method: denied.method.into(), origin });
-                return Inbound::Continue;
-            }
+        if window.is_some()
+            && let Err(denied) = window_scope::allows_initialize(&params) {
+            self.reject_core(conn, id, &CoreError::PermissionDenied { method: denied.method.into(), origin });
+            return Inbound::Continue;
         }
         let core_state = match self.core_state() {
             Ok(state) => state,
@@ -830,8 +826,7 @@ impl Shared {
     fn dispatch(
         self: &Arc<Self>,
         conn: &Arc<Connection>,
-        id: &RequestId,
-        origin: Origin,
+        (id, origin): (&RequestId, Origin),
         request: ClientRequest,
         (params, lone_surrogates): (Value, Vec<mixdog_app_protocol::rpc::LoneAt>),
         spec: &'static MethodSpec,

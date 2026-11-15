@@ -275,6 +275,7 @@ impl<T> CallLanes<T> {
         }
     }
 
+    #[cfg(test)]
     fn lane(&self, lane: Lane) -> &Scheduler<T> {
         match lane {
             Lane::Critical => &self.critical,
