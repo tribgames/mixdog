@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn a_non_ascii_string_goes_as_a_literal_and_an_ascii_one_quoted() {
         let parts = Cmd::new("UID STORE 1 +X-GM-LABELS (").string("Café \"x\"").text(")").finish();
-        assert_eq!(parts[0], b"UID STORE 1 +X-GM-LABELS ({6}\r\n");
+        assert_eq!(parts[0], b"UID STORE 1 +X-GM-LABELS ({9}\r\n");
         assert_eq!(parts[1], "Café \"x\")\r\n".as_bytes());
         let quoted = Cmd::new("SELECT ").string("a \"b\"").finish();
         assert_eq!(quoted, [b"SELECT \"a \\\"b\\\"\"\r\n".to_vec()]);
