@@ -1,0 +1,35 @@
+# nr-exthost-worker-document-methods: document.preview, document.previewPages, document.libreOfficeStatus and document.installLibreOffice in mixdog-exthost-worker
+
+Not compiled: cargo was not run (the lead compiles the wave).
+
+## native/core/Cargo.lock
+
+Package mixdog-exthost-worker: add `mixdog-rt` to its (normal) dependencies (it was a dev-dependency only; the soffice probe's
+child budget uses mixdog_rt::time::timeout). No new package. Cargo.toml of the crate (owned by this task, already edited) also
+adds the `process` feature of tokio (already enabled for mixdog-exthost, so mixdog-workspace-hack needs no change; take what
+hakari prints if it asks) and the test target `document_twin`.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers worker methods, not a protocol service (the document/* service is mixdog-exthost's
+DocumentService, which already sends these four calls to the pool).
+
+## Registration of the engine (the office-pdf track's preview task, nr-office-pdf-preview, which is not in the tree yet)
+
+`document.preview` of a convertible type and every `document.previewPages` need documentPreviewPdf / documentPreviewPages and the
+font provisioner, none of which exists in Rust at this point. `register_document_methods` registers the four methods over an
+engine that answers code OFFICE_PREVIEW_UNAVAILABLE and logs the reason once at error level (a PDF previews in place, and every
+refusal is the same). When the office-pdf preview library lands, its adapter implements
+`mixdog_exthost_worker::methods::document::DocumentEngine` (preview_pdf, preview_pages, prepare_fonts) and the build registers it
+as an `Extension` (`|registry| document::register_with(registry, engine)`), which replaces the four registrations. At that point
+`PREVIEW_FORMATS`/`preview_format` in methods/document.rs should be replaced by the library's documentPreviewFormat.
+
+## native/core/crates/mixdog-exthost-worker/src/main_entry.rs (not owned here)
+
+The test `the_names_come_from_the_registry_and_an_extension_adds_to_them` lists the served names and is already behind (it lacks
+the pdf.* and media.pdf* names); it also needs `document.installLibreOffice`, `document.libreOfficeStatus`, `document.preview`,
+`document.previewPages` in its sorted list.
+
+## Fixtures
+
+None added. fixtures/office-startup covers the journal sweep, not these methods.
