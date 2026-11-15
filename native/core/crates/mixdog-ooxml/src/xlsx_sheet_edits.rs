@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use mixdog_fsio::ReadProof;
+use mixdog_js::time::utc_to_ms;
 use mixdog_js::{
     JsRegex, js_to_lowercase, js_trim, json_number, math, number_to_string, slice_utf16, string_to_number, to_number_of, value_to_string,
 };
@@ -114,16 +115,6 @@ pub fn set_worksheet_cell(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op, 
     Ok((Value::Object(result), !formula.is_empty()))
 }
 
-/// Days from 1970-01-01 of a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 fn month_length(year: i64, month: i64) -> i64 {
     match month {
         2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
@@ -145,7 +136,7 @@ fn typed_date(value: &Value) -> Option<f64> {
     if year < 1900 || !(1..=12).contains(&month) || day < 1 || day > month_length(year, month) {
         return None;
     }
-    Some((days_from_civil(year, month, day) - days_from_civil(1899, 12, 30)) as f64)
+    Some((utc_to_ms(year, month, day, 0, 0, 0, 0) - utc_to_ms(1899, 12, 30, 0, 0, 0, 0)) / 86_400_000.0)
 }
 
 /// A figure a text types as, with the format Excel gives it.
@@ -307,7 +298,7 @@ pub fn append_worksheet_row(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op
     let row = max_row + 1;
     let values: &[Value] = match op.get("values") {
         Some(Value::Array(values)) => values,
-        Some(value) if truthy(Some(value)) => return Err("(intermediate value).map is not a function".to_owned()),
+        Some(value) if truthy(Some(value)) => return Err("(op.values || []).map is not a function".to_owned()),
         _ => &[],
     };
     let entries: Vec<(String, Value)> =
