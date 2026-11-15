@@ -784,10 +784,10 @@ pub struct ExtHostConfigs {
     pub native_methods: Vec<&'static str>,
 }
 
-/// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole:
-/// the list decides the route, nothing else does.
+/// The methods the Rust worker answers: every one it registers, the image methods among them since the image corpus passes
+/// whole. The list decides the route, nothing else does.
 pub fn native_ext_methods() -> Vec<&'static str> {
-    mixdog_exthost_worker::native_methods().into_iter().filter(|method| !method.starts_with("image.")).collect()
+    mixdog_exthost_worker::native_methods()
 }
 
 /// The one constructor of the routing pool: the core and the migration (`boot`, `mixdogd migrate`) use it.
