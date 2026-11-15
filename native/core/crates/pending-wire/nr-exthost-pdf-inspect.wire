@@ -1,0 +1,27 @@
+# nr-exthost-pdf-inspect
+
+The Rust worker now serves pdf.inspect, media.pdfText and media.pdfCounts (mixdog-exthost-worker src/methods/pdf.rs, on
+mixdog-pdf src/inspect.rs). Compose needs no edit: native_ext_methods() reads the worker's registry, so the routing pool
+sends the three methods to the Rust worker. They are ext-host methods, not protocol methods: no pending-rows, and nothing to
+remove from SERVICE_PENDING in compose_flip.rs.
+
+## Cargo.lock (lead-owned)
+
+mixdog-exthost-worker gained the normal dependency mixdog-pdf (the Cargo.toml of the worker is already edited here) and sha2
+moved from [dev-dependencies] to [dependencies]. In the [[package]] entry of mixdog-exthost-worker, add "mixdog-pdf" to its
+dependencies list (alphabetical, after "mixdog-ooxml-text"). sha2 is already in that list. Regenerate offline without --locked;
+no new crate enters the lock.
+
+## mixdog-exthost-worker/src/main_entry.rs (not this task's file)
+
+The test `the_names_come_from_the_registry_and_an_extension_adds_to_them` lists the served names. Replace its expected vec with
+(sorted):
+
+    vec!["image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.officeText", "media.pdfCounts", "media.pdfText", "office.sweepJournals", "ooxml.text", "pdf.inspect"]
+
+(If other wave tasks add names, merge into the same sorted list.)
+
+## mixdog-workspace-hack
+
+mixdog-exthost-worker now links mixdog-pdf and sha2 as normal dependencies: regenerate the hack (cargo hakari) if the workspace
+checks it.
