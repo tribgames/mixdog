@@ -97,9 +97,12 @@ pub struct LoadedFont {
 /// The font the state holds.
 pub type FontHandle = Arc<LoadedFont>;
 
-/// `page.getOperatorList()` as the display layer returns it (the `oplist` intent: no queue optimizer; annotation
-/// appearance streams are not part of it): the page's content stream is evaluated. A failure inside the content stream ends the stream and keeps what was read when the document's
-/// `ignore_errors` is set (as pdf.js's `ignoreErrors`); a cancellation or a budget failure always propagates.
+/// The page part of `page.getOperatorList()` (the `oplist` intent: no queue optimizer): the page's content stream is
+/// evaluated with the page's resources merged under the content stream's own. pdf.js's list (display intent,
+/// `AnnotationMode.ENABLE`) continues with the operator lists of the viewable annotations' appearance streams
+/// (`beginAnnotation` ... `endAnnotation`); those are not read here yet. A failure inside the content stream ends the
+/// stream and keeps what was read when the document's `ignore_errors` is set (as pdf.js's `ignoreErrors`); a
+/// cancellation or a budget failure always propagates.
 pub fn get_operator_list(
     document: &Document,
     page: &Page,
@@ -107,9 +110,26 @@ pub fn get_operator_list(
 ) -> Result<OperatorList> {
     document.guard().check_now()?;
     let content = page.content(document)?;
-    let resources = page.resources(document)?;
+    let resources = merged_resources(document, page)?;
     let mut evaluator = interpreter::Evaluator::new(document, fonts, page.index);
     let mut list = OperatorList::new();
     evaluator.get_operator_list(content, None, &resources, &mut list, None, &[])?;
     Ok(list)
+}
+
+/// `Page.#getMergedResources`: when `/Contents` is one stream with a non-empty `/Resources` of its own, that
+/// dictionary is merged over the page's (its entries first, sub-dictionaries merged key by key); otherwise the
+/// page's resources. (An image stream as `/Contents` has no content, so its resources never matter.)
+fn merged_resources(document: &Document, page: &Page) -> Result<Arc<Dict>> {
+    let xref = document.xref();
+    let page_resources = page.resources(document)?;
+    let Obj::Stream(stream) = xref.get(&page.dict, "Contents")? else {
+        return Ok(page_resources);
+    };
+    let local = match xref.get(&stream.dict, "Resources")? {
+        Obj::Dict(local) if !local.is_empty() => local,
+        _ => return Ok(page_resources),
+    };
+    let merged = Dict::merge(&[Obj::Dict(local), Obj::Dict(page_resources)], true);
+    Ok(Arc::new(merged.unwrap_or_default()))
 }
