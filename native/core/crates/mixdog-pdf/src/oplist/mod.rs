@@ -130,6 +130,10 @@ pub fn get_operator_list_with_annotations(
     let xref = document.xref();
     let filters = xref.filters();
     for annotation in crate::annotations::get_annotations(document, page)? {
+        // `mustBeViewed`: viewable (what `get_annotations` keeps) and not `AnnotationFlag.HIDDEN` (2).
+        if annotation.annotation_flags & 2 != 0 {
+            continue;
+        }
         let Some(Obj::Stream(stream)) = annotation.appearance else {
             continue;
         };
