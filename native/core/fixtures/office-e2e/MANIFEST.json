@@ -1,0 +1,35 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-e2e.mjs --tree <tree>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 314724,
+      "path": "golden.json",
+      "sha256": "0292de5a513fd11004a76b9c9ff8df0e96145036e22f53a8800bdf2ac7769e29"
+    },
+    {
+      "bytes": 23908,
+      "path": "scenarios.json",
+      "sha256": "b608632c4999391a002c9f4a1268829e26b6967885711ee10eb80f1222f98f11"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21682,
+    "refComparison": {
+      "closestCommit": "29890a8b034e76e01ae1582db386057ae66d4ea8",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 21682
+    },
+    "srcSha256": "771b012162b9264043ecd07836f0764b71a5d1502982a46340b4e92a86c65c68",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-e2e.mjs",
+  "set": "office-e2e",
+  "totalBytes": 338632
+}
