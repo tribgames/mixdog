@@ -1,6 +1,6 @@
 //! Encoding with sharp's defaults. A resized image keeps the format it came in: JPEG at quality 80, PNG at zlib level
-//! 6 with no row filter and no palette (what sharp writes by default), GIF (one frame, 256 colours) and TIFF, and WebP
-//! through `still.rs`.
+//! 6 with no row filter and no palette (what sharp writes by default), GIF (one frame, 256 colours) and TIFF, WebP
+//! through `still.rs` and AVIF (`heif`) through `avif.rs`.
 //!
 //! JPEG has no alpha: libvips flattens it against black, which is what [`flatten`] does with the default
 //! background (a tool-result image names white).
@@ -178,7 +178,8 @@ pub fn encode_in_format(raster: &Raster, format: Format) -> Result<Vec<u8>, Imag
         Format::Jpeg => Ok(encode_jpeg(raster, DEFAULT_JPEG_QUALITY, 0)),
         // sharp rasterizes SVG input to PNG on toBuffer(), while the resize
         // wrapper keeps metadata().format ("svg") in its MIME field.
-        Format::Png | Format::Svg | Format::Avif => encode_png(raster),
+        Format::Png | Format::Svg => encode_png(raster),
+        Format::Avif => crate::avif::encode_avif(raster),
         Format::Gif => encode_gif(raster),
         Format::Tiff => encode_tiff(raster),
         Format::Webp => still::encode_webp(raster, DEFAULT_WEBP_QUALITY),
