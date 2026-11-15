@@ -482,15 +482,19 @@ fn number_or_zero(value: Option<&Value>) -> f64 {
     if number.is_nan() { 0.0 } else { number }
 }
 
+/// Whether a JSON value is truthy in JavaScript (`null`, `false`, `0` and `''` are not; an empty array or object is).
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0 && !number.is_nan()),
+        Value::String(text) => !text.is_empty(),
+        _ => true,
+    }
+}
+
 /// `String(value || '')`.
 fn text_or_empty(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::Bool(false)) => String::new(),
-        Some(Value::Number(number)) if number.as_f64().is_some_and(|number| number == 0.0 || number.is_nan()) => String::new(),
-        Some(Value::String(text)) if text.is_empty() => String::new(),
-        Some(other) => mixdog_js::value_to_string(other),
-    }
+    value.filter(|value| truthy(value)).map_or_else(String::new, mixdog_js::value_to_string)
 }
 
 /// `gradientFillXml({ stops, angle, radial })`: the native `a:gradFill` of a gradient spec. A stop is `[offset 0-100,
@@ -509,7 +513,7 @@ pub fn gradient_fill_xml(spec: &Value) -> Result<String, String> {
         };
         list.push_str(&format!("<a:gs pos=\"{}\">{fill}</a:gs>", mixdog_js::number_to_string(position)));
     }
-    let radial = spec.get("radial").filter(|radial| !radial.is_null() && !matches!(radial, Value::Bool(false)));
+    let radial = spec.get("radial").filter(|radial| truthy(radial));
     let path = match radial {
         Some(radial) => {
             let focus = |key: &str| radial.get(key).filter(|value| !value.is_null()).map_or(0.5, to_number);
