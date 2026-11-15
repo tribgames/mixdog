@@ -5459,6 +5459,7 @@ dependencies = [
  "mixdog-protocol",
  "mixdog-raster",
  "mixdog-rt",
+ "mixdog-skill-scripts",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "reqwest",
