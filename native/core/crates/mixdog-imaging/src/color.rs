@@ -15,7 +15,7 @@ const CHUNK_PIXELS: usize = 1 << 16;
 
 /// Converts 8-bit RGB (3 bytes a pixel) or RGBA (4 bytes, alpha kept) pixels from the colour space of `icc` to sRGB,
 /// in place. Anything but an RGB-space profile is left alone.
-pub(crate) fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
+pub fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
     let Ok(profile) = ColorProfile::new_from_slice(icc) else { return };
     if profile.color_space != DataColorSpace::Rgb {
         return;

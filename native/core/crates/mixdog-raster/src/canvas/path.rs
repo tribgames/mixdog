@@ -191,7 +191,21 @@ impl Path2D {
     /// A quarter circle of `radius` about `(cx, cy)` from `start` (radians), as the end of a rounded corner.
     fn corner(&mut self, cx: f32, cy: f32, radius: f32, start: f32) {
         if radius > 0.0 {
-            self.arc_segments(cx, cy, radius, radius, 0.0, start, FRAC_PI_2);
+            // The corner starts and ends on an axis: the points and the tangents come from exact unit vectors, so a
+            // rounded rectangle's outline touches its box exactly instead of by the rounding of sin and cos.
+            const AXES: [(f32, f32); 4] = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)];
+            let quarter = (start / FRAC_PI_2).round() as i32;
+            let (c0, s0) = AXES[quarter.rem_euclid(4) as usize];
+            let (c1, s1) = AXES[(quarter + 1).rem_euclid(4) as usize];
+            let k = 4.0 / 3.0 * (FRAC_PI_2 / 4.0).tan();
+            self.bezier_curve_to(
+                cx + radius * (c0 - k * s0),
+                cy + radius * (s0 + k * c0),
+                cx + radius * (c1 + k * s1),
+                cy + radius * (s1 - k * c1),
+                cx + radius * c1,
+                cy + radius * s1,
+            );
         }
     }
 

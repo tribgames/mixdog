@@ -1,8 +1,8 @@
 //! The raster operations the Office stack asked sharp (libvips) for, over RGBA8 pixels.
 //!
 //! [`Image`] holds straight-alpha RGBA8 and the band count sharp would report (grey, grey and alpha, RGB, RGBA). It
-//! is decoded by `mixdog-imaging` (format sniffing, the pixel limit, ICC to sRGB, 16-bit and palette to 8-bit), so there is
-//! one decoder and one resampler family in the product. This crate adds what the office code calls on top of it: the
+//! is decoded by `mixdog-imaging` (format sniffing, the pixel limit, ICC to sRGB, 16-bit and palette to 8-bit); a baseline
+//! JPEG is decoded by [`jpeg`] with libjpeg-turbo's own arithmetic, the samples libvips resizes. This crate adds what the office code calls on top of it: the
 //! fits `cover`, `contain`, `fill`, `inside` and `outside` with every kernel and gravity (and libvips's entropy and
 //! attention crops), `extract`, `extend`, `composite` with `over`, `dest-in` and `multiply`, `flatten`, `greyscale`,
 //! `linear`, `modulate`, `trim`, EXIF auto-orientation, raw access and the per-channel `stats`.
@@ -18,6 +18,7 @@ use mixdog_rt::LaneToken;
 
 pub mod composite;
 pub mod image;
+pub mod jpeg;
 pub mod ops;
 pub mod smartcrop;
 pub mod stats;

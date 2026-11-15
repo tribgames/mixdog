@@ -1,14 +1,12 @@
 //! The geometry and colour operations: resize (every fit, gravity and kernel), extract, extend, greyscale, linear,
 //! modulate and trim, as sharp runs them.
 //!
-//! Resampling is separable, in premultiplied floats when the image has alpha, with a support that grows with the
-//! shrink factor, like `mixdog-imaging`'s fit-inside (which is the Lanczos3 case of the same rule: the output size of
-//! `inside` is that module's [`output_size`]). `mixdog-imaging`'s resampler keeps its taps private and only fits a
-//! box, so the independent per-axis sizes `fill` and `cover` need, and the kernels other than Lanczos3, live here.
+//! Resampling follows libvips's pipeline as sharp drives it, in integers: colour premultiplied by alpha and cut to
+//! bytes, the vertical axis then the horizontal one, an integer box shrink while the rest of the shrink stays at least
+//! 2 and a reduce with the kernel on 64 phases and taps of 4096 ths for the rest, the affine interpolators (nearest,
+//! bilinear, bicubic) when an axis is enlarged, and the premultiplication undone at the end.
 
 use std::sync::OnceLock;
-
-use mixdog_imaging::resize::output_size;
 
 use crate::RasterError;
 use crate::image::Image;
@@ -176,177 +174,373 @@ impl Default for ResizeOptions {
     }
 }
 
-/// For each output sample, the input samples it reads and their normalised weights; an index past an edge is the edge
-/// sample.
-struct Taps {
-    offsets: Vec<usize>,
-    entries: Vec<(u32, f32)>,
+/// Bits of a resampling weight: libvips's integer taps are the kernel scaled by 4096 and cut toward zero.
+const WEIGHT_BITS: u32 = 12;
+/// libvips places the fraction of a source position on a grid of 1/64.
+const PHASES: f64 = 64.0;
+
+/// One image in the working format: four bands per pixel, signed so that a pass may overshoot before the clip.
+struct Plane {
+    width: usize,
+    height: usize,
+    data: Vec<i32>,
 }
 
-impl Taps {
-    fn new(in_len: u32, out_len: u32, kernel: Kernel) -> Self {
-        let scale = f64::from(in_len) / f64::from(out_len);
-        let last = i64::from(in_len) - 1;
-        let mut offsets = Vec::with_capacity(out_len as usize + 1);
-        let mut entries = Vec::new();
-        offsets.push(0);
-        for out in 0..out_len {
+impl Plane {
+    fn len(&self, axis: Axis) -> usize {
+        match axis {
+            Axis::Y => self.height,
+            Axis::X => self.width,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    X,
+    Y,
+}
+
+/// Builds the output of one axis: `taps` names, for an output index, the input lines it reads and their integer
+/// weights; `finish` turns the weighted sum into the stored value.
+fn map_axis(src: &Plane, axis: Axis, out_len: usize, mut taps: impl FnMut(usize) -> Vec<(usize, i64)>, finish: impl Fn(i64) -> i32) -> Plane {
+    let (width, height) = match axis {
+        Axis::X => (out_len, src.height),
+        Axis::Y => (src.width, out_len),
+    };
+    let mut data = vec![0i32; width * height * 4];
+    for o in 0..out_len {
+        let line = taps(o);
+        match axis {
+            Axis::Y => {
+                for x in 0..width {
+                    for c in 0..4 {
+                        let mut sum = 0i64;
+                        for &(k, w) in &line {
+                            sum += w * i64::from(src.data[(k * src.width + x) * 4 + c]);
+                        }
+                        data[(o * width + x) * 4 + c] = finish(sum);
+                    }
+                }
+            }
+            Axis::X => {
+                for y in 0..height {
+                    for c in 0..4 {
+                        let mut sum = 0i64;
+                        for &(k, w) in &line {
+                            sum += w * i64::from(src.data[(y * src.width + k) * 4 + c]);
+                        }
+                        data[(y * width + o) * 4 + c] = finish(sum);
+                    }
+                }
+            }
+        }
+    }
+    Plane { width, height, data }
+}
+
+fn clip_byte(value: i64) -> i32 {
+    value.clamp(0, 255) as i32
+}
+
+/// The fraction of a source position, on libvips's grid of 1/64.
+fn phase(fraction: f64) -> f64 {
+    (fraction * PHASES + 0.5).floor() / PHASES
+}
+
+/// libvips's integer shrink: the mean of `factor` neighbours (the last line repeated to fill a short box), rounded.
+fn shrink(src: &Plane, axis: Axis, factor: usize) -> Plane {
+    let n = src.len(axis);
+    let out = n.div_ceil(factor);
+    map_axis(
+        src,
+        axis,
+        out,
+        |o| (0..factor).map(|i| ((o * factor + i).min(n - 1), 1)).collect(),
+        |sum| ((sum + (factor as i64) / 2) / factor as i64) as i32,
+    )
+}
+
+/// libvips's reduce of one axis by `shrink` (at least 1) with `kernel`: the source position of an output sample is
+/// centred between the sample centres, the output is centred on the input, the fraction takes one of 64 phases and
+/// the taps are the kernel scaled by the shrink, normalised, scaled by 4096 and cut toward zero.
+fn reduce(src: &Plane, axis: Axis, out_len: usize, shrink: f64, kernel: Kernel) -> Plane {
+    let n = src.len(axis);
+    let offset = (n as f64 - out_len as f64 * shrink) / 2.0;
+    let last = n as i64 - 1;
+    let scale = (1i64 << WEIGHT_BITS) as f64;
+    map_axis(
+        src,
+        axis,
+        out_len,
+        |o| {
             if kernel == Kernel::Nearest {
-                let at = (((f64::from(out) + 0.5) * scale).floor() as i64).clamp(0, last);
-                entries.push((at as u32, 1.0));
-                offsets.push(entries.len());
-                continue;
+                // The nearest kernel takes the sample the output centre falls in.
+                let at = ((o as f64 + 0.5) * shrink + offset).floor() as i64;
+                return vec![(at.clamp(0, last) as usize, 1i64 << WEIGHT_BITS)];
             }
-            let filter_scale = scale.max(1.0);
-            let support = kernel.support() * filter_scale;
-            let center = (f64::from(out) + 0.5) * scale - 0.5;
-            let first = (center - support).ceil() as i64;
-            let end = (center + support).floor() as i64;
-            let start = entries.len();
-            let mut sum = 0.0;
-            for k in first..=end {
-                let weight = kernel.weight((k as f64 - center) / filter_scale);
-                entries.push((k.clamp(0, last) as u32, weight as f32));
-                sum += weight;
-            }
-            if sum.abs() < 1e-12 {
-                entries.truncate(start);
-                entries.push(((center.round() as i64).clamp(0, last) as u32, 1.0));
-            } else {
-                let sum = sum as f32;
-                for entry in &mut entries[start..] {
-                    entry.1 /= sum;
-                }
-            }
-            offsets.push(entries.len());
-        }
-        Self { offsets, entries }
-    }
+            let position = (o as f64 + 0.5) * shrink - 0.5 + offset;
+            let base = position.floor();
+            let fraction = phase(position - base);
+            let reach = kernel.support() * shrink;
+            let first = (fraction - reach).ceil() as i64;
+            let end = (fraction + reach).floor() as i64;
+            let weights: Vec<(i64, f64)> = (first..=end).map(|k| (k, kernel.weight((k as f64 - fraction) / shrink))).collect();
+            let sum: f64 = weights.iter().map(|(_, w)| w).sum();
+            weights.into_iter().map(|(k, w)| (((base as i64 + k).clamp(0, last)) as usize, (w / sum * scale).trunc() as i64)).collect()
+        },
+        |sum| clip_byte((sum + (1i64 << (WEIGHT_BITS - 1))) >> WEIGHT_BITS),
+    )
+}
 
-    fn of(&self, out: usize) -> &[(u32, f32)] {
-        &self.entries[self.offsets[out]..self.offsets[out + 1]]
+/// Where libvips's affine reads for output sample `o` when it enlarges by 1 / `inverse`: the x positions are a running
+/// sum that starts at 1 (the rounding of the sum is part of what nearest picks), the y positions are products.
+fn enlarge_positions(len: usize, inverse: f64, axis: Axis) -> Vec<f64> {
+    match axis {
+        Axis::X => {
+            let mut running = 1.0f64;
+            (0..len)
+                .map(|_| {
+                    let at = running - 1.0;
+                    running += inverse;
+                    at
+                })
+                .collect()
+        }
+        Axis::Y => (0..len).map(|o| o as f64 * inverse).collect(),
     }
 }
 
-/// Resamples the x axis of RGBA floats: `h` rows of `w_in` pixels become rows of `out_w` pixels.
-fn pass_x(src: &[f32], w_in: usize, h: usize, out_w: usize, taps: &Taps) -> Vec<f32> {
-    let mut out = vec![0f32; out_w * h * 4];
-    for y in 0..h {
-        let row = &src[y * w_in * 4..(y + 1) * w_in * 4];
-        for ox in 0..out_w {
-            let mut acc = [0f32; 4];
-            for &(ix, weight) in taps.of(ox) {
-                let at = ix as usize * 4;
-                for c in 0..4 {
-                    acc[c] += weight * row[at + c];
-                }
-            }
-            let at = (y * out_w + ox) * 4;
-            out[at..at + 4].copy_from_slice(&acc);
-        }
-    }
-    out
+/// The enlarging pass of one axis for the nearest kernel.
+fn enlarge_nearest(src: &Plane, axis: Axis, out_len: usize, inverse: f64) -> Plane {
+    let last = src.len(axis) as i64 - 1;
+    let positions = enlarge_positions(out_len, inverse, axis);
+    map_axis(src, axis, out_len, |o| vec![(positions[o].floor().clamp(0.0, last as f64) as usize, 1)], |sum| sum as i32)
 }
 
-/// Resamples the y axis: `w` columns of `h_in` pixels become columns of `out_h` pixels.
-fn pass_y(src: &[f32], w: usize, out_h: usize, taps: &Taps) -> Vec<f32> {
-    let stride = w * 4;
-    let mut out = vec![0f32; stride * out_h];
-    for oy in 0..out_h {
-        let dst = &mut out[oy * stride..(oy + 1) * stride];
-        for &(iy, weight) in taps.of(oy) {
-            let row = &src[iy as usize * stride..(iy as usize + 1) * stride];
-            for (d, s) in dst.iter_mut().zip(row) {
-                *d += weight * s;
+/// The enlarging pass of one axis with libvips's bicubic (Catmull-Rom) interpolator; an intermediate may overshoot,
+/// the clip comes after the last pass.
+fn enlarge_cubic(src: &Plane, axis: Axis, out_len: usize, inverse: f64) -> Plane {
+    let last = src.len(axis) as i64 - 1;
+    let positions = enlarge_positions(out_len, inverse, axis);
+    let scale = (1i64 << WEIGHT_BITS) as f64;
+    map_axis(
+        src,
+        axis,
+        out_len,
+        |o| {
+            let position = positions[o] - 0.5;
+            let base = position.floor();
+            let fraction = phase(position - base);
+            (-1..=2i64).map(|t| (((base as i64 + t).clamp(0, last)) as usize, (Kernel::Cubic.weight(t as f64 - fraction) * scale).trunc() as i64)).collect()
+        },
+        |sum| ((sum + (1i64 << (WEIGHT_BITS - 1))) >> WEIGHT_BITS) as i32,
+    )
+}
+
+/// The enlarging pass with libvips's bilinear interpolator: both axes at once, the fractions in 12 bits, one rounding.
+fn enlarge_linear(src: &Plane, out_w: usize, out_h: usize, x_inverse: Option<f64>, y_inverse: Option<f64>) -> Plane {
+    let unit = 1i64 << WEIGHT_BITS;
+    let axis_taps = |len: usize, out: usize, inverse: Option<f64>, axis: Axis| -> Vec<(usize, usize, i64)> {
+        let last = len as i64 - 1;
+        match inverse {
+            None => (0..out).map(|o| (o.min(len - 1), o.min(len - 1), 0)).collect(),
+            Some(inverse) => enlarge_positions(out, inverse, axis)
+                .into_iter()
+                .map(|at| {
+                    let position = at - 0.5;
+                    let base = position.floor();
+                    let weight = ((position - base) * unit as f64 + 0.5).floor() as i64;
+                    ((base as i64).clamp(0, last) as usize, (base as i64 + 1).clamp(0, last) as usize, weight)
+                })
+                .collect(),
+        }
+    };
+    let xs = axis_taps(src.width, out_w, x_inverse, Axis::X);
+    let ys = axis_taps(src.height, out_h, y_inverse, Axis::Y);
+    let mut data = vec![0i32; out_w * out_h * 4];
+    for (oy, &(y0, y1, wy)) in ys.iter().enumerate() {
+        for (ox, &(x0, x1, wx)) in xs.iter().enumerate() {
+            for c in 0..4 {
+                let at = |y: usize, x: usize| i64::from(src.data[(y * src.width + x) * 4 + c]);
+                let sum = at(y0, x0) * (unit - wx) * (unit - wy) + at(y0, x1) * wx * (unit - wy) + at(y1, x0) * (unit - wx) * wy + at(y1, x1) * wx * wy;
+                data[(oy * out_w + ox) * 4 + c] = clip_byte((sum + (1i64 << (2 * WEIGHT_BITS - 1))) >> (2 * WEIGHT_BITS));
             }
         }
     }
-    out
+    Plane { width: out_w, height: out_h, data }
+}
+
+/// libvips's resize of one axis that shrinks: an integer box shrink while the rest stays at least 2, then the reduce.
+fn shrink_axis(src: &Plane, axis: Axis, out_len: usize, factor: f64, kernel: Kernel) -> Plane {
+    let whole = if kernel == Kernel::Nearest { 1 } else { ((factor / 2.0).floor() as usize).max(1) };
+    if whole > 1 {
+        let shrunk = shrink(src, axis, whole);
+        reduce(&shrunk, axis, out_len, factor / whole as f64, kernel)
+    } else {
+        reduce(src, axis, out_len, factor, kernel)
+    }
 }
 
 fn to_byte(value: f32) -> u8 {
     (value + 0.5).clamp(0.0, 255.0) as u8
 }
 
-/// The image resampled to exactly `width` x `height` (sharp's `fill`), colour premultiplied by alpha where there is one.
+/// The band count sharp hands back: a grey image comes out in sRGB with its colour bands.
+fn colour_channels(channels: u8) -> u8 {
+    match channels {
+        1 => 3,
+        2 => 4,
+        other => other,
+    }
+}
+
+/// The image resampled to `width` x `height` as libvips does for sharp: `x_factor` and `y_factor` are the input
+/// length over the length the scale stands for (not always the output length: `cover` and `inside` keep one
+/// factor on both axes and round the size). An axis with a factor above 1 is shrunk (vertical first, each pass kept
+/// in bytes), one below 1 is enlarged by the affine interpolator that goes with the kernel. Colour is premultiplied
+/// by alpha, cut to bytes, around the resampling when the image has alpha.
+fn resample(image: &Image, width: u32, height: u32, x_factor: f64, y_factor: f64, kernel: Kernel) -> Image {
+    let alpha = image.has_alpha();
+    let mut plane = Plane { width: image.width() as usize, height: image.height() as usize, data: Vec::with_capacity(image.rgba().len()) };
+    for pixel in image.rgba().chunks_exact(4) {
+        if alpha {
+            let factor = f32::from(pixel[3]) / 255.0;
+            plane.data.extend_from_slice(&[
+                (f32::from(pixel[0]) * factor) as i32,
+                (f32::from(pixel[1]) * factor) as i32,
+                (f32::from(pixel[2]) * factor) as i32,
+                i32::from(pixel[3]),
+            ]);
+        } else {
+            plane.data.extend(pixel.iter().map(|b| i32::from(*b)));
+        }
+    }
+    let (out_w, out_h) = (width as usize, height as usize);
+    if y_factor > 1.0 {
+        plane = shrink_axis(&plane, Axis::Y, out_h, y_factor, kernel);
+    }
+    if x_factor > 1.0 {
+        plane = shrink_axis(&plane, Axis::X, out_w, x_factor, kernel);
+    }
+    if x_factor < 1.0 || y_factor < 1.0 {
+        let x_inverse = (x_factor < 1.0).then_some(x_factor);
+        let y_inverse = (y_factor < 1.0).then_some(y_factor);
+        plane = match kernel {
+            Kernel::Linear => enlarge_linear(&plane, out_w, out_h, x_inverse, y_inverse),
+            Kernel::Nearest => {
+                if let Some(inverse) = x_inverse {
+                    plane = enlarge_nearest(&plane, Axis::X, out_w, inverse);
+                }
+                if let Some(inverse) = y_inverse {
+                    plane = enlarge_nearest(&plane, Axis::Y, out_h, inverse);
+                }
+                plane
+            }
+            _ => {
+                if let Some(inverse) = x_inverse {
+                    plane = enlarge_cubic(&plane, Axis::X, out_w, inverse);
+                }
+                if let Some(inverse) = y_inverse {
+                    plane = enlarge_cubic(&plane, Axis::Y, out_h, inverse);
+                }
+                plane
+            }
+        };
+    }
+    let mut data = Vec::with_capacity(plane.data.len());
+    for pixel in plane.data.chunks_exact(4) {
+        let alpha_value = pixel[3].clamp(0, 255);
+        if alpha {
+            // The premultiplied colour goes back to bytes first, then is divided by alpha and cut.
+            let gain = if alpha_value > 0 { 255.0f32 / alpha_value as f32 } else { 0.0 };
+            for c in &pixel[..3] {
+                data.push(((*c).clamp(0, 255) as f32 * gain).clamp(0.0, 255.0) as u8);
+            }
+            data.push(alpha_value as u8);
+        } else {
+            data.extend(pixel[..3].iter().map(|c| (*c).clamp(0, 255) as u8));
+            data.push(255);
+        }
+    }
+    Image::from_rgba(width, height, colour_channels(image.channels()), data)
+}
+
+/// The image resampled to exactly `width` x `height` (sharp's `fill`).
 pub fn resize_exact(image: &Image, width: u32, height: u32, kernel: Kernel) -> Image {
-    let (w_in, h_in) = (image.width() as usize, image.height() as usize);
     if (width, height) == (image.width(), image.height()) {
         return image.clone();
     }
-    let alpha = image.has_alpha();
-    let mut floats = Vec::with_capacity(image.rgba().len());
-    for pixel in image.rgba().chunks_exact(4) {
-        let a = f32::from(pixel[3]);
-        let k = if alpha { a / 255.0 } else { 1.0 };
-        floats.extend_from_slice(&[f32::from(pixel[0]) * k, f32::from(pixel[1]) * k, f32::from(pixel[2]) * k, a]);
-    }
-    let taps_x = Taps::new(image.width(), width, kernel);
-    let taps_y = Taps::new(image.height(), height, kernel);
-    let (out_w, out_h) = (width as usize, height as usize);
-    // Whichever axis shrinks the working buffer more goes first.
-    let resampled = if out_w * h_in <= w_in * out_h {
-        let wide = pass_x(&floats, w_in, h_in, out_w, &taps_x);
-        pass_y(&wide, out_w, out_h, &taps_y)
-    } else {
-        let tall = pass_y(&floats, w_in, out_h, &taps_y);
-        pass_x(&tall, w_in, out_h, out_w, &taps_x)
-    };
-    let mut data = Vec::with_capacity(out_w * out_h * 4);
-    for pixel in resampled.chunks_exact(4) {
-        if alpha {
-            if pixel[3] > 0.0 {
-                let gain = 255.0 / pixel[3];
-                data.extend_from_slice(&[to_byte(pixel[0] * gain), to_byte(pixel[1] * gain), to_byte(pixel[2] * gain), to_byte(pixel[3])]);
-            } else {
-                data.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        } else {
-            data.extend_from_slice(&[to_byte(pixel[0]), to_byte(pixel[1]), to_byte(pixel[2]), 255]);
-        }
-    }
-    Image::from_rgba(width, height, image.channels(), data)
+    resample(image, width, height, f64::from(image.width()) / f64::from(width), f64::from(image.height()) / f64::from(height), kernel)
 }
 
 /// `resize(width, height, options)`: with one side only the other follows the aspect ratio.
 pub fn resize(image: &Image, options: &ResizeOptions) -> Result<Image, RasterError> {
     let (iw, ih) = (image.width(), image.height());
-    let (w, h) = match (options.width, options.height) {
-        (None, None) => return Ok(image.clone()),
-        (Some(w), None) => (w, ((f64::from(ih) * f64::from(w) / f64::from(iw)).round() as u32).max(1)),
-        (None, Some(h)) => (((f64::from(iw) * f64::from(h) / f64::from(ih)).round() as u32).max(1), h),
-        (Some(w), Some(h)) => (w, h),
-    };
-    if w == 0 || h == 0 {
+    if options.width.is_none() && options.height.is_none() {
+        return Ok(image.clone());
+    }
+    if options.width == Some(0) || options.height == Some(0) {
         return Err(RasterError::new("Expected positive integer for width and height"));
     }
-    let kernel = options.kernel;
-    match options.fit {
-        Fit::Fill => Ok(resize_exact(image, w, h, kernel)),
-        Fit::Inside => {
-            let (rw, rh) = output_size(iw, ih, w, h, false);
-            Ok(resize_exact(image, rw, rh, kernel))
+    let rounded = |value: f64| (value.round() as u32).max(1);
+    // sharp's factors: the input over the requested size; a missing side takes the other side's factor.
+    let (w, h, mut x_factor, mut y_factor) = match (options.width, options.height) {
+        (Some(w), Some(h)) => (w, h, f64::from(iw) / f64::from(w), f64::from(ih) / f64::from(h)),
+        (Some(w), None) => {
+            let factor = f64::from(iw) / f64::from(w);
+            (w, rounded(f64::from(ih) / factor), factor, factor)
         }
-        Fit::Contain => {
-            let source = if options.background[3] < 255 { image.ensure_alpha() } else { image.clone() };
-            let (rw, rh) = output_size(iw, ih, w, h, false);
-            let resized = resize_exact(&source, rw, rh, kernel);
-            Ok(embed(&resized, w, h, options.position, options.background))
+        (None, Some(h)) => {
+            let factor = f64::from(ih) / f64::from(h);
+            (rounded(f64::from(iw) / factor), h, factor, factor)
+        }
+        (None, None) => return Ok(image.clone()),
+    };
+    let kernel = options.kernel;
+    let (mut rw, mut rh) = (w, h);
+    match options.fit {
+        Fit::Fill => {}
+        Fit::Inside | Fit::Contain => {
+            if x_factor > y_factor {
+                rh = rounded(f64::from(ih) / x_factor);
+                y_factor = x_factor;
+            } else {
+                rw = rounded(f64::from(iw) / y_factor);
+                x_factor = y_factor;
+            }
         }
         Fit::Outside | Fit::Cover => {
-            let (x_factor, y_factor) = (f64::from(iw) / f64::from(w), f64::from(ih) / f64::from(h));
-            let factor = x_factor.min(y_factor);
-            let mut rw = ((f64::from(iw) / factor).round() as u32).max(1);
-            let mut rh = ((f64::from(ih) / factor).round() as u32).max(1);
             if x_factor < y_factor {
-                rw = w;
+                rh = rounded(f64::from(ih) / x_factor);
+                y_factor = x_factor;
             } else {
-                rh = h;
+                rw = rounded(f64::from(iw) / y_factor);
+                x_factor = y_factor;
             }
-            let resized = resize_exact(image, rw, rh, kernel);
-            if options.fit == Fit::Outside {
-                return Ok(resized);
+        }
+    }
+    let source = if options.fit == Fit::Contain && options.background[3] < 255 { image.ensure_alpha() } else { image.clone() };
+    let resized = if x_factor == 1.0 && y_factor == 1.0 {
+        Image::from_rgba(source.width(), source.height(), colour_channels(source.channels()), source.rgba().to_vec())
+    } else {
+        resample(&source, rw, rh, x_factor, y_factor, kernel)
+    };
+    match options.fit {
+        Fit::Fill | Fit::Inside | Fit::Outside => Ok(resized),
+        Fit::Contain => {
+            // The canvas is laid while the picture still has its own bands: a grey picture takes the grey of the
+            // background colour; the colour bands come after.
+            let mut background = options.background;
+            if source.channels() <= 2 {
+                let grey = (0.2126 * f64::from(background[0]) + 0.7152 * f64::from(background[1]) + 0.0722 * f64::from(background[2])).round() as u8;
+                background = [grey, grey, grey, background[3]];
             }
+            let narrow = Image::from_rgba(resized.width(), resized.height(), source.channels(), resized.rgba().to_vec());
+            let placed = embed(&narrow, w, h, options.position, background);
+            Ok(Image::from_rgba(placed.width(), placed.height(), colour_channels(placed.channels()), placed.rgba().to_vec()))
+        }
+        Fit::Cover => {
             let (left, top) = match options.position {
                 Position::Entropy | Position::Attention => smartcrop::position(&resized, w, h, options.position),
                 gravity => {
@@ -485,9 +679,9 @@ pub fn greyscale(image: &Image) -> Image {
     for pixel in image.rgba().chunks_exact(4) {
         let y = 0.2126 * to_linear(pixel[0]) + 0.7152 * to_linear(pixel[1]) + 0.0722 * to_linear(pixel[2]);
         let grey = to_byte((from_linear(y) * 255.0) as f32);
-        data.extend_from_slice(&[grey, grey, grey, pixel[3]]);
+        data.extend_from_slice(&[grey, grey, grey, 255]);
     }
-    Image::from_rgba(image.width(), image.height(), if image.has_alpha() { 2 } else { 1 }, data)
+    Image::from_rgba(image.width(), image.height(), 1, data)
 }
 
 /// `linear(a, b)` on the colour bands: `a * value + b`, rounded and clipped to 0..255; alpha is untouched.
