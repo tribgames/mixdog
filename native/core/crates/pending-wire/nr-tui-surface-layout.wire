@@ -1,0 +1,31 @@
+# nr-tui-surface-layout: integration fragment
+
+Fills `mixdog_tui::surface` (panel epoch, owner and claims, Enter latch and index mode, layout signature, shell layout, panel
+transition, prompt rows). Nothing in it was compiled by its author (no cargo in the task); the lead compiles it with the wave.
+
+## native/core/Cargo.lock
+
+The `mixdog-tui` package gains one dependency edge: `mixdog-tui-widgets` (a workspace member, already in the lock). In the
+`[[package]] name = "mixdog-tui"` entry, add `"mixdog-tui-widgets",` to `dependencies` (keep the list sorted). No package is
+added to the lock. `mixdog-tui/Cargo.toml` already carries the edge (`mixdog-tui-widgets = { workspace = true }`, the
+workspace dependency exists).
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+No change: the crate takes no external dependency it did not have.
+
+## Protocol rows, SERVICE_PENDING, registrations
+
+None. The surface is application state of the terminal UI; it registers no protocol method.
+
+## Notes for the lead
+
+* Tests: `cargo test --offline -p mixdog-tui` runs `surface_epoch` (the cases of shell-layout.test.mjs, panel-epoch.test.mjs and
+  panel-handoff.test.mjs that need no picker factory) and `layout_twin` (golden `tests/goldens/layout.json`, 720 layouts, the
+  row functions, the signature grammar, 60 sequences of surface operations). The recorder check is
+  `node native/core/crates/mixdog-tui/tests/recorders/record-layout.mjs --tree C:/Project/mixdog --check native/core/crates/mixdog-tui/tests/goldens/layout.json`
+  (passed when the golden was written).
+* Two helpers of the Node app live in `surface::layout` because the row budgets need them and their own tasks run in the same
+  wave: `is_live_spinner_meta_visible` (live-spinner-visibility.mjs) and `btw_panel_rows` (btw-controller.mjs `btwPanelRows`).
+  The tasks that port those files (nr-tui-widgets-status for the spinner, nr-tui-widgets-panels for the `/btw` panel) should call
+  these instead of writing a second copy.
