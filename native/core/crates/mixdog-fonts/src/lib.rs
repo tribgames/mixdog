@@ -13,6 +13,7 @@
 //!   one face per character from the family list.
 //! * [`shape`] shapes a run with rustybuzz (HarfBuzz's default features).
 //! * [`measure`] answers `measureText`.
+//! * [`install`] downloads the Noto faces into the user font folder and registers them with the OS (`prepareOfficeFonts`).
 //! * [`provision`] finds the provisioned Noto faces and the Office-for-Mac faces and registers them in Node's order.
 //!
 //! File reads take a lane proof (`mixdog_fsio::ReadProof`): they run in a lane job. A [`registry::Registry`] is built,
@@ -21,6 +22,7 @@
 pub mod css_font;
 pub mod discovery;
 pub mod face;
+pub mod install;
 pub mod matching;
 pub mod measure;
 pub mod provision;
