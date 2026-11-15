@@ -548,11 +548,6 @@ fn animations_of(slide: &Com) -> Vec<Value> {
     animations
 }
 
-/// `[string]::Equals(a, b, OrdinalIgnoreCase)`.
-fn equals_ordinal_ignore_case(left: &str, right: &str) -> bool {
-    left.chars().flat_map(char::to_uppercase).eq(right.chars().flat_map(char::to_uppercase))
-}
-
 /// The one-based index of the layout of the master named like the slide's, 0 where there is none.
 fn layout_index_of(presentation: &Com, layout_name: &str) -> i32 {
     let mut layout_index = 0;
@@ -561,7 +556,8 @@ fn layout_index_of(presentation: &Com, layout_name: &str) -> i32 {
         let mut candidate = 1;
         while candidate <= count_of(&layouts()?)? {
             let name = string_of(&item_of(&layouts()?, to_index(candidate))?.member("Name")?);
-            if equals_ordinal_ignore_case(&name, layout_name) {
+            // `[string]::Equals(a, b, OrdinalIgnoreCase)`.
+            if payload::names_equal(&name, layout_name) {
                 layout_index = to_index(candidate);
                 break;
             }
