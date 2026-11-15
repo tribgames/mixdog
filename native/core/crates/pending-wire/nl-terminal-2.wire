@@ -28,7 +28,7 @@ Add at module level in compose_flip.rs (mixdog-app-server gets no dependency on 
 ## mixdog-app-server/src/outgoing.rs (inherent `impl Outgoing`, next to `desktop_attached_on`)
 
     /// The connections live on the app feed, each with whether it is a paired phone (origin relay) and whether it is
-    /// a desktop window (`is_desktop_on`).
+    /// a desktop window (a non-relay desktop view, not the desktop host connection).
     pub fn app_feed_audience(&self) -> Vec<(ConnectionId, bool, bool)> {
         let app = FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID);
         self.all_connections()
@@ -36,7 +36,9 @@ Add at module level in compose_flip.rs (mixdog-app-server gets no dependency on 
             .filter(|conn| conn.is_live_on(&app))
             .filter_map(|conn| {
                 let session = conn.session()?;
-                Some((conn.id, session.origin == mixdog_protocol::Origin::Relay, conn.is_desktop_on(&app)))
+                let relay = session.origin == mixdog_protocol::Origin::Relay;
+                let window = session.view && session.client.kind == mixdog_protocol::ConnectionKind::Desktop && !relay;
+                Some((conn.id, relay, window))
             })
             .collect()
     }
@@ -51,8 +53,69 @@ A paired phone does not claim an agent terminal reveal (it is shown on a desktop
     if spec.method == "ui/terminalRun/claimed" && conn.session().is_some_and(|session| session.origin == Origin::Relay) {
         return Inbound::Continue;
     }
-Test to add in mixdog-app-server tests (it fails without the line): a relay connection sends `ui/terminalRun/claimed { requestId }`
-with a domain registered for it, the domain's `notify` is never called; the same notification from a local connection reaches it.
+Regression code to append to mixdog-app-server/src/tests/two_windows.rs, which already
+has rig(), subscribe_app(), Arc, ConnectionId, Method, CoreError, Reply and json imports.
+These exercise real initialized Connection/session/subscription state. Do not change
+Connection::is_desktop_on: it intentionally means the main host, !session.view.
+
+    #[tokio::test(start_paused = true)]
+    async fn terminal_reveal_counts_renderer_windows_not_the_main_desktop_host() {
+        let (rig, _) = rig();
+        let host = rig.ready(1, json!({}));
+        let window = rig.ready(2, json!({}));
+        subscribe_app(&window).await;
+        assert_eq!(rig.outgoing.app_feed_audience(), vec![(ConnectionId(2), false, true)]);
+        assert!(!rig.outgoing.desktop_attached(), "existing host semantics stay unchanged");
+        subscribe_app(&host).await;
+        let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
+        phone.request(0, "initialize", json!({
+            "clientInfo": {"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+            "capabilities":{}
+        }));
+        phone.response(0).await;
+        subscribe_app(&phone).await;
+        let mut audience = rig.outgoing.app_feed_audience();
+        audience.sort_by_key(|entry| entry.0.0);
+        assert_eq!(audience, vec![(ConnectionId(1), false, false), (ConnectionId(2), false, true), (ConnectionId(4), true, false)]);
+        drop(window);
+        assert!(rig.outgoing.desktop_attached());
+        assert!(rig.outgoing.app_feed_audience().iter().all(|entry| !entry.2), "host and phone cannot show a pane");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_phone_cannot_claim_a_terminal_reveal_but_a_local_window_can() {
+        struct Claims(std::sync::Mutex<Vec<ConnectionId>>);
+        #[async_trait::async_trait]
+        impl mixdog_core_api::DomainService for Claims {
+            fn methods(&self) -> &'static [&'static str] { &["ui/terminalRun/claimed"] }
+            async fn call(&self, _: mixdog_core_api::CoreRequest) -> Result<Reply, CoreError> { unreachable!() }
+            fn notify(&self, _: Method, _: serde_json::Value, from: ConnectionId) -> mixdog_core_api::service::Admit {
+                self.0.lock().unwrap().push(from);
+                mixdog_core_api::service::Admit::Accepted
+            }
+        }
+        let (rig, _) = rig();
+        let claims = Arc::new(Claims(std::sync::Mutex::new(Vec::new())));
+        rig.core.serve(claims.clone());
+        let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
+        phone.request(0, "initialize", json!({
+            "clientInfo":{"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+            "capabilities":{}
+        }));
+        phone.response(0).await;
+        let window = rig.ready(2, json!({}));
+        let notification = json!({"method":"ui/terminalRun/claimed","params":{"requestId":"run-1"}});
+        phone.send(notification.clone());
+        assert!(claims.0.lock().unwrap().is_empty());
+        window.send(notification);
+        assert_eq!(*claims.0.lock().unwrap(), vec![ConnectionId(2)]);
+    }
+
+Current renderer consumers accept direct ui/openRequested notifications without a feed stamp.
+The phone receives no requestId and therefore performs no claim or request-id dedupe; update its
+old app-feed-redelivery comment when that renderer file is next owned. The nl-terminal-1 phone
+initialize/subscription handshake and disconnected size-claim protections must be retained.
+No tests/builds/live terminals were run in this review/correction.
 
 ## compose_flip.rs SERVICE_PENDING
 Nothing to remove: `ui/terminalRun/claimed` is already served by PendingWaits.
