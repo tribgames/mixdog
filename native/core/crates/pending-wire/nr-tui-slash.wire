@@ -1,0 +1,44 @@
+# nr-tui-slash: integration fragment
+
+Fills `native/core/crates/mixdog-tui/src/slash.rs` and `src/slash/` (slash registry and palette, `$skill` mentions, argument
+parsers, prompt submit routing, slash dispatch, Tab workflow cycle, setup open request). Nothing in it was compiled by its
+author (no cargo in the task); the lead compiles it with the wave.
+
+## Hot files
+
+None. The crate is already a workspace member and takes no new dependency edge: the code uses `mixdog-js`, `mixdog-term`
+(`paste`), `mixdog-view-model` (`display::skill_mentions`, `errors::err_text`), `mixdog-tui-style` (`time_format`),
+`serde_json`, all in the crate's `Cargo.toml` already. No protocol row, no `SERVICE_PENDING` name.
+
+## What the wiring (nr-tui-app-run) must apply
+
+* Implement `mixdog_tui::slash::host::SlashHost` (a supertrait over `app::AppCtx`) on the object that owns the application
+  state. Every method is one thing the Node code reached through `deps`, a React setter or a ref; each has a doc line naming
+  the Node symbol. The store calls are `AppCtx::store_call(action, args)` with `args` the JSON array of the positional
+  arguments; `Ok(Value::Null)` stands for `undefined` (also for a method the store lacks that Node called with `?.`), `Err`
+  for a rejection; `has_store_method` is `typeof store[name] === 'function'`.
+* Picker openers are `host::Opener` names; the pickers of wave 6 plug in by that name in `SlashHost::open`.
+  `open_with_return` is the auto-clear picker opened from its provider prompt, `returnTo` taken from the prompt.
+* Surface and epoch semantics the dispatch relies on (from `panel-surface.mjs` and `panel-epoch.mjs`):
+  `clear_context_panel` is `surface.claim().context(null)` and supersedes the panel epoch; `close_surface` closes only a
+  surface the claim still owns and a close of a picker supersedes the epoch; `paint_loading_frame` is the
+  `slash-loading:<command>` frame of `slash-panel.mjs`; `paint_stop_confirm` paints the `/stop` picker (items
+  `STOP_CANCEL` and `STOP_CONFIRM`, the commands as its footer) and its selection calls `slash::stop_prompt_select`, its Esc
+  `slash::stop_prompt_cancel`.
+* The write tokens (`write_token`, `set_write_token`) are module-global state in Node (`writeTokens`): keep them for the life
+  of the application, not per render.
+* `SubmitOptions::on_committed` is the `onCommitted` callback of `submitPrompt`: when the session service has durably taken
+  the prompt, clear the pasted images and texts named in it.
+* Key handling: Tab at the prompt calls `slash::workflow_cycle::workflow_tab_cycle` with a `CycleGuard` kept for the life of
+  the prompt; a published setup `open` request goes to `slash::ui_open::UiOpenGate::run` (one gate per application);
+  the draft's palette is `slash::palette::derive_slash_palette` and its skill list `fetch_mention_skills`.
+* Ctx not owned by this task: the `/btw` controller (`btw-controller.mjs`) behind `SlashHost::btw_ask`, the pickers, the
+  panel-surface and panel-epoch state machines (nr-tui-surface-layout).
+
+## Notes for the lead
+
+* The Node registry has 30 commands (the plan text says 31); the golden records all of them.
+* `tests/goldens/slash.json` is checked by `node tests/recorders/record-slash.mjs --tree <checkout> --check
+  tests/goldens/slash.json`. It was recorded on `D:/mixdog-build/mig/ref/node` (the copy of the Node tree at the same commit),
+  with inert stand-ins for the packages that tree has no `node_modules` for (react, string-width, strip-ansi, marked, chalk,
+  wrap-ansi: rendering the slash code never reaches).
