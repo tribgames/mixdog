@@ -31,8 +31,13 @@ pub const DEFAULT_WEBP_QUALITY: u8 = 80;
 /// sharp's default PNG compression level.
 const PNG_COMPRESSION_LEVEL: u8 = 6;
 
-/// The speed of the GIF palette search (the `gif` crate's own default): 1 is best and slowest, 30 fastest.
+/// The palette search's speed argument. It is never consulted: a picture is brought down to 256 colours by
+/// [`quantize_to_palette`] before the encoder sees it, and the encoder writes a picture of at most 256 colours with
+/// its exact palette.
 const GIF_SPEED: i32 = 10;
+
+/// A GIF palette has 256 entries.
+const GIF_PALETTE_SIZE: usize = 256;
 
 fn encoding_failure(error: &ImageError) -> ImagingError {
     ImagingError::environment(format!("the image could not be encoded: {error}"))
@@ -68,11 +73,94 @@ fn encode_png(raster: &Raster) -> Result<Vec<u8>, ImagingError> {
     Ok(out)
 }
 
+/// Brings the opaque pixels of `rgba` down to the colours of a palette that leaves room for a transparent entry when
+/// there is a transparent pixel (the encoder reads alpha 0 as the transparent colour and every other alpha as opaque).
+/// A picture with colours to spare is untouched. The palette is median cut over the colours the picture has, each
+/// weighed by how many pixels carry it, and every colour is then moved to the nearest palette entry.
+fn quantize_to_palette(rgba: &mut [u8]) {
+    // Every transparent pixel is one colour: the encoder counts the colour under alpha 0 as an entry of its own.
+    for pixel in rgba.chunks_exact_mut(4).filter(|pixel| pixel[3] == 0) {
+        pixel[..3].fill(0);
+    }
+    let transparent = rgba.chunks_exact(4).any(|pixel| pixel[3] == 0);
+    let budget = GIF_PALETTE_SIZE - usize::from(transparent);
+    let mut keys: Vec<u32> = rgba
+        .chunks_exact(4)
+        .filter(|pixel| pixel[3] != 0)
+        .map(|pixel| u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]))
+        .collect();
+    keys.sort_unstable();
+    let mut colours: Vec<(u32, u64)> = Vec::new();
+    for key in keys {
+        match colours.last_mut() {
+            Some((last, count)) if *last == key => *count += 1,
+            _ => colours.push((key, 1)),
+        }
+    }
+    if colours.len() <= budget {
+        return;
+    }
+    let channel = |key: u32, shift: u32| ((key >> shift) & 0xFF) as u8;
+    let range_of = |boxed: &[(u32, u64)]| -> (u8, u32) {
+        let mut best = (0u8, 0u32);
+        for shift in [16u32, 8, 0] {
+            let low = boxed.iter().map(|&(key, _)| channel(key, shift)).min().unwrap_or(0);
+            let high = boxed.iter().map(|&(key, _)| channel(key, shift)).max().unwrap_or(0);
+            if u32::from(high - low) > u32::from(best.0) {
+                best = (high - low, shift);
+            }
+        }
+        best
+    };
+    // Each box carries its widest channel range, worked out once when the box is made.
+    let mut boxes: Vec<(Vec<(u32, u64)>, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
+    while boxes.len() < budget {
+        let split = boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
+        let Some((at, (_, shift))) = split else { break };
+        let (mut boxed, _) = boxes.swap_remove(at);
+        boxed.sort_unstable_by_key(|&(key, _)| channel(key, shift));
+        let total: u64 = boxed.iter().map(|&(_, count)| count).sum();
+        let mut seen = 0;
+        let mut cut = 1;
+        for (index, &(_, count)) in boxed.iter().enumerate() {
+            seen += count;
+            if seen * 2 >= total {
+                cut = (index + 1).clamp(1, boxed.len() - 1);
+                break;
+            }
+        }
+        let upper = boxed.split_off(cut);
+        let (lower_range, upper_range) = (range_of(&boxed), range_of(&upper));
+        boxes.push((boxed, lower_range));
+        boxes.push((upper, upper_range));
+    }
+    let palette: Vec<[i32; 3]> = boxes
+        .iter()
+        .map(|(boxed, _)| {
+            let total: u64 = boxed.iter().map(|&(_, count)| count).sum();
+            let mean = |shift: u32| ((boxed.iter().map(|&(key, count)| u64::from(channel(key, shift)) * count).sum::<u64>() + total / 2) / total) as i32;
+            [mean(16), mean(8), mean(0)]
+        })
+        .collect();
+    let nearest = |key: u32| -> [u8; 3] {
+        let (r, g, b) = (i32::from(channel(key, 16)), i32::from(channel(key, 8)), i32::from(channel(key, 0)));
+        let best = palette.iter().min_by_key(|entry| (entry[0] - r).pow(2) + (entry[1] - g).pow(2) + (entry[2] - b).pow(2)).copied().unwrap_or([0; 3]);
+        [best[0] as u8, best[1] as u8, best[2] as u8]
+    };
+    let mapped: std::collections::HashMap<u32, [u8; 3]> = colours.iter().map(|&(key, _)| (key, nearest(key))).collect();
+    for pixel in rgba.chunks_exact_mut(4).filter(|pixel| pixel[3] != 0) {
+        let key = u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]);
+        pixel[..3].copy_from_slice(&mapped[&key]);
+    }
+}
+
 fn encode_gif(raster: &Raster) -> Result<Vec<u8>, ImagingError> {
     let mut out = Vec::new();
     {
+        let mut rgba = raster.to_rgba();
+        quantize_to_palette(&mut rgba);
         let mut encoder = GifEncoder::new_with_speed(&mut out, GIF_SPEED);
-        encoder.encode(&raster.to_rgba(), raster.width, raster.height, ExtendedColorType::Rgba8).map_err(|error| encoding_failure(&error))?;
+        encoder.encode(&rgba, raster.width, raster.height, ExtendedColorType::Rgba8).map_err(|error| encoding_failure(&error))?;
     }
     Ok(out)
 }
@@ -153,6 +241,22 @@ mod tests {
         let rgba = raster.to_rgba();
         let worst = back.raster.to_rgba().iter().zip(&rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
         assert!(worst <= 40, "the palette is off by {worst}");
+    }
+
+    #[test]
+    fn a_picture_of_few_colours_keeps_them_and_one_of_many_is_cut_to_a_palette() {
+        let mut few = gradient(8, 8, false).to_rgba();
+        let before = few.clone();
+        quantize_to_palette(&mut few);
+        assert_eq!(few, before);
+        let mut many = gradient(64, 64, true).to_rgba();
+        for (n, pixel) in many.chunks_exact_mut(4).enumerate() {
+            pixel[3] = if n % 7 == 0 { 0 } else { 255 };
+        }
+        quantize_to_palette(&mut many);
+        let colours: std::collections::HashSet<[u8; 4]> = many.chunks_exact(4).map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]]).collect();
+        assert!(colours.len() <= 256, "{} colours", colours.len());
+        assert!(colours.contains(&[0, 0, 0, 0]));
     }
 
     #[test]

@@ -3,6 +3,10 @@
 //! there is an alpha channel. The output size is libvips's rule: one scale for both axes (the larger of the two
 //! ratios, so the picture fits inside the box), each side the rounded quotient, and never an enlargement when the
 //! caller says so and the picture already fits.
+//!
+//! An axis that grows is not resampled with Lanczos3: libvips enlarges through the interpolator it infers from the
+//! kernel, bicubic (Catmull-Rom) for Lanczos3, whose four taps ring far less at a hard edge than Lanczos3's six (which
+//! is what keeps a flat-coloured picture small once it is written as a JPEG).
 
 use crate::decode::Raster;
 
@@ -30,6 +34,18 @@ fn lanczos3(x: f64) -> f64 {
     3.0 * pix.sin() * (pix / 3.0).sin() / (pix * pix)
 }
 
+/// The cubic of Catmull and Rom (the bicubic of libvips: Keys with a of minus one half).
+fn catmull_rom(x: f64) -> f64 {
+    let x = x.abs();
+    if x < 1.0 {
+        1.0 + x * x * (1.5 * x - 2.5)
+    } else if x < 2.0 {
+        2.0 + x * (-4.0 + x * (2.5 - 0.5 * x))
+    } else {
+        0.0
+    }
+}
+
 /// For each output sample, the input samples it reads and their normalised weights; an index past an edge is the edge
 /// sample.
 struct Taps {
@@ -40,12 +56,23 @@ struct Taps {
 impl Taps {
     fn new(in_len: u32, out_len: u32) -> Self {
         let scale = f64::from(in_len) / f64::from(out_len);
-        let filter_scale = scale.max(1.0);
-        let support = 3.0 * filter_scale;
         let last = i64::from(in_len) - 1;
         let mut offsets = Vec::with_capacity(out_len as usize + 1);
         let mut entries = Vec::new();
         offsets.push(0);
+        if scale < 1.0 {
+            for out in 0..out_len {
+                let center = (f64::from(out) + 0.5) * scale - 0.5;
+                let base = center.floor();
+                for k in (base as i64 - 1)..=(base as i64 + 2) {
+                    entries.push((k.clamp(0, last) as u32, catmull_rom(k as f64 - center) as f32));
+                }
+                offsets.push(entries.len());
+            }
+            return Self { offsets, entries };
+        }
+        let filter_scale = scale.max(1.0);
+        let support = 3.0 * filter_scale;
         for out in 0..out_len {
             let center = (f64::from(out) + 0.5) * scale - 0.5;
             let first = (center - support).ceil() as i64;
