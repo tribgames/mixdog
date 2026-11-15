@@ -53,8 +53,8 @@ static GREP_LINE: LazyLock<JsRegex> =
 static URL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"https?://[^\s"'<>\x1b\\)\]]+"#, "g"));
 
 /// The cap of physical rows one expanded body mounts, from `MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES` (0 disables) and,
-/// when that is unset or blank, the older `MIXDOG_TUI_EXPANDED_MAX_ROWS`; 600 when neither is a usable number.
-pub fn resolve_max_render_lines(primary: Option<&str>, legacy: Option<&str>) -> usize {
+/// when that is unset or blank, `MIXDOG_TUI_EXPANDED_MAX_ROWS`; 600 when neither is a usable number.
+pub fn resolve_max_render_lines(primary: Option<&str>, fallback: Option<&str>) -> usize {
     let positive = |raw: &str| {
         let value = string_to_number(raw);
         (value.is_finite() && value > 0.0).then(|| value.floor() as usize)
@@ -68,7 +68,7 @@ pub fn resolve_max_render_lines(primary: Option<&str>, legacy: Option<&str>) -> 
             return rows;
         }
     }
-    legacy.filter(|raw| !js_trim(raw).is_empty()).and_then(positive).unwrap_or(DEFAULT_MAX_RENDER_LINES)
+    fallback.filter(|raw| !js_trim(raw).is_empty()).and_then(positive).unwrap_or(DEFAULT_MAX_RENDER_LINES)
 }
 
 /// [`resolve_max_render_lines`] of this process's environment.

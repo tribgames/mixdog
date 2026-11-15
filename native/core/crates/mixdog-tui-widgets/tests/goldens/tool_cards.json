@@ -9316,7 +9316,7 @@
    ]
   },
   {
-   "id": "wrap-legacy-cap",
+   "id": "wrap-fallback-cap",
    "kind": "fn",
    "result": [
     "a",
@@ -9324,7 +9324,7 @@
    ]
   },
   {
-   "id": "wrap-legacy-ignored",
+   "id": "wrap-fallback-ignored",
    "kind": "fn",
    "result": [
     "a",
