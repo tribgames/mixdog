@@ -442,7 +442,6 @@ export function createPowerShellComputerHost(
       if (options.foregroundLease) await foregroundLock?.dispose();
       else if (foregroundLock) await disposeProcessForegroundLock();
       computerUseCoordinator.reset();
-      workerPool.removeHostScript();
     },
   };
 }

@@ -4,6 +4,7 @@
 mod cursor;
 mod elevated;
 pub use elevated::worker as elevated_worker;
+pub use elevated::input as elevated_input;
 mod frame;
 mod frame_quality;
 mod input;
