@@ -3,20 +3,26 @@
 //! with a `JBIG2Globals` stream decoded first. The page has the size of the PDF image; the output is that image with
 //! 0 = black, `(width + 7) / 8` bytes per row.
 //!
-//! This module reads the segments and carries out the page information, generic region, generic refinement region and
-//! the end-of-page, end-of-file and end-of-stripe segments. A segment that is not understood is skipped; one the decoder
-//! reads but this module does not carry out yet (symbol dictionary, text, pattern dictionary, halftone and table
-//! segments) fails the whole stream, which the caller sees as [`CodecError::Unknown`].
+//! This module reads the segments and carries them out: the page information, symbol dictionary, text region, pattern
+//! dictionary, halftone region, generic region, generic refinement region and table segments and the end-of-page,
+//! end-of-file and end-of-stripe segments. A segment that is not understood is skipped; a segment that fails fails the
+//! whole stream, which the caller sees as [`CodecError::Unknown`].
 
 pub mod generic;
+pub mod halftone;
+pub mod huffman;
 pub mod image;
 pub mod page;
 pub mod refine;
+pub mod symbols;
+pub mod text;
 
 use self::generic::GenericRegion;
+use self::huffman::HuffmanTable;
 use self::image::{ComposeOp, Image};
 use self::page::{Page, PageInfo};
 use self::refine::RefinementRegion;
+use self::symbols::SymbolDict;
 use super::CodecError;
 use super::arith::{ArithCx, ArithDecoder};
 
@@ -166,6 +172,12 @@ pub enum SegmentResult {
     None,
     /// An intermediate region (types 4, 20, 36, 40).
     Image(Image),
+    /// A symbol dictionary (type 0).
+    Symbols(SymbolDict),
+    /// A pattern dictionary (type 16): its patterns.
+    Patterns(Vec<Image>),
+    /// A custom Huffman table (type 53).
+    Table(HuffmanTable),
 }
 
 /// A segment's header and what decoding it produced (`CJBig2_Segment`).
@@ -311,9 +323,21 @@ impl<'a> Context<'a> {
         page: Option<&mut Page>,
     ) -> Result<Flow, Failure> {
         match segment.kind {
-            // The segments of symbols, text, patterns, halftones and tables: carried out by the symbol-dictionary
-            // modules, so a stream that has one cannot be decoded here.
-            0 | 4 | 6 | 7 | 16 | 20 | 22 | 23 | 53 => Err(Failure),
+            0 => self.parse_symbol_dict(segment, globals),
+            4 | 6 | 7 => {
+                if !self.in_page {
+                    return Err(Failure);
+                }
+                self.parse_text_region(segment, globals, page)
+            }
+            16 => self.parse_pattern_dict(segment),
+            20 | 22 | 23 => {
+                if !self.in_page {
+                    return Err(Failure);
+                }
+                self.parse_halftone_region(segment, globals, page)
+            }
+            53 => self.parse_table(segment),
             36 | 38 | 39 => {
                 if !self.in_page {
                     return Err(Failure);
@@ -367,6 +391,23 @@ impl<'a> Context<'a> {
             y,
             flags,
         })
+    }
+
+    /// What a decoded region becomes: the result of an intermediate segment (type `intermediate`), or composed onto the
+    /// page.
+    fn finish_region(
+        segment: &mut Segment,
+        image: Image,
+        info: &RegionInfo,
+        page: Option<&mut Page>,
+        intermediate: u8,
+    ) {
+        if segment.kind == intermediate {
+            segment.result = SegmentResult::Image(image);
+        } else if let Some(page) = page {
+            let rows = image.height();
+            page.compose(&image, info.x, info.y, ComposeOp::from_flags(info.flags), 0..rows);
+        }
     }
 
     /// `ParseGenericRegion` (T.88 7.4.6): types 36 (intermediate), 38 and 39 (immediate).
@@ -464,7 +505,7 @@ impl<'a> Context<'a> {
             }
             match &found.ok_or(Failure)?.result {
                 SegmentResult::Image(image) => image,
-                SegmentResult::None => return Err(Failure),
+                _ => return Err(Failure),
             }
         };
         let region = RefinementRegion {
@@ -619,10 +660,16 @@ mod tests {
     }
 
     #[test]
-    fn symbol_dictionaries_are_not_decoded_here() {
+    fn a_malformed_dictionary_or_region_fails_the_stream() {
         let mut stream = page_info(0);
         stream.extend(segment(2, 0, &[0; 4]));
         assert_eq!(decode(&stream, 8, 2, None), Err(CodecError::Unknown));
+        // a text region before the page information
+        assert_eq!(decode(&segment(2, 6, &[0; 30]), 8, 2, None), Err(CodecError::Unknown));
+        // a halftone region that refers to nothing
+        let mut halftone = page_info(0);
+        halftone.extend(segment(2, 22, &[0; 30]));
+        assert_eq!(decode(&halftone, 8, 2, None), Err(CodecError::Unknown));
     }
 
     #[test]
