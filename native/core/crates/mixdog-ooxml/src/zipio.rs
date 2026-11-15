@@ -327,11 +327,11 @@ impl Package {
 fn as_written_for_dos(bytes: &mut [u8]) {
     let read16 = |bytes: &[u8], at: usize| usize::from(u16::from_le_bytes([bytes[at], bytes[at + 1]]));
     let read32 = |bytes: &[u8], at: usize| u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
-    let Some(end) = (0..bytes.len().saturating_sub(21)).rev().find(|at| bytes[*at..*at + 4] == *b"PK") else { return };
+    let Some(end) = (0..bytes.len().saturating_sub(21)).rev().find(|at| bytes[*at..*at + 4] == *b"PK\x05\x06") else { return };
     let count = read16(bytes, end + 10);
     let mut at = read32(bytes, end + 16);
     for _ in 0..count {
-        if at + 46 > bytes.len() || bytes[at..at + 4] != *b"PK" {
+        if at + 46 > bytes.len() || bytes[at..at + 4] != *b"PK\x01\x02" {
             return;
         }
         let (name_length, extra_length, comment_length) = (read16(bytes, at + 28), read16(bytes, at + 30), read16(bytes, at + 32));
@@ -340,7 +340,7 @@ fn as_written_for_dos(bytes: &mut [u8]) {
         bytes[at + 6..at + 8].copy_from_slice(&10_u16.to_le_bytes());
         bytes[at + 38..at + 42].copy_from_slice(&(if folder { 0x10_u32 } else { 0 }).to_le_bytes());
         let local = read32(bytes, at + 42);
-        if local + 6 <= bytes.len() && bytes[local..local + 4] == *b"PK" {
+        if local + 6 <= bytes.len() && bytes[local..local + 4] == *b"PK\x03\x04" {
             bytes[local + 4..local + 6].copy_from_slice(&10_u16.to_le_bytes());
         }
         at += 46 + name_length + extra_length + comment_length;
