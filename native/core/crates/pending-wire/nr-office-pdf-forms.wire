@@ -1,0 +1,58 @@
+# nr-office-pdf-forms: what the lead applies (all of it is in files this task does not own)
+
+Not compiled: cargo was not run (the lead compiles the wave). The recording was produced by running Node (pdf-forms.mjs over
+pdf-lib) once; the Rust code in native/core/crates/mixdog-office-pdf/src/forms/ and tests/twin_forms.rs has not been built.
+
+## 1. native/core/crates/mixdog-office-pdf/src/lib.rs
+
+After `pub mod document;` add:
+
+    pub mod forms;
+
+(The forms API is reached as `mixdog_office_pdf::forms::{PdfForm, FormFont, FormError, FormResult, Field, FieldKind, Widget,
+WidgetBox, add_form_field, field_text, fill_form_values, clipped_form_values, lint_pdf_form_fields, minimum_field_size,
+rectangles_overlap, describe_form_field, field_widgets}`; tests/twin_forms.rs uses exactly that path.)
+
+## 2. native/core/Cargo.toml, Cargo.lock, mixdog-workspace-hack
+
+Nothing: the module uses mixdog-js, mixdog-pdf and serde_json, all already dependencies of mixdog-office-pdf; the test uses
+base64, mixdog-office-base (test-support), mixdog-pdf and mixdog-testkit, already dependencies or dev-dependencies of it.
+No new crate and no new workspace dependency edge.
+
+## 3. native/core/fixtures/MANIFEST.json
+
+Index the new set `office-forms` (recorder benchmarks/rust-core/recorders/record-office-forms.mjs, 1 file, golden.json; the set's
+own MANIFEST.json is written at native/core/fixtures/office-forms/MANIFEST.json) with the manifest tool that built the other
+entries: `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index`.
+
+## 4. SERVICE_PENDING (compose_flip.rs)
+
+Nothing: this task registers no protocol method.
+
+## 5. Interfaces the consumers (adapter, writer, content ops) use
+
+* `PdfForm` is pdf-lib's `PDFForm` object: the dirty-field set and the default font live in it. One is kept beside each
+  `PdfDocument` that is edited (`document.getForm()` is one cached object). `PdfForm::new()`.
+* `FormFont { font: mixdog_pdf::embed::Font, reference: Ref }` is pdf-lib's `PDFFont`. The reference is allocated by the caller
+  (`store.next_ref()`); the caller writes the font to it before `save` with `Font::embed_into(store, Some(reference), rng)`, as
+  pdf-lib embeds fonts when it saves. `PdfForm::default_font(doc)` makes Helvetica and writes it at once.
+* `add_form_field(&mut form, &mut doc, &field_json, Some(&font))`, then `form.update_field_appearances(&mut doc, Some(&font))`
+  (the writer calls it once after all fields; `add_form_field` op calls it after one).
+* `lint_pdf_form_fields(&mut fields, &pages)` takes the fields mutably: it adopts `rect`/`box`/`kind` into
+  `x`/`y`/`width`/`height`/`type` in place, as the Node function does, and the writer draws the adopted fields afterwards.
+* `form.describe_fields(&mut doc)` is `getForm().getFields().map(describeFormField)`; `fill_form_values(&mut form, &mut doc,
+  &values)` then `form.update_field_appearances(...)` then `clipped_form_values(&form, &mut doc, &values, Some(&font.font))`
+  is the `fill_form` operation. `flattenForm` and `form.flatten()` are nr-office-pdf-content-ops.
+* The page writer's own normalisation of a page leaf (empty Resources/Font/XObject/ExtGState and the `q`/`Q` wrap of its content
+  streams, which pdf-lib does the first time a page's `node` is edited) is not done here: adding a widget appends to the page's
+  `Annots` only.
+
+## 6. Known limits (none is a refusal that Node does not have)
+
+* A widget written as an inline dictionary inside its parent's `Kids` (not an indirect object) is read and described but its
+  appearance is not rewritten.
+* The twin test compares the content of appearance streams token by token (numbers within 1e-9), not a rendered page; the
+  recording uses Helvetica only (no embedded Unicode face, which needs a system font), so the embedded-face layout is covered by
+  the embedder's own twin, not here.
+* Rotated widgets (`MK /R` 90/180/270) draw with the platform's sin/cos where V8 uses its own: the last digit of a rotation
+  matrix can differ.
