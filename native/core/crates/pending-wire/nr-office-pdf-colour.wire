@@ -13,11 +13,15 @@ The doc comment at the head of lib.rs names the modules "declared here so later 
 [dependencies], one new workspace edge (V8-exact `Math.pow`, `Math.log`, `Math.min`, `Math.max`, `Math.round` of mixdog_js::math; the
 entry `mixdog-js = { path = "crates/mixdog-js" }` exists in [workspace.dependencies]):
     mixdog-js = { workspace = true }
-[dev-dependencies], for the twin test (reads the recording and runs the ignored re-record through the test kit; `mixdog-testkit` is a
-workspace dependency):
+[dev-dependencies], for the twin test (it reads the recording and runs the ignored re-record through the office twin helpers
+`mixdog_office_base::twin`, as the other office twins do; serde_json names the recording's `Value`; mixdog-testkit reads the
+fixture bytes before and after a re-record; all three are workspace dependencies):
+    mixdog-office-base = { workspace = true, features = ["test-support"] }
     mixdog-testkit = { workspace = true }
-Neither crate is in the hakari set for mixdog-pdf (mixdog-pdf and mixdog-js are both in `final-excludes` of native/core/.config/hakari.toml):
-no mixdog-workspace-hack edge.
+    serde_json = { workspace = true }
+No mixdog-workspace-hack edge is added here: the crate's Cargo.toml has none today (mixdog-js is in `final-excludes` of
+native/core/.config/hakari.toml; mixdog-pdf is not, so if `cargo hakari verify` asks for the edge it is the lead's to add for
+the whole crate).
 
 ## 3. native/core/Cargo.lock
 Only the package entry of mixdog-pdf changes; its dependency list becomes (alphabetical, dev-dependencies included as Cargo writes them):
@@ -25,10 +29,12 @@ Only the package entry of mixdog-pdf changes; its dependency list becomes (alpha
     dependencies = [
      "flate2",
      "mixdog-js",
+     "mixdog-office-base",
      "mixdog-testkit",
+     "serde_json",
      "tracing",
     ]
-No new package is resolved: mixdog-js and mixdog-testkit are workspace members already.
+No new package is resolved: mixdog-js, mixdog-office-base and mixdog-testkit are workspace members and serde_json is locked already.
 
 ## 4. native/core/fixtures/MANIFEST.json, "sets": add the entry (the list is in the order of the recorders; after "office-detect")
     {
