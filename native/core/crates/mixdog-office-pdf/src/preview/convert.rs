@@ -193,7 +193,7 @@ async fn render_with_microsoft_office(
         let (from, to) = (path.to_path_buf(), copy.clone());
         job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| mixdog_fsio::copy(lane, &from, &to))
             .await?
-            .map_err(|error| super::system_error(&error, "copyfile", path))?;
+            .map_err(|error| super::system_error(&error, &format!("copyfile '{}' ->", path.display()), &copy))?;
         let mut request = Map::new();
         request.insert("action".to_owned(), json!("render"));
         request.insert("format".to_owned(), json!(family));
@@ -209,7 +209,7 @@ async fn render_with_microsoft_office(
         if cancel.is_cancelled() {
             return Err(PreviewError::aborted());
         }
-        if answer.value.get("ok") == Some(&Value::Bool(true)) {
+        if truthy(answer.value.get("ok")) {
             return Ok(());
         }
         let error = answer.value.get("error");
