@@ -48,6 +48,7 @@ pub use self::oauth::OAUTH_POLL;
 pub use self::oauth::OAuthKind;
 use self::targets::Target;
 use self::targets::target_of;
+pub use self::targets::has_action;
 use crate::action_route::Resolved;
 use crate::action_route::RouteContext;
 use crate::action_route::RouteError;

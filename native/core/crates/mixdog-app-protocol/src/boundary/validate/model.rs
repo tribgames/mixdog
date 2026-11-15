@@ -28,7 +28,7 @@ const MODEL_SELECTION_KEYS: [&str; 10] = [
 /// (`tui/session/session-api/routes-write.mjs`), which the remote chat sends on every model pick and the main-model
 /// choice sends as `keepMainModel: false`. Node compares each with `=== true` or `!== false`, so a value of any type is
 /// taken; `onlyIfEmpty` is the selection's own key.
-const ROUTE_WRITE_OPTION_KEYS: [&str; 3] = ["applyToCurrentSession", "keepMainModel", "sessionOnly"];
+const ROUTE_WRITE_OPTION_KEYS: [&str; 4] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "validateOnly"];
 const MODEL_CATALOG_OPTION_KEYS: [&str; 3] = ["force", "refresh", "quick"];
 const TOOL_APPROVAL_KEYS: [&str; 8] =
     ["approved", "reason", "answers", "reply", "response", "editedArgs", "remember", "scope"];

@@ -61,6 +61,7 @@ const UPDATE_SETTINGS: &str = "config/getUpdateSettings";
 const MCP: &str = "mcp/mcpStatus";
 const PLUGINS: &str = "plugins/pluginsStatus";
 const SKILLS: &str = "skills/skillsStatus";
+const VOICE_STATUS: &str = "voice/getVoiceStatus";
 
 /// Where the snapshot's values come from: the protocol reads of the other services (the core's domain table as internal calls,
 /// the seam the setup status readers use), and the web-search route (a pushed section whose value the workflow config owns).
@@ -127,6 +128,9 @@ pub async fn settings_snapshot(reads: &SettingsReads, params: &Value) -> Value {
     snapshot.insert("channelWorker".into(), read(CHANNEL_WORKER, json!({})).await);
     snapshot.insert("profile".into(), read(PROFILE, json!({})).await);
     snapshot.insert("updateSettings".into(), read(UPDATE_SETTINGS, json!({})).await);
+    // `voice: { enabled }`: the switch of the managed voice runtime, as the settings row shows it (null when the status cannot be read).
+    let voice = read(VOICE_STATUS, json!({})).await;
+    snapshot.insert("voice".into(), if voice.is_object() { json!({ "enabled": voice.get("enabled").is_some_and(truthy) }) } else { Value::Null });
     if heavy(params) {
         snapshot.insert("mcp".into(), read(MCP, json!({})).await);
         snapshot.insert("plugins".into(), read(PLUGINS, json!({})).await);
