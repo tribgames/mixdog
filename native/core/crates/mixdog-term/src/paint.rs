@@ -267,7 +267,8 @@ mod tests {
         let rows = painter.text(0, 0, "aaaa bbbb cccc", Style::default(), 9, TextWrap::Wrap);
         assert_eq!(rows, 2);
         assert_eq!(grid.row_text(0).trim_end(), "aaaa bbbb");
-        assert_eq!(grid.row_text(1).trim_end(), "cccc");
+        // Ink wraps with trim off: the space the line broke at opens the next row.
+        assert_eq!(grid.row_text(1).trim_end(), " cccc");
         let mut painter = Painter::new(&mut grid);
         let rows = painter.text(0, 2, "0123456789abcdef", Style::default(), 8, TextWrap::TruncateEnd);
         assert_eq!(rows, 1);

@@ -49,6 +49,9 @@ struct Cx {
     no_arguments: bool,
     breakable: bool,
     in_loop: bool,
+    /// Inside the computed key of a class member: V8 reads the legacy octal of a number or a string there as the
+    /// enclosing code does, though the class code is strict.
+    class_key: bool,
 }
 
 impl Cx {
@@ -64,6 +67,7 @@ impl Cx {
             no_arguments: false,
             breakable: false,
             in_loop: false,
+            class_key: false,
         }
     }
 
@@ -79,6 +83,7 @@ impl Cx {
             super_call: false,
             breakable: false,
             in_loop: false,
+            class_key: false,
             ..self
         }
     }
@@ -140,13 +145,64 @@ fn first_duplicate(names: &[String]) -> Option<&str> {
     names.iter().find(|name| !seen.insert(name.as_str())).map(String::as_str)
 }
 
-fn ident_ok(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else { return false };
-    if !(first == '$' || first == '_' || unicode_ident::is_xid_start(first)) {
-        return false;
+/// ID_Start of ECMAScript: XID_Start and the characters Unicode adds to it as Other_ID_Start.
+fn id_start(c: char) -> bool {
+    c == '$'
+        || c == '_'
+        || unicode_ident::is_xid_start(c)
+        || matches!(c, '\u{1885}' | '\u{1886}' | '\u{2118}' | '\u{212E}' | '\u{309B}' | '\u{309C}')
+}
+
+/// ID_Continue of ECMAScript: XID_Continue, the joiners and Other_ID_Continue.
+fn id_continue(c: char) -> bool {
+    id_start(c)
+        || c == '\u{200C}'
+        || c == '\u{200D}'
+        || unicode_ident::is_xid_continue(c)
+        || matches!(c, '\u{00B7}' | '\u{0387}' | '\u{1369}'..='\u{1371}' | '\u{19DA}')
+}
+
+/// The characters of a name with its `\u0061` and `\u{61}` escapes decoded; `None` when an escape is malformed.
+fn decoded_name(text: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        if chars.next() != Some('u') {
+            return None;
+        }
+        let mut digits = String::new();
+        if chars.peek() == Some(&'{') {
+            chars.next();
+            loop {
+                match chars.next() {
+                    Some('}') => break,
+                    Some(d) if d.is_ascii_hexdigit() => digits.push(d),
+                    _ => return None,
+                }
+            }
+        } else {
+            for _ in 0..4 {
+                match chars.next() {
+                    Some(d) if d.is_ascii_hexdigit() => digits.push(d),
+                    _ => return None,
+                }
+            }
+        }
+        out.push(u32::from_str_radix(&digits, 16).ok().and_then(char::from_u32)?);
     }
-    chars.all(|c| c == '$' || c == '_' || c == '\u{200C}' || c == '\u{200D}' || unicode_ident::is_xid_continue(c))
+    Some(out)
+}
+
+/// A name as the lexer reads it: an escape stands for the character it spells, which must itself be one a name may
+/// start with (or continue with).
+fn ident_ok(text: &str) -> bool {
+    let Some(name) = decoded_name(text) else { return false };
+    let mut chars = name.chars();
+    chars.next().is_some_and(id_start) && chars.all(id_continue)
 }
 
 fn check_binding_name(text: &str, strict: bool) -> Check {
@@ -227,9 +283,9 @@ fn declare_private(
 }
 
 /// Everything in `source` the grammar accepts but a classic script does not.
-pub fn check(root: Node<'_>, source: &str) -> Check {
+pub fn check(root: Node<'_>, source: &str, blanked: &[usize]) -> Check {
     let mut checker =
-        Checker { src: source, scopes: Scopes::new(), labels: Vec::new(), privates: Vec::new(), depth: 0 };
+        Checker { src: source, scopes: Scopes::new(), labels: Vec::new(), privates: Vec::new(), depth: 0, blanked };
     checker.prescan(root)?;
     let top = named_kids(root);
     let cx = Cx::script(checker.directive_strict(&top));
@@ -245,11 +301,21 @@ struct Checker<'s> {
     labels: Vec<Label>,
     privates: Vec<HashMap<String, PrivEntry>>,
     depth: usize,
+    /// Where the repair of the source blanked the parentheses of a name in a pattern.
+    blanked: &'s [usize],
 }
 
 impl<'s> Checker<'s> {
     fn text(&self, node: Node<'_>) -> &'s str {
         self.src.get(node.start_byte()..node.end_byte()).unwrap_or("")
+    }
+
+    /// A binding pattern holds no parenthesized name (an assignment pattern may).
+    fn no_blanked(&self, pattern: Node<'_>) -> Check {
+        if self.blanked.iter().any(|at| (pattern.start_byte()..pattern.end_byte()).contains(at)) {
+            return Err(Reason::Msg(msg::INVALID_TOKEN));
+        }
+        Ok(())
     }
 
     fn gap(&self, from: usize, to: usize) -> &'s str {
@@ -279,9 +345,18 @@ impl<'s> Checker<'s> {
         match node.kind() {
             "import_statement" => Err(Reason::ImportOutsideModule),
             "export_statement" => Err(Reason::Unexpected("Unexpected token 'export'".to_owned())),
-            "html_comment" | "html_character_reference" | "decorator" | "using_declaration" => {
-                Err(Reason::Msg(msg::INVALID_TOKEN))
+            // `<!--` opens a line comment anywhere, `-->` only at the start of a line.
+            "html_comment" => {
+                let text = self.text(node);
+                let line_start = self.src.get(..node.start_byte()).unwrap_or("");
+                let line_start = line_start.rsplit(['\n', '\r', '\u{2028}', '\u{2029}']).next().unwrap_or("");
+                if text.starts_with("<!--") || (text.starts_with("-->") && line_start.trim().is_empty()) {
+                    Ok(())
+                } else {
+                    Err(Reason::Msg(msg::INVALID_TOKEN))
+                }
             }
+            "html_character_reference" | "decorator" | "using_declaration" => Err(Reason::Msg(msg::INVALID_TOKEN)),
             kind if kind.starts_with("jsx_") => Err(Reason::Msg(msg::INVALID_TOKEN)),
             "hash_bang_line" => {
                 if node.start_byte() == 0 {
@@ -292,7 +367,11 @@ impl<'s> Checker<'s> {
             }
             "identifier" | "property_identifier" | "shorthand_property_identifier"
             | "shorthand_property_identifier_pattern" | "statement_identifier" | "undefined" => {
-                if ident_ok(self.text(node)) {
+                let text = self.text(node);
+                let reserved_by_escape = node.kind() != "property_identifier"
+                    && text.contains('\\')
+                    && decoded_name(text).is_some_and(|name| ALWAYS_RESERVED.contains(&name.as_str()));
+                if ident_ok(text) && !reserved_by_escape {
                     Ok(())
                 } else {
                     Err(Reason::Msg(msg::INVALID_TOKEN))
@@ -419,6 +498,10 @@ impl<'s> Checker<'s> {
             "update_expression" => self.visit_update(node, cx),
             "assignment_expression" => self.visit_assignment(node, cx, true),
             "augmented_assignment_expression" => self.visit_assignment(node, cx, false),
+            "array_pattern" | "object_pattern" | "formal_parameters" => {
+                self.rest_is_last(node)?;
+                self.visit_children(node, cx)
+            }
             "object" => self.visit_object(node, cx),
             "pair" | "pair_pattern" => self.visit_pair(node, cx),
             "number" => self.visit_number(node, cx),
@@ -427,6 +510,17 @@ impl<'s> Checker<'s> {
             "regex" => self.visit_regex(node),
             _ => self.visit_children(node, cx),
         }
+    }
+
+    /// `[...a, b]`, `{...a, b}`, `(...a, b)`, `(...a,)`: a rest element is the last one, without a comma after it.
+    fn rest_is_last(&self, node: Node<'_>) -> Check {
+        let all: Vec<Node<'_>> = kids(node).into_iter().filter(|child| child.kind() != "comment").collect();
+        if let Some(at) = all.iter().position(|child| child.kind() == "rest_pattern")
+            && all[at + 1..].iter().any(|child| !matches!(child.kind(), "]" | "}" | ")"))
+        {
+            return Err(Reason::Msg(msg::REST_LAST));
+        }
+        Ok(())
     }
 
     fn visit_ident(&mut self, node: Node<'_>, cx: Cx) -> Check {
@@ -519,6 +613,7 @@ impl<'s> Checker<'s> {
         let mut count = 0;
         let mut rest = false;
         if let Some(p) = params {
+            self.no_blanked(p)?;
             self.bound_names(p, &mut names);
             for child in named_kids(p) {
                 count += 1;
@@ -527,6 +622,7 @@ impl<'s> Checker<'s> {
             }
         }
         if let Some(s) = single {
+            self.no_blanked(s)?;
             self.bound_names(s, &mut names);
         }
         if facts.getter && count != 0 {
@@ -567,6 +663,7 @@ impl<'s> Checker<'s> {
         inner.in_function = true;
         inner.breakable = false;
         inner.in_loop = false;
+        inner.class_key = false;
         if !is_arrow {
             inner.new_target = true;
             inner.super_prop = is_method;
@@ -705,7 +802,7 @@ impl<'s> Checker<'s> {
                         return Err(Reason::Msg(msg::STATIC_PROTOTYPE));
                     }
                     if let Some(name) = name {
-                        self.visit(name, cx)?;
+                        self.visit(name, Self::key_cx(name, cx))?;
                     }
                     self.function_like(member, cx, is_ctor && derived)?;
                 }
@@ -720,7 +817,7 @@ impl<'s> Checker<'s> {
                         return Err(Reason::Msg(msg::STATIC_PROTOTYPE));
                     }
                     if let Some(name) = name {
-                        self.visit(name, cx)?;
+                        self.visit(name, Self::key_cx(name, cx))?;
                     }
                     if let Some(value) = member.child_by_field_name("value") {
                         self.visit(value, cx.initializer())?;
@@ -744,6 +841,10 @@ impl<'s> Checker<'s> {
         Ok(())
     }
 
+    fn key_cx(key: Node<'_>, cx: Cx) -> Cx {
+        Cx { class_key: key.kind() == "computed_property_name", ..cx }
+    }
+
     /// The name a member key spells when it is not computed (`constructor`, `'prototype'`), else "".
     fn property_key(&self, key: Node<'_>) -> String {
         let text = self.text(key);
@@ -763,6 +864,7 @@ impl<'s> Checker<'s> {
             }
             let name = declarator.child_by_field_name("name").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
             let value = declarator.child_by_field_name("value");
+            self.no_blanked(name)?;
             let is_pattern = !matches!(name.kind(), "identifier" | "undefined");
             if value.is_none() && (is_const || is_pattern) {
                 return Err(Reason::Msg(if is_const {
@@ -820,6 +922,7 @@ impl<'s> Checker<'s> {
         self.scopes.push(ScopeKind::Block);
         match kind {
             Some(k @ ("var" | "let" | "const")) => {
+                self.no_blanked(left)?;
                 let mut names = Vec::new();
                 self.bound_names(left, &mut names);
                 for name in &names {
@@ -835,7 +938,7 @@ impl<'s> Checker<'s> {
                 }
             }
             Some(_) => return Err(Reason::Msg(msg::UNMODELED)),
-            None => self.check_target(left, cx.strict, true, msg::INVALID_LHS_FOR)?,
+            None => self.check_target(left, cx.strict, true, true, msg::INVALID_LHS_FOR)?,
         }
         if let Some(value) = node.child_by_field_name("value") {
             let allowed = kind == Some("var") && op == "in" && !cx.strict && left.kind() == "identifier";
@@ -898,9 +1001,53 @@ impl<'s> Checker<'s> {
         let is_loop =
             matches!(target.kind(), "for_statement" | "for_in_statement" | "while_statement" | "do_statement");
         self.labels.push(Label { name: name.to_owned(), is_loop });
-        self.visit_sub(body, cx, FnMode::Labeled)?;
+        let result = match Self::block_read_as_object(body) {
+            Some(object) => self.visit_block_read_as_object(object, cx),
+            None => self.visit_sub(body, cx, FnMode::Labeled),
+        };
         self.labels.pop();
-        Ok(())
+        result
+    }
+
+    /// The grammar reads `{ a: 1 }` after a label as an object literal; V8 reads a block: the object of such a
+    /// statement.
+    fn block_read_as_object(body: Node<'_>) -> Option<Node<'_>> {
+        if body.kind() != "expression_statement" {
+            return None;
+        }
+        match named_kids(body).as_slice() {
+            [object] if object.kind() == "object" && object.start_byte() == body.start_byte() => Some(*object),
+            _ => None,
+        }
+    }
+
+    /// The block `{ a: 1 }` that the grammar read as an object: nothing, one expression, or one more label.
+    fn visit_block_read_as_object(&mut self, object: Node<'_>, cx: Cx) -> Check {
+        match named_kids(object).as_slice() {
+            [] => Ok(()),
+            [member] if member.kind() == "shorthand_property_identifier" => self.visit_ident(*member, cx),
+            [member] if member.kind() == "pair" => {
+                let key = member.child_by_field_name("key").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
+                let value = member.child_by_field_name("value").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
+                if key.kind() != "property_identifier" {
+                    return Err(Reason::Msg(msg::INVALID_TOKEN));
+                }
+                let name = self.text(key);
+                if self.labels.iter().any(|existing| existing.name == name) {
+                    return Err(Reason::DuplicateLabel(name.to_owned()));
+                }
+                self.visit_ident(key, cx)?;
+                self.labels.push(Label { name: name.to_owned(), is_loop: false });
+                let result = if value.kind() == "object" {
+                    self.visit_block_read_as_object(value, cx)
+                } else {
+                    self.visit(value, cx)
+                };
+                self.labels.pop();
+                result
+            }
+            _ => Err(Reason::Msg(msg::INVALID_TOKEN)),
+        }
     }
 
     fn visit_break(&self, node: Node<'_>, cx: Cx) -> Check {
@@ -957,6 +1104,9 @@ impl<'s> Checker<'s> {
             self.visit(value, cx)?;
         }
         if let Some(body) = node.child_by_field_name("body") {
+            if kids(body).iter().filter(|clause| clause.kind() == "switch_default").count() > 1 {
+                return Err(Reason::Msg(msg::MULTIPLE_DEFAULTS));
+            }
             let mut switch_cx = cx;
             switch_cx.breakable = true;
             self.scopes.push(ScopeKind::Block);
@@ -967,6 +1117,9 @@ impl<'s> Checker<'s> {
     }
 
     fn visit_try(&mut self, node: Node<'_>, cx: Cx) -> Check {
+        if !has_child_kind(node, "catch_clause") && !has_child_kind(node, "finally_clause") {
+            return Err(Reason::Msg(msg::MISSING_CATCH));
+        }
         for child in kids(node) {
             if child.kind() == "catch_clause" {
                 self.visit_catch(child, cx)?;
@@ -981,6 +1134,7 @@ impl<'s> Checker<'s> {
         let param = node.child_by_field_name("parameter");
         let mut names = Vec::new();
         if let Some(p) = param {
+            self.no_blanked(p)?;
             self.bound_names(p, &mut names);
         }
         if let Some(name) = first_duplicate(&names) {
@@ -1014,9 +1168,19 @@ impl<'s> Checker<'s> {
         self.visit_children(node, cx)
     }
 
-    fn check_target(&self, node: Node<'_>, strict: bool, allow_pattern: bool, reason: &'static str) -> Check {
+    /// `allow_call`: V8 reads `f() = 1`, `f()++` and `for (f() of x)` as code that throws when it runs, not as an
+    /// early error (the logical assignments excepted).
+    fn check_target(
+        &self,
+        node: Node<'_>,
+        strict: bool,
+        allow_pattern: bool,
+        allow_call: bool,
+        reason: &'static str,
+    ) -> Check {
         let invalid = || Err(Reason::Msg(reason));
         match node.kind() {
+            "call_expression" if allow_call && !chain_has_optional(node) => Ok(()),
             "identifier" | "undefined" => self.check_assigned_name(node, strict),
             "shorthand_property_identifier_pattern" if allow_pattern => self.check_assigned_name(node, strict),
             "member_expression" | "subscript_expression" => {
@@ -1027,27 +1191,27 @@ impl<'s> Checker<'s> {
                 }
             }
             "parenthesized_expression" => match named_kids(node).as_slice() {
-                [inner] => self.check_target(*inner, strict, false, reason),
+                [inner] => self.check_target(*inner, strict, false, allow_call, reason),
                 _ => invalid(),
             },
             "array_pattern" | "object_pattern" if allow_pattern => {
                 for child in named_kids(node) {
-                    self.check_target(child, strict, true, reason)?;
+                    self.check_target(child, strict, true, false, reason)?;
                 }
                 Ok(())
             }
             "assignment_pattern" | "object_assignment_pattern" if allow_pattern => {
                 match node.child_by_field_name("left") {
-                    Some(left) => self.check_target(left, strict, true, reason),
+                    Some(left) => self.check_target(left, strict, true, false, reason),
                     None => invalid(),
                 }
             }
             "pair_pattern" if allow_pattern => match node.child_by_field_name("value") {
-                Some(value) => self.check_target(value, strict, true, reason),
+                Some(value) => self.check_target(value, strict, true, false, reason),
                 None => invalid(),
             },
             "rest_pattern" if allow_pattern => match named_kids(node).first() {
-                Some(target) => self.check_target(*target, strict, true, reason),
+                Some(target) => self.check_target(*target, strict, true, false, reason),
                 None => invalid(),
             },
             _ => invalid(),
@@ -1064,13 +1228,14 @@ impl<'s> Checker<'s> {
 
     fn visit_assignment(&mut self, node: Node<'_>, cx: Cx, patterns: bool) -> Check {
         let left = node.child_by_field_name("left").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
-        self.check_target(left, cx.strict, patterns, msg::INVALID_LHS_ASSIGN)?;
+        let logical = !patterns && matches!(self.operator_of(node), "&&=" | "||=" | "??=");
+        self.check_target(left, cx.strict, patterns, !logical, msg::INVALID_LHS_ASSIGN)?;
         self.visit_children(node, cx)
     }
 
     fn visit_update(&mut self, node: Node<'_>, cx: Cx) -> Check {
         let argument = node.child_by_field_name("argument").ok_or(Reason::Msg(msg::INVALID_TOKEN))?;
-        self.check_target(argument, cx.strict, false, msg::INVALID_LHS_UPDATE)?;
+        self.check_target(argument, cx.strict, false, true, msg::INVALID_LHS_UPDATE)?;
         if let Some(operator) = node.child_by_field_name("operator") {
             let postfix = operator.start_byte() >= argument.end_byte();
             if postfix && has_line_terminator(self.gap(argument.end_byte(), operator.start_byte())) {
@@ -1083,6 +1248,9 @@ impl<'s> Checker<'s> {
     fn visit_unary(&mut self, node: Node<'_>, cx: Cx) -> Check {
         let operator = self.operator_of(node);
         if let Some(argument) = node.child_by_field_name("argument") {
+            if matches!(argument.kind(), "assignment_expression" | "augmented_assignment_expression") {
+                return Err(Reason::Msg(msg::INVALID_LHS_ASSIGN));
+            }
             if argument.kind() == "binary_expression" && self.operator_of(argument) == "**" {
                 return Err(Reason::Msg(msg::EXPONENT_UNARY));
             }
@@ -1126,6 +1294,17 @@ impl<'s> Checker<'s> {
         {
             return Err(Reason::Msg(msg::EXPONENT_UNARY));
         }
+        for operand in [left, right].into_iter().flatten() {
+            match operand.kind() {
+                // `a + b = 1`: an assignment is no operand of an operator (it binds looser)
+                "assignment_expression" | "augmented_assignment_expression" => {
+                    return Err(Reason::Msg(msg::INVALID_LHS_ASSIGN));
+                }
+                // `a => {} + 1`: an arrow function with a block body ends its expression
+                "arrow_function" => return Err(Reason::Unexpected(format!("Unexpected token '{operator}'"))),
+                _ => {}
+            }
+        }
         let mixes = |child: Option<Node<'_>>, wanted: &[&str]| {
             child.is_some_and(|c| c.kind() == "binary_expression" && wanted.contains(&self.operator_of(c)))
         };
@@ -1145,7 +1324,8 @@ impl<'s> Checker<'s> {
         let arguments = node.child_by_field_name("arguments");
         if function.is_some_and(|f| f.kind() == "import") {
             let ok = arguments.is_some_and(|a| {
-                a.kind() == "arguments" && matches!(named_kids(a).as_slice(), [one] if one.kind() != "spread_element")
+                a.kind() == "arguments" && matches!(named_kids(a).len(), 1 | 2)
+                    && named_kids(a).iter().all(|argument| argument.kind() != "spread_element")
             });
             if !ok {
                 return Err(Reason::Msg(msg::IMPORT_CALL));
@@ -1219,7 +1399,10 @@ impl<'s> Checker<'s> {
             Kw::Operator => {}
             Kw::Reserved => return Err(Reason::Msg(msg::RESERVED_WORD)),
             Kw::Identifier => {
-                if cx.strict || !named_kids(node).is_empty() || has_child_kind(node, "*") {
+                // Sloppy code outside a generator: `yield` is an identifier, so `yield * 1` is a product.
+                let star = has_child_kind(node, "*");
+                let product = star && named_kids(node).len() == 1;
+                if cx.strict || (!product && (star || !named_kids(node).is_empty())) {
                     return Err(Reason::Msg(msg::UNMODELED));
                 }
             }
@@ -1261,7 +1444,7 @@ impl<'s> Checker<'s> {
     }
 
     fn visit_number(&self, node: Node<'_>, cx: Cx) -> Check {
-        number_error(self.text(node), cx.strict)?;
+        number_error(self.text(node), cx.strict && !cx.class_key)?;
         let next = self.src.get(node.end_byte()..).and_then(|rest| rest.chars().next());
         if next.is_some_and(|c| c == '\\' || c == '$' || c == '_' || unicode_ident::is_xid_continue(c)) {
             return Err(Reason::Msg(msg::INVALID_TOKEN));
@@ -1272,7 +1455,7 @@ impl<'s> Checker<'s> {
     fn visit_string(&self, node: Node<'_>, cx: Cx) -> Check {
         for child in kids(node) {
             if child.kind() == "escape_sequence" {
-                self.escape_error(child, cx.strict, true)?;
+                self.escape_error(child, cx.strict && !cx.class_key, true)?;
             }
         }
         Ok(())
@@ -1337,12 +1520,43 @@ impl<'s> Checker<'s> {
         if seen.contains(&'u') && seen.contains(&'v') {
             return Err(Reason::Msg(msg::INVALID_REGEX_FLAGS));
         }
+        if has_group_modifiers(pattern) {
+            return Err(Reason::InvalidRegex(format!("/{pattern}/{flags}: Invalid group")));
+        }
         let engine_flags: String = flags.chars().filter(|c| "imsuv".contains(*c)).collect();
         match regress::Regex::with_flags(pattern, engine_flags.as_str()) {
             Ok(_) => Ok(()),
             Err(_) => Err(Reason::InvalidRegex(format!("/{pattern}/{flags}: Invalid regular expression"))),
         }
     }
+}
+
+/// A group `(?` that is not a non-capturing group, a look-around or a named group: the modifiers `(?i:` the engine
+/// of Node does not read.
+fn has_group_modifiers(pattern: &str) -> bool {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut at = 0;
+    let mut in_class = false;
+    while at < chars.len() {
+        match chars[at] {
+            '\\' => at += 1,
+            '[' => in_class = true,
+            ']' => in_class = false,
+            '(' if !in_class && chars.get(at + 1) == Some(&'?') => {
+                let ok = match chars.get(at + 2) {
+                    Some(':' | '=' | '!') => true,
+                    Some('<') => matches!(chars.get(at + 3), Some('=' | '!')) || chars.get(at + 3).is_some_and(|c| *c != '>'),
+                    _ => false,
+                };
+                if !ok {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    false
 }
 
 fn unicode_escape_ok(rest: &str) -> bool {

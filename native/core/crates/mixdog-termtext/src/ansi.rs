@@ -868,7 +868,10 @@ mod tests {
         let from = vec![code("\x1b[1m"), code("\x1b[31m")];
         let to = vec![code("\x1b[1m"), code("\x1b[32m")];
         let diff: Vec<String> = diff_ansi_codes(&from, &to).into_iter().map(|c| c.code).collect();
-        assert_eq!(diff, ["\x1b[39m", "\x1b[32m"]);
+        // The 31 is overwritten by the 32 (both end with 39) and the 1 is in both: nothing is undone.
+        assert_eq!(diff, ["\x1b[32m"]);
+        let dropped: Vec<String> = diff_ansi_codes(&from, &[code("\x1b[1m")]).into_iter().map(|c| c.code).collect();
+        assert_eq!(dropped, ["\x1b[39m"]);
     }
 
     #[test]

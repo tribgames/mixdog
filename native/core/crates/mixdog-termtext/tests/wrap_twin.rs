@@ -54,6 +54,46 @@ fn note<T: PartialEq + Debug>(failures: &mut Vec<String>, what: &str, text: &str
     }
 }
 
+/// The golden as JSON a Rust string can hold: the recorder writes what Node holds, and Node cuts inside a surrogate
+/// pair, so the golden has `\ud83d` and `\ude42` as strings of their own, which no JSON reader of Rust takes. Every
+/// escape of a surrogate that is not half of a pair inside one string is read as U+FFFD, the character the lone half
+/// becomes when Node writes the string to a terminal.
+fn readable(golden: &str) -> String {
+    fn unit(bytes: &[u8], at: usize) -> Option<u32> {
+        if bytes.get(at) == Some(&b'\\') && bytes.get(at + 1) == Some(&b'u') {
+            std::str::from_utf8(bytes.get(at + 2..at + 6)?).ok().and_then(|hex| u32::from_str_radix(hex, 16).ok())
+        } else {
+            None
+        }
+    }
+    let bytes = golden.as_bytes();
+    let mut out = String::with_capacity(golden.len());
+    let mut at = 0;
+    let mut copied = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'\\' {
+            match unit(bytes, at) {
+                Some(0xD800..=0xDBFF) if matches!(unit(bytes, at + 6), Some(0xDC00..=0xDFFF)) => {
+                    at += 12;
+                    continue;
+                }
+                Some(0xD800..=0xDFFF) => {
+                    out.push_str(&golden[copied..at]);
+                    out.push_str("\\ufffd");
+                    at += 6;
+                    copied = at;
+                    continue;
+                }
+                _ => at += 2,
+            }
+        } else {
+            at += 1;
+        }
+    }
+    out.push_str(&golden[copied..]);
+    out
+}
+
 fn count(value: &Value) -> usize {
     value.as_u64().and_then(|n| usize::try_from(n).ok()).expect("a count")
 }
@@ -136,7 +176,7 @@ fn mode_of(name: &str) -> WrapMode {
 
 #[test]
 fn every_recorded_answer_is_the_same() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("the golden parses");
+    let golden: Value = serde_json::from_str(&readable(GOLDEN)).expect("the golden parses");
     let widths: Vec<usize> = golden["widths"].as_array().expect("widths").iter().map(count).collect();
     let wrap_options: Vec<WrapOptions> = golden["wrapAnsiOptions"]
         .as_array()

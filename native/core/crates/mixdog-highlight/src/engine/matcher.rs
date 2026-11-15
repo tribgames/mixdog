@@ -62,7 +62,7 @@ impl LazyRegex {
                     multiline: true,
                     ..Flags::default()
                 };
-                Regex::with_flags(&self.source, flags).ok()
+                Regex::with_flags(&engine_source(&self.source, self.icase), flags).ok()
             })
             .as_ref()
     }
@@ -223,7 +223,7 @@ impl Matcher {
                 multiline: true,
                 ..Flags::default()
             };
-            match Regex::with_flags(&join(&patterns), flags) {
+            match Regex::with_flags(&engine_source(&join(&patterns), self.icase), flags) {
                 Ok(regex) => (Some(regex), false),
                 Err(_) => (None, true),
             }
@@ -374,6 +374,74 @@ fn next_token(chars: &[char], from: usize) -> Option<(usize, usize, Token)> {
     None
 }
 
+/// The pattern as the engine must be given it. In a case-insensitive pattern regress folds the long s and the Kelvin
+/// sign into `s` and `k` even without the `u` flag (JavaScript keeps a non-ASCII character apart from an ASCII one),
+/// so a negated class that holds `\W` leaves out the letters `s` and `k` (`[^\W:= ]` would not match `else`). The
+/// word characters that are not in such a class are written as `(?:(?![members])\w)`.
+fn engine_source(source: &str, icase: bool) -> String {
+    if !icase || !source.contains("\\W") {
+        return source.to_owned();
+    }
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len() + 16);
+    let mut at = 0;
+    while at < chars.len() {
+        match chars[at] {
+            '\\' => {
+                out.push('\\');
+                if let Some(next) = chars.get(at + 1) {
+                    out.push(*next);
+                }
+                at += 2;
+            }
+            '[' => {
+                let negated = chars.get(at + 1) == Some(&'^');
+                let mut end = at + 1 + usize::from(negated);
+                let body_start = end;
+                while end < chars.len() && chars[end] != ']' {
+                    end += if chars[end] == '\\' { 2 } else { 1 };
+                }
+                let end = end.min(chars.len());
+                let body = &chars[body_start..end];
+                let mut members = String::new();
+                let mut has_word_negation = false;
+                let mut k = 0;
+                while k < body.len() {
+                    if body[k] == '\\' {
+                        if body.get(k + 1) == Some(&'W') {
+                            has_word_negation = true;
+                        } else {
+                            members.push('\\');
+                            members.extend(body.get(k + 1));
+                        }
+                        k += 2;
+                    } else {
+                        members.push(body[k]);
+                        k += 1;
+                    }
+                }
+                if negated && has_word_negation && end < chars.len() {
+                    if members.is_empty() {
+                        out.push_str("(?:\\w)");
+                    } else {
+                        out.push_str("(?:(?![");
+                        out.push_str(&members);
+                        out.push_str("])\\w)");
+                    }
+                } else {
+                    out.extend(&chars[at..(end + 1).min(chars.len())]);
+                }
+                at = end + 1;
+            }
+            c => {
+                out.push(c);
+                at += 1;
+            }
+        }
+    }
+    out
+}
+
 /// `join(regexps, "|")` of core.js: each pattern in its own group, back-references renumbered.
 pub(crate) fn join(patterns: &[&str]) -> String {
     let mut captures = 0usize;
@@ -413,6 +481,17 @@ mod tests {
 
     fn utf16(s: &str) -> Vec<u16> {
         s.encode_utf16().collect()
+    }
+
+    #[test]
+    fn a_negated_class_with_the_word_negation_keeps_s_and_k() {
+        assert_eq!(engine_source("[^\\W:= ]", true), "(?:(?![:= ])\\w)");
+        assert_eq!(engine_source("[^\\W]", true), "(?:\\w)");
+        assert_eq!(engine_source("[^\\W:= ]", false), "[^\\W:= ]");
+        assert_eq!(engine_source("a\\[^\\W]", true), "a\\[^\\W]");
+        assert_eq!(engine_source("[\\W]x", true), "[\\W]x");
+        let re = Regex::with_flags(&engine_source("([^\\\\\\W:= ]|\\\\.)+ ", true), Flags { icase: true, ..Flags::default() }).unwrap();
+        assert_eq!(re.find("else ").map(|m| m.range()), Some(0..5));
     }
 
     #[test]

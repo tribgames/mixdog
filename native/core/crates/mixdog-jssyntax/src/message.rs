@@ -41,6 +41,9 @@ pub const OPTIONAL_CHAIN_TEMPLATE: &str = "Invalid tagged template on optional c
 pub const OPTIONAL_CHAIN_NEW: &str = "Invalid optional chain from new expression";
 pub const EXPONENT_UNARY: &str = "Unary operator used immediately before exponentiation expression. Parenthesis must be used to disambiguate operator precedence";
 pub const IMPORT_CALL: &str = "Dynamic import must have exactly one argument";
+pub const MISSING_CATCH: &str = "Missing catch or finally after try";
+pub const MULTIPLE_DEFAULTS: &str = "More than one default clause in switch statement";
+pub const REST_LAST: &str = "Rest element must be last element";
 pub const UNMODELED: &str = "Unexpected token";
 
 /// Why a source is not a classic script.
