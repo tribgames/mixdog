@@ -6,9 +6,11 @@
 //!
 //! Read from OpenJPEG 2.5 (`tcd.c`, `t1.c`, `jp2.c`, `color.c`); inferred, not read, because the wasm wrapper of
 //! pdf.js has no source in the tree: that the wrapper reduces a sample of precision `p` to 8 bits by a right shift
-//! when `p > 8` and by scaling to the full range when `p < 8` (signed samples are offset to unsigned first), that
-//! it treats a three-component image with subsampled chroma as sYCC like `opj_decompress` does, and that it
-//! replicates subsampled components to the first component's grid.
+//! when `p > 8` and by scaling to the full range when `p < 8` (a signed sample is clamped at 0 without an offset: the recording), that
+//! it replicates subsampled components to the first component's grid. (The recording shows that the wrapper does not
+//! treat a bare three-component codestream with subsampled chroma as sYCC, and that it delivers each component's
+//! plane unexpanded in pixel order, reading past the end of the smaller planes; this decoder delivers the expanded
+//! image instead.)
 
 use super::boxes::{ChannelDef, ComponentMap, Jp2Info, Palette};
 use super::dwt::{ResBox, inverse_irreversible, inverse_reversible};
@@ -106,7 +108,7 @@ pub fn decode(image: &Image, options: Options) -> Result<DecodedImage, JpxError>
     }
     let mut t1 = Tier1::new();
     for index in 0..cs.tile_count() {
-        if let Some(tile) = cs.tile(index)? {
+        if let Some(tile) = cs.decoded_tile(index)? {
             decode_tile(&tile, &siz.comps, &mut planes, &mut t1)?;
         }
     }
@@ -369,15 +371,14 @@ impl DecodedImage {
         }
     }
 
-    /// `color_sycc_to_rgb` of OpenJPEG, applied when the file says sYCC or when a three-component image has
-    /// subsampled chroma (the heuristic of `opj_decompress`).
+    /// `color_sycc_to_rgb` of OpenJPEG, applied when the file says sYCC. (The recording of pdf.js leaves a bare
+    /// codestream with subsampled chroma unconverted: `opj_decompress`'s guess is not made.)
     fn sycc_to_rgb(&mut self) {
         let p = &self.planes;
         if p.len() < 3 {
             return;
         }
-        let subsampled_chroma = p[0].dx == p[0].dy && p[1].dx != 1;
-        if self.colour != ColourSpace::Sycc && !(p.len() == 3 && subsampled_chroma) {
+        if self.colour != ColourSpace::Sycc {
             return;
         }
         let (a, b, c) = (&p[0], &p[1], &p[2]);
@@ -447,10 +448,8 @@ fn sample_at(plane: &Plane, reference: &Plane, i: usize, j: usize) -> i32 {
 
 fn to_u8(sample: i32, plane: &Plane) -> u8 {
     let p = plane.precision as i64;
-    let mut v = sample as i64;
-    if plane.signed {
-        v += 1i64 << (p - 1);
-    }
+    // A signed sample is reduced as it is and a negative one becomes 0: the recording of pdf.js shows no offset.
+    let v = sample as i64;
     let v = if p > 8 {
         v >> (p - 8)
     } else if p < 8 {
@@ -480,6 +479,8 @@ mod tests {
     fn samples_reduce_to_eight_bits() {
         assert_eq!(to_u8(1000, &plane(12, false, 1, 1, vec![])), 62);
         assert_eq!(to_u8(-128, &plane(8, true, 1, 1, vec![])), 0);
+        assert_eq!(to_u8(96, &plane(12, true, 1, 1, vec![])), 6);
+        assert_eq!(to_u8(-3, &plane(12, true, 1, 1, vec![])), 0);
         assert_eq!(to_u8(15, &plane(4, false, 1, 1, vec![])), 255);
         assert_eq!(to_u8(1, &plane(1, false, 1, 1, vec![])), 255);
         assert_eq!(to_u8(300, &plane(8, false, 1, 1, vec![])), 255);
