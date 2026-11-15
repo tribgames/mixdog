@@ -13,6 +13,8 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
+use crate::providers::idle::IdleWatch;
+use crate::providers::idle::Stalled;
 use crate::transport::deadlines::openai_http_response;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -324,6 +326,10 @@ pub struct OpenAiAdapter {
     compress_lane: CpuBulk,
     /// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`: Node reads it once, when the provider's modules load.
     http_response_ms: f64,
+    /// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS` and `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (read once, as the modules load); `None`
+    /// when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off.
+    http_idle_ms: Option<f64>,
+    ws_idle_ms: Option<f64>,
 }
 
 /// The seams and sources an adapter runs on.
@@ -356,11 +362,14 @@ impl OpenAiAdapter {
         // A socket's closing releases its hold on its turn's state.
         let pool = Arc::new(WsPool::with_events(links.context.clone()));
         let http_response_ms = crate::providers::google::cache::policy::http_response_ms(|name| links.context.var(name));
+        let http_idle_ms = crate::providers::google::cache::policy::semantic_idle_ms(|name| links.context.var(name));
+        let ws_idle_ms = crate::providers::google::cache::policy::ws_semantic_idle_ms(|name| links.context.var(name));
+        let ws_ping = crate::providers::google::cache::policy::ws_ping(|name| links.context.var(name), KeepaliveSchedule::SPEC.ws);
         let adapter = Self {
             id,
             codec,
             policy: super::policy::retry_policy(),
-            keepalive: KeepaliveSchedule::SPEC,
+            keepalive: KeepaliveSchedule { ws: ws_ping, ..KeepaliveSchedule::SPEC },
             http: links.http,
             dial: links.dial,
             credentials: links.credentials,
@@ -371,6 +380,8 @@ impl OpenAiAdapter {
             models,
             compress_lane: links.compress_lane,
             http_response_ms,
+            http_idle_ms,
+            ws_idle_ms,
         };
         // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
         adapter.preconnect();
@@ -471,7 +482,8 @@ impl OpenAiAdapter {
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());
-            return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request))));
+            let idle = IdleWatch::new(self.http_idle_ms, codec.http_label());
+            return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request)).with_idle(idle)));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
     }
@@ -515,7 +527,12 @@ impl OpenAiAdapter {
                 }
             };
             let (socket, upgrade) = match dialed {
-                Ok(connected) => connected,
+                Ok((socket, upgrade)) => {
+                    // The ping schedule `MIXDOG_PROVIDER_WS_PING_INTERVAL_MS` and `MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS`
+                    // tune replaces the dialer's before the first frame; a link that cannot take it keeps the dialer's.
+                    let _ = socket.link().arm(&self.keepalive);
+                    (socket, upgrade)
+                }
                 Err(ConnectError::Transport(fault)) => {
                     let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
                     // `ws` reports a connection reset during the upgrade as the request's own error.
@@ -573,7 +590,7 @@ impl OpenAiAdapter {
                 error
             })?;
         let owner = checkout.owner;
-        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
+        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(IdleWatch::new(self.ws_idle_ms, "Responses WS"));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
         // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
@@ -923,6 +940,9 @@ struct ResponsesStream {
     /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope, the turn and the socket that
     /// owns it), until the first one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
     turn_state: Option<(Arc<SessionContext>, String, String, u64)>,
+    /// The semantic idle window (`armSemanticIdle`): started by the first progress the decoder reports and again by each
+    /// later one; keepalives and metadata frames never start it.
+    idle: IdleWatch,
 }
 
 /// `_captureTurnStateFromEvent`'s carriers (`turn-state-headers.mjs:41-46`), in its order: the event's headers, the
@@ -952,7 +972,12 @@ fn frame_turn_state(unit: &[u8]) -> Option<String> {
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
         let ws = matches!(source, Source::Ws { .. });
-        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
+        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None, idle: IdleWatch::off() }
+    }
+
+    fn with_idle(mut self, idle: IdleWatch) -> Self {
+        self.idle = idle;
+        self
     }
 
     /// Reads a WebSocket's first frame ahead of the consumer.
@@ -1075,11 +1100,24 @@ impl ModelStream for ResponsesStream {
                 self.source = None;
                 return None;
             }
-            match source.next_unit().await {
+            let unit = match self.idle.read(source.next_unit()).await {
+                Ok(unit) => unit,
+                Err(Stalled) => {
+                    let err = self.idle.stalled(self.decoder.exposure());
+                    self.record_failure(&err);
+                    self.source = None;
+                    self.failed = Some(err);
+                    continue;
+                }
+            };
+            match unit {
                 Some(Ok(unit)) => {
                     self.note_frame(&unit);
                     match self.decoder.feed(&unit) {
-                        Ok(events) => self.push(events),
+                        Ok(events) => {
+                            self.idle.note(&events);
+                            self.push(events);
+                        }
                         Err(err) => {
                             self.record_failure(&err);
                             self.source = None;
@@ -1247,3 +1285,41 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use crate::providers::idle::testing::Echo;
+    use crate::providers::idle::testing::Timetable;
+
+    fn http(items: &[(u64, &'static str)], window_ms: Option<f64>) -> ResponsesStream {
+        ResponsesStream::new(Source::Http(Timetable::of(items)), Box::new(Echo)).with_idle(IdleWatch::new(window_ms, "OpenAI HTTP fallback"))
+    }
+
+    /// Progress starts the window and a keepalive does not move it (`meaningful()`).
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_went_quiet_after_output_stalls() {
+        let mut stream = http(&[(0, "a"), (15, "k"), (15, "k")], Some(20_000.0));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        let err = stream.next().await.expect("the stall").expect_err("a stall");
+        assert_eq!(err.code.as_deref(), Some("ESTREAMSTALL"));
+        assert_eq!(err.timeout_phase, Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle));
+        assert_eq!(err.message, "OpenAI HTTP fallback stream timed out after 20000ms of inactivity");
+    }
+
+    /// Before the first output only the first-output windows bound the stream: keepalives alone never arm the idle one.
+    #[tokio::test(start_paused = true)]
+    async fn keepalives_alone_never_arm_the_window() {
+        let mut stream = http(&[(0, "k"), (5, "k")], Some(10_000.0));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_watchdog_switched_off_leaves_the_read_unbounded() {
+        let mut stream = http(&[(0, "a")], None);
+        assert!(stream.next().await.is_some());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
+    }
+}
