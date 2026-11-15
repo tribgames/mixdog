@@ -62,7 +62,7 @@ impl Mismatches {
 }
 
 fn cases(kind: &str) -> Vec<Value> {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&read_lone_surrogates(GOLDEN)).expect("golden parses");
     golden["cases"].as_array().expect("cases").iter().filter(|case| case["t"] == kind).cloned().collect()
 }
 
@@ -543,4 +543,46 @@ fn live_editor() {
         .output()
         .expect("node starts");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+fn hex4(digits: &[u8]) -> Option<u32> {
+    std::str::from_utf8(digits).ok().and_then(|text| u32::from_str_radix(text, 16).ok())
+}
+
+/// A recorded string may hold half of a surrogate pair (Node cuts a string by UTF-16 unit): JSON text writes that as a lone
+/// `\ud83d`, which a Rust string cannot hold. Each lone half is read as U+FFFD, which is also what the recorder's SHA-256 over
+/// UTF-8 saw. Such a value is still compared exactly, as the U+FFFD it was read as.
+fn read_lone_surrogates(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut at, mut copied) = (0, 0);
+    while at < bytes.len() {
+        if bytes[at] != b'\x5c' {
+            at += 1;
+            continue;
+        }
+        let unit = if bytes.get(at + 1) == Some(&b'u') && at + 6 <= bytes.len() { hex4(&bytes[at + 2..at + 6]) } else { None };
+        let Some(unit) = unit else {
+            at += 2;
+            continue;
+        };
+        let low_follows = |from: usize| {
+            bytes.get(from) == Some(&b'\x5c')
+                && bytes.get(from + 1) == Some(&b'u')
+                && from + 6 <= bytes.len()
+                && hex4(&bytes[from + 2..from + 6]).is_some_and(|low| (0xDC00..0xE000).contains(&low))
+        };
+        if (0xD800..0xDC00).contains(&unit) && low_follows(at + 6) {
+            at += 12;
+        } else if (0xD800..0xE000).contains(&unit) {
+            out.push_str(&text[copied..at]);
+            out.push_str("\\ufffd");
+            at += 6;
+            copied = at;
+        } else {
+            at += 6;
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
 }

@@ -305,9 +305,10 @@ mod tests {
         assert_eq!(wrapped_line_rows("", 10), 1);
         assert_eq!(wrapped_line_rows("short", 10), 1);
         assert_eq!(wrapped_line_rows("aaaa bbbb cccc", 9), 2);
-        assert_eq!(wrapped_line_rows("aaaa bbbb cccc", 4), 3);
-        // A word wider than the width starts its own row and fills ceil(w / width) rows.
-        assert_eq!(wrapped_line_rows("ab cdefghijkl", 5), 4);
+        // A separator that does not fit starts a row of its own, as the Node count has it: five rows.
+        assert_eq!(wrapped_line_rows("aaaa bbbb cccc", 4), 5);
+        // A word wider than the width starts its own row and fills ceil(w / width) rows after the row it started on.
+        assert_eq!(wrapped_line_rows("ab cdefghijkl", 5), 3);
         assert_eq!(wrapped_line_rows("abcdefghij", 5), 2);
         assert_eq!(wrapped_line_rows("abcdefghijk", 5), 3);
         // Two-cell characters count by cells.
