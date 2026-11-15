@@ -589,7 +589,10 @@ fn signed(value: usize) -> i64 {
 }
 
 /// `exec(string, columns, options)`: one line (no newline in it).
-fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
+///
+/// `ge_columns` is what a `rowLength >= columns` comparison measures against: the columns themselves for a whole width,
+/// and one more for a fractional one (a length is a whole number, so `length >= 33.68` is `length >= 34`).
+fn exec(text: &str, columns: usize, ge_columns: usize, options: WrapOptions) -> String {
     if options.trim && js_trim_start(js_trim_end(text)).is_empty() {
         return String::new();
     }
@@ -616,7 +619,7 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
         if is_first_word {
             is_first_word = false;
         } else {
-            if row_length >= columns && (!options.word_wrap || !options.trim) {
+            if row_length >= ge_columns && (!options.word_wrap || !options.trim) {
                 // A new word starts and the row is as long as the columns: add a row.
                 rows.push(String::new());
                 row_length = 0;
@@ -647,7 +650,7 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
             continue;
         }
         if row_length + word.width > columns && row_length > 0 && word.width > 0 {
-            if !options.word_wrap && row_length < columns {
+            if !options.word_wrap && row_length < ge_columns {
                 row_length = wrap_word(&mut rows, &word.value, columns, row_length);
                 continue;
             }
@@ -687,10 +690,15 @@ fn normalize_text(text: &str) -> String {
 
 /// `wrapAnsi(text, columns, options)`: each line (lines end at `\n` or `\r\n`) wrapped on its own.
 pub fn wrap_ansi(text: &str, columns: usize, options: WrapOptions) -> String {
+    wrap_ansi_ge(text, columns, columns, options)
+}
+
+/// [`wrap_ansi`] with the threshold of the `>=` comparisons given (see `exec`).
+fn wrap_ansi_ge(text: &str, columns: usize, ge_columns: usize, options: WrapOptions) -> String {
     normalize_text(text)
         .replace("\r\n", "\n")
         .split('\n')
-        .map(|line| exec(&expand_tabs(line), columns, options))
+        .map(|line| exec(&expand_tabs(line), columns, ge_columns, options))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -920,6 +928,30 @@ pub fn wrap_text_with(text: &str, max_width: usize, mode: WrapMode, wide: bool) 
         WrapMode::TruncateMiddle => truncate(text, max_width, TruncatePosition::Middle),
         WrapMode::TruncateStart => truncate(text, max_width, TruncatePosition::Start),
     }
+}
+
+/// Ink's `wrapText(text, maxWidth, wrapType)` with the width Yoga measured a text at, which is a fraction when a row
+/// shrinks its texts in proportion (`floor(33.68)` columns, but a line is over the width when it is longer than that, and
+/// a row full to the width starts a new row only when it reaches the next whole number). A whole width is the plain
+/// [`wrap_text`]. Wrapping modes only: a truncating mode takes the whole columns.
+///
+/// With the display-width policy on and an arrow or enclosed glyph in the text, the repair measures every wrapped line
+/// against the width again, so a line that wrapping itself leaves one cell over a fractional width (it keeps the blank it
+/// added before the word that did not fit) is cut there, its overflow becoming a row of its own.
+pub fn wrap_text_fractional(text: &str, max_width: f64, mode: WrapMode) -> String {
+    let whole = max_width.round();
+    if max_width < 1.0 || (max_width - whole).abs() < 1e-4 {
+        return wrap_text(text, whole.max(0.0) as usize, mode);
+    }
+    let floor = max_width.floor() as usize;
+    let word_wrap = match mode {
+        WrapMode::Wrap => true,
+        WrapMode::Hard => false,
+        _ => return wrap_text(text, floor, mode),
+    };
+    let wide = process_policy();
+    let wrapped = wrap_ansi_ge(text, floor, floor + 1, WrapOptions { trim: false, hard: true, word_wrap });
+    enforce_display_width(wrapped, floor, Enforce::Reflow, wide)
 }
 
 /// Entries after which a cache is emptied: the Node caches are unbounded, a long session must not be.

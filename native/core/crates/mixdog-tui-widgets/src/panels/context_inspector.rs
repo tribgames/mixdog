@@ -354,10 +354,9 @@ pub fn paint_context_inspector(painter: &mut Painter, x: i32, y: i32, props: &In
         None
     };
     let subtle = themed(Key::Subtle);
-    let mut at = y;
-    let mut line = |painter: &mut Painter, text: &str, style: Style| {
-        at += i32::from(put(painter, x, at, text, style, width, TextWrap::Wrap));
-    };
+    // The children of the column, laid out together once they are all known (see `paint_column`).
+    let mut children: Vec<(String, Style)> = Vec::new();
+    let mut line = |_: &mut Painter, text: &str, style: Style| children.push((text.to_owned(), style));
     line(painter, &fit_line("\u{2191}\u{2193} select \u{b7} Enter inspect \u{b7} \u{2190} back \u{b7} Z zoom \u{b7} R refresh", width), subtle);
     if let Some(preview) = state.preview() {
         let note = if preview.truncated { "Preview limited to 32,000 characters." } else { "Local preview \u{b7} opaque data excluded" };
@@ -412,10 +411,39 @@ pub fn paint_context_inspector(painter: &mut Painter, x: i32, y: i32, props: &In
             line(painter, "No entries.", subtle);
         }
     }
+    paint_column(painter, x, y, rows, width, &children);
     if let Some(previous) = previous {
         painter.pop_clip(previous);
     }
     rows as u16
+}
+
+/// The texts of a column box `rows` high, each flowing into the box as Yoga lays them out (`flexDirection="column"`,
+/// `height={rows}`, children of flexShrink 1): when they take more rows than the box has, every text shrinks in proportion
+/// to the rows it asked for (`rows * asked / total`), and a text node is placed at the floor of its top (Yoga rounds a
+/// text's position down). A shrunk text is still drawn whole, so the texts that land on the same row overprint each other
+/// in order, and the box clips what is past its last row.
+fn paint_column(painter: &mut Painter, x: i32, y: i32, rows: usize, width: usize, children: &[(String, Style)]) {
+    let asked: Vec<usize> = children.iter().map(|(text, _)| if text.is_empty() { 0 } else { crate::fitted_rows(text, width, TextWrap::Wrap) as usize }).collect();
+    let total: usize = asked.iter().sum();
+    let mut top = 0.0f64;
+    for ((text, style), rows_asked) in children.iter().zip(&asked) {
+        let row = if total > rows { top.floor_with_tolerance() } else { top as i64 };
+        put(painter, x, y + row as i32, text, *style, width, TextWrap::Wrap);
+        top += if total > rows { *rows_asked as f64 * rows as f64 / total as f64 } else { *rows_asked as f64 };
+    }
+}
+
+/// `floor` that takes a value within Yoga's 1e-4 of the next whole number as that number.
+trait FloorWithTolerance {
+    fn floor_with_tolerance(self) -> i64;
+}
+
+impl FloorWithTolerance for f64 {
+    fn floor_with_tolerance(self) -> i64 {
+        let floor = self.floor();
+        if self - floor > 1.0 - 1e-4 { floor as i64 + 1 } else { floor as i64 }
+    }
 }
 
 #[cfg(test)]
