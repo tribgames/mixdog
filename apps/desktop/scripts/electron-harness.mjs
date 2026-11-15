@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import electron from 'electron';
 import { build } from 'esbuild';
@@ -70,6 +71,29 @@ export function waitForChildExit(
   });
 }
 
+/**
+ * A package a harness leaves outside its bundle is imported by its bare name from the bundle's own folder, a temp
+ * directory: Node then finds whatever stands in a parent folder (a years-old `ws` in the user's home sent an Origin
+ * header, which the core refuses with 403). Each such package but `electron` is named by the file this app resolves.
+ */
+function ownPackages(external) {
+  const appRequire = createRequire(new URL('../package.json', import.meta.url));
+  const names = external.filter((name) => name !== 'electron');
+  return {
+    name: 'own-packages',
+    setup(setupBuild) {
+      setupBuild.onResolve({ filter: /^[^./]/ }, (args) => {
+        if (!names.includes(args.path)) return undefined;
+        try {
+          return { path: pathToFileURL(appRequire.resolve(args.path)).href, external: true };
+        } catch {
+          return undefined;
+        }
+      });
+    },
+  };
+}
+
 export async function bundleElectronEntry({
   entry,
   outfile,
@@ -81,7 +105,7 @@ export async function bundleElectronEntry({
     entryPoints: [entry instanceof URL ? fileURLToPath(entry) : entry],
     outfile,
     bundle: true,
-    plugins,
+    plugins: [...plugins, ownPackages(external)],
     platform: 'node',
     format: 'esm',
     target: 'node22',
