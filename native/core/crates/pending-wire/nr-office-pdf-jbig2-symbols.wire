@@ -1,0 +1,22 @@
+# nr-office-pdf-jbig2-symbols: mixdog-pdf JBIG2 symbol dictionaries, text regions, Huffman tables, pattern dictionaries and halftone regions.
+
+Nothing in a hot file is needed:
+
+- no workspace member, no workspace dependency, no Cargo.lock package, no dependency edge (the crate gains the modules
+  codec/jbig2/{huffman,symbols,text,halftone}.rs, declared in codec/jbig2/mod.rs; the twin test uses mixdog-office-base
+  `twin` and mixdog-testkit, both already dev-dependencies of mixdog-pdf);
+- no protocol row, no SERVICE_PENDING name.
+
+For the lead when merging:
+
+- A new fixture set, native/core/fixtures/office-jbig2-symbols/ (cases.txt, MANIFEST.json), is written in the worktree and added
+  with `git add --sparse`. It is recorded by native/core/crates/mixdog-pdf/tests/record_jbig2_symbols.mjs, which takes the
+  generic recorder's encoders from benchmarks/rust-core/recorders/record-office-jbig2.mjs (`--recorders <dir>` names another
+  place for that file) and pdfjs-dist from `--tree`; the ignored test `twin_live_jbig2_symbols` runs it.
+- Files of nr-office-pdf-jbig2-generic that this task had to change (it was merged before; no other task in the plan owns them):
+  codec/arith.rs (a marker in the data no longer completes the decoder: only running past the end of the data does, which
+  PDFium's decoder does, shown by region decoders that ask for more rows than the data holds),
+  codec/jbig2/refine.rs (a shift of the reference by its height or more is no shift in the byte-wise path),
+  codec/jbig2/mod.rs (the module lines, the segment results of dictionaries, patterns and tables, the dispatch of the
+  segment types 0, 4, 6, 7, 16, 20, 22, 23 and 53, and `finish_region`).
+  The generic twin (tests/twin_jbig2_generic.rs, 630 recorded cases) still passes with these edits (run outside cargo, see the result).
