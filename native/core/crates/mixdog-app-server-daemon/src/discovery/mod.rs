@@ -34,9 +34,7 @@ fn node_tmpdir() -> PathBuf {
     #[cfg(windows)]
     {
         let path: OsString = var("TEMP").or_else(|| var("TMP")).unwrap_or_else(|| {
-            let mut root = var("SystemRoot")
-                .or_else(|| var("windir"))
-                .unwrap_or_default();
+            let mut root = var("SystemRoot").or_else(|| var("windir")).unwrap_or_default();
             root.push("\\temp");
             root
         });
@@ -48,10 +46,8 @@ fn node_tmpdir() -> PathBuf {
     }
     #[cfg(unix)]
     {
-        let path: OsString = var("TMPDIR")
-            .or_else(|| var("TMP"))
-            .or_else(|| var("TEMP"))
-            .unwrap_or_else(|| "/tmp".into());
+        let path: OsString =
+            var("TMPDIR").or_else(|| var("TMP")).or_else(|| var("TEMP")).unwrap_or_else(|| "/tmp".into());
         let text = path.to_string_lossy();
         if text.len() > 1 && text.ends_with('/') {
             return PathBuf::from(&text[..text.len() - 1]);
@@ -85,19 +81,13 @@ pub fn ensure_private_root(root: &Path) -> io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::fs::PermissionsExt;
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(root)?;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(root)?;
         let meta = std::fs::symlink_metadata(root)?;
         // SAFETY: getuid has no preconditions.
         if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!(
-                    "runtime root is not owned by the current user: {}",
-                    root.display()
-                ),
+                format!("runtime root is not owned by the current user: {}", root.display()),
             ));
         }
         std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
@@ -114,11 +104,7 @@ pub fn path(root: &Path) -> PathBuf {
 
 /// The one token: it authenticates the RPC upgrade and every management request.
 pub fn generate_token() -> String {
-    format!(
-        "{:032x}{:032x}",
-        rand::random::<u128>(),
-        rand::random::<u128>()
-    )
+    format!("{:032x}{:032x}", rand::random::<u128>(), rand::random::<u128>())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -181,15 +167,10 @@ pub struct Discovery {
 
 /// Whether discovery bytes name core instance `instance_id`.
 pub fn names_instance(bytes: &[u8], instance_id: &str) -> bool {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .is_some_and(|value| {
-            value
-                .get("core")
-                .and_then(|core| core.get("instanceId"))
-                .and_then(serde_json::Value::as_str)
-                == Some(instance_id)
-        })
+    serde_json::from_slice::<serde_json::Value>(bytes).ok().is_some_and(|value| {
+        value.get("core").and_then(|core| core.get("instanceId")).and_then(serde_json::Value::as_str)
+            == Some(instance_id)
+    })
 }
 
 /// Publishes `discovery` at `<root>/daemon.json`: written owner-only to a
@@ -259,10 +240,7 @@ fn publish_with(
 ) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(discovery).map_err(io::Error::other)?;
     bytes.push(b'\n');
-    let staging = root.join(format!(
-        "{DISCOVERY_FILE}.{}.tmp",
-        discovery.core.instance_id
-    ));
+    let staging = root.join(format!("{DISCOVERY_FILE}.{}.tmp", discovery.core.instance_id));
     let target = path(root);
     let written = (|| {
         let mut file = sys::create_owner_only(&staging)?;
@@ -308,24 +286,43 @@ pub fn withdraw(root: &Path, instance_id: &str) -> io::Result<bool> {
     }
 }
 
-/// How often a serving core looks for its discovery file (Node's `watchOwnedFiles` reacted to the deletion event; a stat of one file is the
-/// same answer without missing a deletion that lands right after the core's own publish).
-const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+/// Node watched-file-cache.mjs uses a 50 ms reload debounce, not a polling clock.
+const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
 struct Held {
     document: Option<Discovery>,
-    /// Whether the last republish failed, so a file that cannot be written is reported once per streak, not on every look.
     failing: bool,
 }
 
-/// The discovery file of a serving core, kept: [`OwnedDiscovery::publish`] writes the document and remembers it, and a thread puts the
-/// remembered document back when something deletes the file (a temp cleaner, a user, another tool), so the next client attaches to this core
-/// instead of starting a second one that finds the lock held and publishes `blocked`. Publishes and republishes share one lock, so a
-/// republish never lands over a newer state. [`OwnedDiscovery::release`] forgets the document and withdraws the file; dropping stops the thread.
+enum WatchSignal {
+    Changed,
+    Stop,
+    #[cfg(test)]
+    Rechecked(std::sync::mpsc::Sender<()>),
+}
+
+fn signal_watch_event(root: &Path, events: &std::sync::mpsc::Sender<WatchSignal>, event: notify::Result<notify::Event>) {
+    let relevant = match event {
+        Ok(event) => event.need_rescan() || (!matches!(event.kind, notify::EventKind::Access(_))
+            && event.paths.iter().any(|p| p == &path(root) || p == root || root.starts_with(p))),
+        Err(error) => {
+            tracing::warn!(%error, "discovery watch lost; waiting for an ancestor event");
+            true
+        }
+    };
+    if relevant {
+        let _ = events.send(WatchSignal::Changed);
+    }
+}
+
+/// Keeps discovery only after the startup verdict has cleared (migrating/serving).
+/// Booting and blocked contenders still publish their lifecycle document once,
+/// but cannot compete with the actual owner for automatic republication.
+/// Writes, rechecks and release share one lock; stopping never resurrects a file.
 pub struct OwnedDiscovery {
     root: PathBuf,
     held: std::sync::Arc<std::sync::Mutex<Held>>,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    events: std::sync::mpsc::Sender<WatchSignal>,
 }
 
 impl OwnedDiscovery {
@@ -333,62 +330,139 @@ impl OwnedDiscovery {
         Self::start_with(root, WATCH_INTERVAL)
     }
 
-    fn start_with(root: PathBuf, interval: std::time::Duration) -> Self {
+    fn start_with(root: PathBuf, debounce: std::time::Duration) -> Self {
         let held = std::sync::Arc::new(std::sync::Mutex::new(Held { document: None, failing: false }));
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let watcher = (root.clone(), std::sync::Arc::downgrade(&held), stop.clone());
+        let (events, inbox) = std::sync::mpsc::channel();
+        let changed = events.clone();
+        let watched_root = root.clone();
+        let weak = std::sync::Arc::downgrade(&held);
         std::thread::Builder::new()
             .name("mixdog-discovery-watch".into())
             .spawn(move || {
-                let (root, held, stop) = watcher;
-                while !stop.load(std::sync::atomic::Ordering::Acquire) {
-                    std::thread::sleep(interval);
-                    let Some(held) = held.upgrade() else { return };
+                let callback_root = watched_root.clone();
+                let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    signal_watch_event(&callback_root, &changed, event);
+                })
+                .map_err(|error| tracing::warn!(%error, "discovery watch unavailable"))
+                .ok();
+                let mut watching = Vec::new();
+                refresh_watch(watcher.as_mut(), &mut watching, &watched_root);
+                while let Ok(signal) = inbox.recv() {
+                    if matches!(signal, WatchSignal::Stop) {
+                        break;
+                    }
+                    #[cfg(test)]
+                    let mut rechecked = match signal {
+                        WatchSignal::Rechecked(done) => vec![done],
+                        _ => Vec::new(),
+                    };
+                    // One recheck per burst, off runtime workers. An event arriving during
+                    // the filesystem work remains queued for the next check.
+                    loop {
+                        match inbox.recv_timeout(debounce) {
+                            Ok(WatchSignal::Stop) => return,
+                            Ok(WatchSignal::Changed) => continue,
+                            #[cfg(test)]
+                            Ok(WatchSignal::Rechecked(done)) => rechecked.push(done),
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                        }
+                    }
+                    refresh_watch(watcher.as_mut(), &mut watching, &watched_root);
+                    let Some(held) = weak.upgrade() else { return };
                     let mut held = held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    republish_if_deleted(&root, &mut held);
+                    republish_if_changed(&watched_root, &mut held);
+                    #[cfg(test)]
+                    for done in rechecked {
+                        let _ = done.send(());
+                    }
                 }
+                // Dropping RecommendedWatcher releases its native watches.
             })
             .expect("the OS refused a discovery watch thread");
-        Self { root, held, stop }
+        Self { root, held, events }
     }
 
-    /// Writes `document` and keeps it as the one to put back.
+    /// Publish once in every phase, but keep automatic publication only while
+    /// ownership has been established. startup::start publishes migrating after
+    /// GateStep::Clear; a blocked verdict has not reached that point.
     pub fn publish(&self, document: &Discovery) -> io::Result<()> {
         let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Disarm before a fallible stopping/blocked publication as well.
+        if !matches!(document.core.state, CoreState::Migrating | CoreState::Serving) {
+            held.document = None;
+        }
         publish(&self.root, document)?;
-        held.document = Some(document.clone());
+        held.document =
+            matches!(document.core.state, CoreState::Migrating | CoreState::Serving).then(|| document.clone());
         held.failing = false;
+        // Explicit post-publish recheck closes the missing->missing baseline race,
+        // including a deletion before the watch thread has installed its handles.
+        let _ = self.events.send(WatchSignal::Changed);
         Ok(())
     }
 
-    /// Stops keeping the file and removes it when it names `instance_id`.
     pub fn release(&self, instance_id: &str) -> io::Result<bool> {
         let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         held.document = None;
         withdraw(&self.root, instance_id)
     }
 }
-
 impl Drop for OwnedDiscovery {
     fn drop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).document = None;
+        let _ = self.events.send(WatchSignal::Stop);
     }
 }
 
-fn republish_if_deleted(root: &Path, held: &mut Held) {
+/// Watch the root and its nearest existing ancestor. Rebinding after an event
+/// follows replacement of a watched directory; the immediate read judges changes
+/// that landed during rebinding. If the root disappears, its ancestor reports its
+/// recreation. There is no periodic scan or retry while a watch is blind.
+fn refresh_watch(watcher: Option<&mut notify::RecommendedWatcher>, watching: &mut Vec<PathBuf>, root: &Path) {
+    use notify::Watcher;
+    let Some(watcher) = watcher else { return };
+    for old in watching.drain(..) {
+        let _ = watcher.unwatch(&old);
+    }
+    let mut candidates = Vec::new();
+    if root.is_dir() {
+        candidates.push(root.to_path_buf());
+    }
+    if let Some(parent) = root.ancestors().skip(1).find(|p| p.is_dir()) {
+        candidates.push(parent.to_path_buf());
+    }
+    for directory in candidates {
+        match watcher.watch(&directory, notify::RecursiveMode::NonRecursive) {
+            Ok(()) => watching.push(directory),
+            Err(error) => {
+                tracing::warn!(%error, path = %directory.display(), "discovery watch unavailable; ancestor events may restore it")
+            }
+        }
+    }
+}
+
+/// daemon-owner.mjs discoveryOf applies Number(pid), not strict JSON type checks.
+/// A same-pid document is left alone even when its other fields were overwritten.
+fn names_pid(bytes: &[u8], pid: u32) -> bool {
+    mixdog_js::json_parse(&String::from_utf8_lossy(bytes))
+        .ok()
+        .is_some_and(|value| mixdog_js::to_number_of(value.get("pid")) == f64::from(pid))
+}
+
+fn republish_if_changed(root: &Path, held: &mut Held) {
     let Some(document) = held.document.as_ref() else { return };
-    if !std::fs::symlink_metadata(path(root)).is_err_and(|error| error.kind() == io::ErrorKind::NotFound) {
+    if std::fs::read(path(root)).is_ok_and(|bytes| names_pid(&bytes, document.pid)) {
         return;
     }
-    // A temp cleaner can take the runtime root with the file: it is made again, owner-only, as at startup.
     match ensure_private_root(root).and_then(|()| publish(root, document)) {
         Ok(()) => {
             held.failing = false;
-            tracing::warn!("the discovery file was deleted while this core serves: published it again");
+            tracing::warn!("discovery was missing or named another pid: published it again");
         }
         Err(error) => {
             if !held.failing {
-                tracing::error!(%error, "the discovery file was deleted and cannot be published again");
+                tracing::error!(%error, "discovery cannot be published again");
             }
             held.failing = true;
         }
@@ -512,10 +586,7 @@ mod sys {
 
     /// Creates `path` with a protected DACL granting only the current user.
     pub(super) fn create_owner_only(path: &Path) -> io::Result<File> {
-        let sddl: Vec<u16> = format!("D:P(A;;FA;;;{})", user_sid()?)
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
+        let sddl: Vec<u16> = format!("D:P(A;;FA;;;{})", user_sid()?).encode_utf16().chain(std::iter::once(0)).collect();
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: NUL-terminated SDDL and an out-pointer.
         let ok = unsafe {
@@ -585,14 +656,7 @@ mod sys {
         use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
         let (from, to) = (dir_wide(from), dir_wide(to));
         // SAFETY: NUL-terminated wide paths.
-        if unsafe {
-            MoveFileExW(
-                from.as_ptr(),
-                to.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        } == 0
-        {
+        if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
