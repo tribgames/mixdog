@@ -100,7 +100,7 @@ pub type FontHandle = Arc<LoadedFont>;
 /// The page part of `page.getOperatorList()` (the `oplist` intent: no queue optimizer): the page's content stream is
 /// evaluated with the page's resources merged under the content stream's own. pdf.js's list (display intent,
 /// `AnnotationMode.ENABLE`) continues with the operator lists of the viewable annotations' appearance streams
-/// (`beginAnnotation` ... `endAnnotation`); those are not read here yet. A failure inside the content stream ends the
+/// (`beginAnnotation` ... `endAnnotation`); those are [`get_operator_list_with_annotations`]. A failure inside the content stream ends the
 /// stream and keeps what was read when the document's `ignore_errors` is set (as pdf.js's `ignoreErrors`); a
 /// cancellation or a budget failure always propagates.
 pub fn get_operator_list(
@@ -109,6 +109,50 @@ pub fn get_operator_list(
     fonts: Option<&dyn FontProvider>,
 ) -> Result<OperatorList> {
     Ok(get_page_operators(document, page, fonts)?.list)
+}
+
+/// `page.getOperatorList()` as pdf.js's display intent makes it with `AnnotationMode.ENABLE`: the page's operators, then the
+/// appearance stream of every viewable annotation that has one (a widget included: the forms are drawn on the canvas in
+/// this mode), in the order [`crate::annotations::get_annotations`] gives. pdf.js brackets each between `beginAnnotation`
+/// and `endAnnotation`; the analysis ignores both, so they are not added. An annotation whose appearance cannot be read
+/// is left out (pdf.js warns `ignoring annotation data`); a cancellation or a budget failure propagates.
+pub fn get_operator_list_with_annotations(
+    document: &Document,
+    page: &Page,
+    fonts: Option<&dyn FontProvider>,
+) -> Result<OperatorList> {
+    document.guard().check_now()?;
+    let content = page.content(document)?;
+    let resources = merged_resources(document, page)?;
+    let mut evaluator = interpreter::Evaluator::new(document, fonts, page.index);
+    let mut list = OperatorList::new();
+    evaluator.get_operator_list(content, None, &resources, &mut list, None, &[])?;
+    let xref = document.xref();
+    let filters = xref.filters();
+    for annotation in crate::annotations::get_annotations(document, page)? {
+        // `mustBeViewed`: viewable (what `get_annotations` keeps) and not `AnnotationFlag.HIDDEN` (2).
+        if annotation.annotation_flags & 2 != 0 {
+            continue;
+        }
+        let Some(Obj::Stream(stream)) = annotation.appearance else {
+            continue;
+        };
+        let mut own = OperatorList::new();
+        let read = (|| -> Result<()> {
+            let bytes = stream.decode(filters.as_ref(), xref.guard())?;
+            let resources = match xref.get(&stream.dict, "Resources")? {
+                Obj::Dict(resources) => resources,
+                _ => Arc::new(Dict::new()),
+            };
+            evaluator.get_operator_list(bytes, None, &resources, &mut own, None, &[])
+        })();
+        match read {
+            Ok(()) => list.add_op_list(own),
+            Err(e) if e.is_fatal() => return Err(e),
+            Err(e) => tracing::warn!("getOperatorList - ignoring annotation data during \"OperatorList\" task: \"{e}\"."),
+        }
+    }
+    Ok(list)
 }
 
 /// A page's operator list with the fonts it was made with: what the display layer holds in `commonObjs`, the glyph

@@ -1,5 +1,6 @@
 //! `form.flatten()` of pdf-lib: every widget's appearance is painted into its page as a form XObject at the widget's
-//! rectangle, and the field is removed from the form, from its page and from the document.
+//! rectangle, and the field is removed from the form and from the document; the widgets' pages lose the field's own
+//! reference from their `Annots` (a separate widget kid stays listed, pointing at nothing, as pdf-lib leaves it).
 //!
 //! The appearances are brought up to date first (with the default font), so a field that was never drawn is flattened
 //! as it would be shown. A page's own content is wrapped in `q` ... `Q` the first time it is drawn on, as for every
@@ -131,9 +132,15 @@ pub(crate) fn flatten_form(form: &mut PdfForm, document: &mut PdfDocument, wrapp
     let mut rng = mixdog_pdf::embed::SuffixRng::default();
     for field in form.fields(document).map_err(form_error)? {
         let widgets = widgets_of(document.store(), field.reference).map_err(form_error)?;
+        let mut pages: Vec<Ref> = Vec::new();
+        let mut appearances: Vec<(Ref, Ref)> = Vec::new();
         for widget in &widgets {
             let page = widget_page(document, widget)?;
             let appearance = widget_appearance(document.store(), &field, widget)?;
+            appearances.push((page, appearance));
+            if !pages.contains(&page) {
+                pages.push(page);
+            }
             let rectangle = widget_rectangle(document.store(), widget).map_err(form_error)?;
             let mut ink = PageInk::new(document, page);
             let name = ink.xobject(&mut rng, "FlatWidget", appearance);
@@ -144,13 +151,14 @@ pub(crate) fn flatten_form(form: &mut PdfForm, document: &mut PdfDocument, wrapp
             ));
             ink.commit(document, wrapped);
         }
-        // The widgets and the field leave their pages; the kids and the field leave the document.
-        let pages = document.pages();
-        for page in &pages {
-            for widget in widgets.iter().filter_map(|widget| widget.reference) {
-                remove_ref(document.store_mut(), *page, "Annots", widget);
-            }
-            remove_ref(document.store_mut(), *page, "Annots", field.reference);
+        // `removeField`: each widget's page is asked to drop the widget's appearance reference (not normally in its
+        // `Annots`, so a separate widget kid stays listed, pointing at nothing: the recording holds `null` for each), then
+        // the widgets' pages drop the field's own reference (a field merged with its widget leaves the list).
+        for (page, appearance) in appearances {
+            remove_ref(document.store_mut(), page, "Annots", appearance);
+        }
+        for page in pages {
+            remove_ref(document.store_mut(), page, "Annots", field.reference);
         }
         remove_from_form(form, document, field.reference)?;
         for widget in widgets.iter().filter_map(|widget| widget.reference).filter(|widget| *widget != field.reference) {

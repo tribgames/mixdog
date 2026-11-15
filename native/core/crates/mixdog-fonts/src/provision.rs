@@ -31,7 +31,8 @@ pub struct FontDef {
     pub family: &'static str,
     pub file_name: &'static str,
     pub registry_name: &'static str,
-    path: &'static str,
+    /// The path under the pinned google/fonts commit.
+    pub path: &'static str,
     pub bytes: usize,
     pub sha256: &'static str,
 }
