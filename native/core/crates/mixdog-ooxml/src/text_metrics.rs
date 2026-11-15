@@ -1341,6 +1341,19 @@ mod tests {
     }
 
     #[test]
+    fn hangul_in_a_latin_face_is_measured_in_the_east_asian_fallback() {
+        assert_eq!(TextMeasurer::new(&Unlaned, &Registry::new()).cjk_fallback, "Malgun Gothic");
+        let registered = registry(&[("MiriamLibre-Regular.otf", "Twin Miriam"), ("NotoSansLisu-Regular.ttf", "Noto Sans KR")]);
+        let measurer = TextMeasurer::new(&Unlaned, &registered);
+        assert_eq!(measurer.cjk_fallback, "Noto Sans KR");
+        let latin = font("Twin Miriam", 18.0);
+        let mixed = measurer.measure_text_width("Hi 안녕", &latin).expect("measures");
+        let head = measurer.measure_text_width("Hi ", &latin).expect("measures");
+        let tail = measurer.measure_text_width("안녕", &font("Noto Sans KR", 18.0)).expect("measures");
+        assert_eq!(mixed, head + tail);
+    }
+
+    #[test]
     fn a_paragraph_wraps_at_spaces_and_a_long_word_between_characters() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);
         let measurer = TextMeasurer::new(&Unlaned, &registered);

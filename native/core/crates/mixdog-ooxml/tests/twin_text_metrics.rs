@@ -11,6 +11,7 @@ use mixdog_fonts::discovery::HostEnv;
 use mixdog_fonts::provision;
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::Unlaned;
+use mixdog_js::json_number;
 use mixdog_office_base::twin;
 use mixdog_ooxml::relations::{Relation, RelationBox};
 use mixdog_ooxml::text_metrics::{
@@ -241,7 +242,9 @@ fn every_output_equals_the_recording() {
         };
         let shrunk = measurer.shrink_font_size_to_fit(&paragraphs(&case["input"]), &shrink).expect("a repair");
         close(&format!("shrink[{at}] scale"), &case["output"]["scale"], shrunk.scale, &mut failures);
-        same(&format!("shrink[{at}] sizes"), &case["output"]["sizes"], &json!(shrunk.sizes), &mut failures);
+        // As JSON numbers V8 prints them: a whole size is an integer in the recording, not 30.0.
+        let sizes = Value::Array(shrunk.sizes.iter().map(|size| json_number(*size)).collect());
+        same(&format!("shrink[{at}] sizes"), &case["output"]["sizes"], &sizes, &mut failures);
     }
     for (at, case) in cases["luminance"].as_array().expect("luminance").iter().enumerate() {
         count += 1;
