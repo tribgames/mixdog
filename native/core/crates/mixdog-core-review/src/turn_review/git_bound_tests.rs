@@ -307,10 +307,16 @@ fn review_text(message: &str) -> String {
     normalized(message, &mixdog_scm::git_launch::git_command())
 }
 
-/// The program the review resolves is the one Node's recording resolved on this machine.
+/// The program the review resolves is the one Node's recording resolved on this machine. The recording ran with the
+/// installation's `cmd` directory on PATH; a test run's own PATH may name another git first (Git Bash puts `mingw64/bin` there,
+/// which Node resolves to plain `git` as well), so the review's resolution is asked of the recording's PATH.
 #[test]
 fn the_review_names_the_git_node_names() {
-    assert_eq!(mixdog_scm::git_launch::git_command(), bounds()["gitCommand"].as_str().unwrap());
+    let recorded = bounds()["gitCommand"].as_str().unwrap().to_owned();
+    let root = std::path::Path::new(&recorded).parent().and_then(std::path::Path::parent).and_then(std::path::Path::parent).expect("an installation root");
+    let path = root.join("cmd").to_string_lossy().into_owned();
+    let layout = mixdog_scm::git_launch::resolve_layout(mixdog_scm::git_launch::BUILD_PLATFORM, &path).expect("the recorded installation is a launcher layout");
+    assert_eq!(layout.command, recorded);
 }
 
 fn strings(value: &serde_json::Value) -> Vec<String> {
