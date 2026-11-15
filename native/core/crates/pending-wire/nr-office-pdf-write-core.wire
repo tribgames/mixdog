@@ -1,0 +1,37 @@
+# nr-office-pdf-write-core: what the lead applies (all of it is in files this task does not own)
+
+## 1. native/core/crates/mixdog-pdf/src/lib.rs
+Anchor: the module list, after `pub mod text;` (alphabetical order puts it last; `xref` stays where it is):
+
+    pub mod write;
+
+Anchor: the crate doc comment, last paragraph ("The modules after them ... never share one."): append
+"`write` is the writing half (a mutable document over the same object model, the Info dictionary, save with or
+without object streams)."
+
+## 2. native/core/crates/mixdog-pdf/Cargo.toml
+[dependencies]  add (flate2 is the encoder of the Flate streams the writer makes: object streams, the cross-reference
+stream, content streams; the version and features are the workspace's, already in Cargo.lock):
+
+    flate2 = { workspace = true }
+    mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }   # if the hakari rule of the workspace wants it for a crate that gains a normal dependency
+
+[dev-dependencies]  remove `flate2 = { workspace = true }` (it is a normal dependency now, tests/syntax.rs and
+tests/twin_write_core.rs use it from there) and add:
+
+    serde_json = { workspace = true }       # tests/twin_write_core.rs reads golden.json
+    mixdog-testkit = { workspace = true }   # file reads/writes and the node process of the ignored live test
+
+Cargo.lock (lead regenerates it offline, --locked after that): the `mixdog-pdf` package gains `mixdog-testkit` and
+`serde_json` (flate2 is already listed there as a dev dependency). No new crate enters the lock.
+
+## 3. native/core/fixtures/MANIFEST.json
+Run `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` once the wave is merged: it adds the row
+of the new set `office-write-core` (recorder benchmarks/rust-core/recorders/record-office-write-core.mjs, 1 file,
+golden.json). The set's own MANIFEST.json is already written (native/core/fixtures/office-write-core/MANIFEST.json).
+
+## 4. Nothing else
+No protocol row, no SERVICE_PENDING name, no desktop fragment. The tools that call the writer (the office PDF
+operations, pdf-draw, OCR overlay, marks, batch structure) are other tasks of the track; they use
+`mixdog_pdf::write::{PdfDocument, LoadOptions, SaveOptions, DocumentProperties}` and build the `StreamFilters` of
+`LoadOptions` from mixdog-pdf-codec's filters (the ext-host codec glue), which this task does not depend on.
