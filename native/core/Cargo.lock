@@ -6557,6 +6557,8 @@ dependencies = [
 name = "mixdog-tui"
 version = "1.5.0"
 dependencies = [
+ "mixdog-cli",
+ "mixdog-core",
  "mixdog-core-config",
  "mixdog-core-session",
  "mixdog-fsio",
@@ -6571,11 +6573,14 @@ dependencies = [
  "mixdog-tui-widgets",
  "mixdog-view-model",
  "mixdog-workspace-hack",
+ "portable-pty",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "unicode-segmentation",
+ "vte",
 ]
 
 [[package]]
