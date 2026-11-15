@@ -55,14 +55,6 @@ if (
   console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
 }
 
-for (const script of ['build:spawn:test']) {
-  const build = spawnSync(`npm run ${script}`, { cwd: root, stdio: 'inherit', shell: true });
-  if (build.status !== 0) {
-    console.error(`[gate:local] ${script} failed`);
-    process.exit(1);
-  }
-}
-
 // Each run owns its log directory, so concurrent runs never touch each other's
 // logs and the paths the summary prints stay valid after any outcome. Log
 // directories are kept until they go stale; a resources directory a killed
@@ -121,6 +113,7 @@ const lanesByName = new Map(testLanes.map((lane) => [lane.name, lane]));
 const commandUnits = [
   // No test lane reads the build (apps/desktop/out), so it shares the pool with them.
   { lane: 'desktop', cmds: ['npm run build --prefix apps/desktop'] },
+  { lane: 'packages', cmds: ['npm run typecheck:packages'] },
 ].map((unit) => {
   const key = `cmd:${unit.cmds.join(' && ')}`;
   return { ...unit, key, estimate: history[key] ?? DEFAULT_ESTIMATE_MS.command };

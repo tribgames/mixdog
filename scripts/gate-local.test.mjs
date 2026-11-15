@@ -44,7 +44,7 @@ async function stubbedCheckout(t) {
     join(root, 'package.json'),
     JSON.stringify({
       scripts: {
-        'build:spawn:test': noop,
+        'typecheck:packages': noop,
         test: 'node scripts/test.mjs',
         'test:slow': 'node scripts/test.mjs --lane slow',
       },
@@ -111,11 +111,12 @@ test('concurrent gate runs keep separate log dirs, and a start sweeps only stale
   assert.notEqual(logDirs[0], logDirs[1]);
   for (const [index, run] of runs.entries()) {
     // Every summary line names a log inside this run's own directory, and it
-    // exists: one per lane (four test lanes, desktop).
+    // exists: one per lane (four test lanes, desktop, packages).
     const printed = [...run.stdout.matchAll(/^PASS {2}\S+ {2}\S+ \(.+?\) {2}(.+)$/gm)].map((match) => match[1]);
-    assert.equal(printed.length, 5, run.stdout);
+    assert.equal(printed.length, 6, run.stdout);
     const names = await readdir(logDirs[index]);
-    assert.equal(names.length, 5);
+    assert.equal(names.length, 6);
+    assert.ok(names.includes("packages.log"), "the package typecheck has a recorded gate result");
     for (const path of printed)
       assert.ok(path.startsWith(logDirs[index]) && names.includes(path.split(/[\\/]/).at(-1)));
   }
