@@ -277,7 +277,8 @@ mod tests {
                         if let Some((_, params)) = sent.0.lock().unwrap().get(3).cloned() {
                             return params;
                         }
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        // Not a timer: `awaiting` holds the paused clock while its deadline runs, so a sleep here never ends.
+                        tokio::task::yield_now().await;
                     }
                 },
             )
