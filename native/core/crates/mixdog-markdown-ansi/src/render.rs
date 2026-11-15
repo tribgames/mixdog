@@ -157,14 +157,19 @@ pub fn render_token_ansi_segments(content: &str, options: RenderOptions) -> Arc<
     segments
 }
 
-/// `renderMarkdownAnsi(text, columns)`: the rendered lines of `text`, a table by the table layout.
+/// The rendered lines of `text` as `<Markdown columns>` of `Markdown.jsx` lays them out: the segments at `columns` (80
+/// when unknown), a table by the table layout, one blank row between blocks (`gap={1}`).
 pub fn render_markdown_ansi(text: &str, columns: usize) -> Vec<String> {
-    let segments = render_token_ansi_segments(text, RenderOptions { width: columns, trim_partial_fences: false });
+    let width = if columns == 0 { 80 } else { columns };
+    let segments = render_token_ansi_segments(text, RenderOptions { width, trim_partial_fences: false });
     let mut lines = Vec::new();
-    for segment in segments.iter() {
+    for (at, segment) in segments.iter().enumerate() {
+        if at > 0 {
+            lines.push(String::new());
+        }
         match segment.ansi() {
             Some(ansi) => lines.extend(ansi.split('\n').map(str::to_owned)),
-            None => lines.extend(build_table_render(segment.token(), columns)),
+            None => lines.extend(build_table_render(segment.token(), width)),
         }
     }
     lines
@@ -253,6 +258,16 @@ mod tests {
         let source = "body[^1]\n\n[^1]: the note";
         assert!(tui_text(source).contains("the note"));
         assert!(!tui(source).contains("\u{1b}]8;;"));
+    }
+
+    #[test]
+    fn blocks_are_laid_out_one_blank_row_apart_and_an_unknown_width_is_eighty() {
+        let lines: Vec<String> = render_markdown_ansi("# a\n\ntext\n\n---\n", 0)
+            .iter()
+            .map(|line| mixdog_termtext::strip_ansi(line).into_owned())
+            .collect();
+        let rule = "\u{2500}".repeat(80);
+        assert_eq!(lines, ["a", "", "text", "", rule.as_str()]);
     }
 
     #[test]
