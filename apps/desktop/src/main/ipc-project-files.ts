@@ -73,6 +73,22 @@ export function registerProjectFileIpc({
     };
   };
 
+  // A converted document's PDF sits in the server's cache folder, which is no Project: where no Project answers, an absolute path of the
+  // server is its own folder (as a standalone folder is on this PC), so the preview is served from it by range like any other.
+  const serverPreviewTarget = async (
+    projectPath: unknown,
+    relPath: unknown,
+    accessToken: unknown
+  ): Promise<{ root: string; rel: string }> => {
+    try {
+      return await editorFileTarget(projectPath, relPath, accessToken);
+    } catch (error) {
+      const hasToken = typeof accessToken === 'string' && accessToken !== '';
+      if (hasToken || typeof projectPath !== 'string' || !/^([\\/]|[A-Za-z]:[\\/])/.test(projectPath)) throw error;
+      return { root: projectPath, rel: requiredString(relPath, 'relPath', 4_096) };
+    }
+  };
+
   handle(DESKTOP_IPC.localPageUrl, async (event, projectPath, relPath, accessToken) => {
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath', 4_096);
@@ -90,7 +106,7 @@ export function registerProjectFileIpc({
   });
   handle(DESKTOP_IPC.previewProjectFile, async (_event, projectPath, relPath, accessToken) => {
     if (server) {
-      const target = await editorFileTarget(projectPath, relPath, accessToken);
+      const target = await serverPreviewTarget(projectPath, relPath, accessToken);
       const info = await invokeDesktopOperation<{ mtimeMs: number; size: number }>('statProjectFileIn', [
         target.root,
         target.rel,

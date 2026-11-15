@@ -66,6 +66,8 @@ struct Sub {
     path: PathBuf,
     recursive: bool,
     git_dirs: Vec<PathBuf>,
+    /// The trailing window this watch's events are collected for before they are pushed.
+    window_ms: u64,
 }
 
 #[derive(Default)]
@@ -223,8 +225,15 @@ impl FolderWatcher {
         self.state.lock().expect("watcher state")
     }
 
-    /// Attaches `id` to `path`. Consumers of one `(path, recursive)` share one OS watch.
+    /// Attaches `id` to `path`. Consumers of one `(path, recursive)` share one OS watch. Its events are pushed after the standard
+    /// [`BATCH_WINDOW_MS`] window.
     pub fn watch(&self, id: &str, path: &Path, recursive: bool) -> WsResult<()> {
+        self.watch_windowed(id, path, recursive, BATCH_WINDOW_MS)
+    }
+
+    /// [`Self::watch`] with this watch's own batch window: its events are pushed `window_ms` after the first of a burst. The window is
+    /// the watch's alone; every other watch keeps its own, and consumers of one OS watch share the events, not the timing.
+    pub fn watch_windowed(&self, id: &str, path: &Path, recursive: bool, window_ms: u64) -> WsResult<()> {
         let mut state = self.lock();
         if state.subs.contains_key(id) {
             return Err(WsError::invalid("Watch id is already in use."));
@@ -238,7 +247,7 @@ impl FolderWatcher {
             // A git dir that cannot be watched only loses its own events.
             let _ = state.add_os(git, true);
         }
-        state.subs.insert(id.to_owned(), Sub { path: path.to_path_buf(), recursive, git_dirs });
+        state.subs.insert(id.to_owned(), Sub { path: path.to_path_buf(), recursive, git_dirs, window_ms });
         Ok(())
     }
 
@@ -296,20 +305,28 @@ fn route(state: &State, event: &notify::Event, pending: &mut Pending) {
 
 type Batch = Vec<((String, ChangeKind), BTreeSet<String>)>;
 
-/// The fixed trailing window: the first event of a burst fixes the deadline, later events join
-/// the same batch without moving it. Time is an argument, so the window is testable without a
+/// The fixed trailing window of each watch: the first event of a burst for a watch fixes that watch's deadline (its own
+/// `window_ms`), later events join the same batch without moving it. Time is an argument, so the window is testable without a
 /// clock.
 #[derive(Default)]
 struct Batcher {
     pending: Pending,
-    flush_at: Option<Instant>,
+    flush_at: HashMap<String, Instant>,
 }
 
 impl Batcher {
     fn event(&mut self, state: &State, event: &notify::Event, now: Instant) {
         route(state, event, &mut self.pending);
-        if self.flush_at.is_none() && !self.pending.is_empty() {
-            self.flush_at = Some(now + Duration::from_millis(BATCH_WINDOW_MS));
+        self.arm(state, now);
+    }
+
+    /// Fixes the deadline of every watch that has events collected and none yet.
+    fn arm(&mut self, state: &State, now: Instant) {
+        for (id, _) in self.pending.keys() {
+            if !self.flush_at.contains_key(id) {
+                let window_ms = state.subs.get(id).map_or(BATCH_WINDOW_MS, |sub| sub.window_ms);
+                self.flush_at.insert(id.clone(), now + Duration::from_millis(window_ms));
+            }
         }
     }
 
@@ -318,16 +335,22 @@ impl Batcher {
         for id in state.subs.keys() {
             self.pending.entry((id.clone(), ChangeKind::Overflow)).or_default();
         }
-        self.flush_at.get_or_insert(now + Duration::from_millis(BATCH_WINDOW_MS));
+        self.arm(state, now);
     }
 
+    /// The earliest deadline of a watch with events collected.
     fn deadline(&self) -> Option<Instant> {
-        self.flush_at
+        self.flush_at.values().min().copied()
     }
 
-    fn flush(&mut self) -> Batch {
-        self.flush_at = None;
-        let mut batch: Batch = self.pending.drain().collect();
+    /// The batches of the watches whose deadline has come; the others keep collecting.
+    fn flush(&mut self, now: Instant) -> Batch {
+        let due: Vec<String> = self.flush_at.iter().filter(|(_, at)| **at <= now).map(|(id, _)| id.clone()).collect();
+        for id in &due {
+            self.flush_at.remove(id);
+        }
+        let keys: Vec<(String, ChangeKind)> = self.pending.keys().filter(|(id, _)| due.contains(id)).cloned().collect();
+        let mut batch: Batch = keys.into_iter().filter_map(|key| self.pending.remove(&key).map(|paths| (key, paths))).collect();
         batch.sort_by(|a, b| a.0.cmp(&b.0));
         batch
     }
@@ -352,7 +375,7 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
             Some(Message::Event(Ok(event))) => batcher.event(&state.lock().expect("watcher state"), &event, Instant::now()),
             Some(Message::Event(Err(_))) => batcher.lost(&state.lock().expect("watcher state"), Instant::now()),
             None => {
-                for ((id, kind), paths) in batcher.flush() {
+                for ((id, kind), paths) in batcher.flush(Instant::now()) {
                     sink.changed(&id, paths.into_iter().collect(), kind);
                 }
             }
@@ -407,7 +430,7 @@ mod tests {
             }
         }
         assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(BATCH_WINDOW_MS)), "later events must not move the window");
-        let batch = batcher.flush();
+        let batch = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
         assert!(batcher.deadline().is_none());
         // One notification per watch, each covering every path.
         assert_eq!(batch.len(), 2);
@@ -420,6 +443,29 @@ mod tests {
         watcher.unwatch("w1");
         watcher.unwatch("w2");
         assert_eq!(watcher.open_watches(), 0);
+    }
+
+    /// A watch with its own window is pushed when that window ends, ahead of a watch on the standard one, which keeps collecting.
+    #[test]
+    fn a_watch_with_its_own_window_is_pushed_on_it_and_others_keep_theirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let (watcher, _rx) = watcher();
+        watcher.watch_windowed("fast", &root, false, 40).unwrap();
+        watcher.watch("slow", &root, false).unwrap();
+        let start = Instant::now();
+        let mut batcher = Batcher::default();
+        {
+            let state = watcher.lock();
+            let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join("a.txt"));
+            batcher.event(&state, &event, start);
+        }
+        assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(40)));
+        let first = batcher.flush(start + Duration::from_millis(40));
+        assert_eq!(first.iter().map(|((id, _), _)| id.as_str()).collect::<Vec<_>>(), ["fast"]);
+        assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(BATCH_WINDOW_MS)), "the other watch is not hurried");
+        let second = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
+        assert_eq!(second.iter().map(|((id, _), _)| id.as_str()).collect::<Vec<_>>(), ["slow"]);
     }
 
     #[test]
