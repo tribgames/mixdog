@@ -1,0 +1,89 @@
+# nr-office-pdf-embed: font embedding for the PDF writer (mixdog_pdf::embed)
+
+Not compiled: cargo was not run (the lead compiles the wave). The leaf modules (standard.rs, tounicode.rs, subset_glyf.rs,
+subset_cff.rs) were compiled and their unit tests run with plain rustc over stubs of the crate's Dict/Obj; the glyf and CFF
+subsetters were run over the four fixture faces and their output equals pdf-lib/fontkit's recorded output glyph for glyph (glyph
+bytes, advances, bearings, hinting tables, charstrings, the global and local subroutines). mod.rs (the face, the shaper
+and the choice of font) was type-checked against stubs of mixdog-fonts, mixdog-fsio and the write module, so its signatures are
+the ones read from those crates; nothing that shapes text ran.
+
+## native/core/crates/mixdog-pdf/src/lib.rs
+
+After `pub mod document;` (the list is alphabetical):
+
+    pub mod embed;
+
+## native/core/crates/mixdog-pdf/Cargo.toml
+
+[dependencies]: add, after `mixdog-js = { workspace = true }`:
+
+    mixdog-fonts = { workspace = true }
+    mixdog-fsio = { workspace = true }
+
+[dev-dependencies]: the line `mixdog-fsio = { workspace = true }` may stay (the twin tests use `mixdog_fsio::Unlaned`) or go (a
+normal dependency is visible to them): either builds. Nothing else is new: the twin test uses flate2, serde_json, mixdog-fsio and
+mixdog-testkit, which the crate has. No new external crate: mixdog-fonts brings ttf-parser and rustybuzz, already in the lock.
+
+The edge mixdog-pdf -> mixdog-fonts closes no cycle (mixdog-fonts depends on mixdog-fsio, rustybuzz, ttf-parser, sha2,
+unicode-script only).
+
+## native/core/Cargo.lock and mixdog-workspace-hack
+
+`cargo update --workspace --offline`: the package mixdog-pdf gains the dependencies mixdog-fonts and mixdog-fsio. Run the hakari check;
+the workspace hack needs nothing from this task.
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" in its sorted place (between office-discipline and office-engine by name; verify with
+benchmarks/rust-core/recorders/verify-manifests.mjs --write-index, which computes these values):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-embed.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-embed/MANIFEST.json",
+      "manifestSha256": "e282c378566aefa5768513a673ac10ffac0937390949d02ab238692e52c74015",
+      "recorder": "benchmarks/rust-core/recorders/record-office-embed.mjs",
+      "set": "office-embed",
+      "totalBytes": 208398
+    },
+
+The set (golden.json and its MANIFEST.json) is not checked out in a sparse worktree: stage it with `git add --sparse`. The recorder
+reads the fixture faces of other sets (office-measure/faces, office-glyphs/fonts) through `--faces <fixtures root>` and the twin
+test reads them from `fixtures/` too: those two sets must be present when tests run (they are in a full checkout).
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service.
+
+## Interfaces added (for the tasks that write pages: nr-office-pdf-write-pages and the callers of pdf-writer / pdf-forms)
+
+mixdog_pdf::embed (all in crates/mixdog-pdf/src/embed/):
+
+    Font                      a standard font or an embedded face; the object pdf-lib's PDFFont is
+      Font::standard(StandardFontName) -> Font
+      Font::embedded(EmbeddedFace) -> Font
+      font.name() -> &str
+      font.encode_text(&str) -> Result<Vec<u8>, EmbedError>   the string pdf-lib writes as a hex string: 1 byte a character
+                                                              (standard) or 2 bytes a glyph (embedded); a standard font refuses
+                                                              a character its encoding lacks with pdf-lib's text
+      font.width_of_text_at_size(&str, f64) -> Result<f64, EmbedError>
+      font.height_at_size(f64, descender: bool) -> f64, font.size_at_height(f64) -> f64
+      font.covers(&str) -> bool                               fontCovers of pdf-fonts.mjs
+      font.has_glyph(char) -> bool
+      font.with_stand_ins() -> Font                           withStandIns
+      font.same_font(&Font) -> bool                           the regular and the bold are one font when there is no bold file
+      font.embed_into(&mut ObjectStore, Option<Ref>, &mut SuffixRng) -> Result<Ref, EmbedError>
+                                                              what pdf-lib does at save: the writer calls it once per font AFTER all
+                                                              text was encoded, with the reference it reserved at embed time
+                                                              (store.next_ref()) as target, and one SuffixRng per document
+                                                              (SuffixRng::default(): the counter starts at 1, as PDFContext's)
+    EmbeddedFace::from_bytes(Vec<u8>) -> Result<EmbeddedFace, EmbedError>
+    embed_document_font(&ReadProof, &FontEnv, &FontRequest { font_path, text, standard }) -> Result<DocumentFont { font, font_path, embedded }, EmbedError>
+    embed_bold_font(&ReadProof, &Font regular, font_path: &str, text: &str) -> Font
+    unicode_font_path(&ReadProof, &FontEnv, explicit: &str) -> String
+    FontEnv::host()                                           MIXDOG_OCR_FONT and the platform's face list; FontEnv{ocr_font, system_fonts}
+    bold_companions(&str) -> Vec<String>
+
+The Font that embed_document_font returns is already wrapped with the stand-ins; an embedded font is registered with the document
+by the writer (a face tried and rejected is not left in the file as an unused font object, which pdf-lib does).
+Text drawn with the font is `<hex of encode_text> Tj` under `/Fn size Tf`; the page resources hold the reference given to embed_into.
