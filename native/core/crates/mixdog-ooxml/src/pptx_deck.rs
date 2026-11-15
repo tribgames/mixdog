@@ -263,7 +263,7 @@ pub fn handle_set_notes(zip: &mut Package, slides: &[SlideRef], op: &Value) -> H
 pub fn handle_fill_template(zip: &mut Package, op: &Value) -> Handled {
     let parts = slide_part_names(zip);
     let fill = FillTemplate { tokens: field(op, "tokens"), strict: op.get("strict").is_some_and(truthy) };
-    fill_template_parts(zip, &parts, "a:t", &fill, &|xml, tag, find, replacement| replace_across_runs(xml, tag, find, replacement))
+    fill_template_parts(zip, &parts, "a:t", &fill, &replace_across_runs)
         .map(|done| done.to_value())
 }
 
@@ -518,8 +518,8 @@ const TRANSITIONS: [(&str, &str); 9] = [
 pub fn handle_set_transition(zip: &mut Package, slides: &[SlideRef], op: &Value) -> Handled {
     let path = slide_part(slides, op)?;
     let current = zip.text(&path);
-    let wanted = text_if_truthy(op.get("effect"));
-    let requested = js_to_lowercase(if wanted.is_empty() { "fade" } else { &wanted });
+    // `String(op.effect || 'fade')`: a truthy effect that prints as nothing (an empty list) is not the default.
+    let requested = js_to_lowercase(&op.get("effect").filter(|value| truthy(value)).map_or_else(|| "fade".to_owned(), value_to_string));
     let Some((_, effect)) = TRANSITIONS.iter().find(|(name, _)| *name == requested) else {
         let names: Vec<&str> = TRANSITIONS.iter().map(|(name, _)| *name).collect();
         return Err(format!("set_transition effect must be one of: {}", names.join(", ")));
