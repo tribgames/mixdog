@@ -115,7 +115,7 @@ fn no_end_of_central_directory(bytes: &[u8]) -> String {
     if bytes.starts_with(b"PK\x03\x04") {
         "Corrupted zip: can't find end of central directory".to_owned()
     } else {
-        "Can't find end of central directory".to_owned()
+        "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html".to_owned()
     }
 }
 
@@ -402,8 +402,9 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_a_zip_says_so_in_jszips_words() {
-        assert_eq!(Package::load(b"not a zip at all, just text").unwrap_err(), "Can't find end of central directory");
-        assert_eq!(Package::load(b"").unwrap_err(), "Can't find end of central directory");
+        const WORDS: &str = "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html";
+        assert_eq!(Package::load(b"not a zip at all, just text").unwrap_err(), WORDS);
+        assert_eq!(Package::load(b"").unwrap_err(), WORDS);
         let bytes = stored("a.txt", b"hello");
         assert_eq!(Package::load(&bytes[..bytes.len() - 22]).unwrap_err(), "Corrupted zip: can't find end of central directory");
     }

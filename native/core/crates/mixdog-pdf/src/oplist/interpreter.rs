@@ -1410,10 +1410,16 @@ impl<'a> Evaluator<'a> {
         } else {
             let has_mask = dict.has("SMask") || dict.has("Mask");
             if is_inline && w + h < SMALL_IMAGE_DIMENSIONS && !has_mask {
+                let decoded = Arc::new(crate::image::decode_small_inline_image(
+                    xref,
+                    Some(resources),
+                    image,
+                )?);
                 let op = Op::PaintInlineImage(InlineImage {
                     width: w,
                     height: h,
                     source: image.clone(),
+                    decoded,
                 });
                 Self::add_image_ops(op_list, op, optional_content, false);
                 return Ok(());

@@ -45,6 +45,30 @@ pub(crate) fn os_message(error: &io::Error, syscall: &str, path: &Path) -> Strin
     }
 }
 
+/// The reason of a failed read without the zip library's aside (a question about zip files and a link to its documentation),
+/// which answers neither what is wrong nor what to do: `portable-opc.mjs` takes `\s*:?\s*is this a zip file\s*\?.*$` and
+/// every `\s*see https?://\S+` off it, trims it and drops trailing whitespace and colons.
+fn without_library_aside(reason: &str) -> String {
+    let mut text = reason.to_owned();
+    let lower = text.to_ascii_lowercase();
+    if let Some(at) = lower.find("is this a zip file") {
+        let after = lower[at + "is this a zip file".len()..].trim_start();
+        if after.starts_with('?') {
+            text.truncate(at);
+            let kept = text.trim_end().trim_end_matches(':').trim_end().len();
+            text.truncate(kept);
+        }
+    }
+    loop {
+        let lower = text.to_ascii_lowercase();
+        let Some(at) = ["see http://", "see https://"].iter().filter_map(|marker| lower.find(marker)).min() else { break };
+        let start = text[..at].trim_end().len();
+        let end = text[at..].find(char::is_whitespace).map_or(text.len(), |n| at + n);
+        text.replace_range(start..end, "");
+    }
+    text.trim().trim_end_matches(|c: char| c.is_whitespace() || c == ':').to_owned()
+}
+
 /// `loadPackage(path)` over bytes already read: the package, or why it cannot be one. A legacy Office file (an OLE
 /// compound document, often renamed to `.docx`) is told what it is; a damaged or truncated archive is told to ask for an
 /// intact copy.
@@ -57,7 +81,7 @@ pub fn open_package_bytes(data: &[u8], path: &str) -> Result<Package, String> {
             }
             Err(format!(
                 "{path} is not a readable Office package ({}). The file is damaged or incomplete: ask for an intact copy, or open it in Microsoft Office and save a fresh file.",
-                reason.trim()
+                without_library_aside(&reason)
             ))
         }
     }
