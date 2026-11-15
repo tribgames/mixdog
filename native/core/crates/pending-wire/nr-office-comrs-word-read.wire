@@ -34,6 +34,6 @@ Test targets, after `[[test]] name = "actions_live"`:
   because no recording could be made here (no Word): run `node recorder/record-office-com.mjs --area word-read` on the migration PC, then the
   call logs of the recorded snapshot and issues requests are to be replayed against `Reader` (the test file has the manifest check for them; the replay
   itself is not written, since the recorded steps' format has no sample in the tree yet).
-- The order the document is asked for each built-in style's local name (`word/styles.rs`, `BUILTIN_STYLE_IDS`) is the enumeration order of the
-  36-key hashtable `$script:WordBuiltinStyleIds` of Windows PowerShell 5.1, computed from the .NET Framework `Hashtable` algorithm (89 buckets,
-  listed from the last bucket down), not observed: the first recording of a snapshot of a document read for the first time confirms or corrects it.
+- The order the document is asked for each built-in style's local name (`word/styles.rs`, `BUILTIN_STYLE_IDS`) is the enumeration order of
+  the 36-key hashtable `$script:WordBuiltinStyleIds` as Windows PowerShell 5.1 lists it (observed in review by enumerating the script's
+  hashtable in powershell.exe).

@@ -11,15 +11,12 @@ use crate::com::Result;
 use crate::com::Value as Com;
 use crate::ps::collate::strings_equal_ignore_case;
 
-/// `$script:WordBuiltinStyleIds`, in the order `GetEnumerator()` lists a Windows PowerShell hashtable of these 36 keys
-/// (a .NET Framework `Hashtable` of 89 buckets, filled in the order of the script, listed from its last bucket down): the
-/// order the document is asked for each style's local name, and the order a name two ids share is overwritten in.
+/// `$script:WordBuiltinStyleIds`, in the order `GetEnumerator()` lists it in Windows PowerShell 5.1 (observed by enumerating
+/// the script's hashtable there): the order the document is asked for each style's local name, and the order a name two ids
+/// share is overwritten in.
 const BUILTIN_STYLE_IDS: &[(i32, &str)] = &[
-    (-158, "NoSpacing"),
-    (-75, "Subtitle"),
-    (-32, "Header"),
-    (-85, "BlockText"),
-    (-267, "TOCHeading"),
+    (-56, "ListBullet3"),
+    (-59, "ListNumber2"),
     (-1, "Normal"),
     (-2, "Heading1"),
     (-3, "Heading2"),
@@ -30,27 +27,30 @@ const BUILTIN_STYLE_IDS: &[(i32, &str)] = &[
     (-8, "Heading7"),
     (-9, "Heading8"),
     (-10, "Heading9"),
-    (-106, "TableNormal"),
+    (-67, "BodyText"),
+    (-181, "Quote"),
+    (-75, "Subtitle"),
     (-20, "TOC1"),
     (-21, "TOC2"),
     (-22, "TOC3"),
+    (-155, "TableGrid"),
+    (-85, "BlockText"),
     (-91, "PlainText"),
     (-30, "FootnoteText"),
-    (-180, "ListParagraph"),
-    (-181, "Quote"),
-    (-182, "IntenseQuote"),
+    (-267, "TOCHeading"),
+    (-32, "Header"),
+    (-33, "Footer"),
     (-35, "Caption"),
+    (-63, "Title"),
+    (-180, "ListParagraph"),
+    (-158, "NoSpacing"),
+    (-60, "ListNumber3"),
     (-44, "EndnoteText"),
+    (-106, "TableNormal"),
     (-49, "ListBullet"),
     (-50, "ListNumber"),
+    (-182, "IntenseQuote"),
     (-55, "ListBullet2"),
-    (-56, "ListBullet3"),
-    (-33, "Footer"),
-    (-59, "ListNumber2"),
-    (-60, "ListNumber3"),
-    (-63, "Title"),
-    (-155, "TableGrid"),
-    (-67, "BodyText"),
 ];
 
 thread_local! {
@@ -107,7 +107,7 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 36);
-        assert_eq!(BUILTIN_STYLE_IDS[0], (-158, "NoSpacing"));
-        assert_eq!(BUILTIN_STYLE_IDS[35], (-67, "BodyText"));
+        assert_eq!(BUILTIN_STYLE_IDS[0], (-56, "ListBullet3"));
+        assert_eq!(BUILTIN_STYLE_IDS[35], (-55, "ListBullet2"));
     }
 }
