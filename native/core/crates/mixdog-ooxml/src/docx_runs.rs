@@ -264,6 +264,20 @@ fn resolve_paragraph_marks(document_xml: &str, accept: bool, author: &str) -> Ma
     MarkCounts { xml, merged, cleared: cleared + survivors_cleared.get(), unmerged: unmerged + survivors_unmerged.get() }
 }
 
+/// `string.slice(from, to)` for offsets measured before an earlier edit shortened the text: an offset past the end is the
+/// end (the extents of the rows are read once and the rows are settled from the last, so an outer row's end can be stale).
+fn js_slice(text: &str, from: usize, to: usize) -> &str {
+    let floor = |at: usize| {
+        let mut at = at.min(text.len());
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    };
+    let (from, to) = (floor(from), floor(to));
+    if from >= to { "" } else { &text[from..to] }
+}
+
 /// What settling table rows counted.
 struct RowCounts {
     xml: String,
@@ -283,7 +297,7 @@ fn resolve_row_marks(document_xml: &str, accept: bool, author: &str) -> RowCount
         "",
     );
     for row in element_extents(&xml, "w:tr").into_iter().rev() {
-        let row_xml = xml[row.start..row.end].to_owned();
+        let row_xml = js_slice(&xml, row.start, row.end).to_owned();
         if nested_table.is_match(&row_xml) {
             continue;
         }
@@ -293,13 +307,13 @@ fn resolve_row_marks(document_xml: &str, accept: bool, author: &str) -> RowCount
             continue;
         }
         if if accept { deleted } else { inserted } {
-            xml = format!("{}{}", &xml[..row.start], &xml[row.end..]);
+            xml = format!("{}{}", js_slice(&xml, 0, row.start), js_slice(&xml, row.end, xml.len()));
             removed += 1;
             continue;
         }
         let cleared_properties = remove_first(&marker("ins", author), &remove_first(&marker("del", author), &properties));
         let rewritten = row_xml.replacen(&properties, &cleared_properties, 1);
-        xml = format!("{}{rewritten}{}", &xml[..row.start], &xml[row.end..]);
+        xml = format!("{}{rewritten}{}", js_slice(&xml, 0, row.start), js_slice(&xml, row.end, xml.len()));
         cleared += 1;
     }
     let survivors = Cell::new(0_usize);

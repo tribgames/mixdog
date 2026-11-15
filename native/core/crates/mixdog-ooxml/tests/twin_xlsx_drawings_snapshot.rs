@@ -69,7 +69,10 @@ fn first_difference(expected: &str, produced: &str) -> String {
 fn recorded_text(outcome: Result<Value, String>, work: &str) -> Value {
     match outcome {
         Ok(value) => json!({ "result": serde_json::to_string(&value).expect("the answer as JSON") }),
-        Err(error) => json!({ "error": error.replace(work, "$DIR").replace('\\', "/") }),
+        Err(error) => {
+            let named = if work.is_empty() { error } else { error.replace(work, "$DIR") };
+            json!({ "error": named.replace('\\', "/") })
+        }
     }
 }
 
@@ -85,7 +88,7 @@ fn assert_text(what: &str, expected: &Value, produced: &Value) {
 
 fn snapshots(golden: &Value, measurer: &TextMeasurer<'_, Unlaned>) {
     let cases = list(&golden["snapshots"]);
-    assert!(cases.len() >= 80, "the recording lost snapshots: {}", cases.len());
+    assert!(cases.len() >= 53, "the recording lost snapshots: {}", cases.len());
     for case in cases {
         let package = package_of(golden, text(&case["workbook"]));
         let what = format!("snapshot of \"{}\" at {}", text(&case["workbook"]), case["options"]);

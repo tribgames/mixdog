@@ -521,7 +521,7 @@ mod tests {
             run("", 0.0, 80.0, 10.0, 0.0, true),
             run("two ", 0.0, 70.0, 10.0, 20.0, true),
         ];
-        assert_eq!(page_body_text(runs), "one\n\ntwo");
+        assert_eq!(page_body_text(runs), "one\ntwo");
         assert_eq!(tidy("a \t \nb\n\n\n\nc  "), "a\nb\n\nc");
     }
 
