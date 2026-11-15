@@ -1226,6 +1226,7 @@ mod tests {
         small.paragraphs[0].color = Some("999999".to_owned());
         let mut large = small.clone();
         large.paragraphs[0].font_size = Some(20.0);
+        large.paragraphs[0].color = Some("888888".to_owned());
         let found = review_text_contrast(&[small, large]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0]["code"], "low_contrast");
