@@ -368,6 +368,8 @@ impl SkillSettingsSource for ConfigSkillSettings {
         let onnx = mixdog_services::tool_state::onnx_runtime_supported();
         let mut active: HashSet<String> =
             CONFIG_FEATURES.iter().filter(|id| builtin_feature_active(&doc, id, &env, onnx)).map(|id| (*id).to_owned()).collect();
+        // The script launcher is written wherever this runs, so skills that need a script runtime are offered.
+        active.insert(mixdog_mcp::skills::FEATURE_JS_RUNTIME.to_owned());
         for id in ["browser", "computer", "terminal", "visualize"] {
             let bridge_up = || match id {
                 "visualize" => module_enabled(&doc, id) && self.bridges.present(id),

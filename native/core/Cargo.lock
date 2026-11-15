@@ -4398,6 +4398,7 @@ dependencies = [
  "mixdog-scm",
  "mixdog-secrets",
  "mixdog-services",
+ "mixdog-skill-scripts",
  "mixdog-spawn",
  "mixdog-store",
  "mixdog-testkit",
