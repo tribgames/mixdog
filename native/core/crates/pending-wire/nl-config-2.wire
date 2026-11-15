@@ -2,7 +2,7 @@
 
 ## native/core/crates/mixdog-ledger/Cargo.toml
 
-ALREADY APPLIED by t1-config-2 (the crate's own file): [dependencies] gained tokio-postgres and the dev tokio features gained "time". Original text of the wire follows.
+ALREADY APPLIED by t1-config-2 (the crate's own file): [dependencies] gained tokio-postgres (no dev feature change). Original text of the wire follows.
 
 [dependencies]: add (the database reader of the import; it drives its own connection, so no tokio edge is needed):
 
@@ -62,6 +62,14 @@ Owned implementation changes:
   ledger_failure: change `match error` to `match error.unshared()` so Busy and
   Stopped remain QueueFull and Cancelled through shared history failures.
   Existing message/queue patterns bind references; use the same displayed text.
+  Exact body of `ledger_failure` after the change:
+
+      match error.unshared() {
+          LedgerError::Period { message, .. } => failed(domain, *message),
+          LedgerError::Busy { queue } => CoreError::QueueFull { queue: (*queue).into() },
+          LedgerError::Stopped => CoreError::Cancelled { by: "caller".into() },
+          other => failed(domain, other.to_string()),
+      }
 - UsageWriter::import_history uses enqueue_write and always settles the accepted
   mark on success or failure. No change to its Result<HistoryOutcome> consumer.
 - Original file/database/gateway batches commit in original order. Each original
@@ -89,9 +97,9 @@ Recorded oracle and strict tests:
 - IMPORTANT: RecordedPrices is an oracle boundary, NOT a CatalogPricer parity
   claim. Root must also replay pricingCalls through its actual CatalogPricer,
   including price_aggregate historicalAggregate=true (original wiring above).
-- Required existing dependency: tokio-postgres as above. New concurrency test
-  uses tokio time feature; enable it in test features if the unified workspace
-  does not already supply it. No other dependencies or registration changes.
+- Required existing dependency: tokio-postgres as above. The concurrency test
+  arms its limit through mixdog_rt::time::timeout, so no tokio feature is added.
+  No other dependencies or registration changes.
 
 Verification limits:
 - Recorder executed; Rust build/tests intentionally not run in this worker.

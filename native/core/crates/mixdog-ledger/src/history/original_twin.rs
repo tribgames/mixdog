@@ -146,7 +146,7 @@ async fn concurrent_import_waiters_share_failure_without_retry_and_later_call_re
         }
         trace.release.notify_one();
     };
-    let (a,b,()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let (a,b,()) = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), async {
         tokio::join!(importer.ensure(&rig.ledger.writer,NOW),importer.ensure(&rig.ledger.writer,NOW),release)
     }).await.expect("both readers must settle");
     match (a.unwrap_err(),b.unwrap_err()) {
