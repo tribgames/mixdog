@@ -1389,8 +1389,7 @@ impl LocalProcessManager {
         Ok(self.inner.lookup(handle)?.exit_wait.subscribe())
     }
 
-    /// The feed of `handle`. Tests only.
-    #[cfg(all(test, feature = "core-test"))]
+    /// The feed of `handle` (a terminal tab releases held-back marker text into it after [`crate::terminal::HELD_FLUSH`]).
     pub(crate) fn feed_of(&self, handle: &ProcessHandle) -> Result<Arc<crate::feed::Feed>, ProcessError> {
         Ok(Arc::clone(&self.inner.lookup(handle)?.feed))
     }
