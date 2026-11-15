@@ -2110,6 +2110,7 @@ impl<'a> Evaluator<'a> {
                 }
             }
         }
+        provider.font_loaded(&loaded_name, &font);
         Ok(Arc::new(LoadedFont {
             loaded_name,
             font: Some(font),
