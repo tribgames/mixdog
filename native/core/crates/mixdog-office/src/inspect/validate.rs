@@ -144,23 +144,45 @@ pub async fn validate<L: WriteLane, H: ComHost>(cx: &InspectContext<'_, L, H>, h
     let post_save_gate = native.as_ref().filter(|native| native.get("persisted").is_some_and(|persisted| !persisted.is_null())).map(|native| {
         evaluate_office_submission_gate(&list_of(native.get("issues")), &Value::Bool(is_true(native.get("persisted"))), &Value::Null)
     });
-    let ok = holds(&package, "ok")
-        && schema.as_ref().is_none_or(|schema| {
-            holds(schema, "ok")
-                || is_true(schema.get("disabled"))
-                || (args.get("downloadDependencies") == Some(&Value::Bool(false)) && is_true(schema.get("downloadRequired")))
-        })
-        && assertions.as_ref().is_none_or(|assertions| holds(assertions, "ok"))
-        && native.as_ref().is_none_or(|native| holds(native, "ok") && (facts.mode == Mode::Background || holds(native, "documentSaved")))
-        && post_save_gate.as_ref().is_none_or(|gate| holds(gate, "ok"))
-        && compatibility.as_ref().is_none_or(|reopen| !holds(reopen, "available") || holds(reopen, "opened"));
+    // `a && b && c` of JavaScript answers the first falsy operand itself, so a missing `ok` of a part (the Office host's read has
+    // none) leaves the verdict `undefined`, which JSON drops; `None` is that.
+    let field = |value: &Value, key: &str| value.get(key).cloned();
+    let schema_holds = schema.as_ref().map_or(Some(Value::Bool(true)), |schema| {
+        if holds(schema, "ok") || is_true(schema.get("disabled")) {
+            return Some(Value::Bool(true));
+        }
+        Some(Value::Bool(args.get("downloadDependencies") == Some(&Value::Bool(false)) && is_true(schema.get("downloadRequired"))))
+    });
+    let native_holds = native.as_ref().map_or(Some(Value::Bool(true)), |native| {
+        let verdict = field(native, "ok");
+        if !verdict.as_ref().is_some_and(truthy) {
+            return verdict;
+        }
+        if facts.mode == Mode::Background { Some(Value::Bool(true)) } else { field(native, "documentSaved") }
+    });
+    let operands: [Option<Value>; 6] = [
+        field(&package, "ok"),
+        schema_holds,
+        assertions.as_ref().map_or(Some(Value::Bool(true)), |assertions| field(assertions, "ok")),
+        native_holds,
+        post_save_gate.as_ref().map_or(Some(Value::Bool(true)), |gate| field(gate, "ok")),
+        compatibility.as_ref().map_or(Some(Value::Bool(true)), |reopen| if holds(reopen, "available") { field(reopen, "opened") } else { Some(Value::Bool(true)) }),
+    ];
+    let ok = operands.iter().find(|operand| !operand.as_ref().is_some_and(truthy)).cloned().unwrap_or_else(|| operands[5].clone());
     let mut answer = Map::new();
     answer.insert("session".to_owned(), json!(facts.id));
     answer.insert("mode".to_owned(), json!(facts.mode.as_str()));
     answer.insert("backend".to_owned(), json!(facts.backend.as_str()));
     answer.insert("path".to_owned(), json!(facts.target));
     spread(&mut answer, &package);
-    answer.insert("ok".to_owned(), Value::Bool(ok));
+    match ok {
+        Some(verdict) => {
+            answer.insert("ok".to_owned(), verdict);
+        }
+        None => {
+            answer.shift_remove("ok");
+        }
+    }
     for (key, value) in [("schema", schema), ("assertions", assertions), ("native", native), ("postSaveGate", post_save_gate), ("compatibility", compatibility)] {
         answer.insert(key.to_owned(), value.unwrap_or(Value::Null));
     }

@@ -126,6 +126,25 @@ fn named(text: &str, dir: &Path) -> String {
     text.replace(&format!("{}{}", quoted(&dir), quoted(&separator)), "<dir>/").replace(&format!("{dir}{separator}"), "<dir>/").replace(&dir, "<dir>")
 }
 
+/// The arguments of a recorded step with the recorder's own folder (`<temp>/office-inspect-XXXXXX/files`, which an absolute `output` of a
+/// step names) replaced by the folder of this replay.
+fn rooted(args: &Value, directory: &Path) -> Value {
+    match args {
+        Value::String(path) => {
+            let marker = path.find("office-inspect-").and_then(|at| path[at..].find("files").map(|files| (at, at + files + "files".len())));
+            match marker {
+                Some((_, end)) if path[end..].is_empty() || path[end..].starts_with(['\\', '/']) => {
+                    Value::String(format!("{}{}", directory.display(), &path[end..]))
+                }
+                _ => args.clone(),
+            }
+        }
+        Value::Array(items) => Value::Array(items.iter().map(|item| rooted(item, directory)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), rooted(item, directory))).collect()),
+        other => other.clone(),
+    }
+}
+
 /// The value of a base64 digit.
 fn digit(character: u8) -> u32 {
     match character {
@@ -304,7 +323,13 @@ fn replay_scenario(scenario: &Value, directory: &Path, lane: &InLane<DurabilityI
         seen: RefCell::new(Vec::new()),
         directory: directory.to_path_buf(),
     };
-    let registry = Registry::new();
+    // Node measured in the fonts of the machine that recorded (Windows: Calibri, Malgun Gothic and Arial); the same faces are read
+    // from the system font folder.
+    let mut registry = Registry::new();
+    let folder = PathBuf::from(std::env::var("windir").unwrap_or_else(|_| "C:/Windows".to_owned())).join("Fonts");
+    for file in ["calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf", "malgun.ttf", "malgunbd.ttf", "arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"] {
+        let _ = registry.register_file(lane, &folder.join(file), None);
+    }
     let measurer = TextMeasurer::new(lane, &registry);
     let validator = Environment { disabled: true, ..Environment::from_process() };
     let reviews = ReviewSnapshots::new();
@@ -322,7 +347,8 @@ fn replay_scenario(scenario: &Value, directory: &Path, lane: &InLane<DurabilityI
             lock(&handle).snapshot_version = version;
         }
         let notes = Notes::default();
-        let args = &step["args"];
+        let rooted_args = rooted(&step["args"], directory);
+        let args = &rooted_args;
         let outcome = match text(&step["kind"]) {
             "issues" => ready(issues(&cx, &handle, args)),
             "validate" => ready(validate(&cx, &handle, args)),
