@@ -25,7 +25,6 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   MANIFEST: src/runtime/agent/orchestrator/tools/graph-manifest.json
-  RUST_VERSION: "1.99.1"
 
 jobs:
   gate:
@@ -131,6 +130,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The repository's one toolchain pin: rustup reads the same file for every
+      # cargo call below, so the version installed here cannot drift from it.
+      - name: Read the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^channel' rust-toolchain.toml | cut -d '"' -f2)
+          test -n "$version"
+          echo "RUST_VERSION=$version" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -140,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (58cf8f9c3 2026-10-13)"
+          rustc --version | grep -q "^rustc ${RUST_VERSION} "
           cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
   build:
@@ -156,7 +165,7 @@ jobs:
           - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
           - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
           # darwin-x64 cross-targets from the Apple-silicon runner, as
-          # patch-release already does. The Intel image is scarce enough that
+          # every other release did. The Intel image is scarce enough that
           # its queue wait plus its slower build made this single leg the
           # longest job in Deploy, and nothing here runs the produced binary.
           - { runner: macos-15,         target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
@@ -175,6 +184,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The repository's one toolchain pin: rustup reads the same file for every
+      # cargo call below, so the version installed here cannot drift from it.
+      - name: Read the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^channel' rust-toolchain.toml | cut -d '"' -f2)
+          test -n "$version"
+          echo "RUST_VERSION=$version" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -187,7 +206,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (58cf8f9c3 2026-10-13)"
+          rustc --version | grep -q "^rustc ${RUST_VERSION} "
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
       - name: Build primary reproducible binary
@@ -262,6 +281,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The repository's one toolchain pin: rustup reads the same file for every
+      # cargo call below, so the version installed here cannot drift from it.
+      - name: Read the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^channel' rust-toolchain.toml | cut -d '"' -f2)
+          test -n "$version"
+          echo "RUST_VERSION=$version" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -274,7 +303,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (58cf8f9c3 2026-10-13)"
+          rustc --version | grep -q "^rustc ${RUST_VERSION} "
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           BIN="native/mixdog-graph/target/${{ matrix.target }}/release/mixdog-graph${{ matrix.ext }}"
           ASSET="mixdog-graph-${{ matrix.pkey }}${{ matrix.ext }}"

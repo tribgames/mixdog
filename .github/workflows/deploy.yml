@@ -46,18 +46,10 @@ jobs:
     outputs:
       app_version: ${{ steps.plan.outputs.app_version }}
       app_tag: ${{ steps.plan.outputs.app_tag }}
-      patch_build: ${{ steps.plan.outputs.patch_build }}
-      patch_bump: ${{ steps.plan.outputs.patch_bump }}
-      patch_version: ${{ steps.plan.outputs.patch_version }}
-      patch_tag: ${{ steps.plan.outputs.patch_tag }}
       graph_build: ${{ steps.plan.outputs.graph_build }}
       graph_bump: ${{ steps.plan.outputs.graph_bump }}
       graph_version: ${{ steps.plan.outputs.graph_version }}
       graph_tag: ${{ steps.plan.outputs.graph_tag }}
-      spawn_build: ${{ steps.plan.outputs.spawn_build }}
-      spawn_bump: ${{ steps.plan.outputs.spawn_bump }}
-      spawn_version: ${{ steps.plan.outputs.spawn_version }}
-      spawn_tag: ${{ steps.plan.outputs.spawn_tag }}
       runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
       native_changed: ${{ steps.plan.outputs.native_changed }}
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
@@ -136,7 +128,7 @@ jobs:
           import { appendFileSync, readFileSync } from 'node:fs';
           import { execFileSync, spawnSync } from 'node:child_process';
           import { checkChangelogLocales } from './scripts/check-changelog-locales.mjs';
-          import { nativeReleaseStatuses, unreleasedProblems } from './scripts/native-release-status.mjs';
+          import { NATIVE_RELEASE_TOOLS, nativeReleaseStatuses, unreleasedProblems } from './scripts/native-release-status.mjs';
 
           const output = process.env.GITHUB_OUTPUT;
           const mode = process.env.NATIVE_MODE;
@@ -228,13 +220,13 @@ jobs:
             return { build, bump, version, tag: `${tagPrefix}${version}` };
           }
 
-          const patch = component({
-            name: 'patch',
-            manifestPath: 'src/runtime/agent/orchestrator/tools/patch-manifest.json',
-            cargoPath: 'native/mixdog-patch/Cargo.toml',
-            tagPrefix: 'patch-v',
-            paths: ['native/mixdog-patch'],
-          });
+          // The graph search binary is the one native tool still released on
+          // its own. mixdog-patch and mixdog-spawn are libraries of the core
+          // (the Rust workspace links them; nothing starts a binary of theirs),
+          // so no release is cut for them. Their last releases and manifests
+          // stay as published: an installed app of an older version fetches
+          // patch-manifest.json from the default branch and the patch-v / spawn-v
+          // release assets it names.
           const graph = component({
             name: 'graph',
             manifestPath: 'src/runtime/agent/orchestrator/tools/graph-manifest.json',
@@ -242,26 +234,20 @@ jobs:
             tagPrefix: 'graph-v',
             paths: ['native/mixdog-graph'],
           });
-          const spawn = component({
-            name: 'spawn',
-            manifestPath: 'src/runtime/agent/orchestrator/tools/spawn-manifest.json',
-            cargoPath: 'native/mixdog-spawn/Cargo.toml',
-            tagPrefix: 'spawn-v',
-            paths: ['native/mixdog-spawn'],
-          });
-          // native=skip reuses the pinned manifests. That is only safe while no
-          // native source moved since the release each manifest pins; otherwise
+          // native=skip reuses the pinned manifest. That is only safe while no
+          // native source moved since the release the manifest pins; otherwise
           // the app would ship without the committed native fix.
           if (mode === 'skip') {
-            const problems = unreleasedProblems(nativeReleaseStatuses());
+            const problems = unreleasedProblems(
+              nativeReleaseStatuses(undefined, NATIVE_RELEASE_TOOLS.filter(tool => tool.kind === 'graph')),
+            );
             if (problems.length) {
               throw new Error(`native=skip would ship stale native tools. Re-run Deploy with native=auto.\n${problems.join('\n')}`);
             }
           }
           const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
           if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
-          const nativeChanged = mode !== 'skip'
-            && [patch, graph, spawn].some(component => component.build);
+          const nativeChanged = mode !== 'skip' && graph.build;
           const runtimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
             '.github/workflows/build-runtime.yml',
             'scripts/build-runtime-linux.sh',
@@ -319,18 +305,10 @@ jobs:
           const values = {
             app_version: appVersion,
             app_tag: `v${appVersion}`,
-            patch_build: String(mode !== 'skip' && patch.build),
-            patch_bump: String(mode !== 'skip' && patch.bump),
-            patch_version: patch.version,
-            patch_tag: patch.tag,
             graph_build: String(mode !== 'skip' && graph.build),
             graph_bump: String(mode !== 'skip' && graph.bump),
             graph_version: graph.version,
             graph_tag: graph.tag,
-            spawn_build: String(mode !== 'skip' && spawn.build),
-            spawn_bump: String(mode !== 'skip' && spawn.bump),
-            spawn_version: spawn.version,
-            spawn_tag: spawn.tag,
             runtime_tag: runtimeTag,
             native_changed: String(nativeChanged),
             runtime_needed: String(runtimeNeeded),
@@ -371,18 +349,10 @@ jobs:
         id: bump
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          PATCH_BUILD: ${{ needs.plan.outputs.patch_build }}
-          PATCH_BUMP: ${{ needs.plan.outputs.patch_bump }}
-          PATCH_VERSION: ${{ needs.plan.outputs.patch_version }}
-          PATCH_TAG: ${{ needs.plan.outputs.patch_tag }}
           GRAPH_BUILD: ${{ needs.plan.outputs.graph_build }}
           GRAPH_BUMP: ${{ needs.plan.outputs.graph_bump }}
           GRAPH_VERSION: ${{ needs.plan.outputs.graph_version }}
           GRAPH_TAG: ${{ needs.plan.outputs.graph_tag }}
-          SPAWN_BUILD: ${{ needs.plan.outputs.spawn_build }}
-          SPAWN_BUMP: ${{ needs.plan.outputs.spawn_bump }}
-          SPAWN_VERSION: ${{ needs.plan.outputs.spawn_version }}
-          SPAWN_TAG: ${{ needs.plan.outputs.spawn_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -390,35 +360,37 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
 
+          // The core builds the tool's library through a mirror package of the
+          // same name inside its workspace (native/core/crates/<name>), which
+          // restates [package] version; both are bumped together or the
+          // mixdog-testkit native_mirrors test fails and mixdogd is compiled with
+          // a CARGO_PKG_VERSION that is not the released tool's.
           function setCargoVersion(name, directory, version) {
             const tomlPath = `${directory}/Cargo.toml`;
             const lockPath = `${directory}/Cargo.lock`;
-            const toml = readFileSync(tomlPath, 'utf8').replace(
-              /(^version\s*=\s*")[^"]+(")/m, `$1${version}$2`,
-            );
-            let lock = readFileSync(lockPath, 'utf8');
-            const block = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+(")`);
-            if (!block.test(lock)) throw new Error(`Missing ${name} package entry in ${lockPath}`);
-            lock = lock.replace(block, `$1${version}$2`);
-            writeFileSync(tomlPath, toml);
-            writeFileSync(lockPath, lock);
-          }
-          if (process.env.PATCH_BUMP === 'true') {
-            setCargoVersion('mixdog-patch', 'native/mixdog-patch', process.env.PATCH_VERSION);
+            const mirrorTomlPath = `native/core/crates/${name}/Cargo.toml`;
+            const coreLockPath = 'native/core/Cargo.lock';
+            const setVersion = text => text.replace(/(^version\s*=\s*")[^"]+(")/m, `$1${version}$2`);
+            const setLockVersion = (path) => {
+              const lock = readFileSync(path, 'utf8');
+              const block = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+(")`);
+              if (!block.test(lock)) throw new Error(`Missing ${name} package entry in ${path}`);
+              writeFileSync(path, lock.replace(block, `$1${version}$2`));
+            };
+            writeFileSync(tomlPath, setVersion(readFileSync(tomlPath, 'utf8')));
+            writeFileSync(mirrorTomlPath, setVersion(readFileSync(mirrorTomlPath, 'utf8')));
+            setLockVersion(lockPath);
+            setLockVersion(coreLockPath);
           }
           if (process.env.GRAPH_BUMP === 'true') {
             setCargoVersion('mixdog-graph', 'native/mixdog-graph', process.env.GRAPH_VERSION);
-          }
-          if (process.env.SPAWN_BUMP === 'true') {
-            setCargoVersion('mixdog-spawn', 'native/mixdog-spawn', process.env.SPAWN_VERSION);
           }
           NODE
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add native/mixdog-patch/Cargo.toml native/mixdog-patch/Cargo.lock \
-            native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
-            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock
+          git add native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
+            native/core/crates/mixdog-graph/Cargo.toml native/core/Cargo.lock
           if ! git diff --cached --quiet; then
             git commit -m "chore(native): prepare incremental release assets"
             git push origin "HEAD:${DEFAULT_BRANCH}"
@@ -446,9 +418,7 @@ jobs:
               git push origin "refs/tags/${tag}"
             fi
           }
-          create_tag "$PATCH_BUILD" "$PATCH_TAG"
           create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
-          create_tag "$SPAWN_BUILD" "$SPAWN_TAG"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # The native version bump above changes the native sources the old-glibc
@@ -491,16 +461,6 @@ jobs:
     permissions:
       contents: write # callee prepares/uploads/publishes releases and pushes the manifest
 
-  patch:
-    name: incremental-patch
-    needs: [plan, prepare-native]
-    if: ${{ needs.plan.outputs.patch_build == 'true' }}
-    uses: ./.github/workflows/patch-release.yml
-    permissions:
-      contents: write # callee manifest job releases and pushes
-    with:
-      tag: ${{ needs.plan.outputs.patch_tag }}
-
   graph:
     name: incremental-graph
     needs: [plan, prepare-native]
@@ -511,19 +471,9 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.graph_tag }}
 
-  spawn:
-    name: incremental-spawn
-    needs: [plan, prepare-native]
-    if: ${{ needs.plan.outputs.spawn_build == 'true' }}
-    uses: ./.github/workflows/spawn-release.yml
-    permissions:
-      contents: write # callee prepare/sync create releases and push the manifest
-    with:
-      tag: ${{ needs.plan.outputs.spawn_tag }}
-
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn]
+    needs: [plan, prepare-native, runtime, voice, graph]
     if: >-
       ${{
         always()
@@ -531,9 +481,7 @@ jobs:
         && (needs.prepare-native.result == 'success' || needs.prepare-native.result == 'skipped')
         && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
         && (needs.voice.result == 'success' || needs.voice.result == 'skipped')
-        && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
-        && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
       }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
