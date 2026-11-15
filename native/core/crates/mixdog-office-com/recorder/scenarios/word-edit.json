@@ -1,0 +1,2568 @@
+{
+  "area": "word-edit",
+  "description": "What the Word editor of office-com-host.ps1 (Apply-WordOperation and the 41 operations of Invoke-WordOperation with office-word-formatting.ps1) asks Word and answers: each operation with the argument sets the live Word tests use, every documented refusal, with and without an author, with tracking on and off, appended runs of 1, 2 and 5 paragraphs with mixed formatting, Korean and global numbering, tables with each borders form, in background batches and in live batches with a failure mid-batch (the Undo(1) and touched rules). The call log is cut at the operation markers; the replay (tests/word_edit.rs) holds the Rust editor to the same call sequence and the same results. Not covered until a document is added as an input: set_content_control on a control that exists (a document with a content control cannot be made by the operations), add_comment_reply on a Word without threaded replies, set_comment_resolved on a Word without the Done property.",
+  "scenarios": [
+    {
+      "id": "append-runs",
+      "description": "append_text alone, then runs of 2 and of 5 paragraphs with mixed formatting (one insertion, formatting per group of equal style and properties, one result per paragraph).",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Quarterly report",
+                  "style": "Heading1"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "First body paragraph."
+                },
+                {
+                  "op": "append_text",
+                  "text": "Second body paragraph."
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Bold lead",
+                  "properties": {
+                    "bold": true,
+                    "size": 14,
+                    "color": "1F2937"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Bold lead again",
+                  "properties": {
+                    "bold": true,
+                    "size": 14,
+                    "color": "1F2937"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Centered",
+                  "properties": {
+                    "alignment": "centre",
+                    "italic": true,
+                    "underline": true
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Bulleted item",
+                  "properties": {
+                    "listKind": "bullet"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Quote",
+                  "style": "Quote",
+                  "properties": {
+                    "spacingBefore": 6,
+                    "spacingAfter": 12
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Tracked label",
+                  "author": "Reviewer A"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Line one\nline two"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "append-lists",
+      "description": "Lists on appended paragraphs: bullets, global and Korean numbering, listContinue, levels, none, a named style kept on the item, the inset of an indented item.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Plan",
+                  "properties": {
+                    "listKind": "number"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Second step",
+                  "properties": {
+                    "listKind": "number"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Nested",
+                  "properties": {
+                    "listKind": "number",
+                    "listLevel": 1
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Heading between",
+                  "style": "Heading2"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Third step after a heading",
+                  "properties": {
+                    "listKind": "number",
+                    "listContinue": true
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "계획 수립",
+                  "properties": {
+                    "listKind": "number"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "실행",
+                  "properties": {
+                    "listKind": "number"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "QA",
+                  "properties": {
+                    "listKind": "number"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Forced global",
+                  "properties": {
+                    "listKind": "number",
+                    "listNumbering": "global"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Forced korean",
+                  "properties": {
+                    "listKind": "number",
+                    "listNumbering": "korean"
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Callout bullet",
+                  "style": "Normal",
+                  "properties": {
+                    "listKind": "bullet",
+                    "indentLeft": 12,
+                    "spacingAfter": 3
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Plain after list",
+                  "properties": {
+                    "listKind": "none"
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Named style list",
+                  "style": "ListBullet",
+                  "properties": {
+                    "listKind": "bullet"
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Bad numbering",
+                  "properties": {
+                    "listKind": "number",
+                    "listNumbering": "roman"
+                  }
+                }
+              ]
+            }
+          },
+          "label": "listNumbering",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "append-format",
+      "description": "Run, paragraph and border formatting on appended paragraphs: fonts, borders on each side, tab stops, spacing and exact line spacing, keep and break flags, indents, shading.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Fonts",
+                  "properties": {
+                    "name": "Arial",
+                    "nameEastAsia": "Malgun Gothic",
+                    "size": 10.5,
+                    "hidden": false
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Border bottom",
+                  "properties": {
+                    "border": {
+                      "side": "bottom",
+                      "size": 5,
+                      "color": "9CA3AF",
+                      "space": 4,
+                      "style": "dashed"
+                    }
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Border left",
+                  "properties": {
+                    "border": {
+                      "side": "left",
+                      "size": 16,
+                      "color": "2563EB",
+                      "space": 8
+                    }
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Tabs\tone\ttwo",
+                  "properties": {
+                    "tabStops": [
+                      {
+                        "position": 144,
+                        "alignment": "right",
+                        "leader": "dots"
+                      },
+                      {
+                        "position": 288,
+                        "alignment": "center"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Flow",
+                  "properties": {
+                    "lineSpacing": 18,
+                    "lineSpacingRule": "exact",
+                    "keepWithNext": true,
+                    "keepTogether": true,
+                    "widowControl": false,
+                    "pageBreakBefore": true
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Indent",
+                  "properties": {
+                    "indentLeft": 36,
+                    "indentRight": 18,
+                    "indentFirstLine": -18,
+                    "shading": "F3F4F6"
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Bad colour",
+                  "properties": {
+                    "color": "nope"
+                  }
+                }
+              ]
+            }
+          },
+          "label": "invalid-colour",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "text-edits",
+      "description": "replace_text with shared word edges and more than one match, set_paragraph_text, move_paragraph (up, down, to the end), remove_paragraph, add_image at the end and after a paragraph, set_font, set_paragraph_style (a style the document lacks), set_paragraph_format with a list and a border, set_list.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "copy": "../word-edit/inputs/pixel.png",
+          "as": "pixel.png",
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Revenue was 86억 원으로 reported."
+                },
+                {
+                  "op": "append_text",
+                  "text": "The old way, the old way."
+                },
+                {
+                  "op": "append_text",
+                  "text": "Third"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Fourth"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Fifth"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "replace_text",
+                  "find": "86억 원으로",
+                  "replace": "86억 원(잠정)으로"
+                },
+                {
+                  "op": "replace_text",
+                  "find": "the old way",
+                  "replace": "the new way"
+                },
+                {
+                  "op": "replace_text",
+                  "find": "nowhere",
+                  "replace": "x",
+                  "allowNoChange": true
+                },
+                {
+                  "op": "set_paragraph_text",
+                  "paragraph": 3,
+                  "text": "Third, rewritten"
+                },
+                {
+                  "op": "move_paragraph",
+                  "paragraph": 4,
+                  "index": 2
+                },
+                {
+                  "op": "move_paragraph",
+                  "paragraph": 2,
+                  "index": 4
+                },
+                {
+                  "op": "move_paragraph",
+                  "paragraph": 1,
+                  "index": 99
+                },
+                {
+                  "op": "remove_paragraph",
+                  "paragraph": 5
+                },
+                {
+                  "op": "set_font",
+                  "find": "Revenue",
+                  "properties": {
+                    "bold": true,
+                    "size": 13
+                  }
+                },
+                {
+                  "op": "set_paragraph_style",
+                  "paragraph": 1,
+                  "style": "Heading 2"
+                },
+                {
+                  "op": "set_paragraph_style",
+                  "paragraph": 2,
+                  "style": "No Such Style"
+                },
+                {
+                  "op": "set_paragraph_format",
+                  "paragraph": 3,
+                  "properties": {
+                    "alignment": "justify",
+                    "spacingAfter": 6,
+                    "listKind": "bullet",
+                    "listLevel": 1,
+                    "border": {
+                      "side": "top",
+                      "size": 4
+                    }
+                  }
+                },
+                {
+                  "op": "set_list",
+                  "paragraph": 2,
+                  "kind": "number",
+                  "level": 1
+                },
+                {
+                  "op": "set_list",
+                  "paragraph": 3,
+                  "kind": "none"
+                },
+                {
+                  "op": "add_image",
+                  "path": "${work}\\pixel.png",
+                  "width": 72,
+                  "height": 72,
+                  "altText": "A pixel",
+                  "properties": {
+                    "alignment": "center",
+                    "keepWithNext": false
+                  }
+                },
+                {
+                  "op": "add_image",
+                  "path": "${work}\\pixel.png",
+                  "paragraph": 1
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "review",
+      "description": "Comments, replies, provenance, resolved state and deletion; tracked changes with and without an author; resolving by author, all at once, by index; the reviewers note when an author matches nobody.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Alpha beta gamma."
+                },
+                {
+                  "op": "append_text",
+                  "text": "Delta epsilon."
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_comment",
+                  "find": "beta",
+                  "text": "Check this.",
+                  "author": "Reviewer A",
+                  "initials": "RA"
+                },
+                {
+                  "op": "add_comment_reply",
+                  "comment": 1,
+                  "text": "Checked.",
+                  "author": "Reviewer B"
+                },
+                {
+                  "op": "add_provenance",
+                  "paragraph": 2,
+                  "citation": "Source: ledger.xlsx#Raw!B8"
+                },
+                {
+                  "op": "set_comment_resolved",
+                  "comment": 1,
+                  "resolved": true
+                },
+                {
+                  "op": "delete_comment",
+                  "comment": 2
+                },
+                {
+                  "op": "delete_comment",
+                  "comment": 1
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "track_changes",
+                  "enabled": true
+                },
+                {
+                  "op": "replace_text",
+                  "find": "gamma",
+                  "replace": "GAMMA",
+                  "author": "Reviewer A"
+                },
+                {
+                  "op": "set_paragraph_text",
+                  "paragraph": 2,
+                  "text": "Delta, changed",
+                  "author": "Reviewer B"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Tracked tail",
+                  "author": "Reviewer A"
+                },
+                {
+                  "op": "resolve_revisions",
+                  "author": "Nobody",
+                  "resolution": "accept",
+                  "allowNoChange": true
+                },
+                {
+                  "op": "resolve_revisions",
+                  "author": "Reviewer B",
+                  "resolution": "reject"
+                },
+                {
+                  "op": "resolve_revision",
+                  "revision": 1,
+                  "resolution": "accept"
+                },
+                {
+                  "op": "resolve_revisions",
+                  "resolution": "accept"
+                },
+                {
+                  "op": "track_changes",
+                  "enabled": false
+                },
+                {
+                  "op": "normalize_runs",
+                  "allowNoChange": true
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "styles-fonts",
+      "description": "set_document_font, define_styles (built-in styles by id, one the document lacks) and fonts through styles.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_document_font",
+                  "properties": {
+                    "name": "Calibri",
+                    "nameEastAsia": "Malgun Gothic",
+                    "size": 11,
+                    "color": "111827"
+                  }
+                },
+                {
+                  "op": "define_styles",
+                  "styles": {
+                    "Heading1": {
+                      "name": "Calibri",
+                      "size": 20,
+                      "bold": true,
+                      "color": "0B3D91",
+                      "spacingBefore": 12,
+                      "spacingAfter": 6,
+                      "alignment": "left"
+                    },
+                    "No Such Style": {
+                      "size": 9
+                    }
+                  }
+                },
+                {
+                  "op": "append_text",
+                  "text": "Heading",
+                  "style": "Heading1"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_document_font",
+                  "properties": {}
+                }
+              ]
+            }
+          },
+          "label": "font-needs-property",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "define_styles"
+                }
+              ]
+            }
+          },
+          "label": "styles-needed",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "structure",
+      "description": "Headers and footers (kind and variant), page numbers (alone, with a prefix and a total, over an existing footer line), the table of contents, breaks (page, section, column, at the end), a hyperlink, a bookmark, notes, page setup.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Contents",
+                  "style": "Heading1"
+                },
+                {
+                  "op": "append_text",
+                  "text": "Revenue grew in the quarter and 92.8% of it recurred."
+                },
+                {
+                  "op": "append_text",
+                  "text": "Closing paragraph."
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_header_footer",
+                  "kind": "header",
+                  "text": "Confidential",
+                  "properties": {
+                    "name": "Arial",
+                    "size": 9,
+                    "bold": true,
+                    "color": "6B7280",
+                    "alignment": "right"
+                  }
+                },
+                {
+                  "op": "set_header_footer",
+                  "kind": "footer",
+                  "text": "Source: ledger"
+                },
+                {
+                  "op": "set_header_footer",
+                  "kind": "first",
+                  "variant": "first",
+                  "header": false,
+                  "text": "First page footer"
+                },
+                {
+                  "op": "set_header_footer",
+                  "kind": "header",
+                  "variant": "even",
+                  "text": "Even header"
+                },
+                {
+                  "op": "add_page_numbers"
+                },
+                {
+                  "op": "add_page_numbers",
+                  "kind": "first",
+                  "prefix": "Page",
+                  "separator": "of",
+                  "alignment": "right"
+                },
+                {
+                  "op": "add_page_numbers",
+                  "kind": "even",
+                  "includeTotal": true,
+                  "alignment": "left"
+                },
+                {
+                  "op": "insert_toc",
+                  "paragraph": 1,
+                  "upperHeadingLevel": 2,
+                  "lowerHeadingLevel": 1
+                },
+                {
+                  "op": "insert_toc"
+                },
+                {
+                  "op": "insert_break",
+                  "paragraph": 2
+                },
+                {
+                  "op": "insert_break",
+                  "paragraph": 2,
+                  "kind": "column"
+                },
+                {
+                  "op": "insert_break",
+                  "kind": "section_next"
+                },
+                {
+                  "op": "insert_break",
+                  "kind": "section_continuous"
+                },
+                {
+                  "op": "add_hyperlink",
+                  "paragraph": 2,
+                  "find": "Revenue",
+                  "address": "https://example.com",
+                  "subAddress": ""
+                },
+                {
+                  "op": "add_hyperlink",
+                  "paragraph": 3,
+                  "address": "https://example.com/end",
+                  "display": "link"
+                },
+                {
+                  "op": "add_bookmark",
+                  "name": "Closing",
+                  "paragraph": 3
+                },
+                {
+                  "op": "add_bookmark",
+                  "name": "Phrase",
+                  "find": "Revenue"
+                },
+                {
+                  "op": "add_note",
+                  "kind": "footnote",
+                  "find": "Revenu",
+                  "text": "Cut inside a word."
+                },
+                {
+                  "op": "add_note",
+                  "kind": "footnote",
+                  "find": "92.8%",
+                  "text": "Ends on a sign."
+                },
+                {
+                  "op": "add_note",
+                  "kind": "endnote",
+                  "paragraph": 3,
+                  "text": "End of paragraph."
+                },
+                {
+                  "op": "set_page",
+                  "section": 1,
+                  "properties": {
+                    "orientation": "landscape",
+                    "pageWidth": 595,
+                    "pageHeight": 842,
+                    "topMargin": 54,
+                    "bottomMargin": 54,
+                    "leftMargin": 72,
+                    "rightMargin": 72,
+                    "columns": 2,
+                    "columnSpacing": 20
+                  }
+                },
+                {
+                  "op": "set_page",
+                  "properties": {
+                    "orientation": "portrait",
+                    "columns": 1
+                  }
+                },
+                {
+                  "op": "set_page",
+                  "properties": {
+                    "columnSpacing": 12
+                  }
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "tables",
+      "description": "add_table in each form (plain, styled with a missing style, header rows, column alignments, widths and natural widths, row heights, every borders form, shading, a total row, row styles, repeatHeader and headerBold off, at a paragraph), the cell, style, merge, row and column operations and fit_table.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Before the tables"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "Region",
+                      "Revenue",
+                      "Note"
+                    ],
+                    [
+                      "North",
+                      "120",
+                      "on plan"
+                    ],
+                    [
+                      "South",
+                      "95",
+                      "below plan"
+                    ],
+                    [
+                      "Total",
+                      "215",
+                      ""
+                    ]
+                  ],
+                  "properties": {
+                    "totalRow": true,
+                    "columnAlignments": [
+                      "left",
+                      "right",
+                      "left"
+                    ],
+                    "headerRows": 1,
+                    "fontSize": 10
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "A",
+                      "B"
+                    ],
+                    [
+                      "1",
+                      "2"
+                    ]
+                  ],
+                  "properties": {
+                    "style": "No Such Table Style",
+                    "textStyle": "Normal",
+                    "fontName": "Arial",
+                    "fontNameEastAsia": "Malgun Gothic",
+                    "color": "374151",
+                    "spacingAfter": 2,
+                    "alignment": "center",
+                    "columnWidths": [
+                      100,
+                      200
+                    ],
+                    "rowHeights": [
+                      20,
+                      24
+                    ],
+                    "shading": "F9FAFB"
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "rows": 2,
+                  "columns": 3,
+                  "properties": {
+                    "borders": {
+                      "top": {
+                        "size": 8
+                      },
+                      "bottom": {
+                        "style": "double",
+                        "color": "111827"
+                      },
+                      "left": {
+                        "enabled": false
+                      },
+                      "insideH": "dotted"
+                    },
+                    "headerBold": false,
+                    "repeatHeader": false,
+                    "keepWithNext": true
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "x",
+                      "y"
+                    ]
+                  ],
+                  "properties": {
+                    "borders": {
+                      "enabled": false,
+                      "top": {
+                        "enabled": false
+                      },
+                      "left": {
+                        "enabled": false
+                      },
+                      "bottom": {
+                        "enabled": false
+                      },
+                      "right": {
+                        "enabled": false
+                      },
+                      "insideH": {
+                        "enabled": false
+                      },
+                      "insideV": {
+                        "enabled": false
+                      }
+                    }
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "k",
+                      "v"
+                    ],
+                    [
+                      "10",
+                      "20"
+                    ]
+                  ],
+                  "paragraph": 1,
+                  "properties": {
+                    "borders": true,
+                    "rowStyles": [
+                      {
+                        "fontSize": 22,
+                        "bold": true,
+                        "color": "0B3D91"
+                      },
+                      null
+                    ]
+                  }
+                },
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "1",
+                      "2",
+                      "3"
+                    ],
+                    [
+                      "4",
+                      "5",
+                      "6"
+                    ],
+                    [
+                      "7",
+                      "8",
+                      "9"
+                    ],
+                    [
+                      "a",
+                      "b",
+                      "c"
+                    ],
+                    [
+                      "d",
+                      "e",
+                      "f"
+                    ],
+                    [
+                      "g",
+                      "h",
+                      "i"
+                    ],
+                    [
+                      "j",
+                      "k",
+                      "l"
+                    ]
+                  ],
+                  "properties": {
+                    "headerRows": 2,
+                    "columnAlignments": [
+                      "right",
+                      "left",
+                      "center"
+                    ]
+                  }
+                },
+                {
+                  "op": "add_table"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_table_cell",
+                  "table": 1,
+                  "row": 2,
+                  "col": 3,
+                  "text": "ahead"
+                },
+                {
+                  "op": "set_table_style",
+                  "table": 2,
+                  "properties": {
+                    "style": "Table Grid",
+                    "alignment": "right",
+                    "columnAlignments": [
+                      "center",
+                      "center"
+                    ],
+                    "columnWidths": [
+                      80,
+                      80
+                    ],
+                    "borders": {
+                      "top": {
+                        "size": 12
+                      }
+                    },
+                    "shading": "EEEEEE"
+                  }
+                },
+                {
+                  "op": "merge_table_cells",
+                  "table": 1,
+                  "row": 1,
+                  "col": 1,
+                  "colSpan": 2
+                },
+                {
+                  "op": "set_table_cell_style",
+                  "table": 1,
+                  "row": 2,
+                  "col": 1,
+                  "properties": {
+                    "fillColor": "FFF3CD",
+                    "verticalAlignment": "middle",
+                    "width": 90,
+                    "bold": true,
+                    "italic": false,
+                    "fontName": "Arial",
+                    "fontNameEastAsia": "Malgun Gothic",
+                    "fontSize": 12,
+                    "color": "111827",
+                    "horizontalAlignment": "centre"
+                  }
+                },
+                {
+                  "op": "set_table_cell_style",
+                  "table": 1,
+                  "row": 2,
+                  "col": 1,
+                  "properties": {
+                    "fillColor": null
+                  }
+                },
+                {
+                  "op": "insert_table_row",
+                  "table": 1,
+                  "row": 2
+                },
+                {
+                  "op": "insert_table_row",
+                  "table": 1
+                },
+                {
+                  "op": "delete_table_row",
+                  "table": 1,
+                  "row": 2
+                },
+                {
+                  "op": "insert_table_column",
+                  "table": 3,
+                  "column": 1
+                },
+                {
+                  "op": "insert_table_column",
+                  "table": 3,
+                  "column": 4
+                },
+                {
+                  "op": "delete_table_column",
+                  "table": 3,
+                  "column": 1
+                },
+                {
+                  "op": "fit_table",
+                  "table": 1
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "refusals",
+      "description": "Every documented refusal of the Word operations, each in a batch of its own so each failure text is recorded.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "Seed paragraph with beta."
+                },
+                {
+                  "op": "add_table",
+                  "values": [
+                    [
+                      "a",
+                      "b"
+                    ],
+                    [
+                      "c",
+                      "d"
+                    ]
+                  ]
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "no_such_operation"
+                }
+              ]
+            }
+          },
+          "label": "unsupported",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "replace_text",
+                  "find": "",
+                  "replace": "x"
+                }
+              ]
+            }
+          },
+          "label": "replace-empty",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_font",
+                  "properties": {
+                    "bold": true
+                  }
+                }
+              ]
+            }
+          },
+          "label": "font-no-find",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_font",
+                  "find": "absent",
+                  "properties": {
+                    "bold": true
+                  }
+                }
+              ]
+            }
+          },
+          "label": "font-not-found",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_comment",
+                  "find": "absent",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "comment-not-found",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_comment_reply",
+                  "comment": 9,
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "comment-range",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_provenance",
+                  "paragraph": 99,
+                  "citation": "x"
+                }
+              ]
+            }
+          },
+          "label": "provenance-range",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_provenance",
+                  "paragraph": 1,
+                  "citation": " "
+                }
+              ]
+            }
+          },
+          "label": "provenance-blank",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "resolve_revision",
+                  "revision": 4,
+                  "resolution": "accept"
+                }
+              ]
+            }
+          },
+          "label": "revision-range",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_header_footer",
+                  "kind": "sideways",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "header-kind",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_header_footer",
+                  "kind": "header",
+                  "variant": "third",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "header-variant",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_header_footer",
+                  "kind": "header",
+                  "text": "x",
+                  "properties": {
+                    "alignment": "middle"
+                  }
+                }
+              ]
+            }
+          },
+          "label": "header-alignment",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_page",
+                  "properties": {
+                    "columns": 13
+                  }
+                }
+              ]
+            }
+          },
+          "label": "page-columns",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_note",
+                  "kind": "sidenote",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "note-kind",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_note",
+                  "find": "absent",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "note-anchor",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_hyperlink",
+                  "find": "absent",
+                  "address": "https://example.com"
+                }
+              ]
+            }
+          },
+          "label": "hyperlink-target",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "add_bookmark",
+                  "name": "b",
+                  "find": "absent"
+                }
+              ]
+            }
+          },
+          "label": "bookmark-target",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_content_control",
+                  "tag": "absent",
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "control-tag",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_content_control",
+                  "control": 3,
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "control-index",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_table_cell",
+                  "table": 9,
+                  "row": 1,
+                  "col": 1,
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "table-missing",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_table_cell",
+                  "table": 1,
+                  "row": 9,
+                  "col": 1,
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "row-missing",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_table_cell",
+                  "table": 1,
+                  "row": 1,
+                  "col": 9,
+                  "text": "x"
+                }
+              ]
+            }
+          },
+          "label": "cell-missing",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "insert_table_row",
+                  "table": 1,
+                  "row": 9
+                }
+              ]
+            }
+          },
+          "label": "insert-row-range",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "delete_table_column",
+                  "table": 1,
+                  "column": 9
+                }
+              ]
+            }
+          },
+          "label": "column-missing",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_table_cell_style",
+                  "table": 1,
+                  "row": 1,
+                  "col": 1,
+                  "properties": {
+                    "horizontalAlignment": "middle"
+                  }
+                }
+              ]
+            }
+          },
+          "label": "cell-alignment",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "fill_template"
+                }
+              ]
+            }
+          },
+          "label": "template-tokens",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "{{missing}}"
+                },
+                {
+                  "op": "fill_template",
+                  "tokens": {
+                    "other": "x"
+                  },
+                  "strict": true
+                }
+              ]
+            }
+          },
+          "label": "template-strict",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "remove_paragraph",
+                  "paragraph": 99
+                }
+              ]
+            }
+          },
+          "label": "paragraph-missing",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "fill-template",
+      "description": "fill_template over the body and a header, with particles first and then the token variants (spacing inside the braces), counted by matches; a token without a value stays and is listed.",
+      "steps": [
+        {
+          "session": "edit",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "open_session",
+              "session": "ed-docx",
+              "format": "docx",
+              "path": "${work}\\edit.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "{{company}}은 {{ company }} and {{city}} and {{unknown}}."
+                },
+                {
+                  "op": "append_text",
+                  "text": "{{city}}"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "set_header_footer",
+                  "kind": "header",
+                  "text": "{{company}} header"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "batch",
+              "session": "ed-docx",
+              "operations": [
+                {
+                  "op": "fill_template",
+                  "tokens": {
+                    "company": "모아페이",
+                    "city": "Seoul"
+                  },
+                  "particles": [
+                    {
+                      "key": "company",
+                      "find": "{{company}}은",
+                      "replace": "모아페이는"
+                    },
+                    null
+                  ]
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "edit",
+            "request": {
+              "action": "close_session",
+              "session": "ed-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "edit"
+        }
+      ],
+      "collect": [
+        "edit.docx"
+      ]
+    },
+    {
+      "id": "live-batch-success",
+      "description": "A live batch on a document the user holds: one undo record, undoUnits 1, appended paragraphs joined as one run.",
+      "collect": [],
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "One"
+              },
+              {
+                "op": "append_text",
+                "text": "Two"
+              },
+              {
+                "op": "set_paragraph_style",
+                "paragraph": 1,
+                "style": "Heading 1"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ]
+    },
+    {
+      "id": "live-batch-failure-mid-batch",
+      "description": "A live batch that fails after it changed the document: Undo(1) takes it back.",
+      "collect": [],
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "One"
+              },
+              {
+                "op": "set_table_cell",
+                "table": 4,
+                "row": 1,
+                "col": 1,
+                "text": "x"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ]
+    },
+    {
+      "id": "live-batch-failure-untouched",
+      "description": "A live batch that fails before it touched the document: nothing is undone.",
+      "collect": [],
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "set_table_cell",
+                "table": 4,
+                "row": 1,
+                "col": 1,
+                "text": "x"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ]
+    },
+    {
+      "id": "live-batch-author",
+      "description": "A live batch with an author: the user name and initials are restored afterwards.",
+      "collect": [],
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "add_comment",
+                "find": "x",
+                "text": "y",
+                "author": "A",
+                "initials": "B"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ]
+    }
+  ]
+}
