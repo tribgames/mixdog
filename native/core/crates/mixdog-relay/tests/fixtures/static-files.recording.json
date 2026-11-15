@@ -1,0 +1,3293 @@
+{
+ "files": [
+  {
+   "name": "index-identity",
+   "input": {
+    "name": "index-identity",
+    "root": "site",
+    "file": "index.html",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-br",
+   "input": {
+    "name": "index-br",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip, deflate, br"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    ],
+    [
+     "Content-Encoding",
+     "br"
+    ],
+    [
+     "Content-Length",
+     "20"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 20,
+    "sha256": "1404a1ea0dad64c6e3a002e3151a7d74fdff0627814aadfbe974fc2aebc3451b"
+   }
+  },
+  {
+   "name": "index-gzip",
+   "input": {
+    "name": "index-gzip",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"f0cf93681ac83616f60f7b60fcf648faef717f7c253df793bd06a0e73e6b8aff\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ],
+    [
+     "Content-Length",
+     "18"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 18,
+    "sha256": "8c4aba930238490ca3c4072fc77559714cd5a663315469b78d74ff8c6593bee2"
+   }
+  },
+  {
+   "name": "index-q0-gzip",
+   "input": {
+    "name": "index-q0-gzip",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip;q=0"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-star-q0",
+   "input": {
+    "name": "index-star-q0",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "*;q=0"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-gzip-q05",
+   "input": {
+    "name": "index-gzip-q05",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip;q=0.5"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"f0cf93681ac83616f60f7b60fcf648faef717f7c253df793bd06a0e73e6b8aff\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ],
+    [
+     "Content-Length",
+     "18"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 18,
+    "sha256": "8c4aba930238490ca3c4072fc77559714cd5a663315469b78d74ff8c6593bee2"
+   }
+  },
+  {
+   "name": "index-head-br",
+   "input": {
+    "name": "index-head-br",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "br"
+    },
+    "method": "HEAD"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    ],
+    [
+     "Content-Encoding",
+     "br"
+    ],
+    [
+     "Content-Length",
+     "20"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "index-304-br",
+   "input": {
+    "name": "index-304-br",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "br",
+     "if-none-match": "\"unrelated\", \"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    },
+    "ifNoneMatchOf": "index-br",
+    "ifNoneMatchPrefix": "\"unrelated\", "
+   },
+   "status": 304,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "index-304-gzip-head",
+   "input": {
+    "name": "index-304-gzip-head",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip",
+     "if-none-match": "W/\"f0cf93681ac83616f60f7b60fcf648faef717f7c253df793bd06a0e73e6b8aff\""
+    },
+    "method": "HEAD",
+    "ifNoneMatchOf": "index-gzip"
+   },
+   "status": 304,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"f0cf93681ac83616f60f7b60fcf648faef717f7c253df793bd06a0e73e6b8aff\""
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "index-304-star",
+   "input": {
+    "name": "index-304-star",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "if-none-match": "*"
+    }
+   },
+   "status": 304,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "index-304-extra",
+   "input": {
+    "name": "index-304-extra",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "br",
+     "if-none-match": "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    },
+    "ifNoneMatchOf": "index-br",
+    "extra": {
+     "Set-Cookie": "device=test; HttpOnly"
+    }
+   },
+   "status": 304,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    ],
+    [
+     "Set-Cookie",
+     "device=test; HttpOnly"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "index-200-other-representation",
+   "input": {
+    "name": "index-200-other-representation",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "br",
+     "if-none-match": "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    },
+    "ifNoneMatchOf": "index-identity"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef9c17b52780a6535c446199db3f1df47792cf23f1472d65aa6a38b1f78fa4ad\""
+    ],
+    [
+     "Content-Encoding",
+     "br"
+    ],
+    [
+     "Content-Length",
+     "20"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 20,
+    "sha256": "1404a1ea0dad64c6e3a002e3151a7d74fdff0627814aadfbe974fc2aebc3451b"
+   }
+  },
+  {
+   "name": "index-200-wrong-tag",
+   "input": {
+    "name": "index-200-wrong-tag",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "if-none-match": "W/\"nope\""
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-post-star",
+   "input": {
+    "name": "index-post-star",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "if-none-match": "*"
+    },
+    "method": "POST"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-vary-cookie",
+   "input": {
+    "name": "index-vary-cookie",
+    "root": "site",
+    "file": "index.html",
+    "headers": {
+     "accept-encoding": "gzip"
+    },
+    "varyOnCookie": true
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding, Cookie"
+    ],
+    [
+     "ETag",
+     "W/\"f0cf93681ac83616f60f7b60fcf648faef717f7c253df793bd06a0e73e6b8aff\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ],
+    [
+     "Content-Length",
+     "18"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 18,
+    "sha256": "8c4aba930238490ca3c4072fc77559714cd5a663315469b78d74ff8c6593bee2"
+   }
+  },
+  {
+   "name": "index-extra-cookies",
+   "input": {
+    "name": "index-extra-cookies",
+    "root": "site",
+    "file": "index.html",
+    "headers": {},
+    "extra": {
+     "Set-Cookie": [
+      "a=1",
+      "b=2"
+     ]
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "Set-Cookie",
+     [
+      "a=1",
+      "b=2"
+     ]
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "index-extra-overrides",
+   "input": {
+    "name": "index-extra-overrides",
+    "root": "site",
+    "file": "index.html",
+    "headers": {},
+    "extra": {
+     "Cache-Control": "no-store",
+     "X-Extra": "1"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self' 'sha256-YQWlrphb6P1+hCEKW1jB9PZ6sqoLux6BGk2Uw+k2ZFo='; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-store"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"d98294379d0f120826d0671b380160b9839f7822e4aed36db3c7fba88970c560\""
+    ],
+    [
+     "X-Extra",
+     "1"
+    ],
+    [
+     "Content-Length",
+     "4057"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 4057,
+    "sha256": "60442d23b74fdb81c3033768dc2f77a065e74a78a48c7cd63236ab1bd8476928"
+   }
+  },
+  {
+   "name": "css-br",
+   "input": {
+    "name": "css-br",
+    "root": "site",
+    "file": "assets/index-AbCdEf123.css",
+    "headers": {
+     "accept-encoding": "gzip, deflate, br"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"32d9f7adb1549e0dbe57c2dc4302ed0f5a2b1307434d5d78d956a2c1a4e80b01\""
+    ],
+    [
+     "Content-Encoding",
+     "br"
+    ],
+    [
+     "Content-Length",
+     "23"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 23,
+    "sha256": "0e236b8fcfc22d1ab8cdf855134f8496cf2bc9736d9747f37551ab633d0e6494"
+   }
+  },
+  {
+   "name": "css-gzip",
+   "input": {
+    "name": "css-gzip",
+    "root": "site",
+    "file": "assets/index-AbCdEf123.css",
+    "headers": {
+     "accept-encoding": "gzip"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"a153acc810f57c0abeca3b7cc1a6e9d663e8681e0676ad77e62b5100e7826726\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ],
+    [
+     "Content-Length",
+     "21"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 21,
+    "sha256": "f5d9e195d7b1956451f4448770560a094cf67d9ec20575f43ffa6764465a7d76"
+   }
+  },
+  {
+   "name": "css-identity",
+   "input": {
+    "name": "css-identity",
+    "root": "site",
+    "file": "assets/index-AbCdEf123.css",
+    "headers": {
+     "accept-encoding": ""
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"f90301941a1df41bd7170634dacca67c0586ca790ffc3a5e43e332fa373b06be\""
+    ],
+    [
+     "Content-Length",
+     "2063"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2063,
+    "sha256": "637f9702e4024a2ac2864f5110780ae09b12394ca4080707472ba6b8131555c1"
+   }
+  },
+  {
+   "name": "css-vary-cookie",
+   "input": {
+    "name": "css-vary-cookie",
+    "root": "site",
+    "file": "assets/index-AbCdEf123.css",
+    "headers": {
+     "accept-encoding": "br"
+    },
+    "varyOnCookie": true
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"32d9f7adb1549e0dbe57c2dc4302ed0f5a2b1307434d5d78d956a2c1a4e80b01\""
+    ],
+    [
+     "Content-Encoding",
+     "br"
+    ],
+    [
+     "Content-Length",
+     "23"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 23,
+    "sha256": "0e236b8fcfc22d1ab8cdf855134f8496cf2bc9736d9747f37551ab633d0e6494"
+   }
+  },
+  {
+   "name": "live-gzip",
+   "input": {
+    "name": "live-gzip",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "br, gzip"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"2c7104eea74c168facca36ad7303a6af47a7a0ef815570e9a7ca6eb89d7bb8f4\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ]
+   ],
+   "body": {
+    "kind": "live-gzip",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "live-gzip-head",
+   "input": {
+    "name": "live-gzip-head",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "gzip"
+    },
+    "method": "HEAD"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"2c7104eea74c168facca36ad7303a6af47a7a0ef815570e9a7ca6eb89d7bb8f4\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "live-q0",
+   "input": {
+    "name": "live-q0",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "gzip;q=0"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"63bc2cc19e0274b93e93fddefb1fa4b397611ea350cd48e7072eed7d6e7902ed\""
+    ],
+    [
+     "Content-Length",
+     "2064"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "live-star-q0",
+   "input": {
+    "name": "live-star-q0",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "*;q=0"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"63bc2cc19e0274b93e93fddefb1fa4b397611ea350cd48e7072eed7d6e7902ed\""
+    ],
+    [
+     "Content-Length",
+     "2064"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "live-both-q0",
+   "input": {
+    "name": "live-both-q0",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "br;q=0, gzip;q=0"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"63bc2cc19e0274b93e93fddefb1fa4b397611ea350cd48e7072eed7d6e7902ed\""
+    ],
+    [
+     "Content-Length",
+     "2064"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "live-br-only",
+   "input": {
+    "name": "live-br-only",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "br"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"63bc2cc19e0274b93e93fddefb1fa4b397611ea350cd48e7072eed7d6e7902ed\""
+    ],
+    [
+     "Content-Length",
+     "2064"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "live-star",
+   "input": {
+    "name": "live-star",
+    "root": "site",
+    "file": "assets/plain-Zz9YyXx87.css",
+    "headers": {
+     "accept-encoding": "*"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"2c7104eea74c168facca36ad7303a6af47a7a0ef815570e9a7ca6eb89d7bb8f4\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ]
+   ],
+   "body": {
+    "kind": "live-gzip",
+    "length": 2064,
+    "sha256": "190edbd2d7fcc75b271a99dd57ee37a3d640ee51fbd067bc61018a32235bda51"
+   }
+  },
+  {
+   "name": "only-gz-br-gzip",
+   "input": {
+    "name": "only-gz-br-gzip",
+    "root": "site",
+    "file": "assets/only-gz-Q0AbCdEf1.css",
+    "headers": {
+     "accept-encoding": "br, gzip"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"a153acc810f57c0abeca3b7cc1a6e9d663e8681e0676ad77e62b5100e7826726\""
+    ],
+    [
+     "Content-Encoding",
+     "gzip"
+    ],
+    [
+     "Content-Length",
+     "21"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 21,
+    "sha256": "f5d9e195d7b1956451f4448770560a094cf67d9ec20575f43ffa6764465a7d76"
+   }
+  },
+  {
+   "name": "only-gz-br",
+   "input": {
+    "name": "only-gz-br",
+    "root": "site",
+    "file": "assets/only-gz-Q0AbCdEf1.css",
+    "headers": {
+     "accept-encoding": "br"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"6880ae16b37e975fe59cacb5042d2821f177343b5f2d1314452fbe4fc74f812c\""
+    ],
+    [
+     "Content-Length",
+     "2065"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2065,
+    "sha256": "cb1958ac21238d9f2de626133707a85c20ceebafe58a9cc3f6168b807b38dafb"
+   }
+  },
+  {
+   "name": "hashed-js",
+   "input": {
+    "name": "hashed-js",
+    "root": "site",
+    "file": "assets/index-AbCdEf123.js",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/javascript; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=31536000, immutable"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"ef92ff2d88cd5b44e4aca3ead33d5715b15d3245771214d018d7e1ecb6d38227\""
+    ],
+    [
+     "Content-Length",
+     "26"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 26,
+    "sha256": "6e022b4c49ef4368c407c653dda43e5b44565cfa549b47150e3f8f4427199ac7"
+   }
+  },
+  {
+   "name": "style-css",
+   "input": {
+    "name": "style-css",
+    "root": "site",
+    "file": "style.css",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/css; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=86400"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"c4bcf80eb096adc395643388915af80035a18d8411157265485daabdd18063bd\""
+    ],
+    [
+     "Content-Length",
+     "15"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 15,
+    "sha256": "15c42ab7768d955ec0667195e339104557827893b16cc3e7412c76e7c2fcd371"
+   }
+  },
+  {
+   "name": "sw-shell",
+   "input": {
+    "name": "sw-shell",
+    "root": "site",
+    "file": "sw-shell.js",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/javascript; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"32ed797175dbd7749d6ac040d2f7241e05e2272f8d32fbec2033eb92afd76a87\""
+    ],
+    [
+     "Content-Length",
+     "18"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 18,
+    "sha256": "4e39c6fc5f638284bafb4f19a0c9e66cade986df9728135337a13f0b1c612edd"
+   }
+  },
+  {
+   "name": "boot-js",
+   "input": {
+    "name": "boot-js",
+    "root": "site",
+    "file": "boot.js",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/javascript; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"4f0136f353861607b3599cbeb42fae0083f47cf2b2792d0716cf67286679418e\""
+    ],
+    [
+     "Content-Length",
+     "25"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 25,
+    "sha256": "6105a5ae985be8fd7e84210a5b58c1f4f67ab2aa0bbb1e811a4d94c3e936645a"
+   }
+  },
+  {
+   "name": "icon-png",
+   "input": {
+    "name": "icon-png",
+    "root": "site",
+    "file": "icon.png",
+    "headers": {
+     "accept-encoding": "gzip"
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "image/png"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=86400"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"3da1af7b65a3e70a413afb1cec2d57d249e05d02b5838ea6026336494ca42c86\""
+    ],
+    [
+     "Content-Length",
+     "16"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 16,
+    "sha256": "506034b70998f1c6272ac358a2f5008b76f76d8c8672db6a825371031d7b9da6"
+   }
+  },
+  {
+   "name": "data-bin",
+   "input": {
+    "name": "data-bin",
+    "root": "site",
+    "file": "data.bin",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/octet-stream"
+    ],
+    [
+     "Cache-Control",
+     "public, max-age=86400"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"64c0d650c8f7a3a43d098080bc5b3dadb43d3ad9858c972696f812f44ad80a72\""
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 2,
+    "sha256": "5dde896887f6754c9b15bfe3a441ae4806df2fde94001311e08bf110622e0bbe"
+   }
+  },
+  {
+   "name": "plain-index",
+   "input": {
+    "name": "plain-index",
+    "root": "plain",
+    "file": "index.html",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "text/html; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "Vary",
+     "Accept-Encoding"
+    ],
+    [
+     "ETag",
+     "W/\"823db70e25bf7faf688aeb5562186f51624155f4cd14d220d8f4562ecb9f3886\""
+    ],
+    [
+     "Content-Length",
+     "36"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 36,
+    "sha256": "493166b48009f9664639329991b524e115a7f0f9f92d2a5901ad7bbfc1339e9f"
+   }
+  }
+ ],
+ "manifests": [
+  {
+   "name": "a",
+   "input": {
+    "name": "a",
+    "root": "site",
+    "file": "manifest.webmanifest",
+    "device": "a",
+    "headers": {}
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/manifest+json; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "ETag",
+     "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    ],
+    [
+     "Content-Length",
+     "119"
+    ],
+    [
+     "Set-Cookie",
+     "mixdog_device=a; Path=/; Max-Age=31536000; SameSite=Lax"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 119,
+    "sha256": "a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006"
+   }
+  },
+  {
+   "name": "a-304",
+   "input": {
+    "name": "a-304",
+    "root": "site",
+    "file": "manifest.webmanifest",
+    "device": "a",
+    "headers": {
+     "if-none-match": "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    },
+    "ifNoneMatchOf": "a"
+   },
+   "status": 304,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/manifest+json; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "ETag",
+     "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    ],
+    [
+     "Set-Cookie",
+     "mixdog_device=a; Path=/; Max-Age=31536000; SameSite=Lax"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "b-with-a-tag",
+   "input": {
+    "name": "b-with-a-tag",
+    "root": "site",
+    "file": "manifest.webmanifest",
+    "device": "b",
+    "headers": {
+     "if-none-match": "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    },
+    "ifNoneMatchOf": "a"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/manifest+json; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "ETag",
+     "W/\"93bab93a9d98acf6c5bfc3bb2f72bb08499ee0e64dd683328fbe8771dcfa854c\""
+    ],
+    [
+     "Content-Length",
+     "119"
+    ],
+    [
+     "Set-Cookie",
+     "mixdog_device=b; Path=/; Max-Age=31536000; SameSite=Lax"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 119,
+    "sha256": "93bab93a9d98acf6c5bfc3bb2f72bb08499ee0e64dd683328fbe8771dcfa854c"
+   }
+  },
+  {
+   "name": "a-head",
+   "input": {
+    "name": "a-head",
+    "root": "site",
+    "file": "manifest.webmanifest",
+    "device": "a",
+    "headers": {},
+    "method": "HEAD"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/manifest+json; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "ETag",
+     "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    ],
+    [
+     "Content-Length",
+     "119"
+    ],
+    [
+     "Set-Cookie",
+     "mixdog_device=a; Path=/; Max-Age=31536000; SameSite=Lax"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  {
+   "name": "a-secure",
+   "input": {
+    "name": "a-secure",
+    "root": "site",
+    "file": "manifest.webmanifest",
+    "device": "a",
+    "headers": {},
+    "encrypted": true
+   },
+   "status": 200,
+   "headers": [
+    [
+     "Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    ],
+    [
+     "Cross-Origin-Opener-Policy",
+     "same-origin"
+    ],
+    [
+     "Cross-Origin-Resource-Policy",
+     "same-origin"
+    ],
+    [
+     "Permissions-Policy",
+     "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+    ],
+    [
+     "Referrer-Policy",
+     "no-referrer"
+    ],
+    [
+     "X-Content-Type-Options",
+     "nosniff"
+    ],
+    [
+     "X-Frame-Options",
+     "DENY"
+    ],
+    [
+     "Content-Type",
+     "application/manifest+json; charset=utf-8"
+    ],
+    [
+     "Cache-Control",
+     "no-cache"
+    ],
+    [
+     "ETag",
+     "W/\"a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006\""
+    ],
+    [
+     "Content-Length",
+     "119"
+    ],
+    [
+     "Set-Cookie",
+     "mixdog_device=a; Path=/; Max-Age=31536000; SameSite=Lax; Secure"
+    ]
+   ],
+   "body": {
+    "kind": "raw",
+    "length": 119,
+    "sha256": "a604c19150653fc57e21d8dfd2deac0d77d8d1c8c776afff044cf6b42c4cd006"
+   }
+  }
+ ],
+ "resolve": [
+  {
+   "root": "site",
+   "pathname": "/",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/index.html",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/style.css",
+   "status": 200,
+   "target": "style.css"
+  },
+  {
+   "root": "site",
+   "pathname": "/nope",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/nope.js",
+   "status": 404,
+   "target": ""
+  },
+  {
+   "root": "site",
+   "pathname": "/a/b",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/index.html.br",
+   "status": 404,
+   "target": ""
+  },
+  {
+   "root": "site",
+   "pathname": "/assets/x.GZ",
+   "status": 404,
+   "target": ""
+  },
+  {
+   "root": "site",
+   "pathname": "/../x",
+   "status": 403,
+   "target": ""
+  },
+  {
+   "root": "site",
+   "pathname": "/a/../../x",
+   "status": 403,
+   "target": ""
+  },
+  {
+   "root": "site",
+   "pathname": "/%2e%2e/x",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/assets/index-AbCdEf123.css",
+   "status": 200,
+   "target": "assets/index-AbCdEf123.css"
+  },
+  {
+   "root": "site",
+   "pathname": "/assets",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "site",
+   "pathname": "/assets/",
+   "status": 200,
+   "target": "index.html"
+  },
+  {
+   "root": "gone",
+   "pathname": "/index.html",
+   "status": 404,
+   "target": ""
+  }
+ ],
+ "negotiation": [
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "br",
+   "picked": {
+    "file": "index.html.br",
+    "encoding": "br"
+   }
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "gzip",
+   "picked": {
+    "file": "index.html.gz",
+    "encoding": "gzip"
+   }
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "br, gzip",
+   "picked": {
+    "file": "index.html.br",
+    "encoding": "br"
+   }
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "",
+   "picked": null
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "gzip;q=0",
+   "picked": null
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "br;q=0, gzip",
+   "picked": {
+    "file": "index.html.gz",
+    "encoding": "gzip"
+   }
+  },
+  {
+   "root": "site",
+   "file": "index.html",
+   "accept": "*",
+   "picked": {
+    "file": "index.html.br",
+    "encoding": "br"
+   }
+  },
+  {
+   "root": "site",
+   "file": "assets/plain-Zz9YyXx87.css",
+   "accept": "br, gzip",
+   "picked": null
+  },
+  {
+   "root": "site",
+   "file": "assets/only-gz-Q0AbCdEf1.css",
+   "accept": "br, gzip",
+   "picked": {
+    "file": "assets/only-gz-Q0AbCdEf1.css.gz",
+    "encoding": "gzip"
+   }
+  },
+  {
+   "root": "site",
+   "file": "assets/only-gz-Q0AbCdEf1.css",
+   "accept": "br",
+   "picked": null
+  }
+ ],
+ "accepted": [
+  {
+   "header": "gzip;q=0",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": "gzip;q=0.001",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "*;q=0",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": "*",
+   "encoding": "br",
+   "accepted": true
+  },
+  {
+   "header": "gzip, br;q=0.5",
+   "encoding": "br",
+   "accepted": true
+  },
+  {
+   "header": "GZIP",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "gzip;q=1.",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "gzip;q=0.",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "gzip;q=abc",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "gzip; q = 0",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": "gzip;Q=0",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": "br;q=0, *;q=1",
+   "encoding": "br",
+   "accepted": false
+  },
+  {
+   "header": "",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": " , ,gzip",
+   "encoding": "gzip",
+   "accepted": true
+  },
+  {
+   "header": "gzip;q=.5;q=0",
+   "encoding": "gzip",
+   "accepted": false
+  },
+  {
+   "header": "identity;q=0",
+   "encoding": "gzip",
+   "accepted": false
+  }
+ ],
+ "cookies": [
+  {
+   "token": "abcd",
+   "device": "dev1",
+   "pairing": {
+    "Set-Cookie": "mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax"
+   },
+   "pairingSecure": {
+    "Set-Cookie": "mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure"
+   },
+   "device_": {
+    "Set-Cookie": "mixdog_device=dev1; Path=/; Max-Age=31536000; SameSite=Lax"
+   },
+   "deviceSecure": {
+    "Set-Cookie": "mixdog_device=dev1; Path=/; Max-Age=31536000; SameSite=Lax; Secure"
+   },
+   "merged": {
+    "Set-Cookie": [
+     "mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax",
+     "mixdog_device=dev1; Path=/; Max-Age=31536000; SameSite=Lax; Secure"
+    ]
+   }
+  },
+  {
+   "token": "a b/ü+%",
+   "device": "de v",
+   "pairing": {
+    "Set-Cookie": "mixdog_token=a%20b%2F%C3%BC%2B%25; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax"
+   },
+   "pairingSecure": {
+    "Set-Cookie": "mixdog_token=a%20b%2F%C3%BC%2B%25; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure"
+   },
+   "device_": {
+    "Set-Cookie": "mixdog_device=de%20v; Path=/; Max-Age=31536000; SameSite=Lax"
+   },
+   "deviceSecure": {
+    "Set-Cookie": "mixdog_device=de%20v; Path=/; Max-Age=31536000; SameSite=Lax; Secure"
+   },
+   "merged": {
+    "Set-Cookie": [
+     "mixdog_token=a%20b%2F%C3%BC%2B%25; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax",
+     "mixdog_device=de%20v; Path=/; Max-Age=31536000; SameSite=Lax; Secure"
+    ]
+   }
+  },
+  {
+   "token": "",
+   "device": "",
+   "pairing": {},
+   "pairingSecure": {},
+   "device_": {},
+   "deviceSecure": {},
+   "merged": {}
+  }
+ ],
+ "credentials": [
+  {
+   "header": "mixdog_token=abcd; mixdog_device=dev1",
+   "token": "abcd",
+   "device": "dev1"
+  },
+  {
+   "header": "x=1;mixdog_token=a%20b",
+   "token": "a b",
+   "device": ""
+  },
+  {
+   "header": "mixdog_token=%E0%A4%A",
+   "token": "",
+   "device": ""
+  },
+  {
+   "header": "mixdog_tokenx=1",
+   "token": "",
+   "device": ""
+  },
+  {
+   "header": "=mixdog_token",
+   "token": "",
+   "device": ""
+  },
+  {
+   "header": " mixdog_token = spaced ",
+   "token": "spaced",
+   "device": ""
+  },
+  {
+   "header": "mixdog_token=a=b",
+   "token": "a=b",
+   "device": ""
+  },
+  {
+   "header": "mixdog_device=%C3%BC",
+   "token": "",
+   "device": "ü"
+  },
+  {
+   "header": "",
+   "token": "",
+   "device": ""
+  },
+  {
+   "header": "mixdog_token=",
+   "token": "",
+   "device": ""
+  },
+  {
+   "headers": {},
+   "allowed": true
+  },
+  {
+   "headers": {
+    "origin": "null"
+   },
+   "allowed": false
+  },
+  {
+   "headers": {
+    "origin": " NULL "
+   },
+   "allowed": false
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "cross-site"
+   },
+   "allowed": false
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "same-site",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document"
+   },
+   "allowed": true
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "iframe"
+   },
+   "allowed": false
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "none"
+   },
+   "allowed": true
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "same-origin"
+   },
+   "allowed": true
+  },
+  {
+   "headers": {
+    "origin": "https://x"
+   },
+   "allowed": true
+  },
+  {
+   "headers": {
+    "sec-fetch-site": "Cross-Site",
+    "sec-fetch-mode": "NAVIGATE",
+    "sec-fetch-dest": "Document"
+   },
+   "allowed": true
+  }
+ ]
+}

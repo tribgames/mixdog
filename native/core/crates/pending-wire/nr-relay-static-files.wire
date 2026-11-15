@@ -1,0 +1,27 @@
+# nr-relay-static-files: static file serving of the relay (mixdog-relay src/web/files.rs, headers.rs, negotiate.rs) and tests/web_static.rs.
+# Nothing here could be compiled (no cargo in this task): the sources use only what mixdog-relay's Cargo.toml already lists.
+
+## 1. native/core/crates/mixdog-relay/Cargo.toml
+No edit. Used from [dependencies]: base64, flate2 (write::GzEncoder, level 6), mixdog-fsio, mixdog-js (through crate::js), mixdog-rt, serde_json, sha2.
+From [dev-dependencies]: tempfile, tokio (macros). tests/web_static.rs is found by Cargo's own discovery (no [[test]] row).
+`cargo nextest run -p mixdog-relay --features test-support --offline -E 'binary(web_static)'` runs it.
+
+## 2. native/core/Cargo.lock, mixdog-workspace-hack
+No change: no dependency is added to any package.
+
+## 3. compose_flip.rs SERVICE_PENDING
+Nothing: the crate registers no protocol method.
+
+## 4. Test data beside the tests
+tests/fixtures/static-files.tree.json (the fixture tree and the cases), tests/fixtures/static-files.recording.json (what the Node module answered, recorded
+once by `node tests/static_files_record.mjs <apps/relay/lib> <scratch> tests/fixtures/static-files.recording.json`; re-record by hand only).
+The ledger is tests/ledger/nr-relay-static-files.json.
+
+## 5. What the server assembly (nr-relay-server) calls
+- web::files::resolve_for_device(&InteractiveIo, Arc<RendererCatalog>, DeviceReport, pathname) -> (renderer dir, StaticResolution): the release directory of the device, then the target.
+- web::files::send_static_file(&io, &request, &mut response, &target, &extra_headers, StaticOptions { vary_on_cookie }) for a Found target; vary_on_cookie is
+  true when the registry of releases is on (what `varyOnCookie` was). send_device_manifest(&io, &request, &mut response, &target, device_id) -> bool for /d/<id>/manifest
+  (false: the caller answers).
+- web::headers: pairing_cookie_headers(token, request.encrypted), device_cookie_headers(id, request.encrypted), merge_cookie_headers(&[..]) build `extra_headers`;
+  request_cookie_token(&request.headers) and parse_cookie_device(headers.get("cookie")) read the cookies back; browser_security_headers() is the set for every other answer.
+- The InteractiveIo token is the one the daemon mints (LaneTokens::interactive_io); the module keeps no state but the 256-entry validator cache.
