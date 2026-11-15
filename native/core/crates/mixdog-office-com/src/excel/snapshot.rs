@@ -469,7 +469,7 @@ fn freeze_panes_of(book: &Com, sheet: &Com) -> Result<Value> {
 
 fn auto_filter_of(sheet: &Com) -> Value {
     attempt(|| {
-        if bool_of(&sheet.member("AutoFilterMode")?) && !matches!(sheet.member("AutoFilter")?, Com::Empty | Com::Missing) {
+        if bool_of(&sheet.member("AutoFilterMode")?) && !sheet.member("AutoFilter")?.is_null() {
             let range = string_of(&relative_address(&sheet.member("AutoFilter")?.member("Range")?)?);
             return Ok(ordered(vec![("enabled", Value::Bool(true)), ("range", Value::String(range))]));
         }
@@ -567,8 +567,9 @@ fn sheet_entry(book: &Com, sheet: &Com, payload: &Value) -> Result<(Value, usize
         cells.iter().filter(|cell| convert::to_bool(&payload::property(cell, "formula"))).cloned().collect();
     entry.set("cells", Value::Array(cells));
     let lineage = formula_lineage(&lineage_entries, &string_of(&sheet.member("Name")?));
-    entry.set("lineageCount", Value::Int(lineage.len() as i32));
+    let lineage_count = lineage.len() as i32;
     entry.set("formulaLineage", Value::Array(lineage));
+    entry.set("lineageCount", Value::Int(lineage_count));
     if payload_flag(payload, "sheet") && payload::names_equal(&payload_text(payload, "sheet"), &string_of(&sheet.member("Name")?)) {
         let mut range = used.clone();
         if payload_flag(payload, "range") {

@@ -266,6 +266,16 @@ fn a_page_of_cells_carries_formulas_lineage_and_the_pagination_record() {
 }
 
 #[test]
+fn a_page_that_ends_inside_a_row_passes_the_row_sum_as_a_decimal_and_the_partial_column_as_a_long() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let sheet = data_sheet(log.clone(), "General");
+    let book = workbook(&sheet, Com::Empty);
+    Reader.snapshot_page(&World::new().env(), &book, &request("{\"paged\":true,\"limit\":3}")).expect("a page");
+    // Rows 1..1 whole (the floor of 3 / 2 is a Double, added to the Decimal row offset: a Decimal), then one cell of row 2.
+    assert_eq!(*log.borrow(), ["decimal,i4", "decimal,i4", "decimal,i4", "decimal,i8"]);
+}
+
+#[test]
 fn a_page_with_styles_reads_the_colour_names_of_a_korean_excel_back_in_english() {
     let log = Rc::new(RefCell::new(Vec::new()));
     let sheet = data_sheet(log, "#,##0;[\u{BE68}\u{AC15}]-#,##0");
