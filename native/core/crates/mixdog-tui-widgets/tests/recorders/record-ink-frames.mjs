@@ -19,7 +19,6 @@
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -44,7 +43,7 @@ process.env.FORCE_COLOR = framesOnlyLevel ?? '3';
 process.env.MIXDOG_TUI_AMBIGUOUS_WIDE = '1';
 // The status line reads the shell-job cache under the data directory and the terminal's width: a fresh empty directory
 // and a fixed width keep the recording the same on every machine.
-const dataDirectory = mkdtempSync(join(tmpdir(), 'mixdog-ink-record-'));
+const dataDirectory = mkdtempSync(join(here, '.tmp-record-data-'));
 process.env.MIXDOG_DATA_DIR = dataDirectory;
 process.on('exit', () => rmSync(dataDirectory, { recursive: true, force: true }));
 try {
