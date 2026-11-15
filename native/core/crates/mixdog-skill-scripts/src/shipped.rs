@@ -117,13 +117,11 @@ pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) 
 }
 
 impl Native {
-    /// Whether this process can run the script itself: the two scripts that read office files need the office engine, and a
-    /// process without one hands them to the script interpreter like any other script.
+    /// Recognized built-ins always use their native implementation. Engine availability is
+    /// checked only when an operation actually needs Office: plain-text source extraction
+    /// needs none. Falling back here would run deleted product code on the user interpreter.
     pub fn runs_here(self) -> bool {
-        match self {
-            Native::SourceExtract | Native::QcPages => installed_office_engine().is_some(),
-            _ => true,
-        }
+        true
     }
 }
 
