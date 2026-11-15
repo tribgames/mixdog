@@ -33,6 +33,7 @@ test('a half-moved payload from an interrupted stage is rebuilt, never packaged'
       installModules: async (pkgDir) => mkdirSync(join(pkgDir, 'node_modules'), { recursive: true }),
       listPackageFiles: async () => [],
       recordClosure: () => {},
+      copyPptxgenjs: async () => {},
     });
 
   // A failed tar (its output directory does not exist) puts the payload back.
