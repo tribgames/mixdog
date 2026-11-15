@@ -273,7 +273,10 @@ const MAX_SIDE_QUESTION_LENGTH: usize = 1_000_000;
 /// `Number.MAX_SAFE_INTEGER`.
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const CONTEXT_INSPECTION_KEYS: &[&str] = &["inspect", "entryId", "revision"];
-const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath"];
+/// `projectPath` is the desktop's option (a new-task draft's Project); `cwd` is the runtime's own (`skillsStatus({ cwd })`,
+/// `resource-skills-api.mjs` `statusCwd`), which the skills service reads when no Project is named
+/// (`skills_service.rs` `requested_cwd`).
+const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath", "cwd"];
 const STARTER_GUIDE_KEYS: &[&str] = &["closed", "welcomed", "visited"];
 /// `STARTER_GUIDE_STEPS` of `ipc-validation.ts` (the runtime schema `starter-guide-state.mjs`).
 const STARTER_GUIDE_STEPS: &[&str] = &["provider", "project", "workflow", "extensions", "remote"];
@@ -505,12 +508,18 @@ fn turn_changes_target(params: &Map<String, Value>) -> Result<(), (&'static str,
 }
 
 /// The `skillsStatus` options: a new-task draft's absolute project path (the host resolves it to a registered
-/// Project and refuses anything else).
+/// Project and refuses anything else), or the folder itself as `cwd`, which the skills service holds to an existing
+/// absolute directory with its own messages (`statusCwd`).
 fn skills_status_options(value: Option<&Value>) -> Result<(), (String, String)> {
     let Some(options) = options_object(value, "skills status options are invalid.")? else {
         return Ok(());
     };
     allowed_keys(options, SKILLS_STATUS_OPTION_KEYS, "skills status options")?;
+    // The service reads `projectPath` first and `cwd` only without one. A null `cwd` is no folder: Node's `statusCwd`
+    // refused it, and the service would read it as absent, so it is held to the Project rule below.
+    if !options.contains_key("projectPath") && options.get("cwd").is_some_and(|cwd| !cwd.is_null()) {
+        return Ok(());
+    }
     let path = "/options/projectPath";
     let project_path = required_string(options.get("projectPath"), "projectPath", 4_096)
         .map_err(|expected| (path.to_owned(), expected))?;
@@ -612,6 +621,31 @@ mod tests {
         assert_eq!(
             run("config/saveStarterGuideState", &state(serde_json::json!({ "visited": ["nope"] }))),
             refused("starter guide visited must list known steps.")
+        );
+    }
+
+    /// `skillsStatus({ cwd })` of the runtime (`resource-skills-api.mjs` `statusCwd`), which the skills service reads
+    /// (`skills_service.rs` `requested_cwd`): the folder passes to the service, whose own check its value is. A Project
+    /// path beside it is still held to the desktop's rule, and a field the service does not read is still refused.
+    #[test]
+    fn validate_capability_skills_status_takes_the_folder_the_service_reads() {
+        let options = |options: Value| serde_json::json!({ "threadId": "thread-1", "options": options });
+        let refused = |path: &str, expected: &str| Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() });
+        assert_eq!(run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "/work/proj" }))), Ok(()));
+        // Its value is the service's: `skillsStatus cwd must be an absolute path.`
+        assert_eq!(run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "proj" }))), Ok(()));
+        assert_eq!(run("skills/skillsStatus", &options(serde_json::json!({ "projectPath": "/work/proj", "cwd": "/work/proj" }))), Ok(()));
+        assert_eq!(
+            run("skills/skillsStatus", &options(serde_json::json!({ "projectPath": "work/proj", "cwd": "/work/proj" }))),
+            refused("/options/projectPath", "projectPath is invalid.")
+        );
+        assert_eq!(
+            run("skills/skillsStatus", &options(serde_json::json!({ "cwd": null }))),
+            refused("/options/projectPath", "projectPath must be a string.")
+        );
+        assert_eq!(
+            run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "/work/proj", "force": true }))),
+            refused("/options", "skills status options contains an unsupported field.")
         );
     }
 
