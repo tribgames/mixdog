@@ -70,7 +70,7 @@ async function fakePool(t, options = {}) {
       child.exitCode = 0;
       child.emit('exit', 0);
     }
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   });
   return { pool, directory, workers, spawns, retired };

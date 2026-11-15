@@ -5,7 +5,7 @@
 import type { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import { FOREGROUND_LOCK_LINE_PREFIX } from './foreground-lock-host';
-import { RESPONSE_MARKER } from './program';
+import { RESPONSE_MARKER } from '../shared/common';
 import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import type { WorkerLedgers } from './worker-ledgers';
 import { createComputerLineDecoder } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';

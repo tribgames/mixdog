@@ -579,6 +579,25 @@ pub fn elevated_worker(
     }
 }
 
+/// The desktop pipe's native UAC supervisor; never installs a service.
+pub fn elevated_launch(request: serde_json::Value, cancelled: std::sync::Arc<crate::elevated_launch::Cancellation>) -> i32 {
+    #[cfg(windows)]
+    return windows::elevated::launch_pipe(request, cancelled);
+    #[cfg(not(windows))]
+    {
+        let _ = (request, cancelled);
+        crate::elevated_launch::emit(serde_json::json!({"kind":"result", "stopped":true, "error":"privileged_worker_unavailable: elevation is not available on this platform"}));
+        2
+    }
+}
+
+pub fn process_start_ticks(pid: u32) -> Result<Option<i64>, String> {
+    #[cfg(windows)]
+    return windows::elevated::process_start_ticks(pid);
+    #[cfg(not(windows))]
+    { let _ = pid; Err("process identity query is not available on this platform".into()) }
+}
+
 /// `--cursor-watchdog <parent_pid>`: the child that keeps the cursor theme and
 /// the parent's input receipt, and restores both when the parent is gone;
 /// the process exit code.

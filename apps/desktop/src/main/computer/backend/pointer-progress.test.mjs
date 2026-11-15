@@ -103,7 +103,7 @@ for (const command of [
       assert.equal(events.length, 7);
     } finally {
       for (const child of children) pool.retirePowerShell(child, new Error('fixture cleanup'));
-      pool.removeHostScript();
+      // Native workers publish no PowerShell host script.
       await rm(directory, { recursive: true, force: true });
     }
   });

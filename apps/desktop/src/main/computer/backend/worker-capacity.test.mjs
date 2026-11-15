@@ -69,7 +69,7 @@ test('worker capacity counts retiring children until exit without evicting anoth
       child.stdout.destroy();
       child.stderr.destroy();
     }
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 });

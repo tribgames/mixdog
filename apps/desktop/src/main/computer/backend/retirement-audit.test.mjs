@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { createWorkerPool } from './worker-pool.ts';
+import { createHostScriptPublisher } from './host-script.ts';
 import { RESPONSE_MARKER } from './program.ts';
 import { createWorkerRequests } from './worker-requests.ts';
 import { createSessionLifecycle } from '../host/session-lifecycle.ts';
@@ -122,7 +123,7 @@ test('retirement distinguishes read, semantic, character and press/release lifet
         assert.throws(() => coordinator.resumeAfterUserTakeover(), /computer_cleanup_pending/);
       }
     } finally {
-      pool.removeHostScript();
+
       coordinator.reset();
       await rm(directory, { recursive: true, force: true });
     }
@@ -132,18 +133,18 @@ test('retirement distinguishes read, semantic, character and press/release lifet
 test('closing one profile never removes the host script another profile will restart from', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-host-profiles-'));
   const options = { dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false };
-  const a = createWorkerPool(options);
-  const b = createWorkerPool(options);
+  const a = createHostScriptPublisher(options.dataDirectory);
+  const b = createHostScriptPublisher(options.dataDirectory);
   try {
-    const first = a.ensureHostScript();
-    const second = b.ensureHostScript();
+    const first = a.ensure();
+    const second = b.ensure();
     assert.notEqual(first, second);
     const original = await readFile(second);
-    a.removeHostScript();
-    assert.deepEqual(await readFile(b.ensureHostScript()), original);
+    a.remove();
+    assert.deepEqual(await readFile(b.ensure()), original);
   } finally {
-    a.removeHostScript();
-    b.removeHostScript();
+    a.remove();
+    b.remove();
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -154,19 +155,15 @@ test('a new host removes scripts left by dead processes and keeps every live one
   const live = join(directory, `computer-host-${process.pid}-aaaaaaaaaaaaaaaaaaaaaaaa.ps1`);
   const unrelated = join(directory, 'computer-host.ps1');
   for (const path of [dead, live, unrelated]) await writeFile(path, '');
-  const pool = createWorkerPool({
-    dataDirectory: () => directory,
-    isBridgeEnabled: () => false,
-    isDisposed: () => false,
-  });
+  const pool = createHostScriptPublisher(() => directory);
   try {
-    const script = pool.ensureHostScript();
+    const script = pool.ensure();
     assert.equal(existsSync(dead), false);
     assert.equal(existsSync(live), true);
     assert.equal(existsSync(unrelated), true);
     assert.equal(existsSync(script), true);
   } finally {
-    pool.removeHostScript();
+    pool.remove();
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -218,7 +215,7 @@ test('capture cleanup failure unpublishes the worker before resolving its origin
         child.exitCode = 0;
         child.emit('exit', 0);
       }
-      pool.removeHostScript();
+
       await rm(directory, { recursive: true, force: true });
     }
   }

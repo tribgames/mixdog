@@ -39,7 +39,7 @@ test('retiring a host worker releases its session and process', {
       clearTimeout(timeout);
     }
   } finally {
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -68,7 +68,7 @@ test('a per-command timeout retires a stuck provider instead of waiting for the 
     );
     assert.equal(pool.powerShellBySession.has('provider-timeout'), false);
   } finally {
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -187,7 +187,7 @@ async function withSlowProvider(patchHost, body) {
       pool.retirePowerShell(child, new Error('test cleanup'));
       await exited;
     }
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 }
@@ -253,7 +253,7 @@ test('first use starts one native worker and never refills an unused spare', {
     assert.equal(warmed.killed, false);
   } finally {
     for (const child of pool.powerShellBySession.values()) pool.retirePowerShell(child, new Error('test cleanup'));
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 });

@@ -146,7 +146,7 @@ test('real child transport soak rejects interrupted mutations without replay or 
   } finally {
     for (const child of children) if (child.exitCode === null) child.kill();
     await Promise.all(children.map((child) => waitForComputerWorkerExit(child)));
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   }
 });
