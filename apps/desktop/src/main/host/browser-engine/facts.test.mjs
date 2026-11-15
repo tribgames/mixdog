@@ -133,3 +133,27 @@ test('the host console entries and refusals join the event stream while the lane
     { push: 'Mixdog.requestRefused', pageId: 'p1' },
   ]);
 });
+
+test("a page whose facts cannot be read inside its own event keeps the event for the listeners after it, and sends at the next change", () => {
+  const { guest, publisher, state, log } = harness();
+  state.for(guest);
+  const stop = publisher.attach(guest);
+  const later = [];
+  guest.on('did-stop-loading', () => later.push('the listener after the facts'));
+  guest.getTitle = () => {
+    throw new Error('Object has been destroyed');
+  };
+  // The emitter calls its listeners in turn: a throw from the facts would leave through `emit` (an uncaught exception of the
+  // main process when Electron emits it) and skip every listener registered later.
+  assert.doesNotThrow(() => guest.emit('did-stop-loading'));
+  assert.deepEqual(later, ['the listener after the facts']);
+  assert.deepEqual(
+    log.filter((entry) => entry.method),
+    [],
+    'nothing was sent'
+  );
+  guest.getTitle = () => 'A';
+  guest.emit('did-stop-loading');
+  assert.equal(log.filter((entry) => entry.method === 'host/browser/page/facts').length, 1, 'the next change sends the facts');
+  stop();
+});

@@ -3042,6 +3042,80 @@ mod tests {
         racing.finish().expect("two sends, no third");
     }
 
+    /// The tab a refused navigate opened is closed again: the host is asked once, for the page the command made.
+    fn discarded(page: &str) -> Expect {
+        Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": page, "reason": "discard"}))
+    }
+
+    #[tokio::test]
+    async fn a_navigate_the_url_rules_refuse_ends_at_once_in_the_rules_words_and_its_address_never_reaches_the_host() {
+        // `browser { action: "navigate", url: "file:///C:/Windows/win.ini", background: true, tab: <a name> }` and its kin: the old
+        // handler threw the rule's sentence before it loaded anything (`navigate` of `actions/navigation.ts` over
+        // `normalizeAgentUrl` of `url-policy.ts`), and the runner closed the blank tab the command had opened and said so
+        // (`runResolvedCommand` of `command-runner.ts`).
+        let refusals = [
+            ("file:///C:/Windows/win.ini", "only http(s) navigation is allowed (got file:)"),
+            ("javascript:alert(1)", "only http(s) navigation is allowed (got javascript:)"),
+            ("data:text/html,<h1>x</h1>", "only http(s) navigation is allowed (got data:)"),
+            ("about:blank", "only http(s) navigation is allowed (got about:)"),
+            ("blob:https://a.test/0b9c", "only http(s) navigation is allowed (got blob:)"),
+            ("view-source:https://a.test/", "only http(s) navigation is allowed (got view-source:)"),
+            ("chrome://settings", "only http(s) navigation is allowed (got chrome:)"),
+            ("ftp://a.test/file", "only http(s) navigation is allowed (got ftp:)"),
+            ("ws://a.test/socket", "only http(s) navigation is allowed (got ws:)"),
+            ("http://user:pw@127.0.0.1:8080/app", "URLs containing embedded credentials are not allowed"),
+            ("http://169.254.169.254/latest/meta-data/", "navigation to cloud metadata endpoints is blocked"),
+        ];
+        for (url, sentence) in refusals {
+            let host = Arc::new(FakeHost::scripted(vec![
+                resolved_blank("p1", "policy").with_params(json!({"background": true, "tab": {"pageId": "policy"}, "open": {"reveal": false}})),
+                discarded("p1"),
+            ]));
+            let error = run(&engine(&host, None), "navigate", json!({"url": url, "background": true, "tab": "policy"})).await.expect_err(url);
+            assert_eq!(error.message_for_model, format!("{sentence}. The blank tab this command opened was closed."), "{url}");
+            // Two requests and no more: the page the command works on, and its close. Nothing waits on a load.
+            host.finish().expect(url);
+            assert_eq!(host.calls().len(), 2, "{url}");
+            assert!(sent(&host, "host/browser/page/navigate").is_empty(), "{url}: the address never reaches the host");
+        }
+
+        // On a page that was already open the refusal is the whole answer: nothing is sent but the resolve, nothing is closed.
+        let open = Arc::new(FakeHost::scripted(vec![resolved("p1")]));
+        let error = run(&engine(&open, None), "navigate", json!({"url": "file:///C:/Windows/win.ini"})).await.expect_err("refused");
+        assert_eq!(error.message_for_model, "only http(s) navigation is allowed (got file:)");
+        open.finish().expect("the resolve alone");
+        assert_eq!(open.calls().len(), 1);
+
+        // A host that cannot close the tab (its claim ended meanwhile) changes nothing of the refusal the agent reads.
+        let closing = Arc::new(FakeHost::scripted(vec![
+            resolved_blank("p1", "policy"),
+            Expect::err("host/browser/pages/close", HostCallError::Unavailable { detail: "claimantClosed".into() }),
+        ]));
+        let error = run(&engine(&closing, None), "navigate", json!({"url": "file:///C:/Windows/win.ini", "background": true, "tab": "policy"})).await.expect_err("refused");
+        assert_eq!(error.message_for_model, "only http(s) navigation is allowed (got file:)");
+        closing.finish().expect("resolve, the close that failed");
+    }
+
+    #[tokio::test]
+    async fn a_navigate_the_host_refused_or_failed_is_the_failure_and_is_sent_once() {
+        // The host admits the address once more against what the name resolves to (`admitUrl` of the host's `page.ts`, -32015). Only a
+        // refused document is sent again (`PageCtx::moved`): a refusal of the address, a failed load and a `refused` answer are not.
+        let private = "navigation to intranet.test resolved to blocked private or internal address 10.0.0.7";
+        let failed = "navigation failed: net::ERR_NAME_NOT_RESOLVED";
+        let answers = [
+            (Expect::err("host/browser/page/navigate", HostCallError::Refused { reason: private.into() }), private),
+            (Expect::err("host/browser/page/navigate", HostCallError::Failed { message: failed.into() }), failed),
+            (Expect::ok("host/browser/page/navigate", json!({"facts": page_facts("p1", 2), "refused": {"reason": "nowhere to go"}})), "nowhere to go"),
+        ];
+        for (answer, message) in answers {
+            let host = Arc::new(FakeHost::scripted(vec![resolved_blank("p1", "policy"), answer, discarded("p1")]));
+            let error = run(&engine(&host, None), "navigate", json!({"url": "https://intranet.test/", "background": true, "tab": "policy"})).await.expect_err(message);
+            assert_eq!(error.message_for_model, format!("{message}. The blank tab this command opened was closed."));
+            host.finish().expect(message);
+            assert_eq!(sent(&host, "host/browser/page/navigate").len(), 1, "{message}: one send");
+        }
+    }
+
     #[tokio::test]
     async fn a_page_with_no_address_binds_a_call_to_its_document_and_one_with_an_address_to_the_address_too() {
         let host = Arc::new(FakeHost::scripted(Vec::new()));
