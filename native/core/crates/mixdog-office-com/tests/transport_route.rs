@@ -1,6 +1,6 @@
 //! Which host program a call or a session starts: with a test list of formats served by the Rust host, a docx session
 //! and `detect` (whatever format it probes) start the configured Rust host program as `office-com-host --session` / `office-com-host`, and xlsx and
-//! pptx start the PowerShell command line; with the shipped list docx, xlsx (and `detect`) start the Rust host program and pptx starts PowerShell. The stand-in
+//! pptx start the PowerShell command line; with the shipped list docx, xlsx, pptx (and `detect`) start the Rust host program. The stand-in
 //! host (`tests/fake_host.rs`) reports the arguments it was started with.
 
 use std::ffi::OsString;
@@ -101,17 +101,15 @@ async fn detect_follows_the_docx_entry() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_shipped_list_starts_the_rust_host_for_word_and_excel_and_powershell_for_powerpoint() {
+async fn the_shipped_list_starts_the_rust_host_for_word_excel_and_powerpoint() {
     let (office, dir) = office_in(None);
     let dir = dir.to_string_lossy().into_owned();
-    for format in ["docx", "xlsx"] {
+    for format in ["docx", "xlsx", "pptx"] {
         assert_eq!(session_argv(&office, format).await, ["office-com-host", "--session", "--data-dir", dir.as_str()], "{format}");
         assert_eq!(call_argv(&office, format).await, ["office-com-host", "--data-dir", dir.as_str()], "{format}");
     }
     assert_eq!(argv(&office.detect("docx", "a.docx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
     assert_eq!(argv(&office.detect("pptx", "a.pptx").await.value), ["office-com-host", "--data-dir", dir.as_str()]);
-    assert!(is_powershell_line(&session_argv(&office, "pptx").await, "office-com-session-host.ps1"));
-    assert!(is_powershell_line(&call_argv(&office, "pptx").await, "office-com-host.ps1"));
     let no_format = office.call(&json!({"action": "snapshot"}), CallOptions::default()).await;
     assert!(is_powershell_line(&argv(&no_format.value), "office-com-host.ps1"));
 }

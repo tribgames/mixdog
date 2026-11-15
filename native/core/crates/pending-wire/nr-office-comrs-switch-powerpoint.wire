@@ -1,0 +1,18 @@
+# nr-office-comrs-switch-powerpoint: pptx (every one-shot pptx call and every pptx session) is served by the Rust host.
+# Compiled list: native/core/crates/mixdog-office-com/src/route.rs RUST_HOST_FORMATS = &["docx", "xlsx", "pptx"] (done in this task).
+# Apply after nr-office-comrs-ppt-read and nr-office-comrs-ppt-edit (the pptx entries of the readers and editors tables of
+# src/drivers.rs) and nr-office-comrs-switch-excel: the Rust host answers every pptx action only with them. `detect` stays with
+# the docx entry. Nothing was compiled (the lead builds the wave). No protocol row, no service, no SERVICE_PENDING name, no Cargo.lock change.
+
+## 1. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Test target, after `[[test]] name = "switch_excel_live"` (or after `switch_word_live` if that one is not applied):
+
+    [[test]]
+    name = "switch_powerpoint_live"
+    path = "tests/switch_powerpoint_live.rs"
+
+The target uses what switch_excel_live uses (regex, zip, tokio, tokio-util, serde_json, mixdog-fsio, mixdog-rt) and the crate's
+`com::live::Sta`, `platform::{Platform, WindowsPlatform}` (`office_process_ids`, `excel_process_ids`, `visible_window_descriptions_for_process`);
+no `com::Obj`/`com::Value`/`create_object`. It needs the crate's `test-support` feature for `with_rust_host_formats`, as switch_excel_live does.
+
+## 2. Nothing else: the composer already sets `rust_host_program` for the docx switch; a pptx call starts the same program.
