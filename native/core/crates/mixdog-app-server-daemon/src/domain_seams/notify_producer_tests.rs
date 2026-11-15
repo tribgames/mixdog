@@ -9,12 +9,17 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_connections::notifier::{
+    AnswerReadError, ANSWER_POLL_MS, LEAD_FINISHED_MS, READ_FAILURE_LIMIT, READ_RETRY_MAX_MS, STABILIZE_MS,
+};
+use mixdog_connections::server_feed::{FinalAnswer, FinalAnswerStatus};
 use mixdog_core_api::CoreError;
 use mixdog_core_api::host::HostError;
 use mixdog_core_domains::notify::decision::{
     ConversationOverride, DevicePreferences, OverrideSetting, PreferencesView, QuietDays, QuietHours, Scope, TargetKind,
 };
 use mixdog_core_domains::notify::engine::{HostConnection, PairedDevice, ToastStyle};
+use mixdog_services::bots::routine::ROUTINE_QUIET;
 use serde_json::json;
 
 use super::*;
@@ -389,6 +394,21 @@ async fn what_the_window_shows_is_checked_when_the_toast_is_made() {
     assert!(late.toasts().is_empty(), "the user came back during the quiet period");
 }
 
+/// DTN "a restored background completion produces one native notification ..." diagnostics: every step of a notification is a
+/// `turn-notification-<step>` line, and a refusal names its reason.
+#[tokio::test(start_paused = true)]
+async fn a_suppressed_toast_says_why_in_the_log() {
+    let rig = rig();
+    rig.listeners.on_screen.lock().unwrap().insert("a".into());
+    rig.answer("a", Ok(Some(done("Done."))));
+    finish(&rig, "a", "Seen").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.toasts().is_empty());
+    let log = rig.log.lock().unwrap().join("\n");
+    assert!(log.contains("turn-notification-detected"), "{log}");
+    assert!(log.contains("turn-notification-suppressed") && log.contains("\"reason\":\"foreground-visible\""), "{log}");
+}
+
 /// DTN "a schedule run still notifies on screen" / "a webhook run still notifies on screen".
 #[tokio::test(start_paused = true)]
 async fn an_automatic_run_still_notifies_on_screen() {
@@ -485,7 +505,7 @@ async fn a_cancelled_turn_a_reaction_and_a_quiet_reply_tell_nothing() {
     for (name, answer) in [
         ("cancelled", FinalAnswer { status: FinalAnswerStatus::Cancelled, ..done("") }),
         ("reaction", FinalAnswer { reacted: true, ..done("") }),
-        ("quiet", done("ROUTINE_QUIET")),
+        ("quiet", done(ROUTINE_QUIET)),
     ] {
         let rig = rig();
         rig.answer("a", Ok(Some(answer)));
@@ -574,7 +594,7 @@ async fn read_failures_back_off_and_end() {
     finish(&rig, "a", "Flaky").await;
     advance(LEAD_FINISHED_MS + 50).await;
     assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
-    assert!(rig.log.lock().unwrap().iter().any(|line| line.contains("read-failed boom")));
+    assert!(rig.log.lock().unwrap().iter().any(|line| line.contains("turn-notification-read-failed") && line.contains("boom")));
     advance(STABILIZE_MS).await;
     assert_eq!(rig.answers.reads.lock().unwrap().len(), 2);
     advance(STABILIZE_MS * 2).await;
@@ -849,6 +869,27 @@ async fn a_waits_push_carries_the_approval_and_a_wait_answered_during_the_hold_i
     pointer.input.session_state(waiting("code", json!({ "id": "p1", "kind": "outbound", "outbound": { "category": "payment" } })));
     advance(0).await;
     assert_eq!(pointer.pushes()[0].approval, Some(PushApproval { id: "p1".into(), allow_once: false }), "a payment is allowed by a click only");
+}
+
+/// PN `onSessionState`: a phone is told a wait once per session that shows it, under that session's own title and thread (a
+/// hand-off's copies and a sub-agent's docked request each push), while this PC's toast is once per approval.
+#[tokio::test(start_paused = true)]
+async fn a_phone_is_told_a_wait_once_per_session_that_shows_it() {
+    let rig = rig_with_chats();
+    rig.phone("phone", DevicePreferences::default());
+    let copy = json!({ "id": "a1", "kind": "approval", "name": "shell", "surfaceSessionId": "code" });
+    rig.input.session_state(waiting("task", copy.clone()));
+    rig.input.session_state(waiting("code", copy.clone()));
+    rig.input.session_state(waiting("task", copy));
+    advance(0).await;
+    assert_eq!(rig.toasts().len(), 1, "this PC's toast is once per approval");
+    let mut pushed: Vec<(String, String)> = rig.pushes().iter().map(|push| (push.thread_id.clone(), push.title.clone())).collect();
+    pushed.sort();
+    assert_eq!(
+        pushed,
+        [("code".to_owned(), "Fix the bug".to_owned()), ("task".to_owned(), "Release notes".to_owned())],
+        "one push per session, under that session",
+    );
 }
 
 /// PN `pendingInputKey`: a blocked goal is told once, to a phone only, until it clears.
