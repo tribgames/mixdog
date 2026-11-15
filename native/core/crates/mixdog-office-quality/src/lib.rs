@@ -24,6 +24,7 @@ pub mod rendered;
 pub mod visual_diff;
 pub mod forced_breaks;
 pub mod structure;
+pub mod design_review;
 
 /// `value[key]` of a plain object; `None` (JavaScript `undefined`) for anything else or an absent key.
 pub(crate) fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
