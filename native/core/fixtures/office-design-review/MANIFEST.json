@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-design-review.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3902223,
+      "path": "golden.json",
+      "sha256": "86ca08eaa5126e308b66b10f5f9ce6c35dfe4c843395fef26285d00ea2cfae3e"
+    }
+  ],
+  "product": {
+    "appsSha256": "f356cbc0183405351d08fc2b9158a3f887a8fe59444293d4227f1f115a751ab5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5272,
+    "refComparison": {
+      "closestCommit": "22af3fd89a2f2c8012895a53117d50474f06fb54",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5272
+    },
+    "srcSha256": "bffdefbc2469519d184c43845ff536fadf27ebdf4eaea0f91a47a3e208c5c56f",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-design-review.mjs",
+  "set": "office-design-review",
+  "totalBytes": 3902223
+}
