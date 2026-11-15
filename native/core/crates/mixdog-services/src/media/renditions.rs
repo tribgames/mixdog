@@ -983,7 +983,7 @@ pub(super) mod tests {
     /// libwebp's through libvips, so they are compared under the twin's rules (class, mime and dimensions exact, pixels by
     /// PSNR), not byte for byte.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn the_real_sharp_host_makes_nodes_webp_for_both_variants() {
+    async fn the_real_worker_makes_nodes_webp_for_both_variants() {
         use base64::Engine as _;
         use mixdog_exthost::{ExtHostConfig, ExtHostPool, RenderBrowserConfig};
         let pool = Arc::new(
