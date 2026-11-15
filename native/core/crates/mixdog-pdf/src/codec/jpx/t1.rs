@@ -169,7 +169,7 @@ impl Tier1 {
             let bytes = &block.data[offset.min(end)..end];
             offset += segment.len as usize;
             let raw = bpno1 <= block.numbps - 4 && passtype < 2 && style & CBLK_BYPASS != 0;
-            self.start_segment(bytes);
+            self.start_segment(bytes, raw);
             let mut pass = 0;
             while pass < segment.passes && bpno1 >= 1 {
                 match passtype {
@@ -216,12 +216,18 @@ impl Tier1 {
 
     // ---- MQ and raw decoding ------------------------------------------------------------------------------------
 
-    /// `opj_mqc_init_dec` / `opj_mqc_raw_init_dec`: both start from the bytes of the segment with the sentinels.
-    fn start_segment(&mut self, bytes: &[u8]) {
+    /// `opj_mqc_init_dec` / `opj_mqc_raw_init_dec`: both start from the bytes of the segment with the sentinels; a
+    /// raw (bypass) segment starts with an empty register and reads its first byte with its first bit.
+    fn start_segment(&mut self, bytes: &[u8], raw: bool) {
         self.seg.clear();
         self.seg.extend_from_slice(bytes);
         self.seg.extend_from_slice(&[0xFF, 0xFF]);
         self.bp = 0;
+        if raw {
+            self.c = 0;
+            self.ct = 0;
+            return;
+        }
         self.c = if bytes.is_empty() { 0xFF << 16 } else { (bytes[0] as u32) << 16 };
         self.ct = 0;
         self.a = 0x8000;
@@ -234,16 +240,16 @@ impl Tier1 {
         let next = self.seg[self.bp + 1] as u32;
         if self.seg[self.bp] == 0xFF {
             if next > 0x8F {
-                self.c += 0xFF00;
+                self.c = self.c.wrapping_add(0xFF00);
                 self.ct = 8;
             } else {
                 self.bp += 1;
-                self.c += next << 9;
+                self.c = self.c.wrapping_add(next << 9);
                 self.ct = 7;
             }
         } else {
             self.bp += 1;
-            self.c += next << 8;
+            self.c = self.c.wrapping_add(next << 8);
             self.ct = 8;
         }
     }
@@ -569,7 +575,7 @@ mod tests {
         ];
         let mut t1 = Tier1::new();
         t1.ctx = [Cx { state: 0, mps: 0 }; CONTEXTS];
-        t1.start_segment(&coded);
+        t1.start_segment(&coded, false);
         let mut out = [0u8; 32];
         for byte in &mut out {
             for bit in 0..8 {
@@ -582,10 +588,7 @@ mod tests {
     #[test]
     fn raw_decoder_skips_the_stuffed_bit_after_ff() {
         let mut t1 = Tier1::new();
-        t1.start_segment(&[0xFF, 0x7F, 0x00]);
-        t1.ct = 0;
-        t1.c = 0;
-        t1.bp = 0;
+        t1.start_segment(&[0xFF, 0x7F, 0x00], true);
         let bits: Vec<u8> = (0..16).map(|_| t1.raw_decode()).collect();
         assert_eq!(bits, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]);
     }
