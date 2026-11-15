@@ -107,7 +107,7 @@ fn or_zero(value: Option<f64>) -> String {
 }
 
 fn value_at(series: &ChartData, index: usize) -> Option<f64> {
-    series.values.get(index).copied()
+    series.values.get(index).copied().flatten()
 }
 
 fn label_present(label: &str) -> bool {
@@ -324,7 +324,8 @@ mod tests {
         assert_eq!(column_name(26), "Z");
         assert_eq!(column_name(27), "AA");
         assert_eq!(column_name(28), "AB");
-        assert_eq!(column_name(52), "BA");
+        assert_eq!(column_name(52), "AZ");
+        assert_eq!(column_name(53), "BA");
     }
 
     #[test]

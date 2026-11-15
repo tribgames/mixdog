@@ -32,6 +32,7 @@ use mixdog_raster::composite;
 use mixdog_raster::ops;
 use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use serde_json::Map;
 use serde_json::Value;

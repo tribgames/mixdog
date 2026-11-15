@@ -22,3 +22,14 @@ pub use self::inspect::{
     ShapeBlock, SlideEntry, create_pptx_slide_selection, direct_pptx_shape_blocks, infer_pptx_sample_kind, number_from_path, office_template_coverage, pptx_sample_capacity, pptx_shape_metadata,
     pptx_slide_entries, pptx_slot, walk_template_directory, xml_attribute,
 };
+
+/// `JSZip.loadAsync(bytes)`: jszip words a file that does not begin as a zip with a pointer to its documentation.
+pub(crate) fn load_zip(bytes: &[u8]) -> Result<mixdog_ooxml::zipio::Package, String> {
+    mixdog_ooxml::zipio::Package::load_unchecked(bytes).map_err(|message| {
+        if message == "Can't find end of central directory" {
+            format!("{message} : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html")
+        } else {
+            message
+        }
+    })
+}
