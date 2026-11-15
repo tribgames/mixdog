@@ -1,0 +1,58 @@
+# nr-office-quality-design-review: what the lead applies (all of it is in files this task does not own)
+
+## 1. native/core/crates/mixdog-office-quality/src/lib.rs
+After the line `pub mod structure;` add:
+
+    pub mod design_review;
+
+(The module is `design_review/{mod,authored,critique,diversity,rubric,slide_roles}.rs`, already in the tree.)
+
+## 2. native/core/crates/mixdog-office-quality/Cargo.toml
+No change. The review reads `mixdog-office-design` (composition, design_system, discipline, native_design, tokens: already a
+dependency) and this crate's own structure, pipeline, issue and document_design_review modules. No new external crate.
+
+mixdog-office-author depends on this crate (receipt.rs uses render_air), so this crate cannot depend on it. The slide page
+receipt and the authoring brief readings the review needs (`slideReceipt`, `isShowcaseBrief`, `reviewBriefPromises`,
+`reviewFactCoverage`, `reviewSourceGrounding`) reach it through the trait `design_review::AuthorReads`, as the document brief
+does through `BriefReadings`. The tests answer it with the author crate (dev-dependency, already present; see
+`Authoring` in tests/twin_design_review.rs).
+
+## 3. native/core/Cargo.lock
+No change (no new dependency edge).
+
+## 4. native/core/fixtures/MANIFEST.json
+`node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` adds the row of the new set `office-design-review`
+(recorder benchmarks/rust-core/recorders/record-office-design-review.mjs, 1 file, golden.json). The set's own MANIFEST.json is
+already written (native/core/fixtures/office-design-review/MANIFEST.json, sha256
+a50df63cecd9ff1d99f249b2831da1fdb4738bc0f89b7228512bcb0bede2a7e5, golden.json 3902223 bytes). If the row is written by hand, in
+"sets" where "office-design-review" sorts:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-design-review.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-design-review/MANIFEST.json",
+      "manifestSha256": "a50df63cecd9ff1d99f249b2831da1fdb4738bc0f89b7228512bcb0bede2a7e5",
+      "recorder": "benchmarks/rust-core/recorders/record-office-design-review.mjs",
+      "set": "office-design-review",
+      "totalBytes": 3902223
+    },
+
+The recorder imports `quality/pptx-deck-rubric.mjs`, which is not in the integration tree's src: it was recorded with
+`--source-tree D:/mixdog-build/mig/ref/node` for that one module (`twin_live_design_review` uses `node_source_root()`, which
+needs a tree that has it until the Node source is deleted).
+
+## 5. Consumers (later tasks of the track, not this one)
+- `core/office-qa/design-review-stage.mjs` and `core/office-finalize/review-stage.mjs` call `reviewOfficeDesign`,
+  `inferPptxSlideRoles`, `reviewPptxVisualCritique` and `pptxVisualReviewAcknowledged`: Rust names
+  `design_review::{review_office_design, infer_pptx_slide_roles, review_pptx_visual_critique, pptx_visual_review_acknowledged}`.
+- The render review's slide-role reading is `design_review::{is_pptx_diagram_slide, is_pptx_picture_slide,
+  is_pptx_statement_slide}` and `design_review::slide_roles::is_pptx_specimen_slide`.
+- `design_review::rubric::score_deck` is `scoreDeck` (deck-bench); `design_review::authored::*` are the authored-deck rules.
+- The implementation of `AuthorReads` over `mixdog_office_author::{receipt::slide_receipt, brief::*}` belongs to the task that
+  wires the office tool (it may live in mixdog-office-author, which already depends on this crate).
+
+## 6. SERVICE_PENDING
+Nothing to remove: this task registers no protocol method.
+
+## 7. Not compiled
+cargo was not run (the lead compiles the wave). The module was written against the signatures read in the tree.
