@@ -6,7 +6,6 @@
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::append::MAX_APPEND_ROWS;
 use crate::append::UsageRecord;
 use crate::append::append_batch;
 use crate::db::Connection;
@@ -84,12 +83,14 @@ pub(crate) struct HistoryWrite {
     pub(super) legacy_days: Vec<(String, String)>,
     /// The text `importedThrough` is set to; none when a damaged original was skipped.
     pub(super) through: Option<String>,
-    pub(super) receipt: Receipt,
+    pub(super) receipt: Option<Receipt>,
+    pub(super) previously_inserted: usize,
 }
 
 pub(crate) struct HistoryOutcome {
     /// Records or legacy days were added: what the statistics show moved.
     pub changed: bool,
+    pub inserted: usize,
     /// `importedThrough` is set.
     pub marked: bool,
 }
@@ -102,9 +103,10 @@ fn set_metadata(tx: &Transaction, key: &str, value: &str) -> Result<()> {
 
 impl HistoryWrite {
     pub(crate) fn apply(&self, conn: &mut Connection) -> Result<HistoryOutcome> {
-        let mut inserted = 0;
-        for chunk in self.records.chunks(MAX_APPEND_ROWS) {
-            inserted += append_batch(conn, chunk)?;
+        // One original accept(rows) is one transaction, even across the live append batch size.
+        let inserted = append_batch(conn, &self.records)?;
+        if self.receipt.is_none() && self.legacy_days.is_empty() && self.through.is_none() {
+            return Ok(HistoryOutcome { changed: inserted > 0, inserted, marked: false });
         }
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut days = 0;
@@ -116,10 +118,13 @@ impl HistoryWrite {
         if let Some(through) = &self.through {
             set_metadata(&tx, "importedThrough", through)?;
         }
-        set_metadata(&tx, "importReceipt", &self.receipt.json(inserted))?;
+        if let Some(receipt) = &self.receipt {
+            set_metadata(&tx, "importReceipt", &receipt.json(self.previously_inserted + inserted))?;
+        }
         tx.commit()?;
         Ok(HistoryOutcome {
             changed: inserted > 0 || days > 0,
+            inserted,
             marked: self.through.is_some(),
         })
     }

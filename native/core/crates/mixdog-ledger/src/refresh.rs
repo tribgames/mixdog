@@ -162,10 +162,11 @@ impl UsageRefresher {
     }
 
     /// The import of a statistics read; a ledger without history enabled has nothing to import.
-    pub(crate) async fn import_history(&self, writer: &Arc<UsageWriter>, now_ms: i64) {
+    pub(crate) async fn import_history(&self, writer: &Arc<UsageWriter>, now_ms: i64) -> Result<()> {
         if let Some(history) = self.history.get() {
-            history.ensure(writer, now_ms).await;
+            history.ensure(writer, now_ms).await?;
         }
+        Ok(())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {

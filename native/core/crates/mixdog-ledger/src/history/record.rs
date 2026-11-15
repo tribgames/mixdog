@@ -141,7 +141,7 @@ fn record_id(record: &UsageRecord, response_id: &str) -> String {
 }
 
 /// `importTraceRow` then `makeUsageRecord(.., historical: true)`: `None` for a row that cannot
-/// be recorded (no input or output figure, no provider or model, no usable time). A figure that
+/// be recorded (no input or output figure, no provider or model). A figure that
 /// is empty is unknown, and importing it as zero would claim coverage.
 pub(super) fn import_row(row: &Value, pricer: &dyn Pricer) -> Result<Option<UsageRecord>> {
     let payload = row.get("payload").filter(|payload| truthy(payload));
@@ -153,15 +153,17 @@ pub(super) fn import_row(row: &Value, pricer: &dyn Pricer) -> Result<Option<Usag
     if !present(input) || !present(output) {
         return Ok(None);
     }
-    // A provider or model that is not text is a row nothing can be attributed to.
-    let provider = text(first(&[row.get("provider"), in_payload("provider")]));
-    let model = text(row.get("model"));
-    if provider.is_empty() || model.is_empty() {
+    let provider = first(&[row.get("provider"), in_payload("provider")]);
+    if !provider.is_some_and(truthy) || !row.get("model").is_some_and(truthy) {
         return Ok(None);
     }
-    let Some(ts) = timestamp(row.get("ts")) else {
-        return Ok(None);
-    };
+    let provider = text(provider);
+    let model = text(row.get("model"));
+    if provider.is_empty() || model.is_empty() {
+        return Err(crate::LedgerError::History("Usage requires a provider and model".into()));
+    }
+    let ts = timestamp(row.get("ts"))
+        .ok_or_else(|| crate::LedgerError::History("Usage requires a valid timestamp".into()))?;
     let kind = route_kind(&provider);
     let requested = text(first(&[row.get("requested_model"), in_payload("requested_model")]));
     let pricing_model = Some(text(first(&[row.get("pricing_model"), in_payload("pricing_model")]))).filter(|m| !m.is_empty());
