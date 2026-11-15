@@ -1,6 +1,7 @@
 //! ICE server issuance: the TURN REST credentials ([`turn`]) and the issuer the desktop leg's `ice-servers` request uses
 //! (`createIceService` of `lib/ice-legs.mjs`).
 
+pub mod frames;
 pub mod turn;
 
 use serde_json::{Value, json};
