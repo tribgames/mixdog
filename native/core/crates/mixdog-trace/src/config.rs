@@ -79,9 +79,8 @@ impl TraceConfig {
     ) -> Self {
         let explicit = non_empty(get("MIXDOG_AGENT_TRACE_PATH"));
         let history = data_dir.join("history");
-        let local = if get("MIXDOG_AGENT_TRACE_LOCAL_DISABLE").as_deref() == Some("1") {
-            None
-        } else if explicit.is_none() && !diagnostic_io(get, from_source_checkout) {
+        let local = if get("MIXDOG_AGENT_TRACE_LOCAL_DISABLE").as_deref() == Some("1")
+            || (explicit.is_none() && !diagnostic_io(get, from_source_checkout)) {
             None
         } else {
             Some(match &explicit {
