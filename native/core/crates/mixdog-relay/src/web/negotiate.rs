@@ -80,7 +80,6 @@ pub fn parse_accept_encoding(header: Option<&str>) -> HashMap<String, f64> {
     table
 }
 
-
 /// `/^\s*q\s*=\s*([0-9]*\.?[0-9]+)\s*$/i` and `Number(match[1])`: digits, an optional point and at least one digit after
 /// it (`1.` does not match, so the quality stays 1).
 fn quality_parameter(parameter: &str) -> Option<f64> {

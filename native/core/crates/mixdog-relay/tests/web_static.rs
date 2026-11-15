@@ -601,9 +601,21 @@ fn static_target_resolution_rejects_symlink_escapes() {
     write(&outside.join("secret.txt"), "outside");
     assert!(matches!(resolve_static_target(&root, "/index.html"), StaticResolution::Found(_)));
     assert_eq!(resolve_static_target(&root, "/../outside/secret.txt"), StaticResolution::Forbidden);
-    if mixdog_fsio::symlink_dir(&Unlaned, &outside, root.join("linked")).is_err() {
-        eprintln!("SKIPPED: creating a directory symlink is not permitted on this host");
-        return;
-    }
+    let linked = root.join("linked");
+    // Node links a junction on Windows ('junction' needs no privilege), a directory symlink elsewhere.
+    #[cfg(windows)]
+    junction(&linked, &outside);
+    #[cfg(not(windows))]
+    mixdog_fsio::symlink_dir(&Unlaned, &outside, &linked).unwrap();
     assert_eq!(resolve_static_target(&root, "/linked/secret.txt"), StaticResolution::Forbidden);
+}
+
+/// A junction `link` -> `target`, as `symlinkSync(target, link, 'junction')` makes it.
+#[cfg(windows)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: mklink is the one way to make a junction without a privilege")]
+fn junction(link: &Path, target: &Path) {
+    // `mklink` takes backslash paths only.
+    let backslashed = |path: &Path| path.to_string_lossy().replace('/', "\\");
+    let made = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(backslashed(link)).arg(backslashed(target)).output().expect("mklink");
+    assert!(made.status.success(), "mklink: {}", String::from_utf8_lossy(&made.stderr));
 }
