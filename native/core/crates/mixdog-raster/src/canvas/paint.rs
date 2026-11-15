@@ -447,11 +447,44 @@ pub struct PatternStyle {
     pub(crate) pixmap: Arc<Pixmap>,
     pub(crate) repetition: Repetition,
     pub(crate) transform: Transform,
+    /// Sampled with the bicubic (Mitchell) filter whenever smoothing is on, not the bilinear one.
+    pub(crate) cubic: bool,
 }
 
 impl PatternStyle {
     pub fn new(bitmap: &super::Bitmap, repetition: Repetition) -> Self {
-        Self { pixmap: Arc::new(bitmap.pixmap().clone()), repetition, transform: Transform::identity() }
+        Self { pixmap: Arc::new(bitmap.pixmap().clone()), repetition, transform: Transform::identity(), cubic: false }
+    }
+
+    /// A pattern made of a canvas that was drawn for it (pdf.js's `createPattern(tile, "repeat")` of a tiling pattern's
+    /// tile): the picture Skia puts on the page from such a tile is the tile smoothed by the Mitchell filter (weights
+    /// 1/18, 16/18, 1/18 along each axis, the edge pixels repeated beyond the tile) and sampled through the same filter, so the
+    /// tile is smoothed here once before it is sampled the same way (the sampler then wraps).
+    pub fn smoothed(bitmap: &super::Bitmap, repetition: Repetition) -> Self {
+        let source = bitmap.pixmap();
+        let (width, height) = (source.width() as usize, source.height() as usize);
+        let mut current: Vec<u8> = source.data().to_vec();
+        for horizontal in [true, false] {
+            let mut next = current.clone();
+            for y in 0..height {
+                for x in 0..width {
+                    let (before, after) = if horizontal {
+                        ((y * width + x.saturating_sub(1)) * 4, (y * width + (x + 1).min(width - 1)) * 4)
+                    } else {
+                        ((y.saturating_sub(1) * width + x) * 4, ((y + 1).min(height - 1) * width + x) * 4)
+                    };
+                    let at = (y * width + x) * 4;
+                    for c in 0..4 {
+                        let sum = u32::from(current[before + c]) + 16 * u32::from(current[at + c]) + u32::from(current[after + c]);
+                        next[at + c] = ((sum + 9) / 18) as u8;
+                    }
+                }
+            }
+            current = next;
+        }
+        let mut pixmap = source.clone();
+        pixmap.data_mut().copy_from_slice(&current);
+        Self { pixmap: Arc::new(pixmap), repetition, transform: Transform::identity(), cubic: true }
     }
 
     /// `pattern.setTransform(matrix)`.
