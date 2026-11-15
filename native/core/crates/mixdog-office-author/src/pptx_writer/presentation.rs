@@ -13,7 +13,6 @@ use super::theme::{
 };
 use super::{CRLF, EMU, Layout, encode_xml_entities, round};
 
-
 /// The folders `exportPresentation` creates first, in its order.
 const FOLDERS: [&str; 19] = [
     "_rels",
