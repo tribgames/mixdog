@@ -52,7 +52,7 @@ async function fakePool(t, options = {}) {
     onSessionRetired: (...args) => retired.push(args),
     spawnProcess: (command, args, spawnOptions) => {
       spawns.push({ command, args, options: spawnOptions });
-      if (args.includes('-Command')) {
+      if (args.includes('--elevated-launch')) {
         const launcher = fakeChild(900 + spawns.length);
         options.launcher(launcher);
         return launcher;
@@ -70,7 +70,7 @@ async function fakePool(t, options = {}) {
       child.exitCode = 0;
       child.emit('exit', 0);
     }
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   });
   return { pool, directory, workers, spawns, retired };
@@ -355,13 +355,19 @@ test('the helper is the only Windows worker', windowsOnly, async (t) => {
   assert.equal(spawns[0].command, process.env.MIXDOG_COMPUTER_BIN);
 });
 
-function exitLauncher(code, stdout) {
+function exitLauncher(code, messages = []) {
   return (launcher) =>
     setImmediate(() => {
-      if (stdout) launcher.stdout.write(stdout);
+      for (const message of messages) launcher.stdout.write(`${JSON.stringify(message)}\n`);
+      if (code === 1223) launcher.stdout.write(`${JSON.stringify({
+        kind: 'result', stopped: true, error: 'privileged_worker_cancelled: UAC consent was declined',
+      })}\n`);
       setImmediate(() => {
-        launcher.exitCode = code;
-        launcher.emit('exit', code);
+        launcher.exitCode = code === 1223 ? 1 : code;
+        launcher.emit('exit', launcher.exitCode);
+        launcher.stdout.end();
+        launcher.stderr.end();
+        launcher.emit('close', launcher.exitCode);
       });
     });
 }
@@ -373,7 +379,7 @@ test('a declined elevation confirms the stop and returns its slots', windowsOnly
       message: 'privileged_worker_cancelled: UAC consent was declined',
     });
   }
-  assert.equal(spawns.filter((spawn) => spawn.args.includes('-Command')).length, 2);
+  assert.equal(spawns.filter((spawn) => spawn.args.includes('--elevated-launch')).length, 2);
   assert.deepEqual(pool.elevatedSessionIds(), []);
   assert.ok(pool.ensurePowerShell('b'));
 });
@@ -400,7 +406,7 @@ test('elevated admission retires the window-arrivals reader for the three slots 
   });
   assert.equal(reader.killed, true);
   assert.equal(pool.powerShellBySession.has(WINDOW_ARRIVALS_SESSION_ID), false);
-  assert.equal(spawns.filter((spawn) => spawn.args.includes('-Command')).length, 1);
+  assert.equal(spawns.filter((spawn) => spawn.args.includes('--elevated-launch')).length, 1);
 });
 
 test('an unconfirmed elevated stop blocks input until its launcher is proven gone', windowsOnly, async (t) => {
@@ -417,15 +423,19 @@ test('an unconfirmed elevated stop blocks input until its launcher is proven gon
 });
 
 test('a verified-gone elevated worker releases its session and slots', windowsOnly, async (t) => {
-  // PID 4294967 is never a live process, so its identity verifies as gone.
+  // The identity verifier is injected; no live process or guessed-unused PID is queried.
+  const identity = { pid: 77, startTicks: '638661232000000000' };
   const { pool } = await fakePool(t, {
     maxWorkers: 4,
-    launcher: exitLauncher(0, 'MIXDOG_ELEVATED_WORKER:4294967:1\n'),
+    launcher: exitLauncher(0, [{ kind: 'identity', ...identity }]),
   });
   await assert.rejects(pool.callPowerShellElevated({ action: 'click', session_id: 'a' }), {
     message: 'privileged_worker_unavailable: elevated worker returned no response',
   });
-  assert.equal(await pool.releaseUnconfirmedElevated(), true);
+  assert.equal(await pool.releaseUnconfirmedElevated(async (got) => {
+    assert.deepEqual(got, identity);
+    return true;
+  }), true);
   assert.deepEqual(pool.elevatedSessionIds(), []);
   assert.ok(pool.ensurePowerShell('b'));
   assert.ok(pool.ensurePowerShell('c'));

@@ -224,6 +224,24 @@ pub fn worker(args: &[String]) -> i32 {
     platform::elevated_worker(args, validate, serve)
 }
 
+/// Only the elevated supervisor starts this input child. A pipe, not a file
+/// or script, supplies its already authenticated request; validate again before
+/// constructing an observer or touching input.
+pub fn input() -> i32 {
+    IN_WORKER.store(true, Ordering::Relaxed);
+    let mut reader = std::io::BufReader::new(std::io::stdin());
+    let answer = (|| -> Result<Value, String> {
+        let bytes = crate::elevated_launch::read_line(&mut reader, crate::elevated_launch::MAX_REQUEST)?;
+        let request: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        let req = Req(request);
+        validate(&req)?;
+        Ok(serve(&req.0.to_string()))
+    })();
+    let body = answer.unwrap_or_else(|error| json!({"worker_error":error}));
+    crate::elevated_launch::emit(body);
+    0
+}
+
 /// Runs the one request in a host of its own. The observation the unelevated
 /// host made belongs to its observer, so the worker begins its own scope
 /// instead of resuming that one.
@@ -243,7 +261,10 @@ fn serve(line: &str) -> Value {
     while !observer.read().ready && started.elapsed() < OBSERVER_READY {
         std::thread::sleep(Duration::from_millis(25));
     }
-    Host::new(cfg, desktop, observer, Box::new(NoLease)).reply(&line)
+    let host = Host::new(cfg, desktop, observer, Box::new(NoLease));
+    let reply = host.reply(&line);
+    host.release_on_exit();
+    reply
 }
 
 #[cfg(test)]

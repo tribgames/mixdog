@@ -7,7 +7,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
-import { createHostScriptPublisher } from './host-script';
 import { createElevatedRequests } from './elevated-requests';
 import { type HostForegroundLock, nextLeaseInstance } from './foreground-lock-host';
 import { launchHostProcess, watchHostWorker } from './host-worker-process';
@@ -146,7 +145,6 @@ const HOST_RELEASE_ACTIONS = new Set(['release_held_input', 'release_sequence_ho
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
 
-  const hostScript = createHostScriptPublisher(dataDirectory);
   let nextId = 1;
   const requests = createWorkerRequests(onSessionRetired);
   const { powerShellBySession, workerLastUsedAt } = requests;
@@ -162,7 +160,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const ledgers = createWorkerLedgers(dataDirectory, inputMarker, spawnProcess);
   const elevated = createElevatedRequests({
     dataDirectory,
-    hostScriptPath: hostScript.ensure,
     ensureWorker: ensurePowerShell,
     // An elevated run keeps `live + slots + 2` below the cap, so it needs three
     // free slots; the reader gives way.
@@ -315,8 +312,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
     workerLastUsedAt,
     residentWorkerPids: residents.pids,
     waitForResidentWorkersExit: residents.waitForExit,
-    removeHostScript: hostScript.remove,
-    ensureHostScript: hostScript.ensure,
     ensurePowerShell,
     retirePowerShell: requests.retire,
     hasUnconfirmedBackgroundInput: requests.hasUnconfirmedBackgroundInput,

@@ -360,7 +360,7 @@ test('a slow arrivals read never sits in front of the next command request', {
       child.exitCode = 0;
       child.emit('exit', 0);
     }
-    pool.removeHostScript();
+    // Native workers publish no PowerShell host script.
     await rm(directory, { recursive: true, force: true });
   });
   const sessionIdFor = (command) => command.session_id;

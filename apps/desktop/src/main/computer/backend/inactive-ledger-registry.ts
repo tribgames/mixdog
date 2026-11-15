@@ -6,6 +6,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { computerNativeBinary } from './native-host';
 
 export interface ProcessIdentity {
   pid: number;
@@ -15,20 +16,16 @@ export interface ProcessIdentity {
 
 /** The start ticks of the live process with this PID; `null` when none exists.
  *  Rejects when the answer could not be obtained. */
-export function readProcessStartTicks(pid: number): Promise<string | null> {
+export function readProcessStartTicks(pid: number, spawnProcess: typeof spawn = spawn): Promise<string | null> {
   return new Promise((resolve, reject) => {
-    // CIM answers for elevated processes too, and is the source the elevated
-    // launcher reports its worker's creation time from.
-    const command =
-      `try { $p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Math.trunc(pid)}' -ErrorAction Stop } catch { exit 4 }; ` +
-      'if (-not $p) { exit 0 }; [Console]::Out.Write($p.CreationDate.ToUniversalTime().Ticks)';
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+    const child = spawnProcess(computerNativeBinary(), ['--process-start-ticks', String(Math.trunc(pid))], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let output = '';
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8');
+      if (output.length > 128) { child.kill(); reject(new Error('process identity query returned an oversized answer')); }
     });
     const timer = setTimeout(() => {
       child.kill();
@@ -38,9 +35,10 @@ export function readProcessStartTicks(pid: number): Promise<string | null> {
       clearTimeout(timer);
       reject(error);
     });
-    child.once('exit', (code) => {
+    // stdout can drain after exit; only close proves an empty answer.
+    child.once('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve(output.trim() || null);
+      if (code === 0 && (!output.trim() || /^[1-9]\d*$/.test(output.trim()))) resolve(output.trim() || null);
       else reject(new Error(`process identity query failed with code ${code}`));
     });
   });
