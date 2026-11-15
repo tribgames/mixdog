@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 
 use mixdog_core_session::session::gateway_usage::RouteSection;
+use mixdog_core_session::session::prompt_submission::truthy;
 use mixdog_core_session::session::statusline_agents::LabelColours;
 use mixdog_core_session::session::statusline_agents::Owner;
 use mixdog_core_session::session::statusline_agents::active_hidden_agent_workers;
@@ -56,7 +57,6 @@ use super::host::StatusHost;
 use super::host::StatusPaths;
 use super::host::model_metadata;
 use super::io::StatusIo;
-use super::schedule::truthy;
 
 /// The glyphs the L2 segments spin through, one step every [`L2_SPINNER_FRAME_MS`] (the worker spinner's dots, faster).
 const WORKER_SPINNER_FRAMES: [&str; 10] = ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280f}"];
@@ -304,7 +304,8 @@ impl StatuslineRenderer {
         self.inner.state.lock().ok()
     }
 
-    fn pid_of(args: &RenderArgs) -> f64 {
+    /// The host pid the arguments name, else this process's (Node's `clientHostPid = process.pid` default).
+    pub(super) fn pid_of(args: &RenderArgs) -> f64 {
         args.client_host_pid.unwrap_or_else(|| f64::from(std::process::id()))
     }
 
