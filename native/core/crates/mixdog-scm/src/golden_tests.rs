@@ -33,11 +33,59 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
+/// The fixture repository is built once for every test process of a run (the commits carry fixed dates, so every build is the
+/// same repository) and each test copies it: the copy costs a few files, the build eight git processes. A build is made
+/// under a name of its own and renamed to the template's, so a test that finds the template finds it whole.
+fn template_repo() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    let meta = std::fs::metadata(&exe).unwrap();
+    let stamp = meta.modified().ok().and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    let template = std::env::temp_dir().join(format!("mixdog-scm-fixture-repo-{}-{stamp}", meta.len()));
+    if template.join("repo").join(".git").is_dir() {
+        return template;
+    }
+    let building = tempfile::tempdir().unwrap();
+    build_fixture_repo(&building.path().join("repo"));
+    let staged = building.keep();
+    if std::fs::rename(&staged, &template).is_ok() {
+        return template;
+    }
+    if template.join("repo").join(".git").is_dir() {
+        // Another test process made it first.
+        let _ = std::fs::remove_dir_all(&staged);
+        return template;
+    }
+    staged
+}
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
 pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
     // The plain spelling of the folder, as git names it and as every caller of the core passes it (not the verbatim `\\?\` one).
     let canonical = std::fs::canonicalize(dir.path()).unwrap();
     let repo = std::path::PathBuf::from(canonical.to_string_lossy().trim_start_matches(r"\\?\")).join("repo");
+    copy_tree(&template_repo().join("repo"), &repo);
+    // The copy's index holds the stat data of the files as the template had them: refreshed here as the build left it, so no
+    // later read of the repository rewrites the index (an index write is a change of the repository the watchers report).
+    git(&repo, &["update-index", "-q", "--refresh"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    (dir, repo, head)
+}
+
+fn build_fixture_repo(repo: &std::path::Path) {
+    let repo = repo.to_path_buf();
     std::fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     // The engine's own git commands read the repository config; the helper above only sets it
@@ -50,12 +98,10 @@ pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) 
     std::fs::write(repo.join("a.txt"), "one\nTWO\nthree\nfour\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "second: edit a"]);
     git(&repo, &["branch", "feature"]);
-    let head = git(&repo, &["rev-parse", "HEAD"]);
     std::fs::write(repo.join("a.txt"), "one\nTWO\nthree\nfour\nfive\n").unwrap();
     std::fs::write(repo.join("src/b.mjs"), "export const b = 2;\n").unwrap();
     git(&repo, &["add", "src/b.mjs"]);
     std::fs::write(repo.join("new.txt"), "untracked\n").unwrap();
-    (dir, repo, head)
 }
 
 fn scm() -> std::sync::Arc<Scm> {

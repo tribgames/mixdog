@@ -196,7 +196,9 @@ fn first_difference(wanted: &str, got: &str) -> String {
     format!("\n  first difference at character {at}:\n    corpus: {:?}\n    engine: {:?}", around(wanted), around(got))
 }
 
-#[tokio::test]
+// The engine's settle and poll waits run on the paused clock: the recorded host answers at once, so each wait ends when the clock
+// reaches it, not after it in real time. Every step is still compared whole.
+#[tokio::test(start_paused = true)]
 async fn golden_texts_match_recorded_host() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-golden.json")).expect("browser-golden.json is JSON");
     let steps = golden["steps"].as_array().expect("the corpus has steps");
@@ -274,6 +276,7 @@ async fn golden_texts_match_recorded_host() {
         }
     }
 
+    println!("{} steps compared", steps.len());
     host.finish().expect("every recorded host call was made, in order");
     assert!(mismatches.is_empty(), "{} of {} steps differ from the corpus:\n{}", mismatches.len(), steps.len(), mismatches.join("\n"));
     let unexercised: Vec<&str> = golden["actions"].as_array().expect("the corpus lists its actions").iter().filter_map(Value::as_str).filter(|action| !succeeded.contains(*action)).collect();
