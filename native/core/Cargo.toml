@@ -144,6 +144,13 @@ incremental = false
 debug = false
 opt-level = 3
 
+# avif-parse asserts (debug builds only) that a box it read was read to its end, where a release build returns an error for
+# it: a container libheif refuses must be the refusal the tests pin, not a panic in the parser.
+[profile.dev.package.avif-parse]
+debug = false
+opt-level = 3
+debug-assertions = false
+
 [workspace.dependencies]
 # Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).
 mixdog-protocol = { path = "crates/mixdog-protocol" }
