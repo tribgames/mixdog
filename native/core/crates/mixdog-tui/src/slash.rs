@@ -3,7 +3,7 @@
 //! `store-service-call.mjs`, `workflow-cycle.mjs`, `use-workflow-tab-cycle.mjs`, `use-ui-open-request.mjs`,
 //! `prompt-submit.mjs` and `slash-dispatch.mjs`, with their subdirectories), as functions over [`host::SlashHost`].
 //!
-//! - [`commands`]: the registry of the 31 commands, prefix matching, palette order, argument hints;
+//! - [`commands`]: the registry of the 30 commands, prefix matching, palette order, argument hints;
 //! - [`palette`]: which palette the draft opens (slash commands, or `$skill` completion);
 //! - [`parsers`]: argument parsers (MCP servers, skills, memory commands and rows);
 //! - [`dispatch`]: `runSlashCommand` and the route, session and panel command tables;
