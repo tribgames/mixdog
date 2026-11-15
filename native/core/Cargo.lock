@@ -4482,6 +4482,7 @@ dependencies = [
  "mixdog-core-session",
  "mixdog-exthost",
  "mixdog-exthost-worker",
+ "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-ledger",
@@ -5446,6 +5447,7 @@ dependencies = [
  "mixdog-rt",
  "mixdog-testkit",
  "mixdog-workspace-hack",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5459,8 +5461,11 @@ dependencies = [
 name = "mixdog-fonts"
 version = "1.5.0"
 dependencies = [
+ "futures",
  "mixdog-fsio",
  "mixdog-office-base",
+ "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-workspace-hack",
  "rustybuzz",
  "serde_json",
@@ -5740,6 +5745,7 @@ dependencies = [
  "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
+ "mixdog-office-author",
  "mixdog-office-base",
  "mixdog-office-com",
  "mixdog-office-design",
@@ -5747,6 +5753,7 @@ dependencies = [
  "mixdog-office-quality",
  "mixdog-ooxml",
  "mixdog-pdf",
+ "mixdog-raster",
  "mixdog-rt",
  "mixdog-statefile",
  "mixdog-workspace-hack",
