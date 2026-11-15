@@ -843,6 +843,7 @@ fn file_stat(len: usize) -> FileStat {
 }
 
 impl MockFileService {
+    #[allow(clippy::result_large_err, reason = "The mock returns the canonical by-value FsError contract; boxing this bounded inline error would add allocation and change its API solely for the size heuristic")]
     fn check(files: &BTreeMap<AbsPath, Vec<u8>>, request: &WriteRequest) -> Result<(), FsError> {
         let current = files.get(&request.path);
         let ok = match &request.precondition {
