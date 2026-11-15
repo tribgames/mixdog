@@ -22,6 +22,7 @@ import type {
 } from '../contract';
 import type { DesktopSectionsSnapshot } from '../contract-sections';
 import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
+import { isOutcomeUnknown } from '../outcome-unknown';
 import { SCHEDULE_RENAME_UNCERTAIN } from '../schedule-error-codes';
 import { normalizeSessionTitle } from '../session-title.mjs';
 import { isSessionId } from '../desktop-state';
@@ -198,10 +199,6 @@ const renamesSchedule = (entry: unknown): boolean => {
   const to = newName == null ? '' : String(newName).trim();
   return to !== '' && to !== String(name || '').trim();
 };
-
-/** The client library's failure for an op whose outcome its reconciliation could not learn (`opOutcomeUnknown`). */
-const isOutcomeUnknown = (error: unknown): boolean =>
-  (error as { detail?: { kind?: unknown } } | null)?.detail?.kind === 'opOutcomeUnknown';
 
 /** Node's `scheduleRenameUncertainError(cause)` (`channels/lib/schedule-errors.mjs`), raised by its `renameSchedule` when the
  *  call to the scheduler went unanswered (`session-runtime/channel-config-api.mjs:63`). */

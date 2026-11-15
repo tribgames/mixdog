@@ -2,13 +2,8 @@
 // the core is lost; when the answer never came back and the core's own record of the op cannot be read either, the client
 // library fails the call with `opOutcomeUnknown` (packages/protocol-client). Its bare message is a protocol word, and the action
 // may have run: the person is told that, and to look at the repository before trying again.
+import { isOutcomeUnknown } from '../shared/outcome-unknown';
 import { t } from './i18n';
-
-/** Whether `reason` is the client library's failure for an action whose outcome could not be learned. */
-export function isOutcomeUnknown(reason: unknown): boolean {
-  if (!(reason instanceof Error)) return false;
-  return (reason as { detail?: { kind?: unknown } }).detail?.kind === 'opOutcomeUnknown' || reason.message === 'opOutcomeUnknown';
-}
 
 /** The text the dock shows for a failed Git action. */
 export function gitActionFailureText(reason: unknown): string {
