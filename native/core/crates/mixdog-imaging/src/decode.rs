@@ -72,14 +72,21 @@ impl Format {
             || bytes.starts_with(&[b'M', b'M', 0x00, 0x2B])
         {
             Some(Self::Tiff)
-        } else if bytes.starts_with(&[0x1f, 0x8b]) || bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes)
-            .iter().copied().find(|byte| !byte.is_ascii_whitespace()) == Some(b'<') {
+        } else if bytes.starts_with(&[0x1f, 0x8b]) || Self::looks_like_svg_text(bytes) {
             // XML (including declarations/comments) and SVGZ are parsed by usvg;
-            // malformed or non-SVG XML still fails the actual decode.
+            // malformed SVG still fails the actual decode.
             Some(Self::Svg)
         } else {
             None
         }
+    }
+
+    /// Markup is taken as SVG only when `<svg` (any case) is in its first 1000 bytes, as libvips' svgload asks:
+    /// other XML or HTML stays an unsupported image format, the sentence sharp gives for it.
+    fn looks_like_svg_text(bytes: &[u8]) -> bool {
+        let text = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+        text.iter().copied().find(|byte| !byte.is_ascii_whitespace()) == Some(b'<')
+            && bytes[..bytes.len().min(1000)].windows(4).any(|window| window.eq_ignore_ascii_case(b"<svg"))
     }
 
     /// sharp's `metadata().format`, which names the image type of a result: `image/<name>`.
@@ -378,6 +385,9 @@ mod tests {
         assert_eq!(Format::sniff(b"MM\0*\0\0\0\x08"), Some(Format::Tiff));
         assert_eq!(Format::sniff(b"RIFF\x10\0\0\0WAVEfmt "), None);
         assert_eq!(Format::sniff(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), Some(Format::Svg));
+        assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?>\n<!-- c --><SVG/>"), Some(Format::Svg));
+        assert_eq!(Format::sniff(b"<!doctype html><html><body>not an image</body></html>"), None);
+        assert_eq!(Format::sniff(b"<?xml version=\"1.0\"?><note/>"), None);
         assert_eq!(Format::sniff(b"\0\0\0\x1cftypavif"), None);
         assert_eq!(Format::sniff(b""), None);
     }
