@@ -1,0 +1,49 @@
+# nr-office-ooxml-docx-xml: integration fragment
+
+Three modules of the crate mixdog-ooxml (the Word XML builders, the style lookup and the formatting patches). No protocol
+method, service or SERVICE_PENDING name belongs to this task; no new crate, dependency or Cargo edge (everything used is
+already a dependency of mixdog-ooxml: mixdog-js, mixdog-office-base, serde_json).
+
+## native/core/crates/mixdog-ooxml/src/lib.rs
+
+Add the module lines beside the other docx modules (after "pub mod docx_revisions;"), in this order:
+
+    pub mod docx_formatting;
+    pub mod docx_styles;
+    pub mod docx_xml;
+
+(lib.rs is shared by every task of the crate and was not edited here. The new files are untracked-by-lib until this is applied,
+so the crate does not build them before then.)
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, after the entry of office-docx-revisions (keep the list sorted by set name), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-docx-xml.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-docx-xml/MANIFEST.json",
+      "manifestSha256": "1c900ecf3a685298a461790c8c14c19f60ccd82a6dcc6fa2450fea3c407dcbb6",
+      "recorder": "benchmarks/rust-core/recorders/record-office-docx-xml.mjs",
+      "set": "office-docx-xml",
+      "totalBytes": 1183349
+    }
+
+(Recompute manifestSha256 and totalBytes from the committed office-docx-xml/MANIFEST.json and golden.json if the tool that
+keeps this file reorders or reformats them.)
+
+## What the later Word tasks call
+
+docx_xml: word_table_xml(operation, available, measure) (measure answers a line's width in px for a face, e.g.
+TextMeasurer::measure_text_width), word_table_properties, merge_word_cell_properties, align_word_table_columns,
+insert_docx_block_at, docx_table / docx_tables / table_row_matches / row_cell_matches / rewrite_table_columns /
+check_docx_column / missing_docx_row_error / missing_docx_cell_error, paragraph_format_xml, word_run_properties,
+merge_word_run_fonts, apply_word_run_format, word_paragraph, with_first_run_text, section_text_width, docx_style_id.
+docx_styles: document_style_id(&mut Package, requested, type). docx_formatting: patch_paragraph_format, patch_word_style,
+format_first_body_phrase.
+
+## Not compiled
+
+Written without cargo (the wave is compiled by the lead): the first build of mixdog-ooxml and cargo test -p mixdog-ooxml
+(--test twin_docx_xml and the unit tests of docx_xml and docx_formatting) is the check. rustfmt parsed all four files.
+The twin replays native/core/fixtures/office-docx-xml and needs no Node; twin_live_docx_xml (ignored) re-records.
