@@ -82,8 +82,8 @@ impl ContextPanelState {
     pub fn sync(&mut self, props: &ContextPanelProps) {
         let revision = props.inspection().map(|inspection| field(Some(inspection), "revision").cloned().unwrap_or(Value::Null));
         if revision != self.revision {
+            // The fresh inspector keeps counting requests, so a fetch the old one asked for cannot pass as one of its own.
             self.inspector.unmount();
-            self.inspector = InspectorState::new();
             self.revision = revision;
         }
     }
@@ -392,7 +392,8 @@ fn paint_usage_view(painter: &mut Painter, x: i32, y: i32, props: &ContextPanelP
 
 /// `panelDescription`: the description with its blanks collapsed, or the line a context report brings, truncated.
 fn panel_description(props: &ContextPanelProps) -> String {
-    let fallback = if props.inspection().is_some() {
+    // `detail?.inspection` decides the hint whatever the type of the detail.
+    let fallback = if truthy(field(props.detail, "inspection")) {
         "Current context snapshot. R refresh \u{b7} Enter inspect."
     } else if props.is_context_usage() {
         "Live context window usage by category."
@@ -549,6 +550,47 @@ mod tests {
         props.detail = Some(&other);
         state.sync(&props);
         assert_eq!(state.inspector().category(), "");
+    }
+
+    #[test]
+    fn a_preview_asked_for_before_a_new_revision_does_not_land_in_the_fresh_inspector() {
+        let report = |revision: &str| {
+            json!({
+                "type": "context",
+                "inspection": {
+                    "revision": revision,
+                    "categories": [{ "key": "system", "label": "System prompt", "tokens": 20 }],
+                    "entries": [{ "id": "message:0", "category": "system", "label": "Instructions", "tokens": 20 }],
+                },
+                "usage": { "usedTokens": 30, "windowTokens": 100 },
+            })
+        };
+        let (first, second) = (report("a"), report("b"));
+        let rows: Vec<Value> = Vec::new();
+        let mut props = ContextPanelProps::new(&rows);
+        props.detail = Some(&first);
+        let mut state = ContextPanelState::new();
+        let (input, enter) = mixdog_term::input::decode_key("\r");
+        state.handle_key(&input, &enter, &props);
+        let InspectorEffect::Inspect { token: old, .. } = state.handle_key(&input, &enter, &props) else { panic!("a fetch") };
+        props.detail = Some(&second);
+        state.sync(&props);
+        state.handle_key(&input, &enter, &props);
+        let InspectorEffect::Inspect { token: new, .. } = state.handle_key(&input, &enter, &props) else { panic!("a fetch") };
+        assert_ne!(old, new);
+        state.finish_inspect(old, InspectOutcome::Answer(Some(json!({ "text": "of revision a" }))));
+        assert_eq!(state.inspector().preview().map(|preview| preview.text.as_str()), Some("Loading preview\u{2026}"));
+        state.finish_inspect(new, InspectOutcome::Answer(Some(json!({ "text": "of revision b" }))));
+        assert_eq!(state.inspector().preview().map(|preview| preview.text.as_str()), Some("of revision b"));
+    }
+
+    #[test]
+    fn an_inspection_gives_the_hint_whatever_the_type_of_the_detail() {
+        let detail = json!({ "inspection": { "revision": "a", "categories": [], "entries": [] } });
+        let rows: Vec<Value> = Vec::new();
+        let mut props = ContextPanelProps::new(&rows);
+        props.detail = Some(&detail);
+        assert_eq!(panel_description(&props), "Current context snapshot. R refresh \u{b7} Enter inspect.");
     }
 
     #[test]

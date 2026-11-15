@@ -119,9 +119,10 @@ impl InspectorState {
         self.fit
     }
 
-    /// The component unmounted: an answer that comes back later is dropped.
+    /// The component unmounted (a new revision mounts a fresh one in its place): it starts over, and an answer of a fetch
+    /// asked for before comes back to a request counter that has moved on, so it is dropped, also by the fresh one.
     pub fn unmount(&mut self) {
-        self.request += 1;
+        *self = Self { request: self.request + 1, ..Self::default() };
     }
 
     fn choices<'a>(&self, props: &InspectorProps<'a>) -> Vec<&'a Value> {
