@@ -77,7 +77,11 @@ fn workbook_defined_names(xml: &str) -> HashMap<String, String> {
 /// A computed value typed the way [`write_cached_values`] stores it.
 fn cached_cell(value: &Cell) -> CachedValue {
     if is_formula_error(value) {
-        return CachedValue { kind: "e".to_owned(), text: xml_encode(&to_js_string(value)) };
+        let text = match value {
+            Cell::Error(error) => error.message().to_owned(),
+            other => to_js_string(other),
+        };
+        return CachedValue { kind: "e".to_owned(), text: xml_encode(&text) };
     }
     match value {
         Cell::Bool(flag) => CachedValue { kind: "b".to_owned(), text: (if *flag { "1" } else { "0" }).to_owned() },
@@ -245,7 +249,11 @@ fn evaluate_sheet_formulas(part: &SheetPart, engine: &Engine, tally: &mut Tally)
         match engine.cell_value(sheet_name, &record.reference) {
             Ok(value) => {
                 if is_formula_error(&value) {
-                    tally.error_cells.push((to_js_string(&value), format!("{sheet_name}!{}", record.reference)));
+                    let kind = match &value {
+                        Cell::Error(error) => error.message().to_owned(),
+                        other => to_js_string(other),
+                    };
+                    tally.error_cells.push((kind, format!("{sheet_name}!{}", record.reference)));
                 }
                 tally.evaluated += 1;
                 match positions.get(&record.reference) {
