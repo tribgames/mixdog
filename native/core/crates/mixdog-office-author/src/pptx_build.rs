@@ -490,7 +490,7 @@ fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Re
     // A framed box's outline stands half its stroke inside, and its words keep their place.
     let stroke = frame.and_then(|frame| object(frame, "stroke"));
     let half = stroke.map_or(0.0, |stroke| number(stroke, "w") / 2.0);
-    let framed = frame.map(|frame| stroke_inset(Bounds::of(&frame["box"]), stroke, radius_of(frame)));
+    let framed = frame.map(|frame| stroke_inset(Bounds::of(&item["box"]), stroke, radius_of(frame)));
     let g = framed.map(|(bounds, radius)| geometry(u, bounds, radius));
     // A rounded rectangle's own text rectangle already stands 0.29289 of its corner radius inside the shape.
     let corner = match (&g, framed) {
