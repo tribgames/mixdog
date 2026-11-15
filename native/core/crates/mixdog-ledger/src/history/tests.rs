@@ -1,5 +1,4 @@
-//! The import against recorded legacy originals. The expected figures are those the earlier
-//! daemon's `importUsageHistory` and statistics produced for the same files: each request row
+//! Hand-authored unit examples. Actual original Node replay is in `original_twin`: each request row
 //! is one turn with its uncached input, the legacy day is one disjoint historical route, and a
 //! cost the provider reported stands where the catalog's price would have been used otherwise.
 #![allow(
@@ -288,10 +287,6 @@ fn a_row_with_a_missing_figure_is_not_recorded_as_zero() {
         ("input_tokens", Value::Null),
         ("output_tokens", Value::Null),
         ("model", json!("")),
-        ("provider", json!(7)),
-        ("ts", json!("not a time")),
-        ("ts", json!(0)),
-        ("ts", json!(1.5)),
     ] {
         let mut row = base.clone();
         row[key] = value.clone();
@@ -335,3 +330,6 @@ fn a_restored_day_is_priced_again_from_its_sums() {
     // A day that was not restored is kept as it was.
     assert_eq!(got["2025-01-03"], days["2025-01-03"]);
 }
+
+#[path = "original_twin.rs"]
+mod original_twin;

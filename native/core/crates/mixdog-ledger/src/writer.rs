@@ -100,6 +100,7 @@ enum Command {
     /// The usage history of the earlier daemon, committed once it is read and priced.
     History {
         write: Box<HistoryWrite>,
+        mark: u64,
         reply: ReplyTx<Result<HistoryOutcome>>,
     },
     /// Resolves once the day sums are complete.
@@ -402,8 +403,12 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
             }
             Command::Settle { reply } => reply.send(()),
             Command::HistoryState { reply } => reply.send(read_state(&conn)),
-            Command::History { write, reply } => {
+            Command::History { write, reply, mark } => {
                 let applied = write.apply(&mut conn);
+                match &applied {
+                    Ok(_) => context.marks.written(mark),
+                    Err(error) => context.marks.failed(mark, error),
+                }
                 // Records came in behind a day-sum batch's snapshot: it is summed again.
                 if let Some(flight) = build.flight.as_mut() {
                     flight.stale = true;
@@ -576,8 +581,9 @@ impl UsageWriter {
         &self,
         write: HistoryWrite,
     ) -> impl Future<Output = Result<HistoryOutcome>> + Send + 'static + use<> {
-        let queued = self.enqueue(|reply| Command::History {
+        let queued = self.enqueue_write(|reply, mark| Command::History {
             write: Box::new(write),
+            mark,
             reply,
         });
         async move { queued?.await? }

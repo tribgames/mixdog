@@ -9,7 +9,7 @@
 //! copy cannot enter as history. The import is marked by `importedThrough`.
 //!
 //! The files are read on the maintenance lane, the rows are priced on `cpu-bulk`, and the write
-//! is one command on the writer thread; an import never holds the writer while it reads or prices.
+//! commits each original batch in order; it never holds the writer while it reads or prices.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,7 +42,6 @@ pub(crate) use write::HistoryWrite;
 pub(crate) use write::read_state;
 
 use source::Originals;
-use source::read_originals;
 use write::Receipt;
 use write::ReceiptFile;
 
@@ -57,9 +56,7 @@ struct State {
     /// Nothing more to import: `liveSince` is known and `importedThrough` reaches it.
     done: bool,
     running: bool,
-    waiters: Vec<ReplyTx<()>>,
-    /// The failure last reported, so the same one is not reported at every statistics read.
-    reported: Option<String>,
+    waiters: Vec<ReplyTx<std::result::Result<(), Arc<LedgerError>>>>,
 }
 
 pub struct HistoryImporter {
@@ -72,17 +69,20 @@ pub struct HistoryImporter {
 }
 
 /// Ends an import however it ends: frees the slot and wakes the readers that waited for it.
-struct Running<'a>(&'a HistoryImporter);
+struct Running<'a> {
+    importer: &'a HistoryImporter,
+    result: std::result::Result<(), Arc<LedgerError>>,
+}
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         let waiters = {
-            let mut state = self.0.lock();
+            let mut state = self.importer.lock();
             state.running = false;
             std::mem::take(&mut state.waiters)
         };
         for waiter in waiters {
-            waiter.send(());
+            waiter.send(self.result.clone());
         }
     }
 }
@@ -109,27 +109,10 @@ impl Accepted {
     }
 }
 
-/// Everything read, as the rows to commit: trace files, the database's rows, the gateway store,
-/// then the legacy days.
-fn plan(originals: &Originals, trace_rows: &[Value], until: f64, pricer: &dyn Pricer) -> Result<HistoryWrite> {
-    let mut accepted = Accepted::default();
-    let mut files = Vec::new();
-    let mut torn = 0;
-    for file in &originals.trace_files {
-        torn += file.torn;
-        accepted.take(&file.rows, until, pricer)?;
-        files.push(ReceiptFile {
-            path: file.path.clone(),
-            sha256: file.sha256.clone(),
-            rows: file.rows.len(),
-        });
-    }
-    accepted.take(trace_rows, until, pricer)?;
-    if let Some(events) = &originals.gateway {
-        accepted.take(events, until, pricer)?;
-    }
+/// The final legacy import and completion metadata, after all accepted batches committed.
+fn plan(originals: &Originals, until: f64, pricer: &dyn Pricer) -> Result<HistoryWrite> {
     let mut legacy_days = Vec::new();
-    if let Some(days) = &originals.rollup_days {
+    if let Some(days) = originals.rollup_days.as_ref().filter(|_| originals.ready) {
         // Only a day map holds days; an array is accepted as a document and holds none.
         if let Value::Object(days) = record::reprice_restored_days(days, pricer)? {
             for (day, value) in days {
@@ -140,17 +123,18 @@ fn plan(originals: &Originals, trace_rows: &[Value], until: f64, pricer: &dyn Pr
         }
     }
     Ok(HistoryWrite {
-        records: accepted.records,
+        records: Vec::new(),
         legacy_days,
         through: originals.ready.then(|| mixdog_js::number_to_string(until)),
-        receipt: Receipt {
-            source_rows: accepted.source_rows,
-            unrecordable_rows: accepted.unrecordable_rows,
-            torn_trace_lines: torn,
-            files,
-            trace_rows: trace_rows.len(),
+        previously_inserted: 0,
+        receipt: Some(Receipt {
+            source_rows: 0,
+            unrecordable_rows: 0,
+            torn_trace_lines: 0,
+            files: Vec::new(),
+            trace_rows: 0,
             until,
-        },
+        }),
     })
 }
 
@@ -186,16 +170,11 @@ impl HistoryImporter {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Imports the history that is not in the ledger yet, once: a statistics read that arrives
-    /// while another read imports waits for it. A history that cannot be imported is reported
-    /// (once per distinct failure) and the statistics are still read from what the ledger holds;
-    /// the import is tried again at the next read.
-    pub(crate) async fn ensure(&self, writer: &Arc<UsageWriter>, now: i64) {
-        if self.lock().done {
-            return;
-        }
+    /// Readers joining an import receive that import's result; only a later call retries.
+    pub(crate) async fn ensure(&self, writer: &Arc<UsageWriter>, now: i64) -> Result<()> {
         let wait = {
             let mut state = self.lock();
+            if state.done { return Ok(()); }
             if state.running {
                 let (tx, rx) = reply();
                 state.waiters.push(tx);
@@ -206,25 +185,12 @@ impl HistoryImporter {
             }
         };
         if let Some(rx) = wait {
-            let _ = rx.await;
-            return;
+            return rx.await?.map_err(LedgerError::SharedHistory);
         }
-        let _running = Running(self);
-        match self.settle(writer, now).await {
-            Ok(()) => self.lock().reported = None,
-            Err(error) => {
-                let message = error.to_string();
-                let fresh = {
-                    let mut state = self.lock();
-                    let fresh = state.reported.as_deref() != Some(message.as_str());
-                    state.reported = Some(message.clone());
-                    fresh
-                };
-                if fresh {
-                    mixdog_rt::node_stderr!("[usage-ledger] {message}");
-                }
-            }
-        }
+        // Cancellation also settles existing waiters, without turning failure into success.
+        let mut running = Running { importer: self, result: Err(Arc::new(LedgerError::Stopped)) };
+        running.result = self.settle(writer, now).await.map_err(Arc::new);
+        running.result.clone().map_err(LedgerError::SharedHistory)
     }
 
     async fn settle(&self, writer: &Arc<UsageWriter>, now: i64) -> Result<()> {
@@ -247,29 +213,71 @@ impl HistoryImporter {
             return Ok(true);
         }
         let data_dir = self.data_dir.clone();
-        let originals = self
-            .maintenance
-            .submit(&CancellationToken::new(), move |_: &InLane<MaintenanceIo>| read_originals(&data_dir))
-            .map_err(|_| LedgerError::Busy { queue: "io-maintenance" })?
-            .await
-            .map_err(|_| LedgerError::Stopped)??;
-        for warning in &originals.warnings {
-            mixdog_rt::node_stderr!("{warning}");
+        let names = self.read(move || source::trace_names(&data_dir.join("history"))).await?;
+        let mut receipt = Receipt {
+            source_rows: 0, unrecordable_rows: 0, torn_trace_lines: 0,
+            files: Vec::new(), trace_rows: 0, until,
+        };
+        let mut inserted = 0;
+        for name in names {
+            let path = self.data_dir.join("history").join(name);
+            let file = self.read(move || source::read_trace_file(&path)).await?;
+            if file.torn > 0 {
+                mixdog_rt::node_stderr!("[usage-ledger] warning: {} has {} torn trace line(s); skipped", file.path, file.torn);
+            }
+            let file_receipt = ReceiptFile { path: file.path, sha256: file.sha256, rows: file.rows.len() };
+            receipt.torn_trace_lines += file.torn;
+            inserted += self.accept(writer, file.rows, until, &mut receipt).await?;
+            receipt.files.push(file_receipt);
         }
-        // A present-but-unreachable original store is an import error, not absence.
-        let trace_rows = match &originals.pid_file {
-            Some(pid_file) => self.trace.rows(pid_file, until as i64).await?,
+        let data_dir = self.data_dir.clone();
+        let pid = self.read(move || source::read_pid(&data_dir)).await?;
+        let trace_rows = match pid {
+            Some(pid) => self.trace.rows(&pid, until as i64).await?,
             None => Vec::new(),
         };
+        receipt.trace_rows = trace_rows.len();
+        inserted += self.accept(writer, trace_rows, until, &mut receipt).await?;
+        // Gateway IO and mapping happen after trace commits, and rollup IO after gateway commits.
+        let data_dir = self.data_dir.clone();
+        let mut originals = self.read(move || source::read_gateway(&data_dir)).await?;
+        for warning in &originals.warnings { mixdog_rt::node_stderr!("{warning}"); }
+        originals.warnings.clear();
+        if let Some(events) = originals.gateway.take() {
+            inserted += self.accept(writer, events, until, &mut receipt).await?;
+        }
+        let data_dir = self.data_dir.clone();
+        let originals = self.read(move || source::read_rollup(&data_dir, originals)).await?;
+        for warning in &originals.warnings { mixdog_rt::node_stderr!("{warning}"); }
         let pricer = self.pricer.clone();
-        let write = self
-            .cpu_bulk
-            .submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
-                plan(&originals, &trace_rows, until, pricer.as_ref())
-            })
-            .map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
-            .await
-            .map_err(|_| LedgerError::Stopped)??;
+        let mut write = self.cpu_bulk.submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
+            plan(&originals, until, pricer.as_ref())
+        }).map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
+            .await.map_err(|_| LedgerError::Stopped)??;
+        write.receipt = Some(receipt);
+        write.previously_inserted = inserted;
         Ok(writer.import_history(write).await?.marked)
+    }
+
+    async fn read<T: Send + 'static>(&self, work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+        self.maintenance.submit(&CancellationToken::new(), move |_: &InLane<MaintenanceIo>| work())
+            .map_err(|_| LedgerError::Busy { queue: "io-maintenance" })?
+            .await.map_err(|_| LedgerError::Stopped)?
+    }
+
+    async fn accept(&self, writer: &Arc<UsageWriter>, rows: Vec<Value>, until: f64, receipt: &mut Receipt) -> Result<usize> {
+        let pricer = self.pricer.clone();
+        let accepted = self.cpu_bulk.submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
+            let mut accepted = Accepted::default();
+            accepted.take(&rows, until, pricer.as_ref())?;
+            Ok::<_, LedgerError>(accepted)
+        }).map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
+            .await.map_err(|_| LedgerError::Stopped)??;
+        receipt.source_rows += accepted.source_rows;
+        receipt.unrecordable_rows += accepted.unrecordable_rows;
+        Ok(writer.import_history(HistoryWrite {
+            records: accepted.records, legacy_days: Vec::new(), through: None,
+            receipt: None, previously_inserted: 0,
+        }).await?.inserted)
     }
 }

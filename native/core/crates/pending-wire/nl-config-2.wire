@@ -2,6 +2,8 @@
 
 ## native/core/crates/mixdog-ledger/Cargo.toml
 
+ALREADY APPLIED by t1-config-2 (the crate's own file): [dependencies] gained tokio-postgres and the dev tokio features gained "time". Original text of the wire follows.
+
 [dependencies]: add (the database reader of the import; it drives its own connection, so no tokio edge is needed):
 
     tokio-postgres = { workspace = true }
@@ -46,3 +48,56 @@ No name to remove: this task registers no service and adds no protocol method.
 
 None. The `usage-rollup.local.json` family is retired by the migration only after the import marked the ledger
 (`metadata.importedThrough`); `mixdog-migrate` `stores.rs` retains them until then and says so.
+
+
+Corrective source-oracle follow-up (2026-11-15)
+---------------------------------------------
+Owned implementation changes:
+- HistoryImporter::ensure and UsageRefresher::import_history now return Result<()>.
+  UsageLedger::get_usage_stats propagates it before refresh/read.
+- LedgerError::SharedHistory(Arc<LedgerError>) preserves the exact shared failure.
+  LedgerError::unshared() returns the underlying typed error; History(String)
+  displays the original message without an added history prefix.
+- Root consumer: mixdog-core-domains/src/domains/ai_account/failure.rs,
+  ledger_failure: change `match error` to `match error.unshared()` so Busy and
+  Stopped remain QueueFull and Cancelled through shared history failures.
+  Existing message/queue patterns bind references; use the same displayed text.
+- UsageWriter::import_history uses enqueue_write and always settles the accepted
+  mark on success or failure. No change to its Result<HistoryOutcome> consumer.
+- Original file/database/gateway batches commit in original order. Each original
+  accept(rows) is one transaction, not separate 512-row commits. Live append
+  batching remains unchanged. Large history files can occupy the writer longer.
+
+Recorded oracle and strict tests:
+- src/history/oracle/record.mjs runs actual original Node 22.20.0 import, pricing,
+  SQLite ledger and usage-stats-api, with owned temporary files and :memory: DB.
+  readTrace is injected; no PostgreSQL connection or real profile is accessed.
+  Its load hook records actual priceUsage arguments/results, preserving its body.
+  The synthetic catalog contents and original source SHA-256 hashes are embedded.
+- src/history/oracle/original.json: 17 file/trace/rollup scenarios plus 2 API cases.
+  No network attempts. Actual flat and tiered historical aggregate pricing,
+  local/unknown routes, 1h cache writes, provider-reported cost, partial commits,
+  malformed input errors, torn lines, gateway primitives/null, cutover and repeat.
+- src/history/original_twin.rs is included from existing history/tests.rs.
+  Tests: original_node_history_errors_partial_commits_pricing_and_receipts;
+  concurrent_import_waiters_share_failure_without_retry_and_later_call_retries;
+  rejected_history_write_settles_its_accepted_mark;
+  original_queued_live_write_precedes_statistics_cutover.
+- Run with TZ=UTC (oracle's explicit calendar zone). No tolerance/skip gates.
+  Tests compare exact stored events, route signatures/rates, legacy documents,
+  completion metadata, receipts, errors, shared failure identity and write marks.
+- IMPORTANT: RecordedPrices is an oracle boundary, NOT a CatalogPricer parity
+  claim. Root must also replay pricingCalls through its actual CatalogPricer,
+  including price_aggregate historicalAggregate=true (original wiring above).
+- Required existing dependency: tokio-postgres as above. New concurrency test
+  uses tokio time feature; enable it in test features if the unified workspace
+  does not already supply it. No other dependencies or registration changes.
+
+Verification limits:
+- Recorder executed; Rust build/tests intentionally not run in this worker.
+- Original SQLite worker/file-backed recordQueued path is not executed by the
+  memory-only oracle; its queue barrier needs root integration regression.
+- Native OS read-error wording and live PostgreSQL client error behavior are
+  not certified by isolated fixtures. No real service was contacted.
+- Nonstandard malformed legacy bucket scalar/object coercion is not covered by
+  these representative fixtures; do not infer complete arbitrary-JSON parity.

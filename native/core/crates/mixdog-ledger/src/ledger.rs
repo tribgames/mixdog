@@ -37,7 +37,7 @@ impl UsageLedger {
         clock: impl Fn() -> i64,
     ) -> Result<Value> {
         self.writer.settle_writes().await?;
-        self.refresher.import_history(&self.writer, clock()).await;
+        self.refresher.import_history(&self.writer, clock()).await?;
         self.refresher
             .refresh(&self.writer, &self.reader, clock())
             .await?;
