@@ -1,0 +1,14 @@
+%!PS-Adobe-3.0 Resource-CIDFont
+%%DocumentNeededResources: ProcSet (CIDInit)
+/CIDFontName /TestCID def
+/CIDFontType 0 def
+/CIDCount 4 def
+/FontMatrix [0.001 0 0 0.001 0 0] def
+/FontBBox {0 -250 1000 800} def
+/FDBytes 1 def
+/GDBytes 2 def
+/CIDMapOffset 0 def
+/SubrMapOffset 15 def
+/SDBytes 2 def
+/SubrCount 1 def
+(Hex) 55 StartData 00001a00002300002e00002e0000370013001a516a9f0c6df8d0516a9f0c4f46b3eeb0516a9f0c51a3812e5b34b2516a9f0c5b92905461
