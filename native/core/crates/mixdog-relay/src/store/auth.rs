@@ -1,7 +1,6 @@
 //! Credential rules of the device store (`lib/device-store-auth.mjs`, `readDeviceCredentials`, the id and secret checks of
 //! `authenticateLeg`): the digests secrets are kept as, the Basic header, the profile fields a browser registers with.
 
-use ring::constant_time::verify_slices_are_equal;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -48,7 +47,8 @@ pub(super) fn hashes_match(expected_hex: &str, candidate: &str) -> bool {
     }
     let Some(expected) = decode_hex(expected_hex) else { return false };
     let actual = Sha256::digest(candidate.as_bytes());
-    expected.len() == actual.len() && verify_slices_are_equal(&expected, &actual).is_ok()
+    // Every byte is compared whatever the earlier ones were (`timingSafeEqual`).
+    expected.len() == actual.len() && expected.iter().zip(actual.iter()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
 }
 
 /// `Buffer.from(hex, 'hex')` of a string that is whole hex pairs; anything else cannot be a stored digest.
