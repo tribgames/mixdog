@@ -114,6 +114,10 @@ pub struct AgentMessage {
     /// Tool messages only (Node `uiDiff`): the call's card diff, from the result's `meta.uiDiff`.
     /// The host stores it on the row; it is never wire text.
     pub ui_diff: Option<String>,
+    /// Tool messages only (Node `toolMeta`): the structured side channel of the result (`code`, `missing`,
+    /// optional `ownerSessionId`), from the result's `meta` when that is a tool meta. The host stores it on the
+    /// row and the live item shows it; it is never wire text.
+    pub tool_meta: Option<mixdog_protocol::JsonValue>,
     /// The stored row this message was read from, exactly as stored (see the host message codec):
     /// whatever the typed fields do not hold (timings, usage counters, envelope extras) is written
     /// back from it, and a field the run changed is written over it.
@@ -136,6 +140,8 @@ impl AgentMessage {
             provider_metadata: None,
             effort: None,
             ui_diff: None,
+            tool_meta: None,
+            tool_meta: None,
             stored: None,
         }
     }

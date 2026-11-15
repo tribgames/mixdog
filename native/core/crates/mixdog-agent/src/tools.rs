@@ -1226,6 +1226,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             let mut message = AgentMessage::tool_result(&call.id, content, ToolKind::Normal);
             message.tool_timing = Some(timing(postprocess_started_at));
             message.ui_diff = output.meta.as_ref().and_then(|m| m.get("uiDiff")).and_then(|d| d.as_str()).map(str::to_owned);
+            // A meta that names a `code` is the result's `toolMeta`; the other metas (`uiDiff`, telemetry) are not.
+            message.tool_meta = output.meta.as_ref().filter(|m| m.get("code").and_then(|c| c.as_str()).is_some_and(|c| !c.is_empty())).cloned();
             Executed {
                 message,
                 failed: false,
