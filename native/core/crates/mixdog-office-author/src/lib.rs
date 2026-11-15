@@ -15,3 +15,8 @@ pub mod icons;
 pub mod measure_deck;
 pub mod page;
 pub mod pptx_writer;
+pub mod measure_docx;
+pub mod measure_xlsx;
+pub mod pdf_print;
+pub mod normalize;
+pub mod receipt;

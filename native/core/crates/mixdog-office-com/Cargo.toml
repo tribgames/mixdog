@@ -100,3 +100,26 @@ path = "tests/registry_source.rs"
 [[test]]
 name = "host_protocol"
 path = "tests/host_protocol.rs"
+
+[[test]]
+name = "containment"
+path = "tests/containment.rs"
+
+[[test]]
+name = "containment_live"
+path = "tests/containment_live.rs"
+
+[[test]]
+name = "cleanup"
+path = "tests/cleanup.rs"
+
+[[test]]
+name = "session"
+path = "tests/session.rs"
+
+[[test]]
+name = "session_live"
+path = "tests/session_live.rs"
+
+[target."cfg(windows)".dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

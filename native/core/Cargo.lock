@@ -5437,6 +5437,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-ooxml-text",
+ "mixdog-pdf",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-testkit",
@@ -5736,11 +5737,14 @@ dependencies = [
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-office-design",
+ "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -5758,6 +5762,7 @@ dependencies = [
  "mixdog-office-design",
  "mixdog-office-quality",
  "mixdog-ooxml",
+ "mixdog-pdf",
  "mixdog-raster",
  "mixdog-rt",
  "mixdog-testkit",
@@ -5854,6 +5859,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-office-pdf"
+version = "1.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-pdf",
+ "mixdog-raster",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "mixdog-office-quality"
 version = "1.5.0"
 dependencies = [
@@ -5875,6 +5895,8 @@ version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "icu_collator",
+ "icu_locale_core",
  "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",
@@ -5931,8 +5953,10 @@ dependencies = [
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-pdf-codec",
+ "mixdog-raster",
  "mixdog-testkit",
  "serde_json",
+ "sha2 0.10.9",
  "tracing",
  "url",
 ]
@@ -6502,11 +6526,14 @@ dependencies = [
 name = "mixdog-tui"
 version = "1.5.0"
 dependencies = [
+ "mixdog-core-config",
+ "mixdog-core-session",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-launch",
  "mixdog-markdown-ansi",
  "mixdog-session-view",
+ "mixdog-statefile",
  "mixdog-term",
  "mixdog-termtext",
  "mixdog-tui-style",

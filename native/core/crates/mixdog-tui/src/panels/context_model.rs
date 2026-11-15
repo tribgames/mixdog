@@ -64,7 +64,7 @@ fn number_or_zero(value: Option<&Value>) -> f64 {
 
 /// `a || b || ...`: the first truthy value.
 fn first_truthy<'a>(candidates: &[Option<&'a Value>]) -> Option<&'a Value> {
-    candidates.iter().copied().find(|candidate| truthy_of(*candidate))
+    candidates.iter().copied().find(|candidate| truthy_of(*candidate)).flatten()
 }
 
 /// `Number(a || b || ... || 0)`.

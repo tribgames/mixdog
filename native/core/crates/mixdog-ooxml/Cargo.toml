@@ -28,6 +28,8 @@ tar = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "net", "process", "io-util"] }
 mixdog-xlsx-formula = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+icu_collator = { workspace = true }
+icu_locale_core = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }

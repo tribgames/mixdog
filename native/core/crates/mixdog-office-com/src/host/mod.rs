@@ -17,6 +17,7 @@
 pub mod apartment;
 pub mod emit;
 pub mod handlers;
+pub mod ledger;
 pub mod oneshot;
 pub mod session_loop;
 

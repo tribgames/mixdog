@@ -11,3 +11,4 @@ pub mod digest;
 pub mod tabular;
 pub mod contracts;
 pub mod describe;
+pub mod session;
