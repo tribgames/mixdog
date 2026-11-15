@@ -33,11 +33,17 @@ jobs:
             package-lock.json
             apps/desktop/package-lock.json
 
-      - name: Install root dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
-
-      - name: Install desktop dependencies
-        run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+      # The two trees do not depend on each other: install them side by side.
+      - name: Install root and desktop dependencies
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund &
+          root=$!
+          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund &
+          desktop=$!
+          status=0
+          wait "$root" || status=1
+          wait "$desktop" || status=1
+          exit "$status"
 
       # Electron 42+ has no install script: fetch its binary once, as the
       # release gate does, so the Electron entries never race to download it.
@@ -54,24 +60,34 @@ jobs:
         with:
           packages: xvfb
 
-      # `npm ci` no longer stages the native tools (postinstall only prunes the
-      # embedding runtime): stage the pinned graph, patch and spawn tools the
-      # suites resolve in native-tools/.
-      - name: Stage the native tools
-        run: node scripts/stage-native-tools.mjs
+      # The swept Office suites (test:office) need the Office fonts, not
+      # LibreOffice or the native tools: no swept suite renders or stages one.
+      - name: Install the Office fonts
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: fonts-liberation fonts-crosextra-carlito fonts-nanum
 
-      # Same runner provisioning as the release gate's Office-bearing jobs.
-      - name: Install fonts and LibreOffice for the Office suites
-        uses: ./.github/actions/office-runtime
-
-      - name: Provision the Office Noto core fonts
+      # Noto Sans, Noto Sans KR and Noto Sans JP, as the office-runtime action
+      # provisions them (the Japanese wrap test skips without the JP face). The
+      # faces are downloaded, so a failed run is retried; one that keeps failing
+      # still fails the step.
+      - name: Provision the Office Noto fonts
         run: |
-          node --input-type=module <<'NODE'
-          import { prepareOfficeFonts } from './src/runtime/office/portable/font-provisioner.mjs';
-          const results = await prepareOfficeFonts({ coreOnly: true });
+          provision() {
+            node --input-type=module <<'NODE'
+          import { NOTO_FONT_DEFINITIONS, prepareOfficeFonts } from './src/runtime/office/portable/font-provisioner.mjs';
+          const ids = new Set(['noto-sans-latin', 'noto-sans-kr', 'noto-sans-jp']);
+          const results = await prepareOfficeFonts({ targets: NOTO_FONT_DEFINITIONS.filter((font) => ids.has(font.id)) });
           console.log(JSON.stringify(results, null, 2));
           if (!Object.values(results).every((font) => font.installed)) process.exit(1);
           NODE
+          }
+          for attempt in 1 2 3; do
+            provision && exit 0
+            echo "Noto font provisioning failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
 
       - name: Run every locally-registered suite
         id: sweep

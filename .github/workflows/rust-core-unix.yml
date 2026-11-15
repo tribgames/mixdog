@@ -92,7 +92,7 @@ jobs:
             macOS-ARM64) platform=darwin-arm64 ;;
             *) echo "no runtime asset for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
           esac
-          manifest=crates/mixdog-services/src/memory/pg/runtime_install/runtime-manifest.json
+          manifest=../../src/runtime/memory/data/runtime-manifest.json
           url=$(node -p "require('./$manifest').assets['$platform'].url")
           sha=$(node -p "require('./$manifest').assets['$platform'].sha256")
           archive="$RUNNER_TEMP/pg-runtime.tar.gz"

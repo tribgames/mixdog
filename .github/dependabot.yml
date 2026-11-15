@@ -1,7 +1,11 @@
 # Continuous dependency updates (issue #159). Patch and minor updates arrive as
 # one grouped pull request per directory each week; semver-major updates are
-# ignored here and handled by hand. The root manifest is what ships inside
-# runtime.asar; apps/desktop carries the Electron app.
+# ignored here and handled by hand. Every tracked lockfile has an entry: the
+# root manifest is what npm installs for the terminal product and what ships
+# inside runtime.asar; apps/desktop carries the Electron app; apps/relay and
+# apps/mobile are the relay and the phone app; packages/protocol-client is the
+# client library the desktop and the phone share; the Cargo lockfiles are the
+# core (mixdogd) and the standalone native crates.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -46,6 +50,85 @@ updates:
       # Pinned: transcript-list-virtualizer.ts patches virtual-core internals.
       - dependency-name: "@tanstack/virtual-core"
       - dependency-name: "@tanstack/react-virtual"
+
+  - package-ecosystem: npm
+    directory: /apps/relay
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      relay-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: npm
+    directory: /apps/mobile
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      mobile-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: npm
+    directory: /packages/protocol-client
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      protocol-client-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: cargo
+    directories:
+      - /native/core
+      - /native/core/crates/mixdog-spawn
+      - /native/core/vendor/fancy-regex-differential
+      - /native/mixdog-computer
+      - /native/mixdog-graph
+      - /native/mixdog-main-native
+      - /native/mixdog-patch
+      - /native/mixdog-secure-desktop
+      - /native/mixdog-spawn
+      - /native/mixdog-window
+      - /scripts/rust-core/tree-helper
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

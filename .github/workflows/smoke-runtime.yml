@@ -1,5 +1,6 @@
 ## Phase C: negative-path tests against the released runtime tarballs.
-## Runs after Build Runtime succeeds, OR on demand. Validates fetcher behavior
+## Runs after Deploy's runtime job (workflow_call), after a manually dispatched
+## Build Runtime succeeds (workflow_run), OR on demand. Validates fetcher behavior
 ## under corrupt/missing/stale conditions on each OS.
 
 name: Smoke Runtime (negative paths)
@@ -15,6 +16,19 @@ on:
         description: "Release repository override (e.g. owner/repository)"
         required: false
         default: ""
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to smoke"
+        required: true
+        type: string
+      release_repository:
+        description: "Release repository override (e.g. owner/repository)"
+        required: false
+        type: string
+        default: ""
+  # A manually dispatched Build Runtime. A Build Runtime called by Deploy is part
+  # of Deploy's run and raises no workflow_run event: Deploy calls this workflow.
   workflow_run:
     workflows: ["Build Runtime"]
     types: [completed]
@@ -28,7 +42,7 @@ concurrency:
 
 jobs:
   negative:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: negative-${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -40,6 +54,8 @@ jobs:
           - { os: linux,  arch: x64,   runner: ubuntu-22.04, container: 'ubuntu:20.04' }
           - { os: darwin, arch: arm64, runner: macos-15,     container: '' }
           - { os: win32,  arch: x64,   runner: windows-2022, container: '' }
+          - { os: linux,  arch: arm64, runner: ubuntu-22.04-arm, container: 'ubuntu:20.04' }
+          - { os: darwin, arch: x64,   runner: macos-15-intel, container: '' }
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

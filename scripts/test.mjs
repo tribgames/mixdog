@@ -17,7 +17,9 @@
 // Runs from the package that invokes it: `src/`, `scripts/`, `lib/`, `deploy/`
 // and the package root itself are searched under cwd, so the root package,
 // apps/desktop and apps/relay share this one entry. A root a package does not
-// have simply yields nothing.
+// have simply yields nothing. The root package also discovers the workspace
+// packages under `packages/` (their `.test.ts` files too) and the npm launcher
+// under `apps/mixdogd-npm`, so no Node test sits outside every lane.
 import { glob } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,12 +68,28 @@ it carries that tag, so it survives line filtering.`;
 
 // Not all of `benchmarks`: its job directories hold thousands of run artifacts
 // (some unreadable), so only the analysis tooling that has tests is searched.
-const ROOTS = ['.', 'src', 'scripts', 'lib', 'deploy', 'benchmarks/terminal-bench-2.1/analysis'];
+const ROOTS = [
+  '.',
+  'src',
+  'scripts',
+  'lib',
+  'deploy',
+  'benchmarks/terminal-bench-2.1/analysis',
+  'apps/mixdogd-npm',
+  'packages',
+];
 const PATTERNS = ['**/*.test.mjs', '**/*-test.mjs'];
+// The workspace packages are TypeScript: their tests are `.test.ts` as well
+// (the root loader, tsx, runs them).
+const ROOT_PATTERNS_BY_ROOT = { packages: [...PATTERNS, '**/*.test.ts'] };
 // The package root is searched shallowly: a recursive pattern there would pull
 // every workspace package into the invoking package's suite.
 const ROOT_PATTERNS = ['*.test.mjs', '*-test.mjs'];
-const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target']);
+// node-oracle holds the one test that replays the rows tests against the old Node
+// tree (MIXDOG_NODE_REFERENCE_REPO, a checkout of b6f10295a): it skips by design
+// without that checkout, so it is run by hand where the checkout exists and is
+// no lane's file.
+const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target', 'node-oracle']);
 
 export function laneOf(file) {
   if (/\.live\.test\.mjs$/.test(file)) return 'live';
@@ -137,7 +155,8 @@ export function parseArgs(argv) {
 export async function discoverTestFiles(cwd = process.cwd()) {
   const files = new Set();
   for (const root of ROOTS) {
-    for await (const entry of glob(root === '.' ? ROOT_PATTERNS : PATTERNS.map((pattern) => `${root}/${pattern}`), {
+    const patterns = root === '.' ? ROOT_PATTERNS : (ROOT_PATTERNS_BY_ROOT[root] ?? PATTERNS).map((pattern) => `${root}/${pattern}`);
+    for await (const entry of glob(patterns, {
       cwd,
       exclude: (path) =>
         String(path)

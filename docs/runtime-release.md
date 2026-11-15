@@ -11,7 +11,13 @@ After the platform jobs finish, the aggregate job requires every supported
 asset and valid checksum metadata, generates `dist/runtime-manifest.json`, and
 uploads it to the release and workflow artifacts. It also writes
 `src/runtime/memory/data/runtime-manifest.json` and commits that bundled copy
-directly to the default branch with `GITHUB_TOKEN`.
+directly to the default branch with `GITHUB_TOKEN`. That file is the only copy:
+the core compiles it in (`include_str!` of the repository path from
+`runtime_install/manifest.rs`), and the deploy, the smoke, the asset health
+check and the release verifier read it, so one commit moves them all.
+
+Deploy runs the negative-path smoke (**Smoke Runtime**) against the tag Build
+Runtime published, on all five platforms, once the runtime job has finished.
 
 The application Release workflow fully downloads and verifies every bundled
 asset before publishing npm. **Runtime Assets Health** performs a lighter
