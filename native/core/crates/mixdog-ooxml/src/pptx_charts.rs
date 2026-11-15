@@ -764,7 +764,7 @@ fn put_in_series(series: &str, anchors: &[&str], element: &str) -> String {
             return format!("{}{element}{}", &series[..at], &series[at..]);
         }
     }
-    series.replacen("</c:ser>", element, 1)
+    series.replacen("</c:ser>", &format!("{element}</c:ser>"), 1)
 }
 
 fn no_such_series(op: &Value) -> String {
@@ -847,6 +847,12 @@ mod tests {
             assert_eq!(rewrite_chart_series(SERIES, wanted, mark).0, "<c:ser>A!</c:ser><c:ser>B!</c:ser><c:ser>C!</c:ser>", "{wanted}");
         }
         assert_eq!(rewrite_chart_series(SERIES, 4.0, mark), (SERIES.to_owned(), false));
+    }
+
+    #[test]
+    fn an_element_goes_before_the_first_anchor_or_before_the_series_closes() {
+        assert_eq!(put_in_series("<c:ser><c:tx/><c:val/></c:ser>", &["<c:cat>", "<c:val>"], "<x/>"), "<c:ser><c:tx/><x/><c:val/></c:ser>");
+        assert_eq!(put_in_series("<c:ser><c:tx/></c:ser>", &["<c:cat>", "<c:val>"], "<x/>"), "<c:ser><c:tx/><x/></c:ser>");
     }
 
     #[test]
