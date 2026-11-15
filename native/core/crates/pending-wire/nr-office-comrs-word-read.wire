@@ -1,0 +1,39 @@
+# nr-office-comrs-word-read: the Word reader of mixdog-office-com (src/word/{mod,reading,snapshot,styles,selection,issues}.rs, the empty
+# stub src/word/edit/mod.rs), tests/word_read.rs, tests/word_read_live.rs and recorder/scenarios/word-read.json.
+# Nothing was compiled (the lead builds the wave); every file was checked to parse with rustfmt only.
+# No protocol row, no service, no SERVICE_PENDING name and no Cargo.lock change belong to this task (it uses `regex`, already a dependency of the crate).
+
+## 1. native/core/crates/mixdog-office-com/src/lib.rs (not owned by this task)
+Add to the `pub mod` block (after `pub mod template;`):
+
+    pub mod word;
+
+## 2. native/core/crates/mixdog-office-com/src/drivers.rs (not owned by this task)
+Fill the readers table:
+
+    static READERS: &[(&str, &dyn FormatReader)] = &[("docx", &crate::word::Reader)];
+
+(`EDITORS` stays empty: nr-office-comrs-word-edit adds `("docx", &crate::word::Editor)` and takes over `src/word/edit/mod.rs`, which this task
+leaves as an empty module declared as `pub(crate) mod edit;` from word/mod.rs. The editor needs no edit of any file of this task: the style map
+(`word::styles::canonical_style_name`, thread-local as `$script:WordLocalStyleMap` was per host) and the casts in word/mod.rs are reachable from
+`word::edit` as `super::...` and `super::styles::...`.)
+
+## 3. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Test targets, after `[[test]] name = "actions_live"`:
+
+    [[test]]
+    name = "word_read"
+    path = "tests/word_read.rs"
+
+    [[test]]
+    name = "word_read_live"
+    path = "tests/word_read_live.rs"
+
+## 4. What the lead should know
+- `tests/word_read.rs` runs against a scripted Word object model written from the PowerShell source; `tests/fixtures/word-read/` does not exist yet
+  because no recording could be made here (no Word): run `node recorder/record-office-com.mjs --area word-read` on the migration PC, then the
+  call logs of the recorded snapshot and issues requests are to be replayed against `Reader` (the test file has the manifest check for them; the replay
+  itself is not written, since the recorded steps' format has no sample in the tree yet).
+- The order the document is asked for each built-in style's local name (`word/styles.rs`, `BUILTIN_STYLE_IDS`) is the enumeration order of the
+  36-key hashtable `$script:WordBuiltinStyleIds` of Windows PowerShell 5.1, computed from the .NET Framework `Hashtable` algorithm (89 buckets,
+  listed from the last bucket down), not observed: the first recording of a snapshot of a document read for the first time confirms or corrects it.
