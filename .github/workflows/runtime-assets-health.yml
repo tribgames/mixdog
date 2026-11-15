@@ -98,7 +98,7 @@ jobs:
             const contentLength = response.headers.get('content-length');
             const remoteSize = contentRange
               ? Number(contentRange.match(/\/(\d+)$/)?.[1])
-              : Number(contentLength);
+              : contentLength == null ? NaN : Number(contentLength);
             await response.body?.cancel();
 
             if (sized) {
