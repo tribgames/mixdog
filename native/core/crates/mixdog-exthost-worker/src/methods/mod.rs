@@ -14,8 +14,8 @@ use serde_json::Value;
 use crate::error::CodedError;
 use crate::registry::Registry;
 
-/// Registers the document methods: `ooxml.text`, `media.officeText`, and the image probe, jpeg and validate calls. The office,
-/// pdf, syntax and still-image families register themselves as their tasks land.
+/// Registers the document methods: `ooxml.text`, `media.officeText`, and the image calls. The office,
+/// pdf and syntax families register themselves as their tasks land.
 pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
