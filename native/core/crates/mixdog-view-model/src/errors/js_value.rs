@@ -46,7 +46,21 @@ pub fn is_object(value: Js) -> bool {
 
 /// `String(value)`.
 pub fn js_string(value: Js) -> String {
+    if is_error_instance(value) {
+        return error_to_string(value);
+    }
     value.map_or_else(|| "undefined".into(), value_to_string)
+}
+
+/// `Error.prototype.toString`: the name (`Error` when absent), then the message, joined by `: ` unless one is empty.
+fn error_to_string(error: Js) -> String {
+    let name = get(error, "name").map_or_else(|| "Error".to_owned(), value_to_string);
+    let message = get(error, "message").map_or_else(String::new, value_to_string);
+    match (name.is_empty(), message.is_empty()) {
+        (true, _) => message,
+        (false, true) => name,
+        (false, false) => format!("{name}: {message}"),
+    }
 }
 
 /// `String(value || '')`.

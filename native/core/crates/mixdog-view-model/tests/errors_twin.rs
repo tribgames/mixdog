@@ -154,7 +154,7 @@ fn retry_lines_and_durations_give_what_node_gave() {
     let golden = golden();
     let now = golden["now"].as_f64().expect("now");
     let rows = golden["retryStatus"].as_array().expect("retryStatus");
-    assert!(rows.len() > 1000);
+    assert_eq!(rows.len(), 3 * 7 * 5 * 6, "the recorder writes every reason x attempt x maxAttempts x delay");
     for row in rows {
         let number = |key: &str| row[key].as_f64().unwrap_or(f64::NAN);
         let line = err_text::retry_status_line(row["reason"].as_str().expect("reason"), number("attempt"), number("maxAttempts"), number("delayMs"));
