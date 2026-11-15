@@ -8,6 +8,9 @@
 
 use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
+use crate::providers::idle::IdleWatch;
+use crate::providers::idle::Stalled;
+use crate::providers::idle::progressed;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -325,7 +328,8 @@ impl CompatAdapter {
                 .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
                 .await?;
             if response.is_success() {
-                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request))));
+                let idle = IdleWatch::new(self.first_byte.semantic_idle_ms.map(|ms| ms as f64), format!("{} SSE idle", self.profile().id));
+                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request)).with_idle(idle)));
             }
             let err = Self::failure(codec, response, key.as_deref(), &wire.body).await;
             if err.status == Some(401)
@@ -450,6 +454,9 @@ struct CompatStream {
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
+    /// The semantic idle window (`nextAsyncWithWatchdog`): armed by the first chunk, started again by every chunk that
+    /// decoded progress; a keepalive does not.
+    idle: IdleWatch,
 }
 
 impl CompatStream {
@@ -459,7 +466,13 @@ impl CompatStream {
             decoder,
             queue: VecDeque::new(),
             failed: None,
+            idle: IdleWatch::off(),
         }
+    }
+
+    fn with_idle(mut self, idle: IdleWatch) -> Self {
+        self.idle = idle;
+        self
     }
 }
 
@@ -479,9 +492,22 @@ impl ModelStream for CompatStream {
                 self.body = None;
                 return None;
             }
-            match body.next().await {
+            let read = match self.idle.read(body.next()).await {
+                Ok(read) => read,
+                Err(Stalled) => {
+                    self.body = None;
+                    self.failed = Some(self.idle.stalled(self.decoder.exposure()));
+                    continue;
+                }
+            };
+            match read {
                 Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
-                    Ok(events) => self.queue.extend(events),
+                    Ok(events) => {
+                        if self.idle.unarmed() || progressed(&events) {
+                            self.idle.rearm();
+                        }
+                        self.queue.extend(events);
+                    }
                     Err(err) => {
                         self.body = None;
                         self.failed = Some(err);
@@ -533,5 +559,31 @@ mod site_tests {
             .expect_err("the endpoint never answers");
         assert_transport("compatModelList", &transport);
         assert_thrown("compatModelList", &error.message);
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use crate::providers::idle::testing::Echo;
+    use crate::providers::idle::testing::Timetable;
+
+    /// The window runs from the last progress: a keepalive does not move it (`semanticIdleDeadlineAt`).
+    #[tokio::test(start_paused = true)]
+    async fn a_keepalive_does_not_hold_the_semantic_window() {
+        let idle = IdleWatch::new(Some(20_000.0), "deepseek SSE idle");
+        let mut stream = CompatStream::new(Timetable::of(&[(0, "a"), (15, "k"), (15, "k")]), Box::new(Echo)).with_idle(idle);
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))));
+        assert!(matches!(stream.next().await, Some(Ok(StreamEvent::ProviderKeepalive))));
+        let err = stream.next().await.expect("the stall").expect_err("a stall");
+        assert_eq!(err.code.as_deref(), Some("ESTREAMSTALL"));
+        assert_eq!(err.message, "deepseek SSE idle stream timed out after 20000ms of inactivity");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_watchdog_switched_off_leaves_the_read_unbounded() {
+        let mut stream = CompatStream::new(Timetable::of(&[(0, "a")]), Box::new(Echo)).with_idle(IdleWatch::new(None, "deepseek SSE idle"));
+        assert!(stream.next().await.is_some());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::from_secs(100_000), stream.next()).await.is_err());
     }
 }
