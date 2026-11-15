@@ -1137,7 +1137,14 @@ impl Taken {
 
 /// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
 pub(super) fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
-    queue.iter().filter(|queued| selected.is_none_or(|qid| queued.qid == qid)).cloned().collect()
+    queue.iter().filter(|queued| selected.is_none_or(|id| queued_is(&queued.qid, &queued.entry, id))).cloned().collect()
+}
+
+/// Whether `selected` names the queue entry: its own queue id, or the submission it answers. Node names an entry by its submission
+/// (`makeQueueEntry`), and the queue rows a client holds are named so (`queueOf`, protocol-client session-state.ts), so the id a
+/// composer hands back is either one.
+pub(super) fn queued_is(qid: &str, entry: &Value, selected: &str) -> bool {
+    qid == selected || entry.pointer("/options/clientSubmissionId").and_then(Value::as_str) == Some(selected)
 }
 
 /// JavaScript truthiness of a queued value (`if (buffer)`).
@@ -1245,6 +1252,22 @@ mod restored_reply_tests {
             let left: Vec<&str> = queue.iter().filter(|q| !taken.iter().any(|t| t.id == q.qid)).map(|q| q.qid.as_str()).collect();
             assert_eq!(json!(left), case["left"], "{name}: what stays queued");
         }
+    }
+
+    /// A queued entry is named by its queue id or by the submission it answers (the id the client's queue rows carry), so a hand-back
+    /// of either takes it.
+    #[test]
+    fn a_queued_entry_is_taken_by_its_queue_id_or_its_submission_id() {
+        let entry = |qid: &str, submission: &str| Queued {
+            qid: qid.into(),
+            entry: json!({ "message": "m", "options": { "clientSubmissionId": submission } }),
+            display: Value::Null,
+        };
+        let queue = vec![entry("q1", "sub-1"), entry("q2", "sub-2")];
+        assert_eq!(restore_taken(&queue, Some("q2")).iter().map(|q| q.qid.as_str()).collect::<Vec<_>>(), ["q2"]);
+        assert_eq!(restore_taken(&queue, Some("sub-1")).iter().map(|q| q.qid.as_str()).collect::<Vec<_>>(), ["q1"]);
+        assert!(restore_taken(&queue, Some("nope")).is_empty());
+        assert_eq!(restore_taken(&queue, None).len(), 2);
     }
 
     /// `entry.text` is `promptDisplayText`: a queued paste comes back with its chip's token, which the desktop composer needs to

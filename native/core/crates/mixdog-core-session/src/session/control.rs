@@ -516,12 +516,19 @@ impl ControlCell {
     /// matches `expected`; the actor does it (`Ctl::Prioritize`). A run that matches (`expected` when named,
     /// else any) also takes the entry at its next model-call boundary.
     pub fn steer(&self, expected: Option<&TurnId>, queued: QueuedId) -> Result<Value, CoreError> {
-        if !self.queue.load().iter().any(|entry| entry.qid == queued.as_str() && is_prioritizable_entry(&entry.entry)) {
+        // The entry is named by its queue id or by the submission it answers (`queued_is`); what follows works by the queue id.
+        let found = self
+            .queue
+            .load()
+            .iter()
+            .find(|entry| super::actor::queued_is(&entry.qid, &entry.entry, queued.as_str()) && is_prioritizable_entry(&entry.entry))
+            .map(|entry| QueuedId::from(entry.qid.as_str()));
+        let Some(queued) = found else {
             return Err(CoreError::QueuedEntryNotFound {
                 thread_id: self.thread.clone(),
                 queued_id: queued,
             });
-        }
+        };
         let run = self.run.load_full();
         if let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) {
             let mut steers = lock(&run.steers);
