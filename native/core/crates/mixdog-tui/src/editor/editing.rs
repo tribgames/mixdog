@@ -487,7 +487,9 @@ mod tests {
         let text = "abcdefgh";
         assert_eq!(offset_at_cell(text, 0, 2, 4), 2);
         assert_eq!(offset_at_cell(text, 1, 1, 4), 5);
-        assert_eq!(offset_at_cell(text, 9, 0, 4), 8);
+        // Row distance dominates: below the last row is the last row, at the nearest column.
+        assert_eq!(offset_at_cell(text, 9, 0, 4), 4);
+        assert_eq!(offset_at_cell(text, 9, 9, 4), 8);
         assert_eq!(offset_at_cell("", 3, 3, 4), 0);
     }
 
