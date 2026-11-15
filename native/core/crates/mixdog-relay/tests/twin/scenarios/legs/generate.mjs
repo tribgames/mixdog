@@ -19,15 +19,15 @@ const sha = (text) => createHash('sha256').update(text).digest('hex');
 const SECRET = '0123456789abcdef';
 const DEVICE = '7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80';
 const DEVICE_2 = '2e9d4b17-6a3c-4f58-9c04-b1d7e8a35f62';
-const LEGACY_TOKEN = '0123456789abcdef0123456789abcdef';
+const DEVICE_WIDE_TOKEN = '0123456789abcdef0123456789abcdef';
 const token = (name) => sha(`twin-legs-token-${name}`);
 // Placed before the relay starts; the relay never reads the clock of these two numbers (more than 400 days old).
 const OLD = 1_700_000_000_000;
 
 const clientRow = (name) => ({ tokenHash: sha(token(name)), createdAt: OLD, lastSeenAt: OLD });
-const deviceRow = (clients, legacyToken = '') => ({
+const deviceRow = (clients, deviceWideToken = '') => ({
   secretHash: sha(SECRET),
-  clientTokenHash: legacyToken ? sha(legacyToken) : '',
+  clientTokenHash: deviceWideToken ? sha(deviceWideToken) : '',
   clients,
 });
 const store = (devices) => ({ data: { 'devices.json': JSON.stringify(devices, null, 2) } });
@@ -110,29 +110,29 @@ scenario(
   'a leg that declares nothing is told so by silence and its text is held to the JSON worst case; a leg that declares the text envelope is acknowledged on its own connection',
   { knobs: { maxFrameBytes: 1048576, uplinkCapacityBytes: 4400 }, files: store({
     [DEVICE]: deviceRow({ bbbbbbbb: clientRow('bbbbbbbb') }),
-    [DEVICE_2]: deviceRow({ bbbbbbbb: clientRow('modern') }),
+    [DEVICE_2]: deviceRow({ bbbbbbbb: clientRow('declared') }),
   }) },
   [
-    desktopUp('legacy', DEVICE),
+    desktopUp('undeclared', DEVICE),
     // Nothing declared: one capabilities frame (no acknowledgement) and nothing more to read.
-    phoneJoins('pl', 'bbbbbbbb', 'cl', 'legacy'),
+    phoneJoins('pl', 'bbbbbbbb', 'cl', 'undeclared'),
     text('pl', 't'.repeat(3050)),
     expect('pl', 1),
     text('pl', '{"ping":1}'),
     expect('pl', 1),
-    desktopUp('modern', DEVICE_2),
-    text('modern', json({ type: 'desktop-lanes', media: false, textFrames: 1, maxPayloadBytes: 4400 })),
-    expect('modern', 1),
-    phone('pm', 'modern'),
-    expect('modern', 1, { capture: [capture('cm')] }),
+    desktopUp('declared', DEVICE_2),
+    text('declared', json({ type: 'desktop-lanes', media: false, textFrames: 1, maxPayloadBytes: 4400 })),
+    expect('declared', 1),
+    phone('pm', 'declared'),
+    expect('declared', 1, { capture: [capture('cm')] }),
     text('pm', 't'.repeat(3050)),
-    expect('modern', 1),
+    expect('declared', 1),
     text('pm', 't'.repeat(4400)),
     expect('pm', 1),
     text('pm', '{"ping":1}'),
     expect('pm', 1),
-    phoneLeaves('pm', 'modern'),
-    phoneLeaves('pl', 'legacy'),
+    phoneLeaves('pm', 'declared'),
+    phoneLeaves('pl', 'undeclared'),
   ]
 );
 
@@ -335,11 +335,11 @@ scenario(
 
 scenario(
   'phone_upgrade_without_a_desktop_or_a_credential',
-  'a legacy or unknown token closes 4005 (rescan); a real credential with the desktop offline closes 4002 (retry); neither is a refused upgrade',
-  { files: store({ [DEVICE]: deviceRow({ bbbbbbbb: clientRow('bbbbbbbb') }, LEGACY_TOKEN) }) },
+  'a device-wide or unknown token closes 4005 (rescan); a real credential with the desktop offline closes 4002 (retry); neither is a refused upgrade',
+  { files: store({ [DEVICE]: deviceRow({ bbbbbbbb: clientRow('bbbbbbbb') }, DEVICE_WIDE_TOKEN) }) },
   [
-    open('legacy', `/ws?token=${LEGACY_TOKEN}`, 'phone', { headers: [ORIGIN] }),
-    expect('legacy', 0, { close: true, close_code: 4005 }),
+    open('device_wide', `/ws?token=${DEVICE_WIDE_TOKEN}`, 'phone', { headers: [ORIGIN] }),
+    expect('device_wide', 0, { close: true, close_code: 4005 }),
     open('unknown', `/ws?token=${'f'.repeat(64)}`, 'phone', { headers: [ORIGIN] }),
     expect('unknown', 0, { close: true, close_code: 4005 }),
     open('none', '/ws', 'phone', { headers: [ORIGIN] }),

@@ -10,17 +10,57 @@ Regenerate the files with `node tests/twin/scenarios/legs/generate.mjs` (it writ
 
 Every scenario with a phone leg compares the relay's own log lines of both runtimes, and three of them hold values that differ by
 nature in every run. Without a mask, twin_harness_self_check fails on Node against Node for each scenario of this suite (the
-phone-closed line is printed when the leg ends, at the latest when the relay is stopped). Add to Normaliser::string (before or
-beside `identifiers`), applied to log lines:
+phone-closed line is printed when the leg ends, at the latest when the relay is stopped):
+`[relay] phone leg closed client=1a2b3c4d code=1000 reason= lived=5ms` (the first 8 hex of the relay's random phone id, and the
+leg's lifetime) and the 30 s socket-diagnostics line
+`[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:d8601a87=0B loop-p50=31.6ms loop-p99=32.3ms loop-max=34.2ms`
+(printed once the run passes 30 s: the slow scenario below). The `desktop:<8 hex>` part is the device id prefix, fixed
+(7c1f3a52 / 2e9d4b17) by these scenarios, and stays; so does `device=7c1f3a52` of `[relay] phone upgrade refused ...`.
 
-  1. `client=<8 hex>`: the first 8 characters of the relay's random phone id, in `[relay] phone leg closed client=1a2b3c4d code=1000 reason= lived=5ms`
-     -> mask the 8 hex digits as `<client8>`.
-  2. `lived=<n>ms` in the same line -> mask the number as `<ms>` (or a time marker with tolerance).
-  3. The 30 s socket-diagnostics line `[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:d8601a87=0B loop-p50=31.6ms loop-p99=32.3ms loop-max=34.2ms`
-     (printed by the relay once the run passes 30 s: the slow scenario below): mask `phone:<8 hex>=` and the three `loop-*=<n.n>ms` values.
-     The `desktop:<8 hex>` part is the device id prefix (fixed 7c1f3a52 / 2e9d4b17 in these scenarios) and stays.
+Exact text, file native/core/crates/mixdog-relay/tests/twin/normalise.rs:
 
-  `[relay] phone upgrade refused ... device=7c1f3a52` carries the device id prefix, which the scenarios fix: no mask needed.
+1. struct Normaliser, after the field `re_port: Option<Regex>,` add:
+
+    re_relay_log: Regex,
+
+2. Normaliser::new, in the `Ok(Self { ... })` literal, after `re_port,` add:
+
+            re_relay_log: regex(r"(client=|phone:)[0-9a-f]{8}\b|(lived=|loop-(?:p50|p99|max)=)\d+(?:\.\d+)?ms")?,
+
+3. Normaliser::string, replace the line `        text = self.identifiers(&text);` by:
+
+        text = self
+            .re_relay_log
+            .replace_all(&text, |found: &regex::Captures<'_>| match (found.get(1), found.get(2)) {
+                (Some(key), _) => format!("{}<client8>", key.as_str()),
+                (_, Some(key)) => format!("{}<ms>", key.as_str()),
+                (None, None) => String::new(),
+            })
+            .into_owned();
+        text = self.identifiers(&text);
+
+4. The module doc (first paragraph, the "Masked:" list), after "the encrypted body of a web push request (its length stays)."
+   add: " In the relay's log lines, the 8-hex phone id prefix after `client=` and `phone:`, and the milliseconds of `lived=` and
+   `loop-p50=`/`loop-p99=`/`loop-max=`."
+
+5. mod tests, add:
+
+    #[test]
+    fn relay_log_phone_prefixes_and_durations_are_masked() {
+        let events = vec![
+            json!({"ev": "log", "line": "[relay] phone leg closed client=1a2b3c4d code=1000 reason= lived=5ms"}),
+            json!({"ev": "log", "line": "[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:d8601a87=0B loop-p50=31.6ms loop-p99=32.3ms loop-max=34.2ms"}),
+        ];
+        let out = run(masks(), events);
+        assert_eq!(out[0]["line"], "[relay] phone leg closed client=<client8> code=1000 reason= lived=<ms>");
+        assert_eq!(
+            out[1]["line"],
+            "[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:<client8>=0B loop-p50=<ms> loop-p99=<ms> loop-max=<ms>"
+        );
+    }
+
+   (`run`, `masks` and `json!` are the helpers the existing tests of that module use; if `json` is not imported there, use
+   `serde_json::json!`.)
 
 ## Run time
 
