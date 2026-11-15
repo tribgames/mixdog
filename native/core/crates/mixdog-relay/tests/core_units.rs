@@ -201,10 +201,19 @@ fn close_codes_match_the_node_sources() {
 
 #[test]
 fn the_pc_offline_close_is_its_own_code_and_never_a_pairing_revoking_one() {
-    let revoking = [codes::SUPERSEDED, codes::REVOKED, codes::DESKTOP_REJECTED_CLIENT, codes::PAIRING_RESCAN_REQUIRED];
+    assert_eq!(codes::DESKTOP_OFFLINE, 4002);
+    let revoking = [codes::REVOKED, codes::DESKTOP_REJECTED_CLIENT, codes::PAIRING_RESCAN_REQUIRED];
     assert!(!revoking.contains(&codes::DESKTOP_OFFLINE));
-    assert!(!revoking.contains(&codes::DESKTOP_HANDSHAKE_STALLED));
-    assert_ne!(codes::DESKTOP_OFFLINE, codes::DESKTOP_HANDSHAKE_STALLED);
+    let others = [
+        codes::SUPERSEDED,
+        codes::DESKTOP_OFFLINE,
+        codes::REVOKED,
+        codes::DESKTOP_REJECTED_CLIENT,
+        codes::PAIRING_RESCAN_REQUIRED,
+        codes::SLOW_PEER,
+        codes::RELAY_BUSY,
+    ];
+    assert!(!others.contains(&codes::DESKTOP_HANDSHAKE_STALLED));
 }
 
 // ---- config.rs ----
