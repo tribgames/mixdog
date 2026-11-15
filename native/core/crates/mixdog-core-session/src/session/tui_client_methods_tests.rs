@@ -102,11 +102,12 @@ async fn the_snapshot_holds_every_row_of_the_settings_picker() {
     got.sort_unstable();
     let mut expected = vec![
         "autoClear", "channelWorker", "channels", "compaction", "mcp", "outputStyle", "plugins", "profile", "recap", "sessionTitles", "skills",
-        "systemShell", "toolModules", "updateSettings", "webSearchRoute",
+        "systemShell", "toolModules", "updateSettings", "voice", "webSearchRoute",
     ];
     expected.sort_unstable();
     assert_eq!(got, expected);
     assert_eq!(snapshot["webSearchRoute"], json!({ "provider": "default" }));
+    assert_eq!(snapshot["voice"], json!({ "enabled": false }), "the status read answers no `enabled`: off");
     assert_eq!(snapshot["systemShell"]["method"], "config/getSystemShell");
     assert_eq!(snapshot["systemShell"]["params"], json!({ "threadId": "t1" }));
     assert_eq!(snapshot["channels"]["params"], json!({ "options": { "includeStatus": false }, "threadId": "t1" }));
@@ -231,4 +232,19 @@ async fn the_service_answers_the_snapshot_and_refuses_a_method_it_does_not_serve
     assert!(snapshot.get("profile").is_some());
     assert!(matches!(value(&service, REMEMBER_PROMPT_HISTORY, json!({ "text": "x" })).await, Err(CoreError::InvalidParams { .. })));
     assert_eq!(service.methods(), [GET_SETTINGS_SNAPSHOT, SET_PROGRESS_HINT, RESTORE_OLDER_TRANSCRIPT, RESTORE_NEWER_TRANSCRIPT]);
+}
+
+#[tokio::test]
+async fn the_voice_member_is_the_switch_of_the_voice_runtime_or_null() {
+    struct Voice(Value);
+    #[async_trait]
+    impl DomainCalls for Voice {
+        async fn call(&self, method: &'static str, _params: Value) -> Result<Value, CoreError> {
+            if method == "voice/getVoiceStatus" { Ok(self.0.clone()) } else { Ok(Value::Null) }
+        }
+    }
+    let read = |status: Value| async move { settings_snapshot(&SettingsReads::new(Arc::new(Voice(status)), || Ok(Value::Null)), &json!({})).await["voice"].clone() };
+    assert_eq!(read(json!({ "enabled": true, "busy": false })).await, json!({ "enabled": true }));
+    assert_eq!(read(json!({ "enabled": false })).await, json!({ "enabled": false }));
+    assert_eq!(read(Value::Null).await, Value::Null);
 }

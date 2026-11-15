@@ -41,7 +41,7 @@ Beside ThreadPushNotice (methods.rs):
         mutation: none,
         origins: [Local, Ssh],
     },
-    /// Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read; a row that cannot be read is null.
+    /// Today's session read action `getSettingsSnapshot`: every row of the settings picker in one read (including `voice: { enabled }`); a row that cannot be read is null.
     ConfigGetSettingsSnapshot => "config/getSettingsSnapshot" {
         params: ConfigGetSettingsSnapshotParams,
         result: JsonValue,
