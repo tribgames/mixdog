@@ -426,9 +426,11 @@ impl TesseractProcess {
             .arg(&self.languages)
             .args(["--oem", "1", "--psm", "6", "--tessdata-dir"])
             .arg(&self.tessdata)
-            .arg("txt");
+            // The outputs are asked for by variable: the `txt` and `tsv` config files live in a `configs` folder of the
+            // tessdata directory, which the language cache does not have.
+            .args(["-c", "tessedit_create_txt=1"]);
         if with_words {
-            command.arg("tsv");
+            command.args(["-c", "tessedit_create_tsv=1"]);
         }
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).kill_on_drop(true);
         #[cfg(windows)]
