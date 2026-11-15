@@ -1,0 +1,850 @@
+{
+  "area": "session",
+  "description": "The session lifecycle of office-com-session-host.ps1: open and create per format in background and visible mode, attach to a document an application of its own holds, the refusal of an attach on a document that is not open, a background session while a user's Word is running, close with and without a save, the end of stdin with a session open, and an application killed before close. Not covered by the recorder's step kinds: a file locked by another process (the refusal to open a duplicate of a file that appears open) and stdin ending while open_session is still running (both need a step the recorder does not have); tests/session.rs holds those two against a scripted platform.",
+  "scenarios": [
+    {
+      "id": "docx-background-create",
+      "description": "A new docx document in a background application of the session host's own, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\s.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "s-docx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.docx"
+      ]
+    },
+    {
+      "id": "docx-visible-create",
+      "description": "A new docx document in a visible application, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "v-docx",
+              "format": "docx",
+              "path": "${work}\\s.docx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "v-docx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.docx"
+      ]
+    },
+    {
+      "id": "docx-background-open",
+      "description": "An existing docx document (made unhooked) opened in the background and closed without a save.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\s.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "o-docx",
+              "format": "docx",
+              "path": "${work}\\s.docx",
+              "mode": "background"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "o-docx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.docx"
+      ]
+    },
+    {
+      "id": "docx-attach",
+      "description": "An attach session on a docx document a visible application of its own holds; closing it leaves the document and the application.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "at-docx",
+              "format": "docx",
+              "path": "${work}\\held.docx",
+              "mode": "attach"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ownership\":\"attached\""
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "at-docx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "xlsx-background-create",
+      "description": "A new xlsx document in a background application of the session host's own, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\s.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "s-xlsx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.xlsx"
+      ]
+    },
+    {
+      "id": "xlsx-visible-create",
+      "description": "A new xlsx document in a visible application, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "v-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\s.xlsx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "v-xlsx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.xlsx"
+      ]
+    },
+    {
+      "id": "xlsx-background-open",
+      "description": "An existing xlsx document (made unhooked) opened in the background and closed without a save.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\s.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "o-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\s.xlsx",
+              "mode": "background"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "o-xlsx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.xlsx"
+      ]
+    },
+    {
+      "id": "xlsx-attach",
+      "description": "An attach session on a xlsx document a visible application of its own holds; closing it leaves the document and the application.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "xlsx",
+          "files": [
+            "held.xlsx"
+          ],
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "at-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\held.xlsx",
+              "mode": "attach"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ownership\":\"attached\""
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "at-xlsx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "pptx-background-create",
+      "description": "A new pptx document in a background application of the session host's own, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\s.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "s-pptx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.pptx"
+      ]
+    },
+    {
+      "id": "pptx-visible-create",
+      "description": "A new pptx document in a visible application, then closed with a save.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "v-pptx",
+              "format": "pptx",
+              "path": "${work}\\s.pptx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "v-pptx",
+              "save": true
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.pptx"
+      ]
+    },
+    {
+      "id": "pptx-background-open",
+      "description": "An existing pptx document (made unhooked) opened in the background and closed without a save.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\s.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "o-pptx",
+              "format": "pptx",
+              "path": "${work}\\s.pptx",
+              "mode": "background"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "o-pptx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "s.pptx"
+      ]
+    },
+    {
+      "id": "pptx-attach",
+      "description": "An attach session on a pptx document a visible application of its own holds; closing it leaves the document and the application.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "pptx",
+          "files": [
+            "held.pptx"
+          ],
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "at-pptx",
+              "format": "pptx",
+              "path": "${work}\\held.pptx",
+              "mode": "attach"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ownership\":\"attached\""
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "at-pptx"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "attach-refused",
+      "description": "An attach session on a document that is not open in any application is refused.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "nope",
+              "format": "xlsx",
+              "path": "${work}\u0007bsent.xlsx",
+              "mode": "attach"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    },
+    {
+      "id": "background-with-users-word",
+      "description": "A background Word session while a user's Word holds a document: the answer is whatever the session host decides (a new application, or a refusal when COM hands out the user's Word).",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "user.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "bw",
+              "format": "docx",
+              "path": "${work}\bg.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open"
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "bw",
+              "save": true
+            }
+          },
+          "label": "close"
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "bg.docx"
+      ]
+    },
+    {
+      "id": "eof-with-open-session",
+      "description": "The host's stdin ends while a background session is open: its cleanup closes the document and quits the application.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "eof",
+              "format": "docx",
+              "path": "${work}\\eof.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "eof.docx"
+      ]
+    },
+    {
+      "id": "killed-before-close",
+      "description": "The application process is ended before close_session: the close reports why and the host's end cleanup runs.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "kill",
+              "format": "docx",
+              "path": "${work}\\kill.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "kill": {
+            "session": "a"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "close_session",
+              "session": "kill",
+              "save": true
+            }
+          },
+          "label": "close"
+        },
+        {
+          "eof": "a"
+        }
+      ]
+    }
+  ]
+}
