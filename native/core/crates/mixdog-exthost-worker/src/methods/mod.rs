@@ -1,10 +1,12 @@
 //! The methods the worker serves. Each family registers itself here as its task lands.
 
+pub mod document;
 mod image;
 mod media_office;
 mod office_journal;
 mod ooxml;
 mod pdf;
+mod soffice;
 
 use base64::Engine as _;
 use base64::alphabet;
@@ -24,6 +26,7 @@ pub fn register_document_methods(registry: &mut Registry) {
     office_journal::register(registry);
     image::register(registry);
     pdf::register(registry);
+    document::register(registry);
 }
 
 /// The error a call with a malformed parameter answers.
