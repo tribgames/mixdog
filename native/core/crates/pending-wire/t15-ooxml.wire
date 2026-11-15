@@ -1,0 +1,25 @@
+# t15-ooxml: hot-file parts of nr-office-ooxml-docx-edits and nr-office-ooxml-xlsx-operations
+
+## native/core/fixtures/MANIFEST.json
+In "sets" add (sorted by set name):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-docx-edits.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-docx-edits/MANIFEST.json",
+      "manifestSha256": "0a36f30f0992a2ca801cfad6bea6673d130c1c985437bc0e55cf58677107187a",
+      "recorder": "benchmarks/rust-core/recorders/record-office-docx-edits.mjs",
+      "set": "office-docx-edits",
+      "totalBytes": 573954
+    }
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-xlsx-operations.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-xlsx-operations/MANIFEST.json",
+      "manifestSha256": "bdf9ff5164984685aca0289c2f71a99de117e9fe77e1fdabeaa09f1d3ad1d28f",
+      "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-operations.mjs",
+      "set": "office-xlsx-operations",
+      "totalBytes": 621578
+    }
+(Re-record xlsx-operations once from the integration checkout, then update its digest.)
+No Cargo, lock, workspace-hack, compose or SERVICE_PENDING change.

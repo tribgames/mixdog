@@ -174,8 +174,11 @@ pub struct SheetCell<'a> {
     pub body: &'a str,
 }
 
+// A body is read as "anything up to the first `</c>`" in the form `(?:[^<]|<(?!\/c>))*`, the text a lazy `[\s\S]*?` takes: the
+// engine runs a lazy any-character loop to the end of the text before it tries the first stop, so every match of a sheet cost
+// the length of the sheet (20,001 formula cells took minutes).
 static SHEET_CELL: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r#"<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>([\s\S]*?)<\/c>"#, "g")
+    JsRegex::new_static(r#"<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>((?:[^<]|<(?!\/c>))*)<\/c>"#, "g")
 });
 
 /// `iterateSheetCells(xml)`.
@@ -198,7 +201,7 @@ pub struct SheetRow<'a> {
 }
 
 static SHEET_ROW: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<row\b([^>]*?)\/>|<row\b([^>]*)>([\s\S]*?)<\/row>", "g"));
+    LazyLock::new(|| JsRegex::new_static(r"<row\b([^>]*?)\/>|<row\b([^>]*)>((?:[^<]|<(?!\/row>))*)<\/row>", "g"));
 
 /// `iterateSheetRows(xml)`.
 pub fn iterate_sheet_rows(xml: &str) -> Vec<SheetRow<'_>> {

@@ -75,3 +75,7 @@ pub mod validation;
 pub mod snapshot;
 pub mod soffice;
 pub mod xlsx_charts;
+pub mod xlsx;
+pub mod xlsx_operations;
+pub mod xlsx_recalculate;
+pub mod xlsx_sheet_edits;
