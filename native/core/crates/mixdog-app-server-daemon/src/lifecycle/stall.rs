@@ -334,8 +334,10 @@ fn watch(
         looked = Instant::now();
         let now = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
         if gap > config.interval + SLEEP_GAP {
-            // The machine slept, or this thread was not scheduled: what looks like a long wait is not the runtime's.
-            outstanding.store(now + 1, Ordering::Release);
+            // The machine slept, or this thread was not scheduled: what looks like a long wait is not the runtime's. Only a
+            // probe still waiting restarts its count (it clears the mark when it runs); with none waiting nothing is marked, or
+            // the mark would be a wait that no probe ever answers.
+            let _ = outstanding.fetch_update(Ordering::AcqRel, Ordering::Acquire, |posted| (posted != 0).then_some(now + 1));
         }
         let posted = outstanding.load(Ordering::Acquire);
         let waited = if posted == 0 {
@@ -467,5 +469,27 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         assert!(fx.lifecycle.stalled_ms() >= 40, "the stall is reported");
         assert!(!fx.recorder.has_exited(), "the default limit is two minutes");
+    }
+
+    /// A gap between two looks (here: the first post holds the monitor thread past the sleep gap) while the runtime answers every
+    /// probe marks no wait: the answering runtime is neither reported stalled nor ended.
+    #[test]
+    fn a_gap_while_the_runtime_answers_is_no_stall() {
+        let fx = fixture();
+        let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let _monitor = StallMonitor::spawn(
+            StallConfig { interval: Duration::from_millis(20), report_after: Duration::from_millis(40) },
+            Arc::new(move |job: Box<dyn FnOnce() + Send>| {
+                job();
+                if first.swap(false, Ordering::AcqRel) {
+                    std::thread::sleep(SLEEP_GAP + Duration::from_millis(100));
+                }
+            }),
+            Arc::clone(&fx.lifecycle),
+            StallReporter::new(fx.recorder.clone(), fx.runtime_root.path().join("stall.jsonl")).ending_after(Some(Duration::from_millis(200))),
+        );
+        std::thread::sleep(SLEEP_GAP + Duration::from_millis(700));
+        assert_eq!(fx.lifecycle.stalled_ms(), 0, "the runtime answered every probe");
+        assert!(!fx.recorder.has_exited(), "an answering runtime is not ended");
     }
 }
