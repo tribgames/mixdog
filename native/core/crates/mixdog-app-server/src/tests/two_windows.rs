@@ -135,3 +135,56 @@ async fn an_approval_reaches_every_window_that_shows_its_thread() {
     drop(first);
     assert!(rig.outgoing.answerable(&ThreadId::from("t1"), &ThreadId::from("t1")));
 }
+
+#[tokio::test(start_paused = true)]
+async fn terminal_reveal_counts_renderer_windows_not_the_main_desktop_host() {
+    let (rig, _) = rig();
+    let host = rig.ready(1, json!({}));
+    let window = rig.ready(2, json!({}));
+    subscribe_app(&window).await;
+    assert_eq!(rig.outgoing.app_feed_audience(), vec![(ConnectionId(2), false, true)]);
+    assert!(!rig.outgoing.desktop_attached(), "existing host semantics stay unchanged");
+    subscribe_app(&host).await;
+    let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
+    phone.request(0, "initialize", json!({
+        "clientInfo": {"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+        "capabilities":{}
+    }));
+    phone.response(0).await;
+    subscribe_app(&phone).await;
+    let mut audience = rig.outgoing.app_feed_audience();
+    audience.sort_by_key(|entry| entry.0.0);
+    assert_eq!(audience, vec![(ConnectionId(1), false, false), (ConnectionId(2), false, true), (ConnectionId(4), true, false)]);
+    drop(window);
+    assert!(rig.outgoing.desktop_attached());
+    assert!(rig.outgoing.app_feed_audience().iter().all(|entry| !entry.2), "host and phone cannot show a pane");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_phone_cannot_claim_a_terminal_reveal_but_a_local_window_can() {
+    struct Claims(std::sync::Mutex<Vec<ConnectionId>>);
+    #[async_trait::async_trait]
+    impl mixdog_core_api::DomainService for Claims {
+        fn methods(&self) -> &'static [&'static str] { &["ui/terminalRun/claimed"] }
+        async fn call(&self, _: mixdog_core_api::CoreRequest) -> Result<Reply, CoreError> { unreachable!() }
+        fn notify(&self, _: Method, _: serde_json::Value, from: ConnectionId) -> mixdog_core_api::service::Admit {
+            self.0.lock().unwrap().push(from);
+            mixdog_core_api::service::Admit::Accepted
+        }
+    }
+    let (rig, _) = rig();
+    let claims = Arc::new(Claims(std::sync::Mutex::new(Vec::new())));
+    rig.core.serve(claims.clone());
+    let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
+    phone.request(0, "initialize", json!({
+        "clientInfo":{"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+        "capabilities":{}
+    }));
+    phone.response(0).await;
+    let window = rig.ready(2, json!({}));
+    let notification = json!({"method":"ui/terminalRun/claimed","params":{"requestId":"run-1"}});
+    phone.send(notification.clone());
+    assert!(claims.0.lock().unwrap().is_empty());
+    window.send(notification);
+    assert_eq!(*claims.0.lock().unwrap(), vec![ConnectionId(2)]);
+}

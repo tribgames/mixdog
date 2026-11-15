@@ -3118,7 +3118,11 @@ export type HostUpdateReportParams = { state: JsonValue, };
  * The result is the service's object (`{text, tabs?, path?, …}`), `null` when it returns nothing
  * (`visualizeCommand`: `(await visualize.command(…)) ?? null`).
  */
-export type HostVisualizeCommandParams = { sessionId: string, cwd: string, action: VisualizeAction, input?: JsonValue, };
+export type HostVisualizeCommandParams = { sessionId: string, cwd: string, action: VisualizeAction, input?: JsonValue,
+/**
+ * An `open`'s tool call id; the desktop keeps it with the tab it reveals so the turn's end names opens whose tab is gone.
+ */
+callId?: string, };
 
 /**
  * `host/window/close`.

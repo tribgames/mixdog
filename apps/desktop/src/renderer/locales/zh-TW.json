@@ -6007,5 +6007,7 @@
   "Zoom options": "縮放選項",
   "Zoom out": "縮小",
   "Zoom Out": "縮小",
-  "Zoom to {{value0}}%": "縮放至 {{value0}}%"
+  "Zoom to {{value0}}%": "縮放至 {{value0}}%",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "正在首次下載記憶搜尋模型，可能需要幾分鐘。",
+  "Downloading the memory database for the first time. This can take a few minutes.": "正在首次下載記憶資料庫，可能需要幾分鐘。"
 }

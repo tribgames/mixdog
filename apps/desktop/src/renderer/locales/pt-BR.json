@@ -6139,5 +6139,7 @@
   "Zoom options": "Opções de zoom",
   "Zoom out": "Reduzir",
   "Zoom Out": "Reduzir",
-  "Zoom to {{value0}}%": "Zoom para {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom para {{value0}}%",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "Baixando o modelo de busca da memória pela primeira vez. Isso pode levar alguns minutos.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "Baixando o banco de dados da memória pela primeira vez. Isso pode levar alguns minutos."
 }

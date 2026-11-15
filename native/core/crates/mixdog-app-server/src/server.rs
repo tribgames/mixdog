@@ -1238,6 +1238,10 @@ impl Shared {
         if spec.method == "initialized" {
             return Inbound::Continue;
         }
+        // A paired phone does not claim an agent terminal reveal: it is shown on a desktop window only.
+        if spec.method == "ui/terminalRun/claimed" && conn.session().is_some_and(|session| session.origin == Origin::Relay) {
+            return Inbound::Continue;
+        }
         // A notification holding a lone surrogate outside its free-text fields is dropped: it has no effect.
         if free_text::refused(free_text::Kind::Notification, spec.method, &notification.lone_surrogates).is_some() {
             return Inbound::Continue;

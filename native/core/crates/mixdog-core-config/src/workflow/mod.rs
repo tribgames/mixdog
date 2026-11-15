@@ -23,6 +23,9 @@ pub mod thread_settings;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+#[path = "../routes/tests.rs"]
+mod web_search_refusal_tests;
+#[cfg(test)]
 mod thread_settings_tests;
 
 use std::sync::Arc;
