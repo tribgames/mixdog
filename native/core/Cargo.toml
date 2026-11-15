@@ -19,6 +19,7 @@ members = [
     "crates/mixdog-rt",
     "crates/mixdog-rt/feature-off",
     "crates/mixdog-fsio",
+    "crates/mixdog-fonts",
     "crates/mixdog-testkit",
     "crates/mixdog-js",
     "crates/mixdog-browser-policy",
@@ -139,6 +140,7 @@ mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
 mixdog-core-api = { path = "crates/mixdog-core-api" }
 mixdog-rt = { path = "crates/mixdog-rt" }
 mixdog-fsio = { path = "crates/mixdog-fsio" }
+mixdog-fonts = { path = "crates/mixdog-fonts" }
 mixdog-testkit = { path = "crates/mixdog-testkit" }
 mixdog-js = { path = "crates/mixdog-js" }
 mixdog-browser-policy = { path = "crates/mixdog-browser-policy" }
@@ -257,6 +259,9 @@ once_cell = "1.20.2"
 p256 = { version = "0.13.2", default-features = false, features = ["ecdh", "jwk", "std"] } # not in Codex (WP-REMOTE)
 pretty_assertions = "1.4.1"
 rand = "0.9"
+ttf-parser = "=0.25.1"
+rustybuzz = "=0.20.1"
+unicode-script = "0.5"
 rayon = "1" # not in Codex; WP-GRAPH-GIT parallel graph parse (same major as mixdog-graph)
 pulldown-cmark = { version = "0.13", default-features = false }
 rcgen = "0.14" # dev only: throwaway TLS certificates for fake-server tests
