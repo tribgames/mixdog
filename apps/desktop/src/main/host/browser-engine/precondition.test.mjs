@@ -58,6 +58,28 @@ test('another origin is refused as origin, another url as url', () => {
   assert.equal(refusal({ documentId: 'p1:3', url: 'https://a.example/x?y=2' }), 'url');
 });
 
+test('an address the facts mask is the same page when it is sent back masked, and another page when it is another', () => {
+  // facts.ts reports the address with its secret-named query values masked; the core can only send that form back.
+  const live = 'https://a.example/callback?code=4f1c9a&state=s1';
+  const masked = 'https://a.example/callback?code=%5BREDACTED%5D&state=s1';
+  const target = page({ url: live });
+  const reported = () => ({ ...FACTS, url: masked });
+  const check = (expect) => {
+    try {
+      checkPrecondition(expect, target, reported);
+      return null;
+    } catch (error) {
+      assert.equal(error.code, -32010);
+      assert.equal(error.data.facts.url, masked);
+      return error.data.reason;
+    }
+  };
+  assert.equal(check({ documentId: 'p1:3', origin: 'https://a.example', url: masked }), null);
+  assert.equal(check({ documentId: 'p1:3', url: live }), null);
+  assert.equal(check({ documentId: 'p1:3', url: 'https://a.example/callback?code=%5BREDACTED%5D&state=s2' }), 'url');
+  assert.equal(check({ documentId: 'p1:3', url: 'https://a.example/elsewhere' }), 'url');
+});
+
 test('a changed set of child sessions is refused as childSession', () => {
   assert.equal(refusal({ documentId: 'p1:3', childSessions: ['s1'] }), 'childSession');
   assert.equal(refusal({ documentId: 'p1:3', childSessions: ['s1', 's2', 's3'] }), 'childSession');

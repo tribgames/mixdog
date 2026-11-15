@@ -35,13 +35,23 @@ function sameSet(expected: readonly string[], live: Iterable<string>): boolean {
   return have.size === want.size && [...want].every((id) => have.has(id));
 }
 
-/** Throws the -32010 error (with the page's facts) for the first part of `expect` that no longer holds. */
+/**
+ * Throws the -32010 error (with the page's facts) for the first part of `expect` that no longer holds.
+ *
+ * The address the core holds is the one the facts gave it, and the facts mask what an address may carry (facts.ts sends
+ * `redactBrowserUrl` of it, then the page's known secrets): the value of a `code`, `key` or `token` parameter, a user and
+ * password. So an `expect.url` that is not the live address letter for letter is compared with the address as the facts
+ * say it now before the page is taken to have moved; the facts are built only on that path.
+ */
 export function checkPrecondition(expect: Precondition, page: EnginePage, facts: () => PageFacts): void {
   const { guest, state } = page;
   const url = guest.getURL();
   if (expect.documentId !== documentIdOf(state)) throw preconditionFailed('document', facts());
   if (expect.origin !== undefined && expect.origin !== originOf(url)) throw preconditionFailed('origin', facts());
-  if (expect.url !== undefined && expect.url !== url) throw preconditionFailed('url', facts());
+  if (expect.url !== undefined && expect.url !== url) {
+    const now = facts();
+    if (expect.url !== now.url) throw preconditionFailed('url', now);
+  }
   if (expect.childSessions !== undefined && !sameSet(expect.childSessions, state.cdpSessions.keys())) {
     throw preconditionFailed('childSession', facts());
   }
