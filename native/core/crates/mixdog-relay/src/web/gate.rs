@@ -11,7 +11,7 @@
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mixdog_rt::{CancellationToken, InLane, InteractiveIo};
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use url::Url;
 
 use super::device_route::{DeviceRoute, bare, parse_device_route, serve_device_route};
