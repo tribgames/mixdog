@@ -1,0 +1,61 @@
+{
+  "command": null,
+  "fileCount": 10,
+  "files": [
+    {
+      "bytes": 7148,
+      "path": "connected.json",
+      "sha256": "a1f89c8d0af761b19e4b2cf8013fdc0b744144c18eb70bafb34732c9a6930d55"
+    },
+    {
+      "bytes": 66657,
+      "path": "golden.json",
+      "sha256": "162934b8bda06c44304fcfb0da0c6b17971c22316a3530ee190e567be638af80"
+    },
+    {
+      "bytes": 19112,
+      "path": "json-errors.json",
+      "sha256": "3b400c17ebf66900c93efaab704d46f8d680a2bd5dbee453f0bd13d7aa511c7e"
+    },
+    {
+      "bytes": 3853,
+      "path": "record-connected.mjs",
+      "sha256": "0abcaea8bfaca92fb95a6ed2bbb1514fb17923128328af82b6b073f5fb835b90"
+    },
+    {
+      "bytes": 3956,
+      "path": "record-json-errors.mjs",
+      "sha256": "664f83840c1c63c0b0d92c375751769109d9475880f13799ae63210bd340b7ed"
+    },
+    {
+      "bytes": 2671,
+      "path": "record-setup-calls.mjs",
+      "sha256": "d0dd1170691f9c1bb5d29b137e6cf67976ec93cbf50223c3773ca8b77b720d21"
+    },
+    {
+      "bytes": 8065,
+      "path": "record.mjs",
+      "sha256": "3fadaa629647ad09ba5b165c12304aedbd2535b53736de4772cc37115830bde8"
+    },
+    {
+      "bytes": 1477,
+      "path": "setup-calls.json",
+      "sha256": "264f888c6cd4c7a561fe5ddafb3e88dfc9c76bc0d6c025725478ec25855e0932"
+    },
+    {
+      "bytes": 975,
+      "path": "uv-errno-names.json",
+      "sha256": "bf9d2f9123da152b555ca1916e1bcd8fa65183b3e1791edf3291f57a78364e88"
+    },
+    {
+      "bytes": 8204,
+      "path": "uv-win32-errors.json",
+      "sha256": "094fbf42957c5373992ca45cfb81c52de3dcb093d4de67dc12e329a607b12d97"
+    }
+  ],
+  "note": "Indexed from the files as they stand: no recorder of this set wrote a manifest (or the set is hand-extracted evidence); not secret-scanned, since some of it (browser-parity/redaction.json) is secret-shaped text on purpose.",
+  "product": null,
+  "recorder": "native/core/fixtures/plugins-status/record-connected.mjs, native/core/fixtures/plugins-status/record-json-errors.mjs, native/core/fixtures/plugins-status/record-setup-calls.mjs, native/core/fixtures/plugins-status/record.mjs",
+  "set": "plugins-status",
+  "totalBytes": 122118
+}

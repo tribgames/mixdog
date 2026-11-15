@@ -78,8 +78,12 @@
   "notes": "Compare every entry recursively within office-transactions, including the prepared non-journal, and every explicitly named artifact (presence and bytes). Core stores elsewhere are outside the sweep subject: Node bootstrap never had them. Exclude nothing within this boundary.",
   "files": [
     {
+      "path": "recording.json",
+      "sha256": "dfeffbad592ecda5e0c4019504ac1138e34b74e26788968081d76a9842cf029c"
+    },
+    {
       "path": "../../../../benchmarks/rust-core/recorders/record-office-startup.mjs",
-      "sha256": "309d8c86db2b99dd6e773d3f1d444567e573c3570890ba93b90a21c6d1aa984b"
+      "sha256": "8287b33a5c15ecbcde33bd11b2ebd2ff2d53433731b921313df7c5105c7544cc"
     }
   ]
 }

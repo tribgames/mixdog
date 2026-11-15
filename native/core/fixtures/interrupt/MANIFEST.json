@@ -1,0 +1,41 @@
+{
+  "command": null,
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 517,
+      "path": "early-golden.json",
+      "sha256": "671825f91a198bd3def96e36f2989d25940782669d4a0d2301971bba3244491c"
+    },
+    {
+      "bytes": 14711,
+      "path": "golden.json",
+      "sha256": "c2c67af35dfa0c0ef0cfc39f202d28853e09c3cbfea4a0cb617e4d1e5c952a4f"
+    },
+    {
+      "bytes": 759,
+      "path": "queue-golden.json",
+      "sha256": "f894ff9ac45fdcc9ac0529260b4facc0485f23e16291a46ec1709d131ea46b88"
+    },
+    {
+      "bytes": 1095,
+      "path": "record-early.mjs",
+      "sha256": "975ab2f1e318282856643793e316bfb091e3b660eb027f3dd39cf8186e2252fd"
+    },
+    {
+      "bytes": 3752,
+      "path": "record-interrupt.mjs",
+      "sha256": "654f481464981f5f2c958bec5594ae3fe238ecdb6ac698e521bb2dde89c58e62"
+    },
+    {
+      "bytes": 533,
+      "path": "record-queue.mjs",
+      "sha256": "8c96e1aa475f2bed924f80ae610b1d99e098c59242c437f05111b29b26899049"
+    }
+  ],
+  "note": "Indexed from the files as they stand: no recorder of this set wrote a manifest (or the set is hand-extracted evidence); not secret-scanned, since some of it (browser-parity/redaction.json) is secret-shaped text on purpose.",
+  "product": null,
+  "recorder": "native/core/fixtures/interrupt/record-early.mjs, native/core/fixtures/interrupt/record-interrupt.mjs, native/core/fixtures/interrupt/record-queue.mjs",
+  "set": "interrupt",
+  "totalBytes": 21367
+}

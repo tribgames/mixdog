@@ -1,0 +1,41 @@
+{
+  "command": null,
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 16576,
+      "path": "approval-classification.json",
+      "sha256": "6a9b1fce5261fa09ba45915fd8762d86da8d6706393f1bb520dbbb4dac980d3d"
+    },
+    {
+      "bytes": 19327,
+      "path": "redaction.json",
+      "sha256": "d2df6fe8ca60bb7ee8498db0f89c70d78c97105f5cf5775962bd5da5091600d4"
+    },
+    {
+      "bytes": 109729,
+      "path": "remote-browser.json",
+      "sha256": "8f2f850af2f9c15197c070c28598fa5feb9a760b9aad9c59360ab544f8e4fc59"
+    },
+    {
+      "bytes": 3704,
+      "path": "timing.json",
+      "sha256": "e59e32137112b835ec20f5b30a9abcb5f983b8448d8b4299b908a18dc663b221"
+    },
+    {
+      "bytes": 19755,
+      "path": "url-admission.json",
+      "sha256": "5ab261c9f2504b0eba7a6b8289bcb9b6f5d097c4439f0a9421a564aaf14d91d6"
+    },
+    {
+      "bytes": 44814,
+      "path": "url-policy.json",
+      "sha256": "646ceb74d8c24a7f6e12206b966425f12a9c91ea9ca2357f1ebd29aec7348da3"
+    }
+  ],
+  "note": "Indexed from the files as they stand: no recorder of this set wrote a manifest (or the set is hand-extracted evidence); not secret-scanned, since some of it (browser-parity/redaction.json) is secret-shaped text on purpose.",
+  "product": null,
+  "recorder": null,
+  "set": "browser-parity",
+  "totalBytes": 213905
+}
