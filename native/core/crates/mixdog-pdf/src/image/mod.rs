@@ -171,8 +171,8 @@ impl ImageData {
     }
 
     /// The channel count of the raw pixels the image extraction hands to the PNG encoder
-    /// (`pdfImageBuffer`: `round(bytes / (width * height))`, and only 1 to 4 channels are accepted). A 1-bit image,
-    /// whose rows are packed, has no whole channel count and is skipped, as the extraction skips it.
+    /// (`pdfImageBuffer`: `round(bytes / (width * height))`, and only 1 to 4 channels are accepted). The rule is
+    /// applied to every kind alike: a 1-bit image, whose rows are packed, mostly rounds to 0 channels and is skipped.
     pub fn extraction_channels(&self) -> Option<usize> {
         if self.data.is_empty() || self.width == 0 || self.height == 0 {
             return None;
