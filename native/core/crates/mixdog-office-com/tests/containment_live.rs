@@ -10,6 +10,11 @@
 //! * `the_sweep_ends_a_hidden_word_left_by_a_dead_host_and_spares_a_visible_one`: a hidden Word whose host is gone is ended
 //!   by the sweep of the next start, and a Word the user has on screen is left running.
 #![cfg(windows)]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the test starts its stand-in processes, lays out a scratch folder and waits on what they leave on disk"
+)]
 
 use std::ffi::c_void;
 use std::io::BufRead;
