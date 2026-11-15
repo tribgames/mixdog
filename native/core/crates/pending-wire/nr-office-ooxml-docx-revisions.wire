@@ -1,0 +1,58 @@
+# nr-office-ooxml-docx-revisions: integration fragment
+
+Three modules of the crate mixdog-ooxml (native/core/crates/mixdog-ooxml, created by nr-office-ooxml-package): docx_revisions
+(the tracked-change tree and the redlining audit, lint and accept/reject of docx-revisions.mjs), validation_package (the
+package validation of portable-validation-package.mjs, with the saxes 6 / jsdom well-formedness check of every XML part
+written out rule by rule) and chart_faults (portable-chart-faults.mjs). No protocol method, service or SERVICE_PENDING name
+belongs to them.
+
+## native/core/crates/mixdog-ooxml/src/lib.rs
+
+lib.rs belongs to nr-office-ooxml-package; the three module lines are written here so the lead applies them with the other
+tasks' lines of the wave. In the module list, in alphabetical place:
+
+    pub mod chart_faults;       (after `pub mod cells;`)
+    pub mod docx_revisions;     (after `pub mod chart_faults;`)
+    pub mod validation_package; (after `pub mod template_tokens;`, before `pub mod xml;`)
+
+and in the module doc's "This part:" list, after "the document fingerprint ([`fingerprint`])", add:
+", the tracked changes of a Word part ([`docx_revisions`]), the package validation ([`validation_package`]) and the chart
+faults of a deck ([`chart_faults`])".
+
+## native/core/Cargo.toml, native/core/Cargo.lock, crates/mixdog-ooxml/Cargo.toml
+
+No change: the modules use only dependencies the crate already lists (mixdog-fsio for the read proof, mixdog-js, serde_json,
+sha2; dev: tempfile, and mixdog-office-base with feature test-support for the twin test). No new crate.
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, after the entry of office-detect and before office-engine (the list is sorted by set name), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-docx-revisions.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-docx-revisions/MANIFEST.json",
+      "manifestSha256": "c4316253c5a83762c8ccbea8bc221009c9669054d2a347288fe70602fb1439a4",
+      "recorder": "benchmarks/rust-core/recorders/record-office-docx-revisions.mjs",
+      "set": "office-docx-revisions",
+      "totalBytes": 319133
+    }
+
+(Recompute manifestSha256 and totalBytes from the committed office-docx-revisions/MANIFEST.json and golden.json if the tool
+that keeps this file reorders or reformats them.)
+
+## What the twin test needs
+
+tests/twin_docx_revisions.rs replays native/core/fixtures/office-docx-revisions/golden.json without Node: 115 function
+cases (docx-revisions and portable-chart-faults), 38 packages (validatePortableOoxml: valid, missing parts, broken
+relationships, 115 malformed-XML parts with jsdom's messages, tracked changes, redlining against a source, protected parts,
+presentation faults) and 2 chart scans. twin_live_docx_revisions (ignored) re-records through Node.
+
+## Compiled outside the workspace
+
+The wave is compiled by the lead; cargo was not run. The three modules, the twin test and every unit test were compiled and
+run with plain rustc against the real crates regress 0.10.5 and serde_json 1.0.149 (preserve_order) and against stand-ins for
+the parts of mixdog-js, mixdog-fsio, mixdog-ooxml (zip container, opc) and mixdog-office-base they call: 47 unit tests and the
+twin replay passed. What that did not exercise: the real JsRegex wrapper (its pre-filter and identity-escape pass over the
+same patterns), the real zip container (entry order and DOS dates) and the real twin normaliser. The first cargo test of
+mixdog-ooxml is the check for those.
