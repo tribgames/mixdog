@@ -1,7 +1,7 @@
 //! V8 12.4 radix conversion, from official nodejs/node v22.20.0.
 //!
-//! References are preserved in reference/v8-conversions.cc (DoubleToRadixCString,
-//! NumberParseIntHelper), reference/v8-double.h (Double::Exponent/NextDouble).
+//! Translated from v8 numbers/conversions.cc (DoubleToRadixCString, NumberParseIntHelper) and
+//! base/numbers/double.h (Double::Exponent/NextDouble); URLs and sha256 in reference/PROVENANCE.md.
 //! Copyright 2011-2024 the V8 project authors. All rights reserved.
 //! Governed by the BSD-style license in reference/LICENSE.v8.
 

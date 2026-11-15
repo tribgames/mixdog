@@ -1,12 +1,11 @@
 # V8 radix conversion references
 
-These are official nodejs/node v22.20.0 sources, matching the installed Node
-v22.20.0 / V8 12.4 oracle. The lead supplied conversions.cc, double.h,
-builtins-number.cc and LICENSE.v8 before this task. The task additionally fetched
-number.tq from the same official tag to verify the Number.prototype.toString
-wrapper, argument conversion and validation order. Existing references were not
-modified. LICENSE.v8 applies to the translated algorithms; original source
-copyright notices remain in each reference.
+These are the official nodejs/node v22.20.0 sources (matching the Node v22.20.0 / V8 12.4 oracle) that
+`../radix.rs` was translated from. Only `LICENSE.v8` is kept in the tree: the build and the tests read none of the
+source files (the tests read `../radix-golden.json`), so the downloaded copies were removed once the port was done
+(docs/internal/vendored-sources.md). Their URLs and sha256 stay here and in `../radix-golden.json` (`reference`), so
+the exact files can be fetched again and checked if `../record-radix.mjs` is ever re-run (it hashes them into the
+golden, so it needs them back in this folder).
 
 - `v8-conversions.cc`: https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/numbers/conversions.cc
   SHA-256: `4367bb3a9a4056c0cffcad69961962394dfe092d28f1ef94c9eca9bac27235f4`
@@ -16,7 +15,7 @@ copyright notices remain in each reference.
   SHA-256: `6fded2783d68b766ebc71085738ed0a9c4dd9028d66272b15988b3f9fe0912ea`
 - `v8-number.tq`: https://github.com/nodejs/node/blob/v22.20.0/deps/v8/src/builtins/number.tq
   SHA-256: `47ff1cb1fd1ddc4f17e6699fbb73f4c6331a208d56ee9f83f4d6a67fbaef7a3a`
-- `LICENSE.v8`: https://github.com/nodejs/node/blob/v22.20.0/deps/v8/LICENSE
+- `LICENSE.v8` (kept): https://github.com/nodejs/node/blob/v22.20.0/deps/v8/LICENSE
   SHA-256: `81680185f0cb339021e3b73714499264de72f33b17cfdb0c14f400de6d95cf0e`
 
 `radix.rs` translates DoubleToRadixCString, Double::Exponent/NextDouble and
