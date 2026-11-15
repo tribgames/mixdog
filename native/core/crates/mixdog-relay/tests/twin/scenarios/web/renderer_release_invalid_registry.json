@@ -1,0 +1,32 @@
+{
+  "id": "renderer_release_invalid_registry",
+  "description": "an invalid registry is ignored for pages and makes readiness fail",
+  "files": {
+    "renderer": {
+      "index.html": "<!doctype html><head><meta name=\"mixdog-shell-version\" content=\"2222222222222222222222222222222222222222222222222222222222222222\"><meta name=\"mixdog-shell-assets\" content=\"assets/main-12345678.js\"><script type=\"module\" src=\"./assets/main-12345678.js\"></script></head><body>only</body>",
+      "assets/main-12345678.js": "export const label = 'only';",
+      "boot.js": "void 0;",
+      "manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[{\"src\":\"./icon.svg\"}]}",
+      "icon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>only</title></svg>",
+      "sw.js": "// worker only"
+    },
+    "releases": {
+      "index.json": "{\"schemaVersion\":2,\"releases\":[]}"
+    },
+    "data": {
+      "devices.json": "{\n  \"aaaaaaaa-0000-4000-8000-000000000001\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {},\n    \"appVersion\": \"2.0.0\",\n    \"versionSeenAt\": 1700000000000\n  },\n  \"aaaaaaaa-0000-4000-8000-000000000002\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {}\n  },\n  \"aaaaaaaa-0000-4000-8000-000000000003\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {},\n    \"appVersion\": \"1.0.0\",\n    \"versionSeenAt\": 1700000000000\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000001/",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "path": "/readyz",
+      "expect_status": 503
+    }
+  ]
+}

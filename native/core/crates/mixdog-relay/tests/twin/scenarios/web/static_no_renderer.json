@@ -1,0 +1,53 @@
+{
+  "id": "static_no_renderer",
+  "description": "a relay started without a renderer answers the public assets with the explanatory 404 and is never ready",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "public asset",
+      "path": "/manifest.webmanifest",
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "root",
+      "path": "/",
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "label": "index with a token",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ]
+      ],
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "device route",
+      "path": "/d/11111111-2222-4333-8444-555555555555/",
+      "expect_status": 404
+    },
+    {
+      "do": "http",
+      "label": "readiness",
+      "path": "/readyz",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "health",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}
