@@ -4,6 +4,7 @@
 //! Shapes are `serde_json` values built in the order Node builds its objects, so the JSON text of an inspection is the one
 //! `JSON.stringify` gives.
 
+use mixdog_ooxml::zipio::Package;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,6 @@ use mixdog_js::nodepath::normalize_host;
 use mixdog_js::{js_to_lowercase, js_trim, json_number, locale_compare, number_to_string, string_to_number, to_number, to_number_of};
 use mixdog_office_base::values::truthy;
 use mixdog_ooxml::xml::{compiled, xml_attribute as raw_attribute, xml_decode};
-use mixdog_ooxml::zipio::Package;
 use mixdog_rt::InLane;
 use serde_json::{Map, Value, json};
 
@@ -302,7 +302,7 @@ pub fn create_pptx_slide_selection<L: WriteLane>(lane: &InLane<L>, source: &str,
         return Err("PPTX slide selection requires positive integer slide numbers".to_owned());
     }
     let bytes = mixdog_fsio::read(lane, source).map_err(|error| fs_message(&error, "open", Path::new(source)))?;
-    let mut zip = Package::load_unchecked(&bytes)?;
+    let mut zip = super::load_zip(&bytes)?;
     let entries = pptx_slide_entries(&zip);
     if selected.iter().any(|slide| *slide > entries.len() as f64) {
         return Err(format!("PPTX slide selection is outside source deck range 1-{}", entries.len()));

@@ -724,9 +724,12 @@ pub struct Trimmed {
 }
 
 /// `trim({ threshold })`: the box of pixels that differ from the top-left pixel by more than `threshold` in a band
-/// (colour flattened against that pixel's colour first when there is alpha, as libvips's `find_trim` does). An image
+/// (smoothed by a 3x3 median first when there is alpha, as libvips's `find_trim` does). An image
 /// with nothing different is returned whole.
 pub fn trim(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
+    if image.has_alpha() {
+        return trim_with_alpha(image, threshold);
+    }
     let first = &image.rgba()[..4];
     let background = [first[0], first[1], first[2]];
     let flat = image.flatten(background);
@@ -737,6 +740,46 @@ pub fn trim(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
             let pixel = &flat.rgba()[(y * w + x) * 4..];
             let differs = (0..3).any(|c| (f64::from(pixel[c]) - f64::from(background[c])).abs() > threshold);
             if differs {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    if min_x > max_x {
+        return Ok(Trimmed { image: image.clone(), left: 0, top: 0 });
+    }
+    let cut = extract(image, min_x as u32, min_y as u32, (max_x - min_x + 1) as u32, (max_y - min_y + 1) as u32)?;
+    Ok(Trimmed { image: cut, left: min_x as u32, top: min_y as u32 })
+}
+
+/// `trim` of a picture with an alpha channel: libvips's `find_trim` smooths every band (four, alpha included) with a 3x3
+/// median (the edge pixels repeated) and takes the box of pixels that differ from the top-left pixel by more than
+/// `threshold` in a band. A faint shadow on a transparent page differs through its alpha; a lone pixel does not count.
+fn trim_with_alpha(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    let data = image.rgba();
+    let at = |x: usize, y: usize| &data[(y * w + x) * 4..(y * w + x) * 4 + 4];
+    let background = [data[0], data[1], data[2], data[3]];
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            let (x0, x1, y0, y1) = (x.saturating_sub(1), (x + 1).min(w - 1), y.saturating_sub(1), (y + 1).min(h - 1));
+            let mut smoothed = [0u8; 4];
+            for (band, slot) in smoothed.iter_mut().enumerate() {
+                let mut window = [0u8; 9];
+                let mut count = 0;
+                for sy in [y0, y, y1] {
+                    for sx in [x0, x, x1] {
+                        window[count] = at(sx, sy)[band];
+                        count += 1;
+                    }
+                }
+                window.sort_unstable();
+                *slot = window[4];
+            }
+            if (0..4).any(|c| (f64::from(smoothed[c]) - f64::from(background[c])).abs() > threshold) {
                 min_x = min_x.min(x);
                 max_x = max_x.max(x);
                 min_y = min_y.min(y);
@@ -875,11 +918,16 @@ mod tests {
 
     #[test]
     fn trim_of_a_transparent_canvas_keeps_the_painted_box() {
-        let mut bytes = vec![0u8; 6 * 4 * 4];
-        let at = (2 * 6 + 3) * 4;
-        bytes[at..at + 4].copy_from_slice(&[10, 20, 30, 255]);
-        let image = Image::from_raw(6, 4, 4, &bytes).unwrap();
+        // A lone pixel does not survive the 3x3 median of find_trim; a 3x3 block does, whole.
+        let mut bytes = vec![0u8; 8 * 6 * 4];
+        for y in 2..5 {
+            for x in 3..6 {
+                let at = (y * 8 + x) * 4;
+                bytes[at..at + 4].copy_from_slice(&[10, 20, 30, 255]);
+            }
+        }
+        let image = Image::from_raw(8, 6, 4, &bytes).unwrap();
         let cut = trim(&image, 0.0).unwrap();
-        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (3, 2, 1, 1));
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (3, 2, 3, 3));
     }
 }
