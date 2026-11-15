@@ -187,5 +187,5 @@ impl ObjectStore {
 /// what the caller put in it; `Length` is written on save.
 pub fn stream_object(dict: Dict, bytes: Vec<u8>, chain: Vec<FilterSpec>) -> Obj {
     let raw = ByteStream::from_vec(bytes);
-    Obj::Stream(Arc::new(PdfStream::new(Arc::new(dict), &raw, chain, None, false)))
+    Obj::Stream(Arc::new(PdfStream::new(Arc::new(dict), &raw, chain, None, false, false)))
 }

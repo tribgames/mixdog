@@ -14,3 +14,22 @@ Resources that later modules of this crate embed, credited here so the notice st
     Copyright 1990-2009 Adobe Systems Incorporated (the licence text is cmaps/LICENSE of pdfjs-dist).
   * The Foxit standard fonts (pdfjs-dist standard_fonts/, with LICENSE_FOXIT): Copyright 2014 PDFium Authors (the licence text is standard_fonts/LICENSE_FOXIT of pdfjs-dist),
     redistributed under its terms.
+
+The JBIG2 and CCITT fax decoders in src/codec (arith.rs, ccitt.rs, jbig2/) are ported from PDFium's
+core/fxcodec/jbig2 and core/fxcodec/fax, the code pdf.js 6.4.299 ships as wasm/jbig2.wasm, which is
+licensed under the BSD 3-Clause licence: Copyright 2014 The PDFium Authors (the licence text is
+wasm/LICENSE_JBIG2 of pdfjs-dist), redistributed under its terms. The T.4 run-length code tables in
+ccitt.rs are the standard's.
+
+The JPEG 2000 reader (src/codec/jpx) follows OpenJPEG 2.5 (BSD-2-Clause), as compiled into pdfjs-dist 6.4.299
+wasm/openjpeg.wasm:
+    Copyright (c) 2002-2014, Universite catholique de Louvain (UCL), Belgium
+    Copyright (c) 2002-2014, Professor Benoit Macq
+    Copyright (c) 2003-2014, Antonin Descampe
+    Copyright (c) 2003-2009, Francois-Olivier Devaux
+    Copyright (c) 2005, Herve Drolon, FreeImage Team
+    Copyright (c) 2002-2003, Yannick Verschueren
+    Copyright (c) 2001-2003, David Janssens
+    Copyright (c) 2011-2012, Centre National d'Etudes Spatiales (CNES), France
+    Copyright (c) 2012, CS Systemes d'Information, France
+(the licence text is wasm/LICENSE_OPENJPEG of pdfjs-dist).

@@ -2,6 +2,7 @@
 
 mod image;
 mod media_office;
+mod office_journal;
 mod ooxml;
 
 use base64::Engine as _;
@@ -19,6 +20,7 @@ use crate::registry::Registry;
 pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
+    office_journal::register(registry);
     image::register(registry);
 }
 

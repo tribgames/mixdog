@@ -17,6 +17,7 @@ pub mod usage;
 #[cfg(test)]
 mod tests;
 
+use mixdog_rt::Backend;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -5117,6 +5117,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-entry"
+version = "1.5.0"
+dependencies = [
+ "flate2",
+ "httparse",
+ "mixdog-ai",
+ "mixdog-cli",
+ "mixdog-core",
+ "mixdog-js",
+ "mixdog-launch",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "rcgen",
+ "regex",
+ "rustls",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "mixdog-exthost"
 version = "1.5.0"
 dependencies = [
@@ -5166,6 +5190,7 @@ dependencies = [
  "mixdog-fsio",
  "mixdog-imaging",
  "mixdog-js",
+ "mixdog-office-base",
  "mixdog-ooxml-text",
  "mixdog-protocol",
  "mixdog-rt",
@@ -5289,19 +5314,24 @@ name = "mixdog-launch"
 version = "1.5.0"
 dependencies = [
  "libc",
+ "mixdog-ai",
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
+ "mixdog-core-domains",
  "mixdog-js",
  "mixdog-rt",
  "mixdog-statefile",
  "mixdog-store",
  "mixdog-testkit",
  "mixdog-workspace-hack",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]
@@ -5331,7 +5361,10 @@ dependencies = [
 name = "mixdog-markdown-ansi"
 version = "1.5.0"
 dependencies = [
+ "mixdog-highlight",
  "mixdog-js",
+ "mixdog-termtext",
+ "mixdog-tui-style",
  "mixdog-workspace-hack",
  "regress",
  "serde",
@@ -5487,11 +5520,13 @@ dependencies = [
  "mixdog-rt",
  "mixdog-testkit",
  "mixdog-workspace-hack",
+ "regex",
  "serde_json",
  "sha2 0.10.9",
  "tokio",
  "tokio-util",
  "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5508,6 +5543,43 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "tempfile",
+]
+
+[[package]]
+name = "mixdog-office-design"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
+name = "mixdog-office-quality"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
+name = "mixdog-ooxml"
+version = "1.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-ooxml-text",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]
@@ -5541,7 +5613,9 @@ version = "1.5.0"
 dependencies = [
  "brotli",
  "flate2",
+ "mixdog-fsio",
  "mixdog-js",
+ "mixdog-office-base",
  "mixdog-pdf-codec",
  "mixdog-testkit",
  "serde_json",
@@ -5572,6 +5646,19 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "ts-rs",
+]
+
+[[package]]
+name = "mixdog-raster"
+version = "1.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "mixdog-imaging",
+ "mixdog-rt",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]
@@ -5806,6 +5893,8 @@ version = "1.5.0"
 dependencies = [
  "mixdog-app-protocol",
  "mixdog-app-server-client",
+ "mixdog-js",
+ "mixdog-view-model",
  "mixdog-workspace-hack",
  "serde_json",
  "thiserror 2.0.21",
@@ -6060,6 +6149,7 @@ version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "mixdog-protocol",
+ "mixdog-termtext",
  "mixdog-testkit",
  "mixdog-tui-style",
  "mixdog-workspace-hack",

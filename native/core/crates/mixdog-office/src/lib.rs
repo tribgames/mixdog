@@ -3,7 +3,9 @@
 //! [`capabilities`] holds the model-facing contract as checked-in data (the operation catalogue, input signatures,
 //! aliases and the tool definition) with typed lookups over it.
 
+pub mod bounded;
 pub mod capabilities;
+pub mod digest;
 
 /// The CSV/TSV backend: parsing, edits, snapshots and validation.
 pub mod tabular;

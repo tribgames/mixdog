@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 mixdog-fsio = { workspace = true }
 mixdog-rt = { workspace = true }
+regex = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt", "process", "io-util", "macros", "sync", "time"] }
@@ -19,6 +20,8 @@ tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target."cfg(windows)".dependencies]
+# src/ps/collate.rs (CompareStringEx: Sort-Object and -eq on strings), src/ps/datetime.rs (ToUniversalTime with the dynamic time zone).
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Time"] }
 windows = { workspace = true, features = [
   "Win32_Foundation",
   "Win32_Globalization",
@@ -77,3 +80,7 @@ path = "tests/platform_live.rs"
 [[test]]
 name = "transport_route"
 path = "tests/transport_route.rs"
+
+[[test]]
+name = "pswire"
+path = "tests/pswire.rs"

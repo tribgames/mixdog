@@ -12,6 +12,7 @@ mod cleanup;
 pub mod com;
 pub mod identity;
 pub mod platform;
+pub mod ps;
 mod oneshot;
 mod route;
 mod scripts;
