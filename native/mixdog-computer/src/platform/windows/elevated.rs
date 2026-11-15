@@ -19,15 +19,20 @@ use base64::Engine;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::sync::Arc;
+use crate::elevated_launch::Cancellation;
 use windows::core::{HSTRING, PCWSTR};
-use windows::Win32::Foundation::{ERROR_CANCELLED, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{ERROR_CANCELLED, ERROR_INVALID_PARAMETER, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Security::Cryptography::{
     BCryptGenRandom, BCryptHash, BCRYPT_SHA256_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
 };
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId,
-    WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    WaitForSingleObject, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
 };
+use windows::Win32::System::JobObjects::{CreateJobObjectW, SetInformationJobObject,
+    AssignProcessToJobObject, JobObjectExtendedLimitInformation,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE};
 use windows::Win32::UI::Shell::{
     ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
 };
@@ -109,6 +114,29 @@ fn own_identity() -> Identity {
     Identity { pid, created }
 }
 
+const FILETIME_TO_DOTNET_TICKS: i64 = 504_911_232_000_000_000;
+fn dotnet_ticks(filetime: i64) -> Option<i64> {
+    (filetime > 0).then(|| filetime.checked_add(FILETIME_TO_DOTNET_TICKS)).flatten()
+}
+
+/// A read-only identity query. Access denied is never reported as a missing PID.
+pub fn process_start_ticks(pid: u32) -> Result<Option<i64>, String> {
+    if pid == 0 { return Err("process identity query requires a positive PID".into()); }
+    // SAFETY: only query rights, no mutation or inherited handle.
+    let process = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) } {
+        Ok(handle) => Process(handle),
+        Err(error) if error.code() == ERROR_INVALID_PARAMETER.to_hresult() => return Ok(None),
+        Err(error) => return Err(format!("process identity query failed: {error}")),
+    };
+    match unsafe { WaitForSingleObject(process.0, 0) } {
+        WAIT_OBJECT_0 => return Ok(None),
+        WAIT_TIMEOUT => {}
+        _ => return Err("process identity query failed: process state is unavailable".into()),
+    }
+    dotnet_ticks(creation_time(process.0)).map(Some)
+        .ok_or_else(|| "process identity query failed: creation time is unavailable".into())
+}
+
 /// Whether a process's identity is the one expected. A creation time that
 /// could not be read (0 on either side) leaves the id alone to decide.
 fn same_identity(expected: Identity, actual: Identity) -> bool {
@@ -188,7 +216,7 @@ fn response_text(token: &str, worker: Identity, body: &Value) -> String {
 /// Authenticates a response file against the token and the process that was
 /// started, then reads the reply it carries (assertElevatedReceipt,
 /// parseElevatedResponse).
-fn read_response(text: &str, token: &str, worker: Identity, id: i64) -> Result<Obj, String> {
+fn authenticated_body(text: &str, token: &str, worker: Identity, id: i64) -> Result<Value, String> {
     let mut lines = text.trim_start_matches('\u{feff}').lines();
     let claimed = lines.next().unwrap_or_default();
     let identity = lines.next().and_then(Identity::parse);
@@ -200,11 +228,16 @@ fn read_response(text: &str, token: &str, worker: Identity, id: i64) -> Result<O
     }
     let body: Value = serde_json::from_str(lines.collect::<Vec<_>>().join("\n").trim())
         .map_err(|_| "privileged_worker_failed: structured response is missing".to_string())?;
+    if body.get("worker_error").and_then(Value::as_str).is_none() && body.get("id").and_then(Value::as_i64) != Some(id) {
+        return Err("privileged_worker_rejected: response id mismatch".into());
+    }
+    Ok(body)
+}
+
+fn read_response(text: &str, token: &str, worker: Identity, id: i64) -> Result<Obj, String> {
+    let body = authenticated_body(text, token, worker, id)?;
     if let Some(error) = body.get("worker_error").and_then(Value::as_str) {
         return Err(format!("privileged_worker_failed: {error}"));
-    }
-    if body.get("id").and_then(Value::as_i64) != Some(id) {
-        return Err("privileged_worker_rejected: response id mismatch".into());
     }
     if body.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(match body.get("result") {
@@ -270,6 +303,66 @@ fn run_worker(launch: &Launch, id: i64) -> Result<Obj, String> {
     }
 }
 
+/// Desktop-owned one-shot launch. The desktop owns the supplied ledger: this
+/// path never adopts or deletes it. The receipt is sent only after waiting on
+/// the exact process handle returned by ShellExecuteExW.
+pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
+    let mut stopped = true; // No child exists until start succeeds.
+    let mut staged: Option<PathBuf> = None;
+    let outcome = (|| -> Result<Value, String> {
+        let request = message.get("request").filter(|value| value.is_object())
+            .ok_or("privileged worker request is not an object")?;
+        let id = request.get("id").and_then(Value::as_i64).ok_or(INCOMPLETE)?;
+        let marker = message.get("inputMarker").and_then(Value::as_str)
+            .and_then(|value| value.parse::<i64>().ok()).ok_or(INCOMPLETE)?;
+        let ledger = message.get("inactiveLedger").and_then(Value::as_str)
+            .filter(|value| !value.is_empty()).ok_or(INCOMPLETE)?;
+        let token = new_token()?;
+        let dir = std::env::temp_dir().join(format!("mixdog-elevated-{token}"));
+        let bytes = format!("{request}\n").into_bytes();
+        let launch = Launch { dir: dir.clone(), token, request_sha256: sha256_hex(&bytes)?,
+            marker: Some(marker), ledger: Some(PathBuf::from(ledger)), parent: own_identity() };
+        std::fs::create_dir(&dir).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
+        staged = Some(dir.clone());
+        std::fs::write(dir.join(REQUEST_FILE), bytes).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
+        cancelled.arm(dir.join(CANCEL_FILE))?;
+        if cancelled.requested() { return Err("privileged_worker_cancelled".into()); }
+        stopped = false;
+        let (process, worker) = match start(&launch) {
+            Ok(child) => child,
+            Err(error) => {
+                stopped = error.starts_with("privileged_worker_cancelled: UAC consent was declined");
+                return Err(error);
+            }
+        };
+        if let Some(ticks) = dotnet_ticks(worker.created) {
+            crate::elevated_launch::emit(json!({"kind":"identity", "pid":worker.pid, "startTicks":ticks.to_string()}));
+        }
+        let exit = wait_controlled(&process, &dir.join(CANCEL_FILE), &launch.token, &cancelled)?;
+        // Supervisor exit alone is not a receipt that its input child stopped
+        // and cleanup ran (it could have crashed). Require its authenticated
+        // body before releasing the desktop's held job or ledger.
+        let text = std::fs::read_to_string(dir.join(RESPONSE_FILE)).map_err(|_| missing_response(exit))?;
+        let body = authenticated_body(&text, &launch.token, worker, id)?;
+        stopped = true;
+        if let Some(error) = body.get("worker_error").and_then(Value::as_str) {
+            if error.contains("cleanup_unconfirmed") { stopped = false; }
+            return Err(format!("privileged_worker_failed: {error}"));
+        }
+        Ok(body)
+    })();
+    cancelled.disarm();
+    if stopped {
+        if let Some(dir) = staged { let _ = std::fs::remove_dir_all(dir); }
+    }
+    let (receipt, code) = match outcome {
+        Ok(response) => (json!({"kind":"result", "stopped":stopped, "response":response}), 0),
+        Err(error) => (json!({"kind":"result", "stopped":stopped, "error":error}), 1),
+    };
+    crate::elevated_launch::emit(receipt);
+    code
+}
+
 /// ShellExecuteExW with the `runas` verb on this executable; the process
 /// handle and the identity of the worker it started.
 fn start(launch: &Launch) -> Result<(Process, Identity), String> {
@@ -309,6 +402,10 @@ fn start(launch: &Launch) -> Result<(Process, Identity), String> {
 /// the cancel file, and gives it a grace period before the stop is reported
 /// unconfirmed. The exit code.
 fn wait(process: &Process, cancel_file: &Path, token: &str) -> Result<u32, String> {
+    wait_controlled(process, cancel_file, token, &Cancellation::default())
+}
+
+fn wait_controlled(process: &Process, cancel_file: &Path, token: &str, cancelled: &Cancellation) -> Result<u32, String> {
     let started = Instant::now();
     let mut cancelled_at: Option<Instant> = None;
     loop {
@@ -317,7 +414,7 @@ fn wait(process: &Process, cancel_file: &Path, token: &str) -> Result<u32, Strin
             return Ok(exit_code(process.0));
         }
         match cancelled_at {
-            None if started.elapsed() >= LAUNCHER_DEADLINE => {
+            None if started.elapsed() >= LAUNCHER_DEADLINE || cancelled.requested() => {
                 let _ = std::fs::write(cancel_file, token);
                 cancelled_at = Some(Instant::now());
             }
@@ -351,9 +448,14 @@ fn stop_reason(
 }
 
 fn parent_alive(parent: Identity) -> bool {
-    Process::open(parent.pid, PROCESS_QUERY_LIMITED_INFORMATION.0).is_some_and(|process| {
-        same_identity(parent, Identity { pid: parent.pid, created: creation_time(process.0) })
+    Process::open(parent.pid, (PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE).0).is_some_and(|process| {
+        let running = unsafe { WaitForSingleObject(process.0, 0) } == WAIT_TIMEOUT;
+        live_parent(parent, Identity { pid: parent.pid, created: creation_time(process.0) }, running)
     })
+}
+
+fn live_parent(expected: Identity, actual: Identity, running: bool) -> bool {
+    running && expected.created > 0 && actual.created > 0 && same_identity(expected, actual)
 }
 
 /// The elevated worker: authenticates its launch and request, vets the
@@ -363,7 +465,7 @@ fn parent_alive(parent: Identity) -> bool {
 pub fn worker(
     args: &[String],
     validate: fn(&Req) -> Result<(), String>,
-    serve: fn(&str) -> Value,
+    _serve: fn(&str) -> Value,
 ) -> i32 {
     let launch = match Launch::parse(args) {
         Ok(launch) => launch,
@@ -386,7 +488,7 @@ pub fn worker(
     }
     let started = Instant::now();
     let mut deadline = started + WORKER_DEADLINE;
-    if !parent_alive(launch.parent) {
+    if !parent_alive(launch.parent) || launch.dir.join(CANCEL_FILE).exists() {
         return refuse("privileged_worker_cancelled".into());
     }
     let bytes = match std::fs::read(launch.dir.join(REQUEST_FILE)) {
@@ -414,34 +516,137 @@ pub fn worker(
     if let Err(error) = validate(&req) {
         return refuse(error);
     }
-    // The supervisor runs on its own thread: cancellation, the deadline or a
-    // lost parent release what this process holds and end it, so a stop never
-    // waits on the input the main thread is in.
-    let (token, dir, parent) = (launch.token.clone(), launch.dir.clone(), launch.parent);
-    std::thread::spawn(move || loop {
-        std::thread::sleep(POLL);
-        let cancel_requested = dir.join(CANCEL_FILE).exists();
-        let Some(reason) = stop_reason(Instant::now(), deadline, cancel_requested, parent_alive(parent)) else {
-            continue;
-        };
-        // The input it holds, then the no-activate holds and shields its
-        // ledger records: both are replayed whatever the first answered.
-        let released = crate::platform::release_owned_input();
-        let recovered = crate::platform::recover_inactive_ledger();
-        let error = match released.and(recovered) {
-            Ok(()) => reason.to_string(),
-            Err(error) => format!("{reason}: {error}"),
-        };
-        let body = json!({ "worker_error": error });
-        let _ = std::fs::write(dir.join(RESPONSE_FILE), response_text(&token, me, &body));
-        std::process::exit(1);
-    });
-    let body = serve(&line);
+    let body = supervise_input(&line, &launch, deadline);
     let _ = std::fs::write(
         launch.dir.join(RESPONSE_FILE),
         response_text(&launch.token, me, &body),
     );
     0
+}
+
+/// The elevated supervisor never dispatches input itself. On cancellation it
+/// stops and waits for the input process BEFORE releasing its owned input.
+fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+    use std::os::windows::process::CommandExt;
+    use std::os::windows::io::AsRawHandle;
+    // Non-inheritable handle; losing this supervisor kills its input child.
+    let job = match input_job() {
+        Ok(job) => job,
+        Err(error) => return json!({"worker_error":error}),
+    };
+    let mut child = match std::env::current_exe().and_then(|program|
+        Command::new(program).arg("--elevated-input")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()) {
+        Ok(child) => child,
+        Err(error) => return json!({"worker_error":format!("privileged worker could not start: {error}")}),
+    };
+    // The child blocks reading its pipe before constructing any input host.
+    // Nothing is written until assignment succeeds: this is the containment
+    // barrier, including when the supervisor dies between spawn and assign.
+    if let Err(error) = unsafe { AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) } {
+        let _ = child.kill();
+        let stopped = wait_input_stop(&mut child);
+        return json!({"worker_error":if stopped {
+            format!("privileged_worker_unavailable: input containment failed: {error}")
+        } else { "privileged_worker_cleanup_unconfirmed: input containment failed".into() }});
+    }
+    let mut input = child.stdin.take().expect("piped input");
+    let request = format!("{line}\n").into_bytes();
+    let writer = std::thread::spawn(move || input.write_all(&request));
+    let output = child.stdout.take().expect("piped output");
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        output.take((crate::elevated_launch::MAX_REQUEST + 1) as u64).read_to_end(&mut bytes)?;
+        Ok::<_, std::io::Error>(bytes)
+    });
+    let clock = Instant::now();
+    let reason = match supervise_wait(&mut child,
+        || stop_reason(Instant::now(), deadline, launch.dir.join(CANCEL_FILE).exists(), parent_alive(launch.parent)).map(str::to_owned),
+        || clock.elapsed(), || std::thread::sleep(POLL)) {
+        Ok(reason) => reason,
+        Err(error) => return json!({"worker_error":error}),
+    };
+    // The process handle proved exit. Cleanup still runs after a failed write,
+    // missing response or cancellation, and failure cannot become success.
+    let released = crate::platform::release_owned_input();
+    let recovered = crate::platform::recover_inactive_ledger();
+    if let Err(error) = released.and(recovered) {
+        return json!({"worker_error":format!("privileged_worker_cleanup_unconfirmed: {error}")});
+    }
+    if let Some(reason) = reason { return json!({"worker_error":reason}); }
+    if !matches!(writer.join(), Ok(Ok(()))) {
+        return json!({"worker_error":"privileged worker request could not be written"});
+    }
+    match reader.join() {
+        Ok(Ok(bytes)) if bytes.len() <= crate::elevated_launch::MAX_REQUEST =>
+            serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_|
+                json!({"worker_error":"privileged worker host returned no structured response"})),
+        _ => json!({"worker_error":"privileged worker host returned no structured response"}),
+    }
+}
+
+trait InputControl {
+    fn exited(&mut self) -> Result<bool, String>;
+    fn stop(&mut self);
+}
+impl InputControl for std::process::Child {
+    fn exited(&mut self) -> Result<bool, String> {
+        self.try_wait().map(|status| status.is_some()).map_err(|error| error.to_string())
+    }
+    fn stop(&mut self) { let _ = self.kill(); }
+}
+
+/// Testable process supervision: a stop request is never a stop receipt.
+fn supervise_wait(child: &mut impl InputControl, mut cancelled: impl FnMut() -> Option<String>,
+    mut elapsed: impl FnMut() -> Duration, mut pause: impl FnMut()) -> Result<Option<String>, String> {
+    let mut reason = None;
+    let mut stopping = None;
+    loop {
+        match child.exited() {
+            Ok(true) => return Ok(reason),
+            Err(error) => {
+                reason = Some(format!("privileged_worker_cleanup_unconfirmed: {error}"));
+                child.stop();
+                stopping.get_or_insert_with(&mut elapsed);
+            }
+            Ok(false) => {}
+        }
+        if stopping.is_none() {
+            if let Some(why) = cancelled() {
+                reason = Some(why);
+                child.stop();
+                stopping = Some(elapsed());
+            }
+        }
+        if stopping.is_some_and(|at| elapsed().saturating_sub(at) >= Duration::from_secs(5)) {
+            return Err("privileged_worker_cleanup_unconfirmed".into());
+        }
+        pause();
+    }
+}
+
+fn input_job() -> Result<Process, String> {
+    // Process is the local CloseHandle RAII wrapper; it also owns job handles.
+    let job = Process(unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+        .map_err(|error| format!("privileged_worker_unavailable: {error}"))?);
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    unsafe { SetInformationJobObject(job.0, JobObjectExtendedLimitInformation,
+        &limits as *const _ as *const _, std::mem::size_of_val(&limits) as u32) }
+        .map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
+    Ok(job)
+}
+
+fn wait_input_stop(child: &mut std::process::Child) -> bool {
+    let started = Instant::now();
+    loop {
+        if matches!(child.try_wait(), Ok(Some(_))) { return true; }
+        if started.elapsed() >= Duration::from_secs(5) { return false; }
+        std::thread::sleep(POLL);
+    }
 }
 
 #[cfg(test)]
@@ -450,6 +655,34 @@ mod tests {
 
     const WORKER: Identity = Identity { pid: 4242, created: 133_750_000_000_000_000 };
     const TOKEN: &str = "abcdefghijklmnopqrstuvwxyzABCDEF_-0123456789";
+
+    struct FakeInput { polls: usize, stopped: bool, acknowledges: bool }
+    impl InputControl for FakeInput {
+        fn exited(&mut self) -> Result<bool, String> {
+            self.polls += 1;
+            Ok(self.stopped && self.acknowledges && self.polls >= 3)
+        }
+        fn stop(&mut self) { self.stopped = true; }
+    }
+
+    #[test]
+    fn cancellation_waits_for_actual_child_exit_before_allowing_cleanup() {
+        let mut child = FakeInput { polls: 0, stopped: false, acknowledges: true };
+        let answer = supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()),
+            || Duration::ZERO, || {});
+        assert_eq!(answer.unwrap(), Some("privileged_worker_cancelled".into()));
+        assert!(child.stopped && child.polls >= 3);
+    }
+
+    #[test]
+    fn an_unacknowledged_kill_cannot_become_a_stop_receipt() {
+        let mut child = FakeInput { polls: 0, stopped: false, acknowledges: false };
+        let clock = std::cell::Cell::new(0);
+        let answer = supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()),
+            || Duration::from_secs(clock.get()), || clock.set(clock.get() + 1));
+        assert_eq!(answer.unwrap_err(), "privileged_worker_cleanup_unconfirmed");
+        assert!(child.stopped);
+    }
 
     fn sample_launch() -> Launch {
         Launch {
@@ -487,6 +720,32 @@ mod tests {
             sha256_hex(b"abc").unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn process_time_conversion_preserves_ticks_and_refuses_unknown_identity() {
+        assert_eq!(dotnet_ticks(0), None);
+        assert_eq!(dotnet_ticks(-1), None);
+        assert_eq!(dotnet_ticks(1), Some(504_911_232_000_000_001));
+        assert_eq!(dotnet_ticks(133_750_000_000_000_000), Some(638_661_232_000_000_000));
+        assert_eq!(dotnet_ticks(i64::MAX), None);
+    }
+
+    #[test]
+    fn a_retained_handle_to_an_exited_parent_is_not_a_live_parent() {
+        assert!(live_parent(WORKER, WORKER, true));
+        assert!(!live_parent(WORKER, WORKER, false));
+        assert!(!live_parent(WORKER, Identity { created: WORKER.created + 1, ..WORKER }, true));
+        assert!(!live_parent(WORKER, Identity { created: 0, ..WORKER }, true));
+    }
+
+    #[test]
+    fn authenticated_worker_error_and_failure_envelopes_are_not_fabricated_successes() {
+        let cleanup = json!({"worker_error":"privileged_worker_cleanup_unconfirmed: input held"});
+        assert_eq!(authenticated_body(&response_text(TOKEN, WORKER, &cleanup), TOKEN, WORKER, 4).unwrap(), cleanup);
+        let refusal = json!({"id":4,"ok":false,"error":"computer_policy_expired"});
+        assert_eq!(authenticated_body(&response_text(TOKEN, WORKER, &refusal), TOKEN, WORKER, 4).unwrap(), refusal);
+        assert!(authenticated_body(&response_text(TOKEN, WORKER, &refusal), TOKEN, WORKER, 5).is_err());
     }
 
     #[test]

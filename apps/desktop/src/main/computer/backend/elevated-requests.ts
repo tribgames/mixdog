@@ -33,7 +33,6 @@ export function settleElevatedLedger(
 
 export function createElevatedRequests(options: {
   dataDirectory: () => string;
-  hostScriptPath: () => string | null;
   /** Publishes the session's resident worker before the elevated run. */
   ensureWorker: (sessionId: string) => void;
   liveWorkerCount: () => number;
@@ -50,8 +49,6 @@ export function createElevatedRequests(options: {
   async function call(request: Record<string, unknown>): Promise<PowerShellResponse> {
     const sessionId = String(request.session_id || 'default');
     options.ensureWorker(sessionId);
-    const hostScriptPath = options.hostScriptPath();
-    if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
     assertComputerWorkerCapacity(options.liveWorkerCount() + slots + 2, maxWorkers);
@@ -64,7 +61,6 @@ export function createElevatedRequests(options: {
       request,
       id: options.nextId(),
       directory,
-      hostScriptPath,
       inputMarker: options.inputMarker,
       inactiveLedger,
       spawnProcess: options.spawnProcess,
@@ -94,10 +90,10 @@ export function createElevatedRequests(options: {
     sessionIds: jobs.sessionIds,
     /** User-acknowledged recovery only: releases unconfirmed elevated sessions
      *  and their slots, unless an elevated job is still pending. */
-    async releaseUnconfirmed(): Promise<boolean> {
+    async releaseUnconfirmed(gone?: (identity: ProcessIdentity) => Promise<boolean>): Promise<boolean> {
       // Only a verified-gone launcher releases its job; one still alive (or
       // unverifiable) keeps its ledger held and the sessions unconfirmed.
-      if (!(await ledgers.registry.promoteGone())) return false;
+      if (!(await ledgers.registry.promoteGone(gone))) return false;
       slots -= jobs.releaseUnconfirmed() * ELEVATED_RUN_SLOTS;
       return true;
     },
