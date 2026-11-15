@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-pipeline.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4454159,
+      "path": "golden.json",
+      "sha256": "fafb3d05825fd3cc9e4ece71a58e571ac2dbe973a27e779d2f5b87962477f141"
+    }
+  ],
+  "product": {
+    "appsSha256": "f6aaeb0dd31cd9b025798c61563ad6b3ad60497d6d5d5998904369416465c377",
+    "commit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5287,
+    "refComparison": {
+      "closestCommit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "250b176c809f52d5fe1ee3168593adb6e68f2642f93ab6ecb1542b75487820e3",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-pipeline.mjs",
+  "set": "office-pipeline",
+  "totalBytes": 4454159
+}
