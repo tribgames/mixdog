@@ -1,0 +1,7108 @@
+[
+ {
+  "id": "context-list-w50",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": [
+    {
+     "value": "model",
+     "label": "Model",
+     "description": "claude-sonnet-5-5 through the Anthropic account"
+    },
+    {
+     "value": "window",
+     "label": "Window",
+     "description": "200k tokens, 160k before compaction"
+    },
+    {
+     "value": "long",
+     "label": "A label that is far too long for its column",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "value": "cjk",
+     "label": "한글 항목",
+     "description": "한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 "
+    }
+   ],
+   "description": "Plain rows under the title."
+  }
+ },
+ {
+  "id": "context-list-empty-w50",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": []
+  }
+ },
+ {
+  "id": "context-list-w80",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [
+    {
+     "value": "model",
+     "label": "Model",
+     "description": "claude-sonnet-5-5 through the Anthropic account"
+    },
+    {
+     "value": "window",
+     "label": "Window",
+     "description": "200k tokens, 160k before compaction"
+    },
+    {
+     "value": "long",
+     "label": "A label that is far too long for its column",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "value": "cjk",
+     "label": "한글 항목",
+     "description": "한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 "
+    }
+   ],
+   "description": "Plain rows under the title."
+  }
+ },
+ {
+  "id": "context-list-empty-w80",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": []
+  }
+ },
+ {
+  "id": "context-list-w120",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "rows": [
+    {
+     "value": "model",
+     "label": "Model",
+     "description": "claude-sonnet-5-5 through the Anthropic account"
+    },
+    {
+     "value": "window",
+     "label": "Window",
+     "description": "200k tokens, 160k before compaction"
+    },
+    {
+     "value": "long",
+     "label": "A label that is far too long for its column",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "value": "cjk",
+     "label": "한글 항목",
+     "description": "한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 한글로 쓴 긴 설명이 한 줄에 다 들어가지 않을 때 잘리는 모양을 본다 "
+    }
+   ],
+   "description": "Plain rows under the title."
+  }
+ },
+ {
+  "id": "context-list-empty-w120",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "rows": []
+  }
+ },
+ {
+  "id": "context-list-title",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [
+    {
+     "value": "model",
+     "label": "Model",
+     "description": "claude-sonnet-5-5 through the Anthropic account"
+    },
+    {
+     "value": "window",
+     "label": "Window",
+     "description": "200k tokens, 160k before compaction"
+    }
+   ],
+   "title": "Session",
+   "description": "  spaced \n  out   description  "
+  }
+ },
+ {
+  "id": "context-list-fill",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [
+    {
+     "value": "model",
+     "label": "Model",
+     "description": "claude-sonnet-5-5 through the Anthropic account"
+    },
+    {
+     "value": "window",
+     "label": "Window",
+     "description": "200k tokens, 160k before compaction"
+    }
+   ],
+   "fillHeight": true
+  },
+  "rows": 20
+ },
+ {
+  "id": "context-report-w50",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-w80",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-w120",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-theme-basic",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  },
+  "theme": "basic",
+  "levels": true
+ },
+ {
+  "id": "context-report-theme-light",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  },
+  "theme": "light"
+ },
+ {
+  "id": "context-report-theme-dracula",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   }
+  },
+  "theme": "dracula"
+ },
+ {
+  "id": "context-report-unavailable",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": null,
+     "windowTokens": 200000,
+     "measurementSource": "unavailable"
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-pending",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context"
+   }
+  }
+ },
+ {
+  "id": "context-report-warning",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 170000,
+     "windowTokens": 200000,
+     "measurementSource": "last_api_request"
+    },
+    "speed": {
+     "outputTokensPerSecond": 5.25
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-critical",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 199000,
+     "windowTokens": 200000,
+     "rawWindowTokens": 200000,
+     "measurementSource": "last_api_request"
+    },
+    "messages": {
+     "semantic": {
+      "chat": {
+       "tokens": 260000
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-conserve",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 500,
+     "windowTokens": 1000,
+     "rawWindowTokens": 1200,
+     "measurementSource": "last_api_request"
+    }
+   }
+  }
+ },
+ {
+  "id": "context-report-fill",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   },
+   "fillHeight": true
+  },
+  "rows": 30
+ },
+ {
+  "id": "context-report-description",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request",
+     "effective": true
+    },
+    "compaction": {
+     "stage": "idle",
+     "state": "ready",
+     "type": "auto",
+     "triggerTokens": 160000,
+     "boundaryTokens": 120000,
+     "pressureTokens": 90000,
+     "reserveTokens": 20000
+    },
+    "messages": {
+     "semantic": {
+      "system": {
+       "tokens": 6200
+      },
+      "workflow": {
+       "tokens": 800
+      },
+      "workspace": {
+       "tokens": 1500
+      },
+      "environment": {
+       "tokens": 400
+      },
+      "other": {
+       "tokens": 100
+      },
+      "memory": {
+       "tokens": 2300
+      },
+      "chat": {
+       "tokens": 20000
+      },
+      "assistant": {
+       "tokens": 30000
+      },
+      "toolResults": {
+       "tokens": 15000
+      },
+      "reasoning": {
+       "tokens": 4000
+      }
+     }
+    },
+    "request": {
+     "toolSchemaBreakdown": {
+      "code": {
+       "tokens": 3000
+      },
+      "web": {
+       "tokens": 1200
+      },
+      "mutation": {
+       "tokens": 900
+      },
+      "channels": {
+       "tokens": 300
+      },
+      "setup": {
+       "tokens": 200
+      },
+      "other": {
+       "tokens": 100
+      },
+      "control": {
+       "tokens": 400
+      },
+      "session": {
+       "tokens": 500
+      },
+      "mcp": {
+       "tokens": 2500
+      },
+      "agents": {
+       "tokens": 700
+      },
+      "memory": {
+       "tokens": 300
+      },
+      "skills": {
+       "tokens": 1100
+      }
+     }
+    },
+    "lastApi": {
+     "contextTokens": 84210,
+     "inputTokens": 3100,
+     "outputTokens": 950,
+     "rawInputTokens": 3300
+    },
+    "cache": {
+     "writeTokens": 1200,
+     "hitRate": "94%"
+    },
+    "speed": {
+     "outputTokensPerSecond": 42.7
+    }
+   },
+   "description": "A description of the report."
+  }
+ },
+ {
+  "id": "inspector-list-w50",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-list-w80",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-list-w120",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-theme-basic",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "theme": "basic",
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ],
+  "levels": true
+ },
+ {
+  "id": "inspector-theme-light",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "theme": "light",
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-theme-dracula",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "theme": "dracula",
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-open-preview",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "keys": [
+   "\r",
+   "\u001b[B",
+   "\r",
+   "\u001b[D",
+   "\u001b[D",
+   "z",
+   "z",
+   "r"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-entries-scroll",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 22
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[B",
+   "\u001b[A",
+   "\u001b[5~",
+   "\u001b[5~",
+   "\u001b[D"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-fit-zoom",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "keys": [
+   "z",
+   "z"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-empty-category",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "\r",
+   "\u001b[D"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-small-rows",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 6
+  },
+  "keys": [
+   "\r",
+   "\u001b[B"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-local-estimates",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "local"
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 200000,
+     "rawWindowTokens": 220000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-over-window",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "rev-1",
+     "categories": [
+      {
+       "key": "system",
+       "label": "System messages",
+       "tokens": 6200,
+       "count": 4
+      },
+      {
+       "key": "user",
+       "label": "User messages",
+       "tokens": 3100,
+       "count": 12
+      },
+      {
+       "key": "assistant",
+       "label": "Assistant messages",
+       "tokens": 30000,
+       "count": 11
+      },
+      {
+       "key": "reasoning",
+       "label": "Reasoning tokens",
+       "tokens": 4000
+      },
+      {
+       "key": "toolResults",
+       "label": "Tool results",
+       "tokens": 15000,
+       "count": 9
+      },
+      {
+       "key": "attachments",
+       "label": "Attachments",
+       "tokens": 800
+      },
+      {
+       "key": "tools",
+       "label": "System tools",
+       "tokens": 6600
+      },
+      {
+       "key": "mcp",
+       "label": "MCP tools",
+       "tokens": 2500
+      },
+      {
+       "key": "agents",
+       "label": "Custom agents",
+       "tokens": 700
+      },
+      {
+       "key": "memory",
+       "label": "Memory files",
+       "tokens": 2300
+      },
+      {
+       "key": "skills",
+       "label": "Skills",
+       "tokens": 1100
+      }
+     ],
+     "entries": [
+      {
+       "id": "m:0",
+       "category": "system",
+       "label": "Instructions",
+       "tokens": 4100
+      },
+      {
+       "id": "m:1",
+       "category": "system",
+       "label": "Reminders",
+       "tokens": 2100,
+       "state": "stale"
+      },
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "First prompt",
+       "tokens": 1200
+      },
+      {
+       "id": "r:0",
+       "category": "toolResults",
+       "label": "Bash output",
+       "tokens": 1200,
+       "toolResults": [
+        {
+         "name": "Bash"
+        },
+        {
+         "name": "Read"
+        }
+       ],
+       "count": 2
+      },
+      {
+       "id": "r:1",
+       "category": "toolResults",
+       "label": "Read output",
+       "tokens": 9000,
+       "state": "active"
+      },
+      {
+       "id": "t:0",
+       "category": "tools",
+       "label": "Read",
+       "tokens": 50,
+       "state": "deferred"
+      },
+      {
+       "id": "t:1",
+       "category": "tools",
+       "label": "Edit",
+       "tokens": 1250
+      },
+      {
+       "id": "a:0",
+       "category": "assistant",
+       "label": "Answer 0",
+       "tokens": 1000
+      },
+      {
+       "id": "a:1",
+       "category": "assistant",
+       "label": "Answer 1",
+       "tokens": 1137
+      },
+      {
+       "id": "a:2",
+       "category": "assistant",
+       "label": "Answer 2",
+       "tokens": 1274
+      },
+      {
+       "id": "a:3",
+       "category": "assistant",
+       "label": "Answer 3",
+       "tokens": 1411
+      },
+      {
+       "id": "a:4",
+       "category": "assistant",
+       "label": "Answer 4",
+       "tokens": 1548
+      },
+      {
+       "id": "a:5",
+       "category": "assistant",
+       "label": "Answer 5",
+       "tokens": 1685
+      },
+      {
+       "id": "a:6",
+       "category": "assistant",
+       "label": "Answer 6",
+       "tokens": 1822
+      },
+      {
+       "id": "a:7",
+       "category": "assistant",
+       "label": "Answer 7",
+       "tokens": 1959
+      },
+      {
+       "id": "a:8",
+       "category": "assistant",
+       "label": "Answer 8",
+       "tokens": 2096
+      },
+      {
+       "id": "a:9",
+       "category": "assistant",
+       "label": "Answer 9",
+       "tokens": 2233
+      },
+      {
+       "id": "a:10",
+       "category": "assistant",
+       "label": "Answer 10",
+       "tokens": 2370
+      },
+      {
+       "id": "a:11",
+       "category": "assistant",
+       "label": "Answer 11",
+       "tokens": 2507
+      },
+      {
+       "id": "a:12",
+       "category": "assistant",
+       "label": "Answer 12",
+       "tokens": 2644
+      },
+      {
+       "id": "a:13",
+       "category": "assistant",
+       "label": "Answer 13",
+       "tokens": 2781
+      }
+     ],
+     "calibration": {
+      "source": "provider",
+      "measuredTokens": 84210,
+      "ratio": 0.93,
+      "estimatedTokens": 90500
+     }
+    },
+    "usage": {
+     "usedTokens": 84210,
+     "windowTokens": 20000,
+     "measurementSource": "last_api_request"
+    }
+   },
+   "panelRows": 26
+  },
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "inspector-cjk-label",
+  "kind": "frame",
+  "component": "ContextPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "rows": [],
+   "detail": {
+    "type": "context",
+    "inspection": {
+     "revision": "k",
+     "categories": [
+      {
+       "key": "user",
+       "label": "사용자 메시지",
+       "tokens": 3100,
+       "count": 2
+      }
+     ],
+     "entries": [
+      {
+       "id": "u:0",
+       "category": "user",
+       "label": "첫 번째 프롬프트에 대한 아주 긴 한글 설명이 이어진다",
+       "tokens": 1200
+      }
+     ]
+    },
+    "usage": {
+     "usedTokens": 30,
+     "windowTokens": 100
+    }
+   },
+   "panelRows": 22
+  },
+  "keys": [
+   "\r"
+  ],
+  "spies": [
+   "onInspect",
+   "onRefresh"
+  ]
+ },
+ {
+  "id": "usage-mixed-w50",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "dashboard": {
+    "title": "Provider Quotas",
+    "subtitle": "Quota windows and balances.",
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-few-w50",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-empty-w50",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "dashboard": {
+    "rows": []
+   }
+  }
+ },
+ {
+  "id": "usage-loading-w50",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "dashboard": {
+    "rows": []
+   },
+   "loading": true
+  }
+ },
+ {
+  "id": "usage-mixed-w80",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "title": "Provider Quotas",
+    "subtitle": "Quota windows and balances.",
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-few-w80",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-empty-w80",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": []
+   }
+  }
+ },
+ {
+  "id": "usage-loading-w80",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": []
+   },
+   "loading": true
+  }
+ },
+ {
+  "id": "usage-mixed-w120",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "dashboard": {
+    "title": "Provider Quotas",
+    "subtitle": "Quota windows and balances.",
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-few-w120",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-empty-w120",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "dashboard": {
+    "rows": []
+   }
+  }
+ },
+ {
+  "id": "usage-loading-w120",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "dashboard": {
+    "rows": []
+   },
+   "loading": true
+  }
+ },
+ {
+  "id": "usage-theme-basic",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "theme": "basic",
+  "levels": true
+ },
+ {
+  "id": "usage-theme-light",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "theme": "light"
+ },
+ {
+  "id": "usage-theme-dracula",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "theme": "dracula"
+ },
+ {
+  "id": "usage-checking-empty",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "checking": true,
+    "rows": []
+   }
+  }
+ },
+ {
+  "id": "usage-loading-with-rows",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "loading": true,
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-checking-with-rows",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "checking": true,
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "usage-no-dashboard",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80
+  }
+ },
+ {
+  "id": "usage-fill",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   },
+   "fillHeight": true
+  },
+  "rows": 24
+ },
+ {
+  "id": "usage-scroll",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   },
+   "panelRows": 12
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[A",
+   "\u001b[5~",
+   "\u001b[F",
+   "\u001b[H"
+  ]
+ },
+ {
+  "id": "usage-scroll-w50",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   },
+   "panelRows": 9
+  },
+  "keys": [
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[F",
+   "\u001b[A"
+  ]
+ },
+ {
+  "id": "usage-scroll-w120",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ]
+   },
+   "panelRows": 15
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[6~",
+   "\u001b[F"
+  ]
+ },
+ {
+  "id": "usage-measured-fits",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     }
+    ]
+   },
+   "panelRows": 20
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[F"
+  ]
+ },
+ {
+  "id": "usage-scroll-loading",
+  "kind": "frame",
+  "component": "UsagePanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "dashboard": {
+    "rows": [
+     {
+      "id": "anthropic",
+      "label": "Anthropic OAuth",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 65,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 35,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "openai",
+      "label": "OpenAI",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 17,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 63,
+        "source": "oauth"
+       },
+       {
+        "label": "month",
+        "usedPct": 3,
+        "source": "oauth"
+       }
+      ],
+      "remainingUsd": 12.5
+     },
+     {
+      "id": "billing",
+      "label": "Billing style",
+      "windows": [
+       {
+        "label": "bal",
+        "remainingUsd": 4.25,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "spent",
+      "label": "Spent",
+      "windows": [
+       {
+        "label": "use",
+        "usedUsd": 1.5,
+        "limitUsd": 20,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits",
+      "label": "Credits",
+      "windows": [
+       {
+        "label": "cr",
+        "remainingCredits": 1500,
+        "limitCredits": 20000,
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "credits-used",
+      "label": "Credits used",
+      "windows": [
+       {
+        "label": "cr",
+        "usedCredits": 15000,
+        "limitCredits": 20000,
+        "usedPct": "x",
+        "source": "api"
+       }
+      ]
+     },
+     {
+      "id": "estimate",
+      "label": "Local estimate",
+      "windows": [
+       {
+        "label": "day",
+        "usedPct": 42
+       },
+       {
+        "label": "wk",
+        "remainingUsd": 3.5,
+        "source": "local-estimate"
+       }
+      ]
+     },
+     {
+      "id": "hot",
+      "label": "Nearly out",
+      "windows": [
+       {
+        "label": "5h",
+        "usedPct": 96,
+        "source": "oauth"
+       },
+       {
+        "label": "week",
+        "usedPct": 85,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "id": "credit-only",
+      "label": "Credit only",
+      "remainingUsd": 0
+     },
+     {
+      "id": "credit-low",
+      "label": "Credit low",
+      "remainingUsd": 0.75
+     },
+     {
+      "id": "checking",
+      "label": "Checking one",
+      "status": "checking"
+     },
+     {
+      "id": "hidden",
+      "label": "Hidden balance",
+      "status": "hidden",
+      "primary": "n/a"
+     },
+     {
+      "id": "hidden-bare",
+      "label": "Hidden bare",
+      "status": "hidden"
+     },
+     {
+      "id": "missing",
+      "label": "Missing key",
+      "status": "missing",
+      "primary": "no key"
+     },
+     {
+      "id": "error",
+      "label": "Errored",
+      "status": "error"
+     },
+     {
+      "id": "local",
+      "label": "Local only",
+      "status": "local"
+     },
+     {
+      "id": "tokens",
+      "label": "Token count",
+      "primary": "12.4K tokens"
+     },
+     {
+      "id": "cjk",
+      "label": "한글 공급자 이름이 아주 길면 잘린다 한글 공급자",
+      "windows": [
+       {
+        "label": "시간",
+        "usedPct": 12,
+        "source": "oauth"
+       }
+      ]
+     },
+     {
+      "label": "no id",
+      "primary": "no id row"
+     }
+    ],
+    "loading": true
+   },
+   "panelRows": 9
+  },
+  "keys": [
+   "\u001b[B",
+   "\u001b[6~"
+  ]
+ },
+ {
+  "id": "btw-pending-w50",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "why is the sky blue?",
+    "status": "pending",
+    "text": ""
+   }
+  }
+ },
+ {
+  "id": "btw-error-w50",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "why?",
+    "status": "error",
+    "text": "side question failed"
+   }
+  }
+ },
+ {
+  "id": "btw-short-w50",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "short"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-rich-w50",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "show me every kind of block",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  }
+ },
+ {
+  "id": "btw-long-w50",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3\nentry-4\nentry-5\nentry-6\nentry-7\nentry-8\nentry-9\nentry-10\nentry-11"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-pending-w80",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "why is the sky blue?",
+    "status": "pending",
+    "text": ""
+   }
+  }
+ },
+ {
+  "id": "btw-error-w80",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "why?",
+    "status": "error",
+    "text": "side question failed"
+   }
+  }
+ },
+ {
+  "id": "btw-short-w80",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "short"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-rich-w80",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "show me every kind of block",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  }
+ },
+ {
+  "id": "btw-long-w80",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3\nentry-4\nentry-5\nentry-6\nentry-7\nentry-8\nentry-9\nentry-10\nentry-11"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-pending-w120",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "panel": {
+    "question": "why is the sky blue?",
+    "status": "pending",
+    "text": ""
+   }
+  }
+ },
+ {
+  "id": "btw-error-w120",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "panel": {
+    "question": "why?",
+    "status": "error",
+    "text": "side question failed"
+   }
+  }
+ },
+ {
+  "id": "btw-short-w120",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "short"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-rich-w120",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "panel": {
+    "question": "show me every kind of block",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  }
+ },
+ {
+  "id": "btw-long-w120",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 120,
+  "props": {
+   "columns": 120,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3\nentry-4\nentry-5\nentry-6\nentry-7\nentry-8\nentry-9\nentry-10\nentry-11"
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-theme-basic",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "themes",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  },
+  "theme": "basic",
+  "levels": true
+ },
+ {
+  "id": "btw-theme-light",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "themes",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  },
+  "theme": "light"
+ },
+ {
+  "id": "btw-theme-dracula",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "themes",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 14
+  },
+  "theme": "dracula"
+ },
+ {
+  "id": "btw-scroll",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "why?",
+    "status": "done",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3\nentry-4\nentry-5\nentry-6\nentry-7\nentry-8\nentry-9\nentry-10\nentry-11"
+   },
+   "panelRows": 9
+  },
+  "keys": [
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[5~",
+   "\u001b[5~",
+   "\u001b[5~",
+   "\u001b[5~",
+   "a"
+  ]
+ },
+ {
+  "id": "btw-scroll-rich",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "rich",
+    "status": "done",
+    "text": "# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com/page).\n\n- first item\n- second item with more words so that it has to wrap on a narrow panel\n\n1. one\n2. two\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n> a quote\n\n| name | value |\n| --- | --- |\n| alpha | 1 |\n| beta | 22 |"
+   },
+   "panelRows": 10
+  },
+  "keys": [
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[5~"
+  ]
+ },
+ {
+  "id": "btw-scroll-error",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "err",
+    "status": "error",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3\nentry-4\nentry-5\nentry-6\nentry-7"
+   },
+   "panelRows": 8
+  },
+  "keys": [
+   "\u001b[6~",
+   "\u001b[6~",
+   "\u001b[5~"
+  ]
+ },
+ {
+  "id": "btw-default-rows",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 80,
+  "props": {
+   "columns": 80,
+   "panel": {
+    "question": "default rows",
+    "status": "done",
+    "text": "entry-0\nentry-1\nentry-2\nentry-3"
+   }
+  }
+ },
+ {
+  "id": "btw-cjk",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "하늘은 왜 파란가요? 아주 긴 질문이 제목 한 줄에 들어가지 않을 때",
+    "status": "done",
+    "text": "하늘이 파란 것은 빛의 산란 때문입니다. 하늘이 파란 것은 빛의 산란 때문입니다. 하늘이 파란 것은 빛의 산란 때문입니다. 하늘이 파란 것은 빛의 산란 때문입니다. 하늘이 파란 것은 빛의 산란 때문입니다. 하늘이 파란 것은 빛의 산란 때문입니다. "
+   },
+   "panelRows": 9
+  }
+ },
+ {
+  "id": "btw-long-question",
+  "kind": "frame",
+  "component": "BtwPanel",
+  "columns": 50,
+  "props": {
+   "columns": 50,
+   "panel": {
+    "question": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "status": "pending",
+    "text": ""
+   }
+  }
+ }
+]
