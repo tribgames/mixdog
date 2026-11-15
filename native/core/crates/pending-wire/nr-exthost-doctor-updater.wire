@@ -1,0 +1,68 @@
+# nr-exthost-doctor-updater: script-only Node metadata and shell-less external npm
+
+This supersedes the embedded-JSRT plan and all previous contents of this wire. No new crates. No JSRT,
+no shipped npm closure, no product JavaScript probe, and no old/new route environment flag.
+
+## Doctor: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+
+At DoctorInputs inside DaemonDoctorHost::new, KEEP data_dir, package_root and all unrelated services.
+Delete interpreter: JsInterpreter { ... } and processes: b.tidy_processes.clone(). Add:
+
+    runtime: crate::domain_seams::doctor::ScriptRuntime { version: b.js_runtime.node_version.clone() },
+
+## Metadata contract: root-owned composition/packaging
+
+native/core/crates/mixdog-app-server-daemon/src/compose.rs, struct JsRuntime: add
+
+    /// Actual script interpreter version from trusted launch/bundle metadata; never probed by doctor.
+    pub node_version: Option<String>,
+
+native/core/crates/mixdog-app-server-daemon/src/js_runtime.rs, struct Manifest (camelCase serde): add
+
+    #[serde(default)]
+    node_version: Option<String>,
+
+In resolve(), the JsRuntime construction becomes:
+
+    Ok(JsRuntime { program, package_root, electron: manifest.electron, node_version: manifest.node_version })
+
+Every other JsRuntime literal/test fixture must supply node_version: None unless it supplies an actual recorded
+interpreter fact. Missing old manifests deserialize to None. Do not use the minimum engines.node requirement as
+an actual version. Do not substitute the development host Node version for a shipped Electron or SSH runtime.
+The current manifest denies unknown fields: update its reader before emitting nodeVersion.
+
+The packaging/launch owner must populate the existing js-runtime.json schema's nodeVersion from the actual
+interpreter's known metadata: Electron process.versions.node (already present in desktop main/index.ts:2833) for
+that Electron build, and the pinned Node artifact's version for the SSH bundle. That desktop field is currently a
+separate fact, NOT an already-wired doctor input. No runtime interpreter spawn is introduced to populate it.
+Source/npm installs without trusted metadata remain unknown until their launcher supplies the actual version.
+The producers are listed in apps/desktop/pending-wire/t1-doctor-image.wire. Missing metadata must not fabricate an Ok row.
+
+## Unknown diagnostic
+
+Done in this branch (t1-doctor-image): mixdog-core-domains diagnostics.rs report_node answers Warn "Node.js script runtime
+version unavailable" for a null or absent version, with the report-level test the_node_row_reads_the_runtime_metadata
+(null/absent => Warn, compatible => Ok, incompatible => Fail, unknown engines => Warn). Nothing to apply.
+
+## External npm updater wiring
+
+compose_flip.rs DomainPaths literal: delete node: b.js_runtime.program.clone() and electron: b.js_runtime.electron.
+compose_domains.rs struct DomainPaths: delete node/electron fields and their interpreter comment.
+compose_domains/rows.rs StagedConfig literal: delete node/electron fields.
+compose_domains/tests.rs DomainPaths literal: delete node/electron fields; do NOT remove fields from unrelated
+ExtHostConfig or script runtime structs still needed by other tasks.
+
+Production npm resolution requires a system node executable on PATH and an existing npm-cli.js. Lookup order is
+npm_execpath, adjacent Windows/Unix/Homebrew npm-cli.js paths, then npm shim real-path lookup. A shim only helps
+locate npm-cli.js; npm.cmd/npm is NEVER executed as fallback. Missing resolution returns the original exact error
+"npm-cli.js unresolved — staging skipped". The bundled script interpreter is not an updater dependency.
+All registry/install commands run through existing Rust Exec with system node + npm-cli.js argv. Lock ownership,
+STALE_INPROGRESS, proxy settings, install arguments, relocation/version verification and completion marker remain.
+Test-owned shell shims are injected staging collaborators only, not production resolver output.
+
+## Verification and integration status
+
+Doctor retains three tests: recorded session-log cases, known/unknown metadata shape, package engines reading.
+Updater keeps staging regression cases and adds no-shim-execution and npm_execpath precedence cases. No installed
+npm or Node is executed by these resolver tests. No cargo was run (the lead compiles the wave).
+Root must apply consumer/metadata wiring and run authorized checks. SERVICE_PENDING is unchanged.

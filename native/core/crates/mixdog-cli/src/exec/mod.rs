@@ -17,15 +17,18 @@ pub mod usage;
 #[cfg(test)]
 mod tests;
 
+use mixdog_rt::Backend;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Args;
 use mixdog_core::run_host::tool_pool::session_create::worktree_name_error;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::json_stringify;
+use mixdog_rt::TaskClass;
 use serde_json::Value;
 
 /// Where the exec writes: the answer (or the JSON events) and its errors.
@@ -150,12 +153,12 @@ struct Tokens<'a> {
 }
 
 /// `roleKey(value) === 'exec'`.
-fn is_exec(value: &str) -> bool {
+pub fn is_exec(value: &str) -> bool {
     js_to_lowercase(js_trim(value)) == "exec"
 }
 
 /// `JSON.stringify(word)`, as a refusal quotes it.
-fn quoted(word: &str) -> String {
+pub fn quoted(word: &str) -> String {
     json_stringify(&Value::from(word))
 }
 
@@ -279,4 +282,85 @@ impl ExecArgs {
             tool_mode: tokens.tool_mode.unwrap_or(ToolMode::Full),
         }))
     }
+}
+
+/// Writes the exec's answer and errors to this process's stdout and stderr.
+pub struct StdSink;
+
+impl Sink for StdSink {
+    fn out(&self, text: &str) {
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(text.as_bytes());
+        let _ = out.flush();
+    }
+    fn err(&self, text: &str) {
+        use std::io::Write;
+        let _ = std::io::stderr().lock().write_all(text.as_bytes());
+    }
+}
+
+/// Refuses an unusable explicit route as Node does before anything starts (`validateExplicitPristineRoute`, printed as
+/// `mixdog: <text>`, exit 1), then runs the exec on its own core on this thread (`runHeadlessExec`) and returns its exit code.
+pub fn run_command(options: ExecOptions) -> i32 {
+    if let Err(refusal) = route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()) {
+        eprintln!("mixdog: {refusal}");
+        return 1;
+    }
+    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+        Ok(js) => js,
+        Err(err) => {
+            eprintln!("mixdog: resolving the JS runtime: {err}");
+            return 1;
+        }
+    };
+    // The host's own data folder (`resolvePluginData()`), where its credentials live; the run never writes to it.
+    let Some(host_data_dir) = mixdog_store::paths::Paths::from_process(&js.package_root).map(|paths| paths.data_dir) else {
+        eprintln!("mixdog: no data directory (set MIXDOG_DATA_DIR or HOME)");
+        return 1;
+    };
+    let (executors, tokens) = match mixdog_app_server_daemon::boot_executors() {
+        Ok(booted) => booted,
+        Err(err) => {
+            eprintln!("mixdog: starting the executors: {err}");
+            return 1;
+        }
+    };
+    let provider = route::clean(options.provider.as_deref()).to_owned();
+    let credentials = executors.handle(TaskClass::Work).block_on(launcher::ResolvedCredentials::read(&tokens, &provider, &host_data_dir));
+    // The exec's own thread: one, so the boundary's environment is applied while no other thread reads it.
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("mixdog: starting the async runtime: {err}");
+            return 1;
+        }
+    };
+    let ort_library = match mixdog_app_server_daemon::js_runtime::resolve_ort_library_current() {
+        Ok(Some(library)) => mixdog_services::effort_judge::model::OrtRuntime::Library(library),
+        Ok(None) => mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+        Err(err) => {
+            eprintln!("mixdog: resolving the ONNX Runtime: {err}");
+            return 1;
+        }
+    };
+    let launcher = launcher::InProcessLauncher::new(executors, tokens, js, ort_library);
+    let host = run::Host {
+        launcher: &launcher,
+        credentials: &credentials,
+        host_env: std::env::vars().collect(),
+        host_data_dir,
+        temp_dir: std::env::temp_dir(),
+        sink: Arc::new(StdSink),
+        now: lifecycle::system_clock(),
+    };
+    // `installProcessSignalCleanup`: an interrupt ends the run with 130 after the shutdown.
+    let signal: run::Signal = Box::pin(async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => 130,
+            Err(_) => std::future::pending().await,
+        }
+    });
+    let code = runtime.block_on(run::run_exec(options, host, signal));
+    i32::from(u8::try_from(code).unwrap_or(1))
 }

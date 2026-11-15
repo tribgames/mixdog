@@ -1,0 +1,40 @@
+# t1-doctor-image: the producers of js-runtime.json's nodeVersion (the doctor's script-runtime version)
+
+Contract: native/core/crates/pending-wire/nr-exthost-doctor-updater.wire (Manifest.node_version, JsRuntime.node_version).
+The doctor never spawns the interpreter, so the version must be written by whoever lays the install out. All paths are
+under apps/desktop/scripts. Apply together with the core wire (the daemon's manifest reader denies unknown fields:
+emitting nodeVersion before the reader accepts it breaks the daemon's start).
+
+## core-layout.mjs
+
+remoteJsRuntimeManifest(platform, arch) becomes remoteJsRuntimeManifest(platform, arch, nodeVersion) and its object gains,
+after `electron: false,`:
+
+    nodeVersion,
+
+(a dotted version string of the pinned Node artifact, no leading "v"; throw when it does not match /^\d+\.\d+\.\d+$/).
+
+verifyCoreInstall: for kind === 'remote' the expected manifest is built with the manifest's own nodeVersion
+(`remoteJsRuntimeManifest(platform, arch, manifest.nodeVersion)`), so isDeepStrictEqual still pins every other field
+and the version must be present and well formed; for kind === 'desktop' and for devJsRuntimeManifest nothing changes.
+
+## stage-js-bundle.mjs (the line `await writeFile(join(payloadDir, JS_RUNTIME_MANIFEST), ...remoteJsRuntimeManifest(platform, arch)...`)
+
+Pass the pin the file already holds: `remoteJsRuntimeManifest(platform, arch, node.version)`. (node.version is the version
+of the Node artifact copied to js/node, the one sha256-checked above it.)
+
+## core-layout.test.mjs / stage-js-bundle.test.mjs / core-layout-fixture.mjs
+
+The remote fixtures and expected manifests carry the same nodeVersion; a remote manifest without it, or with "v22.20.0",
+fails verifyCoreInstall.
+
+## NOT produced here (open, needs an owner/lead decision; nothing is guessed)
+
+- Desktop (desktopJsRuntimeManifest, stage-core.mjs): the interpreter is the Electron app in node mode. Its Node version is
+  not known when resources are staged (the app is not built; the host Node's version is a different fact and must not be
+  written). The only trusted source is the running app (process.versions.node, apps/desktop/src/main/index.ts, the value the
+  desktop-start log already records). Handing it to mixdogd needs a launch channel (an argument or the existing handshake)
+  in hot files (host/index.ts, connection.ts) and the daemon's compose; until one is chosen the desktop's doctor row reads
+  Warn "Node.js script runtime version unavailable" instead of Ok.
+- Dev installs (dev-core-install.mjs, devJsRuntimeManifest): the interpreter is whatever path the developer names; its
+  version is not known without running it. Left unknown (same Warn).

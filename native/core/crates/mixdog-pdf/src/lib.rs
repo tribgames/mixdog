@@ -5,11 +5,16 @@
 //! codec crate fills. The modules after them (`document`, `page`, `codec_glue`, `fonts`, `text`, `fontfile`,
 //! `inspect`) are declared here so later tasks each own their files and never share one.
 
+pub mod codec;
 pub mod codec_glue;
+pub mod color;
 pub mod document;
 pub mod error;
 pub mod fontfile;
 pub mod fonts;
+pub mod function;
+pub mod function_ps;
+pub mod glyph;
 pub mod inspect;
 pub mod lexer;
 pub mod object;
@@ -18,6 +23,7 @@ pub mod parser;
 pub mod repair;
 pub mod stream;
 pub mod text;
+pub mod write;
 pub mod xref;
 
 pub use error::{Budget, CancelCheck, Guard, INCORRECT_PASSWORD, NEED_PASSWORD, PdfError, Result};

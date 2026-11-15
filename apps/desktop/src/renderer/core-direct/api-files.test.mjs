@@ -104,7 +104,7 @@ test('file calls resolve the project folder first', async () => {
   const calls = sent().filter(([m]) => m !== 'project/directory');
   assert.deepEqual(calls, [
     ['projectFs/listDir', { root: 'F:/proj', rel: 'src' }],
-    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 80000 }],
+    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 2097152 }],
     ['projectFs/writeText', { root: 'F:/proj', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf8' }],
     ['projectFs/stat', { root: 'F:/proj', rel: 'a.txt' }],
     ['projectFs/create', { root: 'F:/proj', relDir: '', name: 'n', directory: true }],
@@ -124,9 +124,9 @@ test('a file larger than one answer is read a window at a time from one read and
   const { api, sent } = await world((method, params) => (method === 'projectFs/readText' ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2] : defaults(method, params)));
   assert.deepEqual(await api.readProjectFile('C:/outside', 'big.txt', 'tok'), { content: 'abcde', encoding: 'utf8' });
   assert.deepEqual(sent(), [
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 80000 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 80000 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 80000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 2097152 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 2097152 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 2097152 }],
   ]);
 });
 
@@ -137,7 +137,7 @@ test('a one-file token goes to the core with the project path', async () => {
   await api.statProjectFile('C:/outside', 'a.txt', 'tok');
   await api.captureFileSnapshot('C:/outside', 'a.txt', 'tok');
   assert.deepEqual(sent(), [
-    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 80000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 2097152 }],
     ['projectFs/writeText', { root: 'C:/outside', rel: 'a.txt', content: 'n', expectedContent: 'o', accessToken: 'tok' }],
     ['projectFs/stat', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
     ['projectFs/captureSnapshot', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
@@ -298,25 +298,46 @@ test('a start call publishes its blank snapshot as the window shell snapshot', a
   assert.equal(sessionLanesOf(ctx).shell.get().cwd, 'T');
 });
 
-test('a converted document PDF is read in ranges into a blob URL; a file previewed as it is is the host', async () => {
-  const made = [];
-  const realCreate = URL.createObjectURL;
-  URL.createObjectURL = (blob) => (made.push(blob), `blob:pdf-${made.length}`);
-  try {
-    const { api, sent } = await world((method) => {
-      if (method === 'project/directory') return { path: 'F:/proj', standalone: false };
-      if (method === 'document/preview') return { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
-      if (method === 'projectFs/previewRange') return { data: Buffer.from([1, 2, 3]).toString('base64'), size: 3 };
+test('a converted document PDF in a server window is the hosts ranged mixdog-media URL too, never read here', async () => {
+  const asked = [];
+  const host = { previewProjectFile: async (...args) => (asked.push(args), { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', mtimeMs: 1, size: 3 }) };
+  await inServerWindow(async () => {
+    const client = fakeClient((method) => {
+      if (method === 'project/directory') return { path: '/srv/proj', standalone: false };
+      if (method === 'document/preview') return { path: '/cache/docs/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
       return {};
     });
-    assert.equal('previewProjectFile' in api, false, 'streamed by the main process');
+    const connection = createRendererConnection({ open: async () => client });
+    await connection.start();
+    const api = createFilesApi(createDirectContext(connection), { host });
     const preview = await api.previewDocumentFile('proj', 'a.docx');
-    assert.equal(preview.url, 'blob:pdf-1');
-    assert.equal(made[0].type, 'application/pdf');
-    assert.equal(made[0].size, 3);
-    assert.ok(sent().some(([m, p]) => m === 'projectFs/previewRange' && p.root === 'C:/cache' && p.rel === 'a.pdf'));
-  } finally {
-    URL.createObjectURL = realCreate;
+    assert.equal(preview.url, 'mixdog-media://preview/t/a.pdf');
+    assert.deepEqual(asked, [['/cache/docs', 'a.pdf']]);
+    assert.equal(client.calls.some((c) => c.method === 'projectFs/previewRange'), false);
+  });
+});
+
+test('a window without the host cannot show a document preview and says so', async () => {
+  const { api } = await world((method, params) => (method === 'document/preview' ? { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 } : defaults(method, params)));
+  await assert.rejects(() => api.previewDocumentFile('proj', 'a.docx'), /cannot show a document preview/);
+});
+
+/** A core that holds a read of `total` code points and answers it a window at a time, as readwindow.rs does. */
+function windowedCore(total) {
+  return (method, params) => {
+    if (method !== 'projectFs/readText') return defaults(method, params);
+    const from = params.fromChar ?? 0;
+    const end = Math.min(total, from + params.maxChars);
+    return { content: 'x'.repeat(end - from), encoding: 'utf8', ...(end < total ? { readId: 'r', nextChar: end } : {}) };
+  };
+}
+
+test('a 1 MiB text opens in one call and a 10 MB text in five', async () => {
+  for (const [chars, calls] of [[1_048_576, 1], [10_000_000, 5]]) {
+    const { api, sent } = await world(windowedCore(chars));
+    const file = await api.readProjectFile('C:/outside', 'big.txt', 'tok');
+    assert.equal(file.content.length, chars);
+    assert.equal(sent().length, calls);
   }
 });
 

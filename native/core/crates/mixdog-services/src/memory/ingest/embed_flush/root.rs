@@ -136,13 +136,19 @@ struct Update {
 }
 
 impl RawEmbedFlush {
+    /// Node's `onnxRuntimeSupported()` gate: a process with no embedding provider (the runtime is
+    /// unsupported on this platform) embeds nothing, and a root written without a vector is kept.
+    fn embeds(&self) -> bool {
+        self.provider.is_some() && onnx_runtime_supported()
+    }
+
     /// `flushEmbeddingDirty`: embeds roots that have no vector, newest first, until none are left
     /// or the deadline passes. Callers that ask while a flush runs share it (the first caller's
     /// `cancel` governs it); the work is a task of its own, so a caller that stops waiting never
     /// leaves a transaction open.
     pub async fn flush_roots(self: &Arc<Self>, cancel: &CancellationToken) -> Result<RootFlush, FlushFailure> {
         check(cancel)?;
-        if !onnx_runtime_supported() {
+        if !self.embeds() {
             return Ok(RootFlush::default());
         }
         let (flight, started) = {
@@ -275,7 +281,7 @@ impl RawEmbedFlush {
         cancel: &CancellationToken,
     ) -> Result<Vec<i64>, FlushFailure> {
         check(cancel)?;
-        if !onnx_runtime_supported() {
+        if !self.embeds() {
             return Ok(Vec::new());
         }
         let rows = client

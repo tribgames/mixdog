@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_connections::notifier::{AnswerReadError, AttachmentKind, FinalAnswers};
-use mixdog_connections::server_feed::{FinalAnswer, FinalAnswerStatus};
+use mixdog_connections::server_feed::FinalAnswer;
 use mixdog_core_api::call::{CallContext, CoreRequest};
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::{CoreError, Reply, ThreadDirectory};
 use mixdog_core_session::session::SessionDirectory;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::notify_producer::{ProducerTexts, RunOwners, Wait};
 use crate::compose_connections::UiLanguage;
@@ -29,26 +29,6 @@ impl DirectoryFinalAnswers {
     }
 }
 
-/// The answer a read returned: `{ id, at, status: done | failed | cancelled, text, reacted? }`; `None` for no answer yet.
-fn answer_of(value: &Value) -> Option<FinalAnswer> {
-    let fields = value.as_object()?;
-    let status = match fields.get("status")?.as_str()? {
-        "done" => FinalAnswerStatus::Done,
-        "failed" => FinalAnswerStatus::Failed,
-        "cancelled" => FinalAnswerStatus::Cancelled,
-        _ => return None,
-    };
-    let at = fields.get("at")?;
-    let at = at.as_i64().or_else(|| at.as_f64().map(|n| n as i64))?;
-    Some(FinalAnswer {
-        id: fields.get("id").cloned().unwrap_or(Value::Null),
-        at,
-        status,
-        text: fields.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
-        reacted: fields.get("reacted").and_then(Value::as_bool).unwrap_or(false),
-    })
-}
-
 /// The session store says the record is gone (deleted, never persisted): no later read can produce its answer.
 fn session_missing(error: &CoreError) -> bool {
     matches!(error, CoreError::ThreadNotFound { .. }) || format!("{error:?}").to_lowercase().contains("is not available")
@@ -64,7 +44,7 @@ impl FinalAnswers for DirectoryFinalAnswers {
             ctx: CallContext::internal("turn-notification"),
         };
         match self.directory.request(request).await {
-            Ok(Reply::Value(value)) => Ok(answer_of(&value)),
+            Ok(Reply::Value(value)) => Ok(FinalAnswer::parse(&value)),
             Ok(_) => Err(AnswerReadError::Failed("the final answer read answered no value".to_owned())),
             Err(error) if session_missing(&error) => Err(AnswerReadError::SessionMissing),
             Err(error) => Err(AnswerReadError::Failed(format!("{error:?}"))),
@@ -108,25 +88,26 @@ impl ProducerTexts for CatalogProducerTexts {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use mixdog_connections::server_feed::FinalAnswerStatus;
+    use serde_json::{Value, json};
 
     use super::*;
 
     #[test]
     fn a_read_answer_is_the_recorded_turn_answer() {
-        let done = answer_of(&json!({ "id": "t1", "at": 2000, "status": "done", "text": "Checked." })).unwrap();
+        let done = FinalAnswer::parse(&json!({ "id": "t1", "at": 2000, "status": "done", "text": "Checked." })).unwrap();
         assert_eq!((done.at, done.status, done.text.as_str(), done.reacted), (2000, FinalAnswerStatus::Done, "Checked.", false));
-        let reacted = answer_of(&json!({ "id": "t1", "at": 2000.0, "status": "done", "text": "", "reacted": true })).unwrap();
+        let reacted = FinalAnswer::parse(&json!({ "id": "t1", "at": 2000.0, "status": "done", "text": "", "reacted": true })).unwrap();
         assert!(reacted.reacted && reacted.at == 2000);
-        let failed = answer_of(&json!({ "id": "t1", "at": 3, "status": "failed", "text": "" })).unwrap();
+        let failed = FinalAnswer::parse(&json!({ "id": "t1", "at": 3, "status": "failed", "text": "" })).unwrap();
         assert_eq!(failed.status, FinalAnswerStatus::Failed);
     }
 
     #[test]
     fn a_pending_answer_is_none_and_an_unknown_status_is_not_an_answer() {
-        assert!(answer_of(&Value::Null).is_none());
-        assert!(answer_of(&json!({ "at": 1, "status": "running" })).is_none());
-        assert!(answer_of(&json!({ "status": "done" })).is_none(), "no time: not an answer");
+        assert!(FinalAnswer::parse(&Value::Null).is_none());
+        assert!(FinalAnswer::parse(&json!({ "at": 1, "status": "running" })).is_none());
+        assert!(FinalAnswer::parse(&json!({ "status": "done" })).is_none(), "no time: not an answer");
     }
 
     #[test]

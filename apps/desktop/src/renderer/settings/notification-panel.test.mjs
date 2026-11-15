@@ -456,3 +456,28 @@ test('a failed write shows its error and rolls the control back', async (t) => {
   assert.equal(checkbox(document, 'Taskbar flash').checked, true, 'rolled back');
   assert.match(document.querySelector('[role="alert"]').textContent, /no/);
 });
+
+test('desktop unsupported result is localized and arbitrary errors stay unchanged', async (t) => {
+  const { default: language, t: translate } = await import('../i18n.ts');
+  const key = 'This computer does not support notifications.';
+  language.addResourceBundle('de', 'translation', { [key]: 'Dieser Computer unterstützt keine Benachrichtigungen.' });
+  const previous = language.language;
+  await language.changeLanguage('de');
+  t.after(async () => { await language.changeLanguage(previous || 'en'); });
+  const made = makeApi(makeState('c1'));
+  let result = { ok: false, message: key };
+  made.api.sendTestNotification = async () => result;
+  const { document } = await mountPanel(t, made);
+  const send = [...document.querySelectorAll('button')].find((b) => b.textContent === translate('Send'));
+  await clickEl(send);
+  await settle();
+  assert.equal(document.querySelector('[role="status"]').textContent, 'Dieser Computer unterstützt keine Benachrichtigungen.');
+  result = { ok: false, message: 'Specific host failure: abc' };
+  await clickEl(send);
+  await settle();
+  assert.equal(document.querySelector('[role="status"]').textContent, result.message);
+  result = { ok: true };
+  await clickEl(send);
+  await settle();
+  assert.equal(document.querySelector('[role="status"]').textContent, translate('Test notification sent.'));
+});

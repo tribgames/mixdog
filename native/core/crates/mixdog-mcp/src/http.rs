@@ -45,6 +45,8 @@ pub struct HttpTransport {
     auth: Option<Arc<dyn Authorizer>>,
     /// Where the Google calls of a built-in Google connector's server go (that server answers in this process).
     google: Option<Arc<dyn GoogleFetch>>,
+    /// The server a Gmail app-password connector's reserved address is answered by (in this process).
+    gmail: Option<Arc<crate::gmail_app_password::GmailMcp>>,
 }
 
 fn request_error(error: reqwest::Error) -> TransportError {
@@ -84,6 +86,7 @@ impl HttpTransport {
                 shutdown: CancellationToken::new(),
                 auth,
                 google,
+                gmail: None,
             },
             rx,
         ))
@@ -95,6 +98,31 @@ impl HttpTransport {
             self.google = Some(fetch);
         }
         self
+    }
+
+    /// Sends the requests of a Gmail app-password connector's reserved address to `server`.
+    pub fn with_gmail(mut self, server: Arc<crate::gmail_app_password::GmailMcp>) -> Self {
+        if crate::gmail_app_password::is_service(&self.url) {
+            self.gmail = Some(server);
+        }
+        self
+    }
+
+    /// `post_message` to a Gmail app-password connector: the answer is made in this process
+    /// ([`crate::gmail_app_password::GmailMcp::answer`]) from the account header of the server's config. No sign-in: the
+    /// password is in the keychain.
+    async fn post_gmail(&self, gmail: &crate::gmail_app_password::GmailMcp, message: &Value) -> Result<(), TransportError> {
+        let account = self.headers.get(crate::connector_model::GMAIL_ACCOUNT_HEADER).and_then(|value| value.to_str().ok());
+        let text = message.to_string();
+        let answer = gmail.answer(&self.url, "POST", account, text.as_bytes()).await.map_err(TransportError::Request)?;
+        if !(200..300).contains(&answer.status) {
+            let body: String = answer.body.map(|b| b.to_string()).unwrap_or_default().chars().take(ERROR_BODY_CHARS).collect();
+            return Err(TransportError::Http { status: answer.status, body });
+        }
+        if let Some(value) = answer.body.filter(|_| answer.status != 202 && answer.status != 204) {
+            self.deliver(value);
+        }
+        Ok(())
     }
 
     fn decorate(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -304,7 +332,7 @@ impl Transport for HttpTransport {
 
     fn initialized(&self) {
         // The reserved address answers a GET `405`: it has no stream to listen on.
-        if self.google.is_some() {
+        if self.google.is_some() || self.gmail.is_some() {
             return;
         }
         let Ok(base) = self
@@ -441,6 +469,9 @@ impl HttpTransport {
         }
         if let Some(google) = &self.google {
             return self.post_reserved(google.as_ref(), &message).await;
+        }
+        if let Some(gmail) = &self.gmail {
+            return self.post_gmail(gmail, &message).await;
         }
         let post = |token: Option<String>| {
             let mut request = self

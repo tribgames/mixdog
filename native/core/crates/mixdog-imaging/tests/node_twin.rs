@@ -8,7 +8,7 @@
 //! within 15 percent. It also replays the composer's resize and the tool-result compaction goldens of
 //! `mixdog-exthost`, and the two 64x48 gradients its pool test uses.
 //!
-//! What is not compared, and why, is listed in [`PIXEL_APPROXIMATE`] and [`WEBP_ENCODER_PENDING`].
+//! What is not compared, and why, is listed in [`PIXEL_APPROXIMATE`].
 
 use std::path::PathBuf;
 
@@ -40,11 +40,6 @@ const PIXEL_APPROXIMATE: &[(&str, &str)] = &[(
     "format jpegCmykNoProfile",
     "a CMYK JPEG with no ICC profile: libvips converts it through its built-in CMYK profile, which no Rust crate carries; the decoder converts it with the plain inverse-ink rule",
 )];
-
-/// The lossy WebP encoder is `nr-exthost-imaging-still`'s: until it lands, a resize that must write WebP answers an
-/// environment failure naming it, and such a case is counted, not compared. Once the encoder exists nothing is
-/// skipped.
-const WEBP_ENCODER_PENDING: &str = "lossy WebP encoding";
 
 fn manifest_dir() -> PathBuf {
     std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from)
@@ -183,15 +178,11 @@ fn check_error(name: &str, expected: &Value, got: &ImagingError, wrapped: bool) 
     Ok(())
 }
 
-fn webp_pending(error: &ImagingError) -> bool {
-    error.is_environment() && error.sentence().contains(WEBP_ENCODER_PENDING)
-}
-
 fn approximate(name: &str) -> bool {
     PIXEL_APPROXIMATE.iter().any(|(case, _)| *case == name)
 }
 
-fn resize_case(case: &Value, skipped: &mut Vec<String>) -> Result<(), String> {
+fn resize_case(case: &Value) -> Result<(), String> {
     let name = text(case, "name");
     let bytes = input(text(case, "input"));
     let expect = &case["expect"];
@@ -200,15 +191,6 @@ fn resize_case(case: &Value, skipped: &mut Vec<String>) -> Result<(), String> {
         max_tokens: case["maxTokens"].as_u64().unwrap_or(ResizeOptions::default().max_tokens),
     };
     let got = resize_image_buffer(&bytes, text(case, "ext"), options);
-    if case["divergence"] == "avif-svg" {
-        // Owner decision: AVIF and SVG bytes are answered as unsupported (sharp decodes them).
-        let error = got.err().ok_or_else(|| format!("{name}: an AVIF or SVG input was taken"))?;
-        return if error.class() == ErrorClass::Invalid && error.sentence().contains("unsupported image format") {
-            Ok(())
-        } else {
-            Err(format!("{name}: expected the unsupported-format sentence, got {error}"))
-        };
-    }
     match (text(expect, "class"), got) {
         ("none", Ok(None)) => Ok(()),
         ("ok", Ok(Some(resized))) => {
@@ -236,10 +218,6 @@ fn resize_case(case: &Value, skipped: &mut Vec<String>) -> Result<(), String> {
             }
             check_pixels(name, &resized.data, &expect["pixels"])
         }
-        ("ok", Err(error)) if webp_pending(&error) => {
-            skipped.push(name.to_owned());
-            Ok(())
-        }
         ("invalid", Err(error)) => check_error(name, expect, &error, true),
         (class, got) => Err(format!("{name}: sharp's class {class}, got {got:?}")),
     }
@@ -250,9 +228,6 @@ fn probe_case(case: &Value) -> Result<(), String> {
     let bytes = input(text(case, "input"));
     let expect = &case["expect"];
     let got = probe(&bytes);
-    if case["divergence"] == "avif-svg" {
-        return got.err().map(|_| ()).ok_or_else(|| format!("{name}: an AVIF or SVG input was taken"));
-    }
     match (text(expect, "class"), got) {
         ("ok", Ok((width, height))) => {
             let want = (number(expect, "width"), number(expect, "height"));
@@ -263,20 +238,13 @@ fn probe_case(case: &Value) -> Result<(), String> {
     }
 }
 
-fn validate_case(case: &Value, skipped: &mut Vec<String>) -> Result<(), String> {
+fn validate_case(case: &Value) -> Result<(), String> {
     let name = text(case, "name");
     let bytes = input(text(case, "input"));
     let expect = &case["expect"];
     let got = validate(&bytes, text(case, "format"));
-    if case["divergence"] == "avif-svg" {
-        return got.err().map(|_| ()).ok_or_else(|| format!("{name}: an AVIF or SVG input was taken"));
-    }
     match (text(expect, "class"), got) {
         ("ok", Ok(())) => Ok(()),
-        ("ok", Err(error)) if webp_pending(&error) => {
-            skipped.push(name.to_owned());
-            Ok(())
-        }
         ("environment", Err(error)) if error.is_environment() => Ok(()),
         ("invalid", Err(error)) => check_error(name, expect, &error, true),
         (class, got) => Err(format!("{name}: sharp's class {class}, got {got:?}")),
@@ -330,12 +298,12 @@ fn the_corpus_is_recorded_and_complete() {
 #[test]
 fn every_probe_jpeg_validate_and_resize_call_equals_sharps() {
     let corpus = corpus();
-    let (mut failures, mut skipped, mut compared) = (Vec::new(), Vec::new(), 0);
+    let (mut failures, mut compared) = (Vec::new(), 0);
     for case in corpus["cases"].as_array().expect("cases") {
         let outcome = match text(case, "op") {
-            "resize" => resize_case(case, &mut skipped),
+            "resize" => resize_case(case),
             "probe" => probe_case(case),
-            "validate" => validate_case(case, &mut skipped),
+            "validate" => validate_case(case),
             "jpeg" => jpeg_case(case),
             other => Err(format!("unknown op {other}")),
         };
@@ -345,8 +313,6 @@ fn every_probe_jpeg_validate_and_resize_call_equals_sharps() {
         }
     }
     assert!(failures.is_empty(), "{} of {compared} cases differ from sharp:\n{}", failures.len(), failures.join("\n"));
-    // Only the cases that need the lossy WebP encoder may be skipped, and none may be once it exists.
-    assert!(skipped.len() <= 12, "too many cases skipped for the missing WebP encoder: {skipped:?}");
 }
 
 #[test]

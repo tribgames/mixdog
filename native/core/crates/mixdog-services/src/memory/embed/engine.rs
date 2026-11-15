@@ -91,6 +91,7 @@ struct Inner {
     tokenizer: UnigramTokenizer,
     sessions: Vec<Mutex<Session>>,
     with_type_ids: bool,
+    device: &'static str,
     lane: mixdog_rt::CpuBulk,
     dims: std::sync::atomic::AtomicUsize,
     cache: Mutex<VectorCache>,
@@ -123,6 +124,8 @@ impl Embedder {
             .and_then(|json| json["model_max_length"].as_u64())
             .filter(|n| *n > 0)
             .unwrap_or(512) as usize;
+        // The worker's loadExtractor: DirectML is asked for by name and a failure to register it fails the load.
+        let gpu = config::prefers_gpu(&model_id, std::env::var("MIXDOG_MEMORY_EMBED_DEVICE").ok().as_deref(), cfg!(windows));
         let count = config.sessions.max(1);
         let library = config.ort_library.clone();
         let (tokenizer, sessions) = run_on_lane(config.lane, move || -> Result<(UnigramTokenizer, Vec<Session>)> {
@@ -131,7 +134,9 @@ impl Embedder {
             let mut sessions = Vec::new();
             for _ in 0..count {
                 let build = || -> ort::Result<Session> {
+                    let providers = if gpu { vec![ort::ep::DirectML::default().build().error_on_failure()] } else { Vec::new() };
                     let mut builder = Session::builder(environment)?
+                        .with_execution_providers(providers)?
                         .with_intra_threads(1)?
                         .with_inter_threads(1)?
                         .with_optimization_level(GraphOptimizationLevel::Level1)?
@@ -155,6 +160,7 @@ impl Embedder {
                 tokenizer,
                 sessions: sessions.into_iter().map(Mutex::new).collect(),
                 with_type_ids,
+                device: if gpu { "dml" } else { "cpu" },
                 lane: config.lane,
                 dims: std::sync::atomic::AtomicUsize::new(0),
                 cache: Mutex::default(),
@@ -183,6 +189,11 @@ impl Embedder {
 
     pub fn dtype(&self) -> &str {
         &self.inner.dtype
+    }
+
+    /// The device the sessions run on, `dml` or `cpu` (the worker's `_device`).
+    pub fn device(&self) -> &'static str {
+        self.inner.device
     }
 
     /// The measured dimensions of the loaded model.

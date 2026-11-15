@@ -10,17 +10,24 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use mixdog_fsio::ReadProof;
+use mixdog_fsio::WriteProof;
 use mixdog_js::nodepath;
 use sha2::Digest;
 use sha2::Sha256;
 
 use crate::Outcome;
+use crate::mixdogd_exec::Mixdogd;
+use crate::source_extract::OfficeHost;
+use crate::source_extract::installed_office_engine;
 
 /// A shipped script this crate runs itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Native {
     ValidateSkill,
     Inventory,
+    SourceExtract,
+    QcPages,
+    ReviewDeck,
 }
 
 /// One shipped script.
@@ -30,8 +37,7 @@ pub struct Shipped {
     pub path: &'static str,
     /// The SHA-256 of the file (line ends as LF), in lower-case hex.
     pub sha256: &'static str,
-    /// How this crate runs it; `None` for a script that still runs under the extension host until
-    /// `nr-exthost-skill-scripts-office` ports it.
+    /// How this crate runs it; `None` for a script this crate does not run itself.
     pub native: Option<Native>,
 }
 
@@ -49,17 +55,17 @@ pub const SHIPPED: &[Shipped] = &[
     Shipped {
         path: "pptx/scripts/source-extract.mjs",
         sha256: "bf5469676e88730562bee6630a1c618bd0aecd5564218faf693318fe8994c24e",
-        native: None,
+        native: Some(Native::SourceExtract),
     },
     Shipped {
         path: "pptx/scripts/qc-pages.mjs",
         sha256: "da3b2c76ffffd6ca26583a47e45ceb7394e42b1c3015249d32baaa60861eea66",
-        native: None,
+        native: Some(Native::QcPages),
     },
     Shipped {
         path: "pptx/scripts/review-deck.mjs",
         sha256: "2d492cd6dd09593c40c732cf2a37725e668465a0d0be81278280c2fbb259bf11",
-        native: None,
+        native: Some(Native::ReviewDeck),
     },
 ];
 
@@ -110,11 +116,34 @@ pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) 
     SHIPPED.iter().find(|shipped| shipped.sha256 == digest).copied()
 }
 
-/// Runs a native shipped script with its command-line arguments. `today` is the date `inventory` reports.
-pub fn run_native<P: ReadProof>(proof: &P, native: Native, args: &[String], today: &str) -> Outcome {
+impl Native {
+    /// Whether this process can run the script itself: the two scripts that read office files need the office engine, and a
+    /// process without one hands them to the script interpreter like any other script.
+    pub fn runs_here(self) -> bool {
+        match self {
+            Native::SourceExtract | Native::QcPages => installed_office_engine().is_some(),
+            _ => true,
+        }
+    }
+}
+
+/// Runs a native shipped script with its command-line arguments. `today` is the date `inventory` reports. The office
+/// scripts run against this process's office engine ([`crate::source_extract::install_office_engine`]), its working
+/// folder and the `mixdogd` that `MIXDOGD_BIN` names (or the one on the search path).
+pub fn run_native<P: WriteProof>(proof: &P, native: Native, args: &[String], today: &str) -> Outcome {
     match native {
         Native::ValidateSkill => crate::validate_skill::run_validate_skill(proof, args),
         Native::Inventory => crate::inventory::run_inventory(proof, args, today),
+        Native::SourceExtract | Native::QcPages | Native::ReviewDeck => {
+            let exec = Mixdogd::from_env();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let host = OfficeHost { engine: installed_office_engine(), exec: &exec, cwd: &cwd };
+            match native {
+                Native::SourceExtract => crate::source_extract::run_source_extract(proof, args, &host),
+                Native::QcPages => crate::qc_pages::run_qc_pages(proof, args, &host),
+                _ => crate::review_deck::run_review_deck(proof, args, &host),
+            }
+        }
     }
 }
 
@@ -164,7 +193,7 @@ mod tests {
         let shipped = shipped_script(&Unlaned, &root.join("skill-creator/scripts/validate-skill.mjs"), &root).expect("shipped");
         assert_eq!(shipped.native, Some(Native::ValidateSkill));
         let pptx = shipped_script(&Unlaned, &root.join("pptx/scripts/qc-pages.mjs"), &root).expect("shipped");
-        assert_eq!(pptx.native, None);
+        assert_eq!(pptx.native, Some(Native::QcPages));
         assert_eq!(shipped_script(&Unlaned, &root.join("skill-creator/SKILL.md"), &root), None);
         assert_eq!(shipped_script(&Unlaned, &root.join("skill-creator/scripts/missing.mjs"), &root), None);
     }
@@ -184,6 +213,11 @@ mod tests {
         assert_eq!(shipped_script(&Unlaned, &target, &other_root).map(|shipped| shipped.path), Some("test-suite/scripts/inventory.mjs"));
         mixdog_testkit::write(&target, "console.log('not shipped');");
         assert_eq!(shipped_script(&Unlaned, &target, &other_root), None);
+    }
+
+    #[test]
+    fn every_shipped_script_has_a_native_version() {
+        assert!(SHIPPED.iter().all(|shipped| shipped.native.is_some()));
     }
 
     #[test]

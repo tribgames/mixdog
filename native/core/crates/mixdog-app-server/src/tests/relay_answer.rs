@@ -241,6 +241,17 @@ async fn a_rejected_answer_told_to_a_phone_carries_no_secret_of_its_call() {
     assert!(local[0].contains(secret), "a local client is told whole: {}", local[0]);
 }
 
+/// The first `error` notification the client is written, whatever else is written before it.
+async fn error_notification(client: &Client) -> Value {
+    for _ in 0..5_000 {
+        if let Some(wire) = client.drain().into_iter().find(|wire| wire.body["method"] == "error") {
+            return wire.body;
+        }
+        super::pause().await;
+    }
+    panic!("no error notification was written");
+}
+
 /// A decision the thread's `decide` itself refuses (not `response_rejected`): the sender is told by an `error` notification, whole
 /// to a local client and, to a relay connection, without the text and the params it may not read.
 #[tokio::test(start_paused = true)]
@@ -259,13 +270,13 @@ async fn a_decision_refused_by_decide_is_told_a_phone_without_the_secret_and_a_l
     let (phone, local) = (connect(2, Origin::Relay), connect(3, Origin::Local));
     handle.actor.ask("ap1", "t1", &[], None);
     handle.actor.refuse_with(core_error(&case["thrown"]));
-    phone.drain();
-    local.drain();
     phone.send(json!({ "id": "ap1", "result": { "approved": true } }));
     local.send(json!({ "id": "ap1", "result": { "approved": true } }));
-    let (told, whole) = (phone.drain(), local.drain());
-    assert_eq!((told.len(), whole.len()), (1, 1));
-    let (told, whole) = (told[0].body.clone(), whole[0].body.clone());
+    // The writer flushes after the answer is handled, and the asks' own frames may still be on their way: wait for the
+    // `error` notification itself, then see that no second one follows.
+    let (told, whole) = (error_notification(&phone).await, error_notification(&local).await);
+    super::pause().await;
+    assert_eq!((phone.drain().iter().filter(|w| w.body["method"] == "error").count(), local.drain().iter().filter(|w| w.body["method"] == "error").count()), (0, 0), "told once");
     assert!(whole.to_string().contains(secret), "a local client is told whole: {whole}");
     let mut expected = whole;
     let error = expected["params"]["error"]["data"].as_object_mut().unwrap();

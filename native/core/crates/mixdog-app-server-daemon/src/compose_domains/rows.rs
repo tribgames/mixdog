@@ -122,8 +122,6 @@ pub(super) async fn build(
         StagedConfig {
             data_dir: inputs.paths.data_dir.clone(),
             package_root: inputs.paths.package_root.clone(),
-            node: inputs.paths.node.clone(),
-            electron: inputs.paths.electron,
         },
         tokens.maintenance_io,
         seams.system_proxy.clone(),

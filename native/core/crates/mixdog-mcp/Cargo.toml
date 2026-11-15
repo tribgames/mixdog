@@ -29,6 +29,7 @@ mixdog-secrets = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+encoding_rs = { workspace = true }
 flate2 = { workspace = true }
 # The tools' `outputSchema`, checked on every result as the MCP SDK client does.
 jsonschema = { workspace = true }

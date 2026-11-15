@@ -1,0 +1,15 @@
+#length1=none
+#composite=true
+#firstChar=0
+#lastChar=255
+#widths=
+numGlyphs=5
+charset=.notdef,.notdef,cid1,cid2,cid3
+glyphs=.notdef:500:0:1;cid1:600:10:1;cid2:500:0:1;cid3:700:20:1
+seacs=
+builtIn=none
+widths=
+fontMatrix=0.001,0,0,0.001,0,0
+ascent=800
+descent=-250
+hasGlyph=111110

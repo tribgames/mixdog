@@ -14,10 +14,13 @@ import {
   legacyAgentMutePath,
   notificationPreferencesPath,
   readLegacyMutedAgents,
-  readPcNotificationView,
 } from './notification-preferences.ts';
+import { pcNotificationViewOf } from './pc-notification-view.ts';
 
 const MIGRATED_AT = 5_000;
+
+// The window process's view of a stored file: the core's `notifications` config holds the same document.
+const viewOfFile = (path, now) => pcNotificationViewOf(JSON.parse(readFileSync(path, 'utf8')), now);
 
 function profile(t) {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-notify-'));
@@ -115,7 +118,7 @@ test('first load migrates: notifications off becomes scope off, every muted bot 
     { target: { kind: 'agent', id: 'rel' }, setting: { mode: 'muted', until: null } },
   ]);
   // The window process reads the same file.
-  const view = readPcNotificationView(notificationPreferencesPath(dir), MIGRATED_AT);
+  const view = viewOfFile(notificationPreferencesPath(dir), MIGRATED_AT);
   assert.equal(view.preferences.scope, 'off');
   assert.equal(view.overrides.length, 2);
   // Migration runs once: a later legacy change is not read again.
@@ -196,7 +199,7 @@ test('conversation overrides: set, replace, inherit removes, an expired mute is 
     (await prefs.overrides()).map((entry) => entry.target.id),
     ['r1']
   );
-  assert.deepEqual(readPcNotificationView(notificationPreferencesPath(dir), now.value).overrides.length, 1);
+  assert.deepEqual(viewOfFile(notificationPreferencesPath(dir), now.value).overrides.length, 1);
   assert.deepEqual(await prefs.setConversation({ kind: 'room', id: 'r1' }, { mode: 'inherit' }), []);
 });
 
@@ -211,7 +214,7 @@ test('every stored override and device is kept; adding one evicts nothing', asyn
     notificationPreferencesPath(dir),
     JSON.stringify({ version: 1, migratedAt: MIGRATED_AT, devices, overrides })
   );
-  assert.equal(readPcNotificationView(notificationPreferencesPath(dir)).overrides.length, 501);
+  assert.equal(viewOfFile(notificationPreferencesPath(dir)).overrides.length, 501);
   const prefs = store(dir);
   assert.equal((await prefs.overrides()).length, 501);
   assert.equal(
@@ -231,7 +234,7 @@ test('a read error is not an absent file: nothing is migrated and no default rep
   const dir = profile(t);
   const path = notificationPreferencesPath(dir);
   mkdirSync(path);
-  assert.throws(() => readPcNotificationView(path), { code: 'EISDIR' });
+  assert.throws(() => viewOfFile(path), { code: 'EISDIR' });
   const prefs = store(dir);
   await assert.rejects(prefs.ready(), { code: 'EISDIR' });
   assert.equal(statSync(path).isDirectory(), true, 'the path is left as it was');
@@ -247,8 +250,8 @@ test('a damaged file falls back to its last good copy', async (t) => {
   await prefs.setDevice('pc', { scope: 'bots' });
   await prefs.setDevice('pc', { taskbarFlash: false });
   writeFileSync(notificationPreferencesPath(dir), '{"version":1,"devi');
-  const view = readPcNotificationView(notificationPreferencesPath(dir));
-  assert.equal(view.preferences.scope, 'bots');
+  const view = await store(dir).device('pc');
+  assert.equal(view.scope, 'bots');
 });
 
 const client = (id, extra = {}) => ({
@@ -327,7 +330,9 @@ test('writes broadcast a notifications settings change; an unknown device is ref
 });
 
 test('a test goes to this PC or the paired device; a stranger is told it is not paired', async (t) => {
-  const { instance, tests } = center(t, { clients: [client('tab')] });
+  const { instance, tests, prefs } = center(t, { clients: [client('tab')] });
+  // The store's first-load migration writes in the profile folder: it ends before the folder is removed.
+  await prefs.ready();
   assert.deepEqual(await instance.invoke('sendTestNotification', ['pc']), { ok: true });
   assert.deepEqual(await instance.invoke('sendTestNotification', ['tab']), { ok: false, message: 'offline' });
   assert.match((await instance.invoke('sendTestNotification', ['stranger'])).message, /not paired/);

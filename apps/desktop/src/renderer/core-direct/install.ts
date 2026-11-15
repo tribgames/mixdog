@@ -66,17 +66,8 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     ...Object.fromEntries(DIRECT_KEYS.connections.map((key) => [key, connectionsApi[key]])),
     ...createTakeoverApi(ctx),
   };
-  // A terminal reveal comes from the core (ui/openRequested) or from main's own agent `terminal` bridge.
-  const onTerminalRunRequested: DesktopApi['onTerminalRunRequested'] = (listener) => {
-    const fromCore = direct.onTerminalRunRequested?.(listener);
-    const fromMain = host.onHostTerminalRunRequested?.(listener);
-    return () => {
-      fromCore?.();
-      fromMain?.();
-    };
-  };
   // A held token for a file outside every Project can lose its grant (the oldest of the capped grants is dropped): such a
   // refusal re-grants the file through `resolveLocalPaths` and retries once, so a held link keeps opening.
-  const composed = withApiFileGrantRefresh({ ...host, ...direct, onTerminalRunRequested } as unknown as DesktopApi);
+  const composed = withApiFileGrantRefresh({ ...host, ...direct } as unknown as DesktopApi);
   target.mixdogDesktop = Object.freeze(host.connection?.kind === 'ssh' ? withServerGates(composed) : composed);
 }

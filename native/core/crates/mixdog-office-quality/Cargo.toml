@@ -1,0 +1,17 @@
+[package]
+name = "mixdog-office-quality"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-office-base = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-office-base = { workspace = true, features = ["test-support"] }

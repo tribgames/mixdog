@@ -1,0 +1,47 @@
+[package]
+name = "mixdog-entry"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# The native `mixdog` command: Node's `src/cli.mjs` and `src/app.mjs` (the argv grammar, the help, the refusals, `exec`).
+# `mixdog-tui` and `mixdog-repl` join the dependencies, and `interactive.rs` is filled in, by the switch task (nr-tui-switch).
+[[bin]]
+name = "mixdog"
+path = "src/main.rs"
+
+[dependencies]
+# `mixdog exec`: the usage text, the route check and the headless run (`exec::run_command`) are the library's own.
+mixdog-cli = { workspace = true }
+# `worktree_name_error`, which names what a `--worktree` value may not be.
+mixdog-core = { workspace = true }
+# The process lifecycle and the staged-update swap a start goes through before an interactive run.
+mixdog-launch = { workspace = true }
+mixdog-js = { workspace = true }
+serde_json = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-testkit = { workspace = true }
+# The exec replay (tests/exec_entry.rs): the binary runs against a stand-in provider that serves TLS under a throwaway
+# certificate the binary is pinned to (`REPLAY_PROVIDER_PIN`, a `test-support` control of the HTTP client).
+httparse = { workspace = true }
+flate2 = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+regex = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }

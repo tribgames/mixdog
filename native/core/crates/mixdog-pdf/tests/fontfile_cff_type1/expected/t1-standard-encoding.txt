@@ -1,0 +1,15 @@
+#length1=253
+#composite=false
+#firstChar=0
+#lastChar=255
+#widths=
+numGlyphs=12
+charset=.notdef,.notdef,A,B,C,a,b,flexg,aacute,bad,empty,big
+glyphs=.notdef:250:0:1;A:600:50:1;B:650:50:1;C:700:70:1;a:800:10:1;b:750:0:1;flexg:900:10:1;aacute:700:0:1;bad:333:0:1;empty:0:0:0;big:2000:-20:1
+seacs=8:5,20,65,66
+builtIn=0:,1:,2:,3:,4:,5:,6:,7:,8:,9:,10:,11:,12:,13:,14:,15:,16:,17:,18:,19:,20:,21:,22:,23:,24:,25:,26:,27:,28:,29:,30:,31:,32:space,33:exclam,34:quotedbl,35:numbersign,36:dollar,37:percent,38:ampersand,39:quoteright,40:parenleft,41:parenright,42:asterisk,43:plus,44:comma,45:hyphen,46:period,47:slash,48:zero,49:one,50:two,51:three,52:four,53:five,54:six,55:seven,56:eight,57:nine,58:colon,59:semicolon,60:less,61:equal,62:greater,63:question,64:at,65:A,66:B,67:C,68:D,69:E,70:F,71:G,72:H,73:I,74:J,75:K,76:L,77:M,78:N,79:O,80:P,81:Q,82:R,83:S,84:T,85:U,86:V,87:W,88:X,89:Y,90:Z,91:bracketleft,92:backslash,93:bracketright,94:asciicircum,95:underscore,96:quoteleft,97:a,98:b,99:c,100:d,101:e,102:f,103:g,104:h,105:i,106:j,107:k,108:l,109:m,110:n,111:o,112:p,113:q,114:r,115:s,116:t,117:u,118:v,119:w,120:x,121:y,122:z,123:braceleft,124:bar,125:braceright,126:asciitilde,127:,128:,129:,130:,131:,132:,133:,134:,135:,136:,137:,138:,139:,140:,141:,142:,143:,144:,145:,146:,147:,148:,149:,150:,151:,152:,153:,154:,155:,156:,157:,158:,159:,160:,161:exclamdown,162:cent,163:sterling,164:fraction,165:yen,166:florin,167:section,168:currency,169:quotesingle,170:quotedblleft,171:guillemotleft,172:guilsinglleft,173:guilsinglright,174:fi,175:fl,176:,177:endash,178:dagger,179:daggerdbl,180:periodcentered,181:,182:paragraph,183:bullet,184:quotesinglbase,185:quotedblbase,186:quotedblright,187:guillemotright,188:ellipsis,189:perthousand,190:,191:questiondown,192:,193:grave,194:acute,195:circumflex,196:tilde,197:macron,198:breve,199:dotaccent,200:dieresis,201:,202:ring,203:cedilla,204:,205:hungarumlaut,206:ogonek,207:caron,208:emdash,209:,210:,211:,212:,213:,214:,215:,216:,217:,218:,219:,220:,221:,222:,223:,224:,225:AE,226:,227:ordfeminine,228:,229:,230:,231:,232:Lslash,233:Oslash,234:OE,235:ordmasculine,236:,237:,238:,239:,240:,241:ae,242:,243:,244:,245:dotlessi,246:,247:,248:lslash,249:oslash,250:oe,251:germandbls,252:,253:,254:,255:
+widths=65:600,66:650,67:700,97:800,98:750
+fontMatrix=0.001,0,0,0.001,0,0
+ascent=900
+descent=-200
+hasGlyph=1111111111010

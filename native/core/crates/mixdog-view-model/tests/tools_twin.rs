@@ -1,5 +1,7 @@
 //! Replays tests/goldens/tools.json (recorded from the Node tool surface by tests/recorders/record-tools.mjs) through the Rust
-//! port: every call and every result text gives what Node gave. An output Node recorded as an exception is skipped.
+//! port: every call and every result text gives what Node gave. The only outputs not compared are the two Node threw on (`NODE_THREW`: a
+//! call with null arguments, where Node reads `args.mode` of null and the Rust port, which has no exceptions, answers): the twin
+//! runs the Rust function on that input, requires it to answer, and fails on any other recorded exception.
 
 use mixdog_view_model::tool_contract;
 use mixdog_view_model::tool_status;
@@ -15,9 +17,20 @@ fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/tools.json")).expect("the golden is JSON")
 }
 
-/// The recorded output for `key` of a case, or `None` when Node did not give one (absent) or threw.
+/// The outputs Node recorded as exceptions, by tool name and output key: the only ones that are not compared. A null argument
+/// list makes Node read a field of null (`Cannot read properties of null (reading 'mode')`); the Rust port answers instead.
+const NODE_THREW: [(&str, &str); 2] = [("code_graph", "category"), ("code_graph", "entries")];
+
+/// The recorded output for `key` of a case, or `None` when Node did not give one (absent) or threw. An exception that is not in
+/// `NODE_THREW` fails the test: nothing is skipped without being listed.
 fn recorded<'a>(case: &'a Value, key: &str) -> Option<&'a Value> {
-    case.get(key).filter(|value| value.get("threw").is_none())
+    let value = case.get(key)?;
+    if value.get("threw").is_some() {
+        let name = text_of(case, "name");
+        assert!(NODE_THREW.contains(&(name, key)), "Node threw on {key} of {name} and that is not a listed exception: {value}");
+        return None;
+    }
+    Some(value)
 }
 
 fn text_of<'a>(case: &'a Value, key: &str) -> &'a str {
@@ -66,8 +79,12 @@ fn calls_give_what_node_gave() {
     for case in calls {
         let name = text_of(case, "name");
         let args = &case["args"];
-        if let Some(expected) = recorded(case, "category") {
-            assert_same(case, "category", expected, &json!(tool_work_units::classify_tool_category(name, args)));
+        match recorded(case, "category") {
+            Some(expected) => assert_same(case, "category", expected, &json!(tool_work_units::classify_tool_category(name, args))),
+            None if case.get("category").is_some() => {
+                let _answered = tool_work_units::classify_tool_category(name, args);
+            }
+            None => {}
         }
         if let Some(expected) = recorded(case, "unit") {
             assert_same(case, "unit", expected, &tool_work_units::tool_work_unit(name, args, "").to_value());
@@ -75,8 +92,8 @@ fn calls_give_what_node_gave() {
         if let Some(expected) = recorded(case, "unitFor") {
             assert_same(case, "unitFor", expected, &tool_work_units::tool_work_unit(name, args, "Browser").to_value());
         }
+        let entries = tool_surface::aggregate_tool_category_entries(name, args, "");
         if let Some(expected) = recorded(case, "entries") {
-            let entries = tool_surface::aggregate_tool_category_entries(name, args, "");
             assert_same(case, "entries", expected, &values(entries.iter().map(tool_surface::AggregateEntry::to_value).collect()));
         }
         if let Some(expected) = recorded(case, "patchUnits") {
@@ -201,11 +218,20 @@ fn aggregates_give_what_node_gave() {
     }
     for case in golden["headerMaps"].as_array().expect("headerMaps") {
         for (index, expected) in case["headers"].as_array().expect("headers").iter().enumerate() {
-            if expected.get("threw").is_some() {
-                continue;
-            }
             let actual = tool_surface::format_aggregate_header(&case["map"], &aggregate_header_options(index));
             assert_same(case, "header", expected, &json!(actual));
         }
     }
+}
+
+#[test]
+fn the_golden_holds_no_exception_but_the_listed_ones() {
+    fn count(value: &Value) -> usize {
+        match value {
+            Value::Object(map) => usize::from(map.get("threw").is_some_and(Value::is_string)) + map.values().map(count).sum::<usize>(),
+            Value::Array(list) => list.iter().map(count).sum(),
+            _ => 0,
+        }
+    }
+    assert_eq!(count(&golden()), NODE_THREW.len());
 }

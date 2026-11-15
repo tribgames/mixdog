@@ -97,6 +97,20 @@ pub fn failure_reply(error: &MemoryError) -> ToolReply {
     ToolReply::error(format!("memory failed: {}", error.message()))
 }
 
+/// `throwIfAborted(signal)`: the checkpoint between the steps of an action a cancelled caller no longer waits for.
+fn checkpoint(cancel: &CancellationToken) -> Result<()> {
+    if cancel.is_cancelled() { Err(MemoryError::rejected("aborted")) } else { Ok(()) }
+}
+
+/// A wait that a cancel ends at once (the signal handed to `awaitCycle1Run`).
+async fn unless_cancelled<T>(cancel: &CancellationToken, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(MemoryError::rejected("aborted")),
+        done = work => done,
+    }
+}
+
 /// A failure that already is a sentence (a cycle's, an embedding's) without the store's prefix.
 fn plain(error: MemoryError) -> MemoryError {
     match error {
@@ -614,13 +628,14 @@ impl Maintenance {
     }
 
     /// Runs `action` (one of the cycle, embedding and manage actions) over `db`.
-    pub async fn run(&self, db: &Db, action: Action, args: &Value) -> Result<ToolReply> {
+    /// A cycle1, flush, rebuild or backfill ends at its next step once `cancel` is cancelled.
+    pub async fn run(&self, db: &Db, action: Action, args: &Value, cancel: &CancellationToken) -> Result<ToolReply> {
         match action {
             Action::Manage => self.manage(db, args).await,
-            Action::Cycle1 => self.cycle1(args).await,
-            Action::Flush => self.flush_action().await,
-            Action::Rebuild => self.rebuild(db, args).await,
-            Action::Backfill => self.backfill(db, args).await,
+            Action::Cycle1 => self.cycle1(args, cancel).await,
+            Action::Flush => self.flush_action(cancel).await,
+            Action::Rebuild => self.rebuild(db, args, cancel).await,
+            Action::Backfill => self.backfill(db, args, cancel).await,
             other => unreachable!("{other:?} is served by the memory runtime itself"),
         }
     }
@@ -629,23 +644,28 @@ impl Maintenance {
         self.cycles.as_ref().ok_or_else(|| MemoryError::rejected("memory cycles are not running in this process"))
     }
 
-    async fn cycle1(&self, args: &Value) -> Result<ToolReply> {
+    async fn cycle1(&self, args: &Value, cancel: &CancellationToken) -> Result<ToolReply> {
         let (scheduler, config) = self.cycles()?;
         let cycle1 = cycle1_config_from_args(args, cycle1_base(config));
         let deadline = to_number(args.get("_callerDeadlineMs").unwrap_or(&Value::Null));
         let plan = PlanOptions { caller_deadline_ms: (deadline.is_finite() && deadline > 0.0).then_some(deadline), ..PlanOptions::default() };
-        let result = scheduler.await_cycle1_run(cycle1, Cycle1Options { plan, ..Cycle1Options::default() }).await.map_err(plain)?;
+        checkpoint(cancel)?;
+        let result = unless_cancelled(cancel, async { scheduler.await_cycle1_run(cycle1, Cycle1Options { plan, ..Cycle1Options::default() }).await.map_err(plain) }).await?;
+        checkpoint(cancel)?;
         Ok(ToolReply::ok(cycle1_summary(&result)))
     }
 
-    async fn flush_action(&self) -> Result<ToolReply> {
+    async fn flush_action(&self, cancel: &CancellationToken) -> Result<ToolReply> {
         let (scheduler, config) = self.cycles()?;
-        let result = scheduler.await_cycle1_run(cycle1_base(config), Cycle1Options::default()).await.map_err(plain)?;
-        let embedded = flush_embeddings(&self.flush, &CancellationToken::new()).await?;
+        checkpoint(cancel)?;
+        let result = unless_cancelled(cancel, async { scheduler.await_cycle1_run(cycle1_base(config), Cycle1Options::default()).await.map_err(plain) }).await?;
+        checkpoint(cancel)?;
+        let embedded = flush_embeddings(&self.flush, cancel).await?;
+        checkpoint(cancel)?;
         Ok(ToolReply::ok(format!("flush: cycle1 chunks={} processed={}, embeddings={embedded}", result.chunks, result.processed)))
     }
 
-    async fn rebuild(&self, db: &Db, args: &Value) -> Result<ToolReply> {
+    async fn rebuild(&self, db: &Db, args: &Value, cancel: &CancellationToken) -> Result<ToolReply> {
         if args.get("confirm").and_then(Value::as_str) != Some("REBUILD MEMORY") {
             return Ok(ToolReply::error(
                 "rebuild requires confirm: \"REBUILD MEMORY\" (truncates classification columns and re-runs summarization)",
@@ -653,38 +673,42 @@ impl Maintenance {
         }
         let (scheduler, config) = self.cycles()?;
         let cycle1 = cycle1_base(config);
+        checkpoint(cancel)?;
         // The run in flight ends before the reset, so no run reads rows half reset.
         for _ in 0..DRAIN_ROUNDS {
             if !scheduler.is_cycle1_running() {
                 break;
             }
-            let _ = scheduler.await_cycle1_run(cycle1.clone(), Cycle1Options::default()).await;
+            let _ = unless_cancelled(cancel, async { Ok(scheduler.await_cycle1_run(cycle1.clone(), Cycle1Options::default()).await) }).await?;
         }
+        checkpoint(cancel)?;
         reset_classification(db).await?;
         // A fresh run over the reset rows: nothing is in flight now, so this one starts, never joins.
-        let result = scheduler
-            .start_cycle1_run(cycle1, Cycle1Options::default())
-            .await
-            .map_err(MemoryError::rejected)?;
-        let embedded = flush_embeddings(&self.flush, &CancellationToken::new()).await?;
+        let result = unless_cancelled(cancel, async { scheduler.start_cycle1_run(cycle1, Cycle1Options::default()).await.map_err(MemoryError::rejected) }).await?;
+        checkpoint(cancel)?;
+        let embedded = flush_embeddings(&self.flush, cancel).await?;
+        checkpoint(cancel)?;
         Ok(ToolReply::ok(format!("rebuild: cycle1 chunks={} processed={}, embeddings={embedded}", result.chunks, result.processed)))
     }
 
-    async fn backfill(&self, db: &Db, args: &Value) -> Result<ToolReply> {
+    async fn backfill(&self, db: &Db, args: &Value, cancel: &CancellationToken) -> Result<ToolReply> {
         // Claimed before any wait, so a burst of calls cannot all pass the check.
         if self.backfill_running.swap(true, Ordering::SeqCst) {
             return Ok(ToolReply::error("backfill already in progress"));
         }
         let _turn = BackfillTurn(&self.backfill_running);
+        checkpoint(cancel)?;
         let window = args.get("window").filter(|v| !v.is_null()).map_or_else(|| "7d".to_owned(), value_to_string);
         let scope = args.get("scope").filter(|v| !v.is_null()).map_or_else(|| "all".to_owned(), value_to_string);
         let limit = args.get("limit").filter(|v| !v.is_null()).map(|v| to_number(v).max(1.0));
-        Ok(self.full_backfill(db, &window, &scope, limit).await?.reply())
+        let report = self.full_backfill(db, &window, &scope, limit, cancel).await?;
+        checkpoint(cancel)?;
+        Ok(report.reply())
     }
 
     /// `runFullBackfill`: the transcripts of the window are ingested, cycle1 runs over what is left
     /// unclassified until it stops shrinking, then the embeddings are flushed.
-    async fn full_backfill(&self, db: &Db, window: &str, scope: &str, limit: Option<f64>) -> Result<BackfillReport> {
+    async fn full_backfill(&self, db: &Db, window: &str, scope: &str, limit: Option<f64>, cancel: &CancellationToken) -> Result<BackfillReport> {
         let (window, scope) = (normalize_backfill_window(window), normalize_backfill_scope(scope));
         let mut report = BackfillReport { window, scope, ..BackfillReport::default() };
         let workspace = (scope == "workspace").then(|| std::env::current_dir().ok()).flatten();
@@ -697,6 +721,10 @@ impl Maintenance {
         report.files = selected.len();
         let outcomes: Vec<_> = futures::stream::iter(selected)
             .map(|path| async move {
+                // A cancelled backfill ingests no further file; the checkpoint below ends it.
+                if cancel.is_cancelled() {
+                    return (path, Ok(0));
+                }
                 let cwd = cwd_from_transcript_path(self.maintenance, &path).await.ok().flatten();
                 let ingested = self.transcripts.ingest_transcript_file(&path, cwd.as_deref()).await;
                 (path, ingested)
@@ -704,6 +732,7 @@ impl Maintenance {
             .buffer_unordered(BACKFILL_CONCURRENCY)
             .collect()
             .await;
+        checkpoint(cancel)?;
         for (path, outcome) in outcomes {
             match outcome {
                 Ok(count) => report.ingested += count,
@@ -716,7 +745,9 @@ impl Maintenance {
         let mut prev = count_unclassified(db).await?;
         if let Some((scheduler, config)) = &self.cycles {
             while prev > 0 && report.cycle1_iters < FULL_BACKFILL_MAX_ITERS {
-                let result = match scheduler.await_cycle1_run(cycle1_base(config), Cycle1Options::default()).await {
+                checkpoint(cancel)?;
+                let run = unless_cancelled(cancel, async { Ok(scheduler.await_cycle1_run(cycle1_base(config), Cycle1Options::default()).await) }).await?;
+                let result = match run {
                     Ok(result) => result,
                     Err(error) => {
                         let message = plain(error).message();
@@ -736,7 +767,9 @@ impl Maintenance {
                 prev = next;
             }
         }
-        if let Err(error) = flush_embeddings(&self.flush, &CancellationToken::new()).await {
+        checkpoint(cancel)?;
+        if let Err(error) = flush_embeddings(&self.flush, cancel).await {
+            checkpoint(cancel)?;
             log(&format!("[backfill] embedding error: {}\n", error.message()));
             report.errors.push(("embedding", error.message()));
         }
@@ -1052,6 +1085,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_cancelled_caller_ends_a_backfill_at_its_first_step_and_frees_the_mutex() {
+        let (_pg, db) = store().await;
+        let m = maintenance(&db);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let ended = m.backfill(&db, &json!({}), &cancel).await;
+        assert_eq!(ended.unwrap_err().message(), "aborted");
+        // The mutex was released: a live caller is not told a backfill is in progress.
+        let live = m.backfill(&db, &json!({ "window": "none" }), &CancellationToken::new()).await.unwrap();
+        assert!(live.text.starts_with("backfill: window=none"), "{}", live.text);
+        let waiting = unless_cancelled(&cancel, std::future::pending::<Result<()>>()).await;
+        assert_eq!(waiting.unwrap_err().message(), "aborted");
+    }
+
+    #[tokio::test]
     async fn prune_and_purge_need_their_phrase_and_purge_keeps_the_curated_core() {
         let (_pg, db) = store().await;
         let day = 86_400_000_i64;
@@ -1086,8 +1134,8 @@ mod tests {
         reset_classification(&db).await.unwrap();
         assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE is_root = 0 AND chunk_root IS NULL AND status IS NULL AND element IS NULL AND category IS NULL AND summary IS NULL").await, 2);
         let m = maintenance(&db);
-        assert!(m.rebuild(&db, &json!({ "confirm": "nope" })).await.unwrap().is_error);
-        let refused = m.rebuild(&db, &json!({ "confirm": "REBUILD MEMORY" })).await;
+        assert!(m.rebuild(&db, &json!({ "confirm": "nope" }), &CancellationToken::new()).await.unwrap().is_error);
+        let refused = m.rebuild(&db, &json!({ "confirm": "REBUILD MEMORY" }), &CancellationToken::new()).await;
         assert_eq!(refused.unwrap_err().message(), "memory cycles are not running in this process");
     }
 

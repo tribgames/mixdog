@@ -41,6 +41,18 @@ impl Pricer for CatalogPricer {
     }
 
     fn price(&self, request: &PriceRequest) -> mixdog_ledger::error::Result<Priced> {
+        Ok(self.priced(request, false))
+    }
+
+    /// A restored day of the earlier daemon is a sum of requests: a route with context-size tiers cannot be priced from it
+    /// (`historicalAggregate`), because the sum does not say which requests crossed a tier.
+    fn price_aggregate(&self, request: &PriceRequest) -> mixdog_ledger::error::Result<Priced> {
+        Ok(self.priced(request, true))
+    }
+}
+
+impl CatalogPricer {
+    fn priced(&self, request: &PriceRequest, aggregate: bool) -> Priced {
         let priced = self.catalog.price_usage(&UsageArgs {
             provider: request.provider.clone(),
             model: request.model.clone(),
@@ -57,9 +69,10 @@ impl Pricer for CatalogPricer {
             kind: Some(request.kind.clone()),
             ts: Some(request.ts as f64),
             historical: request.historical,
+            historical_aggregate: aggregate,
             ..UsageArgs::default()
         });
-        Ok(Priced { cost_usd: priced.cost_usd, rates: Some(priced.rates_json()) })
+        Priced { cost_usd: priced.cost_usd, rates: Some(priced.rates_json()) }
     }
 }
 

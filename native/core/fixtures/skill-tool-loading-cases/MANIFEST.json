@@ -13,9 +13,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1006262,
+      "bytes": 1006294,
       "path": "golden.json",
-      "sha256": "f1bc594c2ebbc08ecc57c1030fbcfa2fb504fb0a9fb694388fef436c4e0bdf07"
+      "sha256": "515675d4ffae1af69a568f3ba73507d148cbecceed307ef0884e7e7b4a1ff7d2"
     }
   ],
   "inputs": [
@@ -49,5 +49,8 @@
   "recorder": "benchmarks/rust-core/recorders/record-skill-tool-loading-cases.mjs",
   "recorderSha256": "236be8623181125865721f19323adc7498233dfccbd51737e8a8a7482597c107",
   "set": "skill-tool-loading-cases",
-  "totalBytes": 1006262
+  "totalBytes": 1006294,
+  "deliberateDifferences": [
+    "golden.json: the Skill body of skill-creator carries `${MIXDOG_SKILL_NODE} \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"` where the Node reference (C:/Project/mixdog) has `node \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"`; edited by hand, deliberately (the shipped text names the bundled launcher word, not a Node on PATH)"
+  ]
 }

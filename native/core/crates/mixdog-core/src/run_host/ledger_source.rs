@@ -114,6 +114,8 @@ impl LedgerSource {
         let writer = UsageWriter::open_publishing(self.lanes.sqlite_writer_thread, self.lanes.maintenance_io, path, changed)?;
         let reader = UsageReader::new(path, self.lanes.interactive_io, self.lanes.maintenance_io);
         let refresher = UsageRefresher::new(self.pricer.clone(), self.lanes.cpu_bulk);
+        // The usage history of the earlier daemon is imported once, before the first statistics read.
+        refresher.enable_history(self.plugin_data.clone(), self.lanes.maintenance_io);
         let ledger = Arc::new(UsageLedger { writer, reader, refresher });
         usage_stats_feed::spawn_feeds(&ledger, changes, &self.push);
         Ok(ledger)

@@ -25,7 +25,7 @@ use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_workspace::localfs::LocalFileService;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostError;
-use mixdog_exthost::ExtHostPool;
+use mixdog_exthost::RoutedExtPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_mcp::launcher::SkillRuntime;
@@ -182,7 +182,7 @@ pub struct ComposedCore {
     feed_index: Arc<CoreScopedFeeds>,
     ops: CoreOpIndex,
     exec: Exec,
-    ext_host: Arc<ExtHostPool>,
+    ext_host: Arc<RoutedExtPool>,
     file_service: Arc<dyn FileService>,
     catalog: CatalogHost,
     tidy_processes: Processes,
@@ -197,6 +197,12 @@ pub struct ComposedCore {
     stop: tokio_util::sync::CancellationToken,
     /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
     stop_reason: Arc<StopReasonCell>,
+    /// The memory and work line of the log and the lag sampler ([`Self::start_telemetry`]), and the service calls in flight it counts.
+    telemetry: Arc<crate::telemetry::Telemetry>,
+    calls_in_flight: Arc<std::sync::atomic::AtomicU64>,
+    /// The slow calls and the work counts a stall line names ([`Self::stall_description`]).
+    stall_description: crate::lifecycle::StallDescription,
+    telemetry_started: std::sync::atomic::AtomicBool,
     /// Replay-only: the service of `replay/storesSettled`.
     #[cfg(feature = "replay-controls")]
     stores_settled: crate::replay_stores_settled::StoresSettled,
@@ -387,7 +393,7 @@ impl ComposedCore {
     }
 
     /// The extension host pool, for the lifecycle's release procedure.
-    pub fn ext_host(&self) -> &Arc<ExtHostPool> {
+    pub fn ext_host(&self) -> &Arc<RoutedExtPool> {
         &self.ext_host
     }
 
@@ -447,6 +453,21 @@ impl ComposedCore {
     /// Mixy's heartbeat on its timers; `serve` calls it once startup has finished.
     pub fn start_sub_agent_retention(&self) {
         self.real.start_sub_agent_retention();
+    }
+
+    /// What the stall monitor's lines say about the core: the calls that overlapped the stall and the work in flight.
+    pub fn stall_description(&self) -> crate::lifecycle::StallDescription {
+        self.stall_description.clone()
+    }
+
+    /// Node's `emit('boot')` then `start()` of the daemon telemetry, once the daemon is ready: the boot line is written and the loop (the
+    /// 30 s memory and work line, the event-loop lag, the lag sampler) runs until the run token ends. A second call starts nothing.
+    pub fn start_telemetry(&self) {
+        if self.telemetry_started.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        self.telemetry.boot();
+        mixdog_rt::spawn("daemon-telemetry", mixdog_rt::TaskClass::Control, self.telemetry.clone().run(self.stop.clone()));
     }
 
     pub fn start_heartbeat(&self) {
@@ -615,7 +636,9 @@ impl CoreHandle for ComposedCore {
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
-        match self.real.late_lifecycle.get() {
+        // Node's `reportingIdleActivity`: the start and the settle of every call are activity of the telemetry window.
+        let counted = CallCount::start(&self.calls_in_flight, &self.telemetry, self.stall_description.spans.begin(method.to_owned()));
+        let held: mixdog_core_api::handle::RequestGuard = match self.real.late_lifecycle.get() {
             // A new task is host logic in Node: a stop request cuts it instead of waiting for it (`Lifecycle::begin_new_task`).
             Some(lifecycle) if method == "thread/start" && mixdog_core_session::session::new_task::starts_new_task(params) => {
                 Box::new(lifecycle.begin_new_task())
@@ -626,8 +649,74 @@ impl CoreHandle for ComposedCore {
                 self.log.log("a request was admitted before the lifecycle was bound; it is not counted");
                 Box::new(())
             }
-        }
+        };
+        Box::new((held, counted))
     }
+}
+
+/// One service call in flight in the telemetry's count (`activeCalls`); the settle is activity too.
+struct CallCount {
+    calls: Arc<std::sync::atomic::AtomicU64>,
+    telemetry: Arc<crate::telemetry::Telemetry>,
+    /// The call's slow-span record, completed with it.
+    _span: crate::lifecycle::SpanGuard,
+}
+
+impl CallCount {
+    fn start(calls: &Arc<std::sync::atomic::AtomicU64>, telemetry: &Arc<crate::telemetry::Telemetry>, span: crate::lifecycle::SpanGuard) -> Self {
+        calls.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        telemetry.note_activity();
+        Self { calls: calls.clone(), telemetry: telemetry.clone(), _span: span }
+    }
+}
+
+impl Drop for CallCount {
+    fn drop(&mut self) {
+        self.calls.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        self.telemetry.note_activity();
+    }
+}
+
+/// The work counts of a composed core, read from what the daemon already counts (the calls in flight, and the lifecycle's running work: a `Turn` is a busy
+/// session, a `SubAgent` a memory agent in flight). `queuedCalls` is the transport's queue, which the server crate does not expose to the daemon: it reads 0 here.
+fn work_counts(lifecycle: Arc<crate::late_lifecycle::LateLifecycle>, calls: Arc<std::sync::atomic::AtomicU64>) -> Arc<dyn Fn() -> crate::telemetry::WorkCounts + Send + Sync> {
+    Arc::new(move || {
+        let (mut busy_sessions, mut busy_memory_agents) = (0, 0);
+        if let Some(lifecycle) = lifecycle.get() {
+            for running in &lifecycle.status().running {
+                match running.kind {
+                    crate::lifecycle::ActivityKind::Turn => busy_sessions += 1,
+                    crate::lifecycle::ActivityKind::SubAgent => busy_memory_agents += 1,
+                    _ => {}
+                }
+            }
+        }
+        crate::telemetry::WorkCounts { active_calls: calls.load(std::sync::atomic::Ordering::Acquire), queued_calls: 0, busy_sessions, busy_memory_agents }
+    })
+}
+
+/// The telemetry of a composed core: its log is the daemon's, kept lag windows go under `<data dir>/profiles`.
+fn build_telemetry(
+    data_dir: &Path,
+    tokens: &LaneTokens,
+    log: &crate::daemon_log::DaemonLog,
+    stop: &tokio_util::sync::CancellationToken,
+    work: Arc<dyn Fn() -> crate::telemetry::WorkCounts + Send + Sync>,
+) -> Arc<crate::telemetry::Telemetry> {
+    crate::telemetry::Telemetry::new(
+        crate::telemetry::Seams {
+            work,
+            memory: Arc::new(crate::telemetry::process_memory),
+            log: log.line_log(),
+            now_ms: Arc::new(crate::daemon_log::system_now_ms),
+            pid: std::process::id(),
+        },
+        Arc::new(crate::telemetry::DiskProfileStore::new(data_dir.to_path_buf())),
+        data_dir.join("profiles"),
+        tokens.maintenance_io,
+        stop.clone(),
+        Arc::new(|| serde_json::Value::Null),
+    )
 }
 
 /// `CoreWiring.drain_feed`: the `core/drain` notification as the next frame of the app feed, so
@@ -645,6 +734,10 @@ pub struct JsRuntime {
     pub package_root: PathBuf,
     /// The program is an Electron binary that needs node mode.
     pub electron: bool,
+    /// The core executable of the install: the extension host's Rust worker is this program run as `ext-worker`.
+    pub core_program: PathBuf,
+    /// The script interpreter version as the install metadata states it; the doctor never runs the interpreter to ask.
+    pub node_version: Option<String>,
 }
 
 pub struct ComposeConfig {
@@ -677,9 +770,28 @@ fn process_env() -> mixdog_core::run_host::run_seams::EnvReader {
     Arc::new(|name: &str| std::env::var(name).ok())
 }
 
-/// The extension host pool of this install: the core's, and the migration's office extractor (`boot`) start the same worker.
-pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> ExtHostConfig {
-    ExtHostConfig {
+/// The two halves of the extension host of this install: the Rust worker (the core executable run as `ext-worker`) and the
+/// script worker. The Rust half's render browser is the one both use.
+#[derive(Clone, Debug)]
+pub struct ExtHostConfigs {
+    pub native: ExtHostConfig,
+    pub node: ExtHostConfig,
+}
+
+/// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole
+/// (AVIF and HEIF have no decoder yet): the list decides the route, nothing else does.
+pub fn native_ext_methods() -> Vec<&'static str> {
+    mixdog_exthost_worker::native_methods().into_iter().filter(|method| !method.starts_with("image.")).collect()
+}
+
+/// The one constructor of the routing pool: the core and the migration (`boot`, `mixdogd migrate`) use it.
+pub fn ext_host_pool(configs: ExtHostConfigs) -> Result<RoutedExtPool, ExtHostError> {
+    RoutedExtPool::new(configs.native, configs.node, native_ext_methods())
+}
+
+/// The extension host of this install: the core's, and the migration's office extractor (`boot`) start the same workers.
+pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> ExtHostConfigs {
+    let node = ExtHostConfig {
         program: js.program.clone(),
         args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
         electron: js.electron,
@@ -687,7 +799,9 @@ pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneToke
         pending_cap: DEFAULT_PENDING_CAP,
         spawn_io: tokens.spawn_io,
         render_browser: RenderBrowserConfig { command: None, profile_root: data_dir.join("render-browser"), no_sandbox: false },
-    }
+    };
+    let native = ExtHostConfig { program: js.core_program.clone(), args: vec!["ext-worker".into()], electron: false, ..node.clone() };
+    ExtHostConfigs { native, node }
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
@@ -716,18 +830,15 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     ));
     let scoped_feeds: Arc<dyn ScopedFeeds> = feed_index.clone();
     let js = &js_runtime;
-    let entry = js.package_root.join("src").join("skill-script-entry.mjs");
-    let skill_runtime = ExecSkillRuntime {
-        platform: node_platform().to_owned(),
-        interpreter: js.program.to_string_lossy().into_owned(),
-        entry: entry.to_string_lossy().into_owned(),
-        electron: js.electron,
-    };
-    let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
+    // The `mixdog-skill-node` launchers start the core executable as `skill-run`: it runs a shipped script itself and hands any
+    // other script to the install's script interpreter.
+    let core_program = js.core_program.to_string_lossy().into_owned();
+    let skill_runtime = ExecSkillRuntime { platform: node_platform().to_owned(), interpreter: core_program.clone(), entry: "skill-run".to_owned(), electron: false };
+    let skills = SkillRuntime::new(core_program, "skill-run", false);
     let skill_launcher_dir =
         skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
     let ext_host = Arc::new(
-        ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
+        ext_host_pool(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
     );
     let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
@@ -864,6 +975,10 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         },
         stop.clone(),
     );
+    let calls_in_flight = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let work = work_counts(real.late_lifecycle.clone(), calls_in_flight.clone());
+    let telemetry = build_telemetry(data_dir, tokens, &log, &stop, work.clone());
+    let stall_description = crate::lifecycle::StallDescription { work, spans: crate::lifecycle::SlowSpans::new(log.line_log()) };
     let core = ComposedCore {
         state: watch::Sender::new(LifecycleState::Serving),
         host_media,
@@ -886,6 +1001,10 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         log,
         stop,
         stop_reason,
+        telemetry,
+        calls_in_flight,
+        stall_description,
+        telemetry_started: std::sync::atomic::AtomicBool::new(false),
     };
     // Node's first step after the heartbeat (`daemon.mjs:302`): the relayed model calls are aborted and settle before anything they depend on stops.
     let (name, halt) = core.real.heartbeat_halt_step(); // stopHeartbeat?.(), the first act of Node's shutdown after its flags (daemon.mjs:285)
@@ -1241,5 +1360,78 @@ mod op_scope_tests {
         for scope in crate::compose_domains::OP_SCOPES {
             assert!(OP_SCOPES.contains(&scope), "compose_domains::OP_SCOPES lists `{scope}`, absent from compose OP_SCOPES");
         }
+    }
+}
+
+#[cfg(test)]
+mod telemetry_work_tests {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_api::ids::ThreadId;
+    use mixdog_core_session::session::CoreWork;
+
+    use super::*;
+    use crate::lifecycle::ActivityInfo;
+    use crate::lifecycle::ActivityKind;
+    use crate::lifecycle::MEMORY_AGENT_ACTIVITY_CHANGED;
+    use crate::lifecycle::testing::fixture;
+    use crate::telemetry::WorkCounts;
+
+    #[test]
+    fn the_work_counts_read_the_calls_and_the_lifecycles_running_work() {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let late = Arc::new(crate::late_lifecycle::LateLifecycle::default());
+        let calls = Arc::new(AtomicU64::new(0));
+        let work = work_counts(late.clone(), calls.clone());
+        assert_eq!(work(), WorkCounts::default(), "nothing is counted before the bind");
+        late.bind(fx.lifecycle.clone()).unwrap();
+        calls.store(2, Ordering::Release);
+        let turn = late.busy(&ThreadId::from("thread-1"), "a turn");
+        let memory = late.begin_work(ActivityInfo { kind: ActivityKind::SubAgent, thread_id: None, turn_id: None, title: "memory agent".into() }, MEMORY_AGENT_ACTIVITY_CHANGED);
+        assert_eq!(work(), WorkCounts { active_calls: 2, queued_calls: 0, busy_sessions: 1, busy_memory_agents: 1 });
+        drop(turn);
+        drop(memory);
+        calls.store(0, Ordering::Release);
+        assert_eq!(work(), WorkCounts::default());
+    }
+
+    #[tokio::test]
+    async fn a_call_counts_from_its_start_to_its_settle_and_is_activity_at_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let stop = tokio_util::sync::CancellationToken::new();
+        let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, stop.clone());
+        let calls = Arc::new(AtomicU64::new(0));
+        let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let work = {
+            let calls = calls.clone();
+            Arc::new(move || WorkCounts { active_calls: calls.load(Ordering::Acquire), ..WorkCounts::default() }) as Arc<dyn Fn() -> WorkCounts + Send + Sync>
+        };
+        let telemetry = crate::telemetry::Telemetry::new(
+            crate::telemetry::Seams {
+                work,
+                memory: Arc::new(|| crate::telemetry::MemoryUsage { rss_bytes: Some(1), heap_bytes: None }),
+                log: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
+                now_ms: Arc::new(|| 0),
+                pid: 1,
+            },
+            Arc::new(crate::telemetry::DiskProfileStore::new(dir.path().to_path_buf())),
+            dir.path().join("profiles"),
+            tokens.maintenance_io,
+            stop,
+            Arc::new(|| serde_json::Value::Null),
+        );
+        let spans = crate::lifecycle::SlowSpans::new(log.line_log());
+        let call = CallCount::start(&calls, &telemetry, spans.begin("thread/list".into()));
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        telemetry.tick(crate::telemetry::LagWindow::default());
+        assert!(lines.lock().unwrap().last().unwrap().contains("activeCalls=1"), "the start is activity of the window");
+        drop(call);
+        assert_eq!(calls.load(Ordering::Acquire), 0);
+        telemetry.tick(crate::telemetry::LagWindow::default());
+        assert!(lines.lock().unwrap().last().unwrap().contains("activeCalls=0"), "the settle is activity of the next window");
     }
 }

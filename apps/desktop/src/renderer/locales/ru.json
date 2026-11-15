@@ -1964,6 +1964,8 @@
   "Downloading {{received}} MB": "Загрузка {{received}} МБ",
   "Downloading {{received}} MB / {{total}} MB": "Загрузка {{received}} МБ / {{total}} МБ",
   "Downloading from the server is unavailable.": "Скачивание с сервера недоступно.",
+  "Downloading the memory database for the first time. This can take a few minutes.": "База данных памяти загружается впервые. Это может занять несколько минут.",
+  "Downloading the memory search model for the first time. This can take a few minutes.": "Модель поиска по памяти загружается впервые. Это может занять несколько минут.",
   "Downloading v{{version}}…": "Загрузка v{{version}}…",
   "Downloading v{{version}}… {{percent}}%": "Загрузка v{{version}}… {{percent}}%",
   "Downloads from the PC": "Загрузки с ПК",
@@ -6205,7 +6207,5 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
-  "Downloading the memory search model for the first time. This can take a few minutes.": "Модель поиска по памяти загружается впервые. Это может занять несколько минут.",
-  "Downloading the memory database for the first time. This can take a few minutes.": "База данных памяти загружается впервые. Это может занять несколько минут."
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
 }

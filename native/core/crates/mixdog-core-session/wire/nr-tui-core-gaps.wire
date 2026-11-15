@@ -1,0 +1,91 @@
+# nr-tui-core-gaps: what the lead applies (nothing here is applied by the task)
+
+The six entries of mixdog-session-view/tests/fixtures/core-gaps.json, and what serves each:
+
+  getSettingsSnapshot     -> config/getSettingsSnapshot     TuiClientService (new, tui_client_methods.rs)
+  setProgressHint         -> thread/setProgressHint         TuiClientService
+  restoreOlderTranscript  -> thread/restoreOlderTranscript  TuiClientService (answers false: the core keeps the whole log)
+  restoreNewerTranscript  -> thread/restoreNewerTranscript  TuiClientService (same)
+  rememberPromptHistory   -> thread/rememberPromptHistory   the thread actor (it owns the prompt writer): arm below
+  inspectProjectPath      -> project/read                   already served (workspace service.rs, { path, exists, directory }); only the audit's table lacked the name
+
+## native/core/crates/mixdog-core-session/src/session/mod.rs
+
+After `pub mod turn_actions;` / `#[cfg(test)] mod turn_actions_tests;` add:
+
+pub mod tui_client_methods;
+#[cfg(test)]
+mod tui_client_methods_tests;
+
+## native/core/crates/mixdog-core-session/src/session/turn_ops.rs, fn is_actor_method
+
+Add "thread/rememberPromptHistory" to the matches! list.
+
+## native/core/crates/mixdog-core-session/src/session/actor/turn_ops.rs, fn turn_op
+
+Beside the "thread/pushNotice" arm of `let done = match req.method.as_str()`:
+
+            // rememberPromptHistory(text): the draft Esc cleared joins the cwd's persisted history, through the writer a submitted prompt uses
+            // (the republish of the list is that writer's: PromptFlushed). true when there was a text to keep (Node answered whether the write
+            // landed; the writer here retries a write that did not).
+            "thread/rememberPromptHistory" => match super::super::tui_client_methods::remembered_prompt(&req.params) {
+                Ok(Some(prompt)) => {
+                    self.persist_prompt(prompt);
+                    Ok(Value::Bool(true))
+                }
+                Ok(None) => Ok(Value::Bool(false)),
+                Err(error) => Err(error),
+            },
+
+persist_prompt is private to the actor module and turn_ops.rs is its child (`use super::*`), so it is reachable there.
+
+## the composition (mixdog-app-server-daemon, where TurnActionsService is registered)
+
+Register one more domain service, the same way as TurnActionsService (it serves four exact methods; no op table). Its snapshot reads go
+through the LateDomains of compose_domains.rs (`PreDomains.late`, the DomainCalls the setup status readers use, bound once the table is
+built) and the web-search route through the WorkflowConfig (`PreDomains.workflow_config`):
+
+    let web_route = pre.workflow_config.clone();
+    let snapshot_reads = mixdog_core_session::session::tui_client_methods::SettingsReads::new(pre.late.clone(), move || web_route.web_search_route());
+    builder.register(mixdog_core_session::session::tui_client_methods::TuiClientService::new(snapshot_reads, <the directory's Arc<dyn ThreadState>, the one ThreadProgressHints is given>));
+
+(`pre` is whatever name the PreDomains has there. A read before LateDomains is bound fails and the snapshot shows null in its place; the
+settings picker is not reachable before the core is up.)
+
+Crate edges: none new (core-session already depends on mixdog-core-agents, -api, -ports, -base, -js, -tools, -store).
+
+## mixdog-app-server-daemon/src/compose_flip.rs SERVICE_PENDING
+
+Remove, if listed: "config/getSettingsSnapshot", "thread/setProgressHint", "thread/restoreOlderTranscript", "thread/restoreNewerTranscript",
+"thread/rememberPromptHistory".
+
+## protocol rows, schema regeneration, generated client files
+
+native/core/crates/mixdog-app-protocol/pending-rows/nr-tui-core-gaps.rows (this task wrote it): five methods, their params types, the
+inventory targets (getSettingsSnapshot, rememberPromptHistory, restoreNewerTranscript, restoreOlderTranscript, setProgressHint move from
+Deleted("caller-less action") to their method), and the free-text rows. After applying: regenerate schema/*.json (client_methods.json
+included) and the generated method-args files of packages/protocol-client (hot files).
+
+## native/core/crates/mixdog-session-view/src/action_tables.rs, ARG_ORDER
+
+The TUI calls setProgressHint(text, tone, percent); add the row (the test checks it is a permutation of the params' fields):
+
+    ("thread/setProgressHint", &["text", "tone", "percent"]),
+
+(getSettingsSnapshot({ heavy }) is one positional argument, the params' `options`; rememberPromptHistory(text) is one, `text`.)
+
+## native/core/crates/mixdog-session-view/tests/fixtures/tui-store-calls.json
+
+The member "inspectProjectPath" (class action) gets the target the sibling "renameProject" has:
+
+   "target": {
+    "method": "project/read"
+   }
+
+(after its "args" line, with a comma added on that line). With this, the five methods above in client_methods.json and the ARG_ORDER row,
+`cargo test --offline -p mixdog-session-view --test protocol_coverage` sees no missing member, and core-gaps.json (emptied by this task)
+is the proof.
+
+## native/core/Cargo.toml, Cargo.lock
+
+Nothing: no new crate or dependency edge.

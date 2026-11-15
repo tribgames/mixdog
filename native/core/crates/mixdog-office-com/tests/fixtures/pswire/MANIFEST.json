@@ -1,0 +1,11 @@
+{
+  "recorder": "recorder/pswire-corpus.ps1",
+  "powershell": "5.1.26100.9818",
+  "clr": "4.0.30319.42000",
+  "os": "Microsoft Windows NT 10.0.26300.0",
+  "culture": "ko-KR",
+  "uiCulture": "en-US",
+  "timeZone": "Korea Standard Time",
+  "entries": 4589,
+  "corpusSha256": "7b3985f6c0248624d936d64893b2faa5102e36ac6c51939aab53d1a9af3840b0"
+}

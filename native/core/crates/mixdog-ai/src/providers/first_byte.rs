@@ -48,6 +48,9 @@ pub struct FirstByteSettings {
     /// `PROVIDER_RETRY_JITTER_RATIO` (`MIXDOG_PROVIDER_RETRY_JITTER_RATIO`, default 0.2, at most 1): the backoff jitter of
     /// every retry schedule that names no ratio of its own ([`Self::default_jitter`]).
     pub retry_jitter_ratio: f64,
+    /// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS`: the idle window of an OpenAI-compatible stream; `None` when
+    /// `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off.
+    pub semantic_idle_ms: Option<i64>,
 }
 
 /// [`FirstByteSettings::process`]'s value once it has read the environment.
@@ -111,6 +114,7 @@ impl FirstByteSettings {
             antigravity_backoff_ms: backoff,
             antigravity_first_byte_retries: int("MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES", 1, 0, 5),
             retry_jitter_ratio: retry_jitter_ratio(&get),
+            semantic_idle_ms: crate::providers::google::cache::policy::semantic_idle_ms(&get).map(|ms| ms as i64),
         }
     }
 

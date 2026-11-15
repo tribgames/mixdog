@@ -1070,7 +1070,11 @@ const hostRole = createLocalHostRole({
         silent: process.platform === 'win32',
       }),
     ...(process.platform === 'win32' ? { playSound: () => playNotificationSound() } : {}),
-    activate: () => primaryActivation.activate(),
+    // A click opens the session the toast names; a session the pet overlay shows has no toast.
+    activate: (threadId) => primaryActivation.activate(threadId),
+    showsThread: (threadId) => desktopPet?.showsSession(threadId) ?? false,
+    diagnostic: (event, details) => diagnostics?.write(event, details),
+    translate: (key) => nativeT(key),
     isSupported: () => Notification.isSupported(),
     idleSeconds: () => powerMonitor.getSystemIdleTime(),
     // A click on a server's notification brings that server's window forward (on the thread it names).
@@ -1437,6 +1441,8 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
 }
 
 function disposeDesktopResources(): Promise<void> {
+  // Toasts this app still shows go with it.
+  hostRole.host.closeNotifications();
   if (diagnosticsMemoryTimer) {
     clearInterval(diagnosticsMemoryTimer);
     diagnosticsMemoryTimer = null;

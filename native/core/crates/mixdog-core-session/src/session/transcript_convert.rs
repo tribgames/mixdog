@@ -615,4 +615,22 @@ mod tests {
         };
         assert!(run.result.is_some(), "a result with its card fills the run");
     }
+
+    /// A tool result row's `toolMeta` (the visualize owner) is on the card's run, as Node showed it.
+    #[test]
+    fn a_result_rows_tool_meta_reaches_its_card() {
+        let mut state = SessionState::new(16);
+        commit(&mut state, "a1", call("v1", "visualize", json!({ "action": "open" })));
+        let mut row = result("v1", "shown");
+        row["toolMeta"] = json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": "sess_lead1x" });
+        commit(&mut state, "t1", row);
+        let [card] = state.window.make_contiguous() else {
+            panic!("one card for the visualize call");
+        };
+        let ThreadItem::ToolCall { run, .. } = &*card.item else {
+            panic!("a tool card");
+        };
+        let meta = run.tool_meta.as_ref().expect("the owner meta rides the run");
+        assert_eq!((meta.code.as_str(), meta.owner_session_id.as_deref()), ("visualize_owner", Some("sess_lead1x")));
+    }
 }

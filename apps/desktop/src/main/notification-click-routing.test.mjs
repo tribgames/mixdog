@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
-import { createDesktopTurnNotifier } from './desktop-turn-notifier.ts';
-import { createPrimaryWindowActivation, retainNotification } from './notification-window.ts';
+import { createPrimaryWindowActivation, openDesktopNotificationSession, retainNotification } from './notification-window.ts';
 import { createHeldChannel } from '../preload/held-ipc.ts';
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
-import { DEFAULT_NOTIFICATION_PREFERENCES } from '../shared/contract-notifications.ts';
+
+// The host's toast presenter reads Electron's types at import; outside Electron this stand-in answers.
+registerHooks({
+  resolve(specifier, context, next) {
+    return specifier === 'electron'
+      ? { url: 'data:text/javascript,export default "";export const BrowserWindow = {};', shortCircuit: true }
+      : next(specifier, context);
+  },
+});
+const { registerNotificationHost } = await import('./host/notification.ts');
 
 /** A window that records what reaches it; `mode` is how the user left it. */
 function fakeWindow(mode = 'visible') {
@@ -22,16 +31,10 @@ function fakeWindow(mode = 'visible') {
   return { window, state };
 }
 
-// The notifier's collaborators are promise-only fakes, so everything a tick
-// sets going is microtasks; the event loop reaches its next macrotask (the
-// real setImmediate, not faked here) only once all of them have run.
-const drained = () => new Promise((resolve) => setImmediate(resolve));
-
 const sent = (state) => state.calls.filter(Array.isArray);
 
-/** The real notifier and the real click route; only Electron is faked. */
+/** The real host presenter and the real click route; only Electron is faked. The core's `host/notification/show` is what a toast is. */
 function harness(t, { windows }) {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000 });
   const notifications = [];
   let recreated = 0;
   let current = windows.initial;
@@ -41,38 +44,30 @@ function harness(t, { windows }) {
       recreated++;
     }
   );
-  const notifier = createDesktopTurnNotifier({
-    preferences: () => ({
-      preferences: {
-        ...DEFAULT_NOTIFICATION_PREFERENCES,
-        events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true },
-      },
-      overrides: [],
-    }),
-    isSupported: () => true,
-    isSessionOnScreen: () => false,
-    readFinalAnswer: async (id) =>
-      id.startsWith('failing')
-        ? { id: 'turn', at: Date.now(), status: 'failed', text: '' }
-        : { id: 'turn', at: Date.now(), status: 'done', text: 'finished the work' },
-    createNotification: (content) => {
-      const notification = new EventEmitter();
-      Object.assign(notification, { content, show() {}, close() {} });
-      notifications.push(notification);
-      return notification;
+  const handlers = new Map();
+  registerNotificationHost(
+    {
+      handleNotification: (method, handler) => handlers.set(method, handler),
+      handleRequest: (method, handler) => handlers.set(method, handler),
+      notify: () => {},
     },
-    openSession: (id) => activation.activate(id),
-    diagnostic: () => {},
-  });
-  t.after(() => notifier.dispose());
-  const finish = async (rows) => {
-    notifier.onSessions(rows.map((row) => ({ title: 'T', ...row, working: true })));
-    notifier.onSessions(rows.map((row) => ({ title: 'T', ...row })));
-    t.mock.timers.tick(2_500);
-    await drained();
+    {
+      createNotification: (content) => {
+        const notification = new EventEmitter();
+        Object.assign(notification, { content, show() {}, close() {} });
+        notifications.push(notification);
+        return notification;
+      },
+      activate: (sessionId) => activation.activate(sessionId),
+      isSupported: () => true,
+      idleSeconds: () => 0,
+    }
+  );
+  /** The core tells a toast for each of `rows`. */
+  const finish = (rows) => {
+    for (const row of rows) handlers.get('host/notification/show')({ title: 'T', body: 'finished the work', threadId: row.id });
   };
   return {
-    notifier,
     notifications,
     activation,
     finish,
@@ -88,6 +83,7 @@ const KINDS = [
   ['bot home chat', { id: 'bot-1', agentHome: 'secretary' }],
   ['group room', { id: 'room-1', agentRoom: { name: 'Planning' } }],
   ['failed turn', { id: 'failing-1' }],
+  ['approval or question wait, a sub-agent’s included (the core names the chat that shows it)', { id: 'code-1' }],
 ];
 
 for (const [name, row] of KINDS) {
@@ -95,7 +91,7 @@ for (const [name, row] of KINDS) {
     test(`clicking the ${name} notification with the window ${mode} sends its session to the renderer`, async (t) => {
       const { window, state } = fakeWindow(mode);
       const h = harness(t, { windows: { initial: window } });
-      await h.finish([row]);
+      h.finish([row]);
       assert.equal(h.notifications.length, 1);
       h.notifications[0].emit('click');
       assert.deepEqual(sent(state), [[DESKTOP_IPC.notificationOpenSession, row.id]]);
@@ -107,37 +103,35 @@ for (const [name, row] of KINDS) {
   }
 }
 
-test('approval and question waits open the chat that shows them, a sub-agent’s included', async (t) => {
+for (const mode of ['hidden', 'minimized', 'visible']) {
+  test(`a notification click restores/focuses the ${mode} window before sending the exact session`, () => {
+    const { window, state } = fakeWindow(mode);
+    assert.equal(openDesktopNotificationSession(window, 'exact-background-session'), true);
+    assert.deepEqual(state.calls, [
+      ...(mode === 'minimized' ? ['restore'] : []),
+      ...(mode === 'hidden' ? ['show'] : []),
+      'focus',
+      [DESKTOP_IPC.notificationOpenSession, 'exact-background-session'],
+    ]);
+  });
+}
+
+test('closing a banner does not open or focus a session', () => {
   const { window, state } = fakeWindow('hidden');
-  const h = harness(t, { windows: { initial: window } });
-  h.notifier.onSessions([
-    { id: 'code-1', title: 'T' },
-    { id: 'sub-1', title: 'Worker' },
-    { id: 'bot-1', title: '', agentHome: 'secretary' },
-  ]);
-  h.notifier.onSessionState({
-    sessionId: 'sub-1',
-    frameSource: 'live',
-    snapshot: { toolApproval: { id: 'a1', kind: 'approval', surfaceSessionId: 'code-1' } },
-  });
-  h.notifier.onSessionState({
-    sessionId: 'bot-1',
-    frameSource: 'live',
-    snapshot: { toolApproval: { id: 'q1', kind: 'question' } },
-  });
-  t.mock.timers.tick(0);
-  await drained();
-  assert.equal(h.notifications.length, 2);
-  for (const notification of h.notifications) notification.emit('click');
-  assert.deepEqual(
-    sent(state).map((call) => call[1]),
-    ['code-1', 'bot-1']
-  );
+  const h = harness(null, { windows: { initial: window } });
+  h.finish([{ id: 'a' }]);
+  h.notifications[0].emit('close');
+  assert.deepEqual(state.calls, []);
+});
+
+test('missing or destroyed windows reject notification navigation', () => {
+  assert.equal(openDesktopNotificationSession(null, 'a'), false);
+  assert.equal(openDesktopNotificationSession({ isDestroyed: () => true }, 'a'), false);
 });
 
 test('a click with no window rebuilds it and delivers the session once it exists', async (t) => {
   const h = harness(t, { windows: { initial: null } });
-  await h.finish([{ id: 'room-1', agentRoom: { name: 'Planning' } }]);
+  h.finish([{ id: 'room-1', agentRoom: { name: 'Planning' } }]);
   h.notifications[0].emit('click');
   assert.equal(h.recreated(), 1, 'the window is asked for again');
   const { window, state } = fakeWindow('hidden');

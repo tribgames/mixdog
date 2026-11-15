@@ -2,6 +2,7 @@
 
 mod image;
 mod media_office;
+mod office_journal;
 mod ooxml;
 
 use base64::Engine as _;
@@ -19,6 +20,7 @@ use crate::registry::Registry;
 pub fn register_document_methods(registry: &mut Registry) {
     ooxml::register(registry);
     media_office::register(registry);
+    office_journal::register(registry);
     image::register(registry);
 }
 
@@ -39,8 +41,7 @@ fn base64_param(params: &Value) -> Result<&str, CodedError> {
 fn js_string(value: Option<&Value>) -> String {
     match value {
         None => "undefined".to_owned(),
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
+        Some(value) => mixdog_js::value_to_string(value),
     }
 }
 
@@ -95,5 +96,9 @@ mod tests {
         assert_eq!(js_string(Some(&serde_json::json!("a b"))), "a b");
         assert_eq!(js_string(Some(&serde_json::json!(5))), "5");
         assert_eq!(js_string(Some(&Value::Null)), "null");
+        assert_eq!(js_string(Some(&serde_json::json!(["png", null, [1, 2]]))), "png,,1,2");
+        assert_eq!(js_string(Some(&serde_json::json!({"format": "png"}))), "[object Object]");
+        assert_eq!(js_string(Some(&serde_json::json!(1.0))), "1");
+        assert_eq!(js_string(Some(&serde_json::json!(1e21))), "1e+21");
     }
 }

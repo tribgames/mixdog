@@ -48,7 +48,7 @@ leads, not verdicts: a timer in a test about timers is correct.
 
 ## Audit procedure
 
-1. Run `node ${MIXDOG_SKILL_DIR}/scripts/inventory.mjs <project-root>`
+1. Run `${MIXDOG_SKILL_NODE} "${MIXDOG_SKILL_DIR}/scripts/inventory.mjs" <project-root>`
    (`--json` for data). Result: per-area counts, lanes, languages, risk
    markers and defect skips for JS/TS, Python, Go and Rust.
 2. Rank findings by impact: defect skips, then risky markers in the fast lane

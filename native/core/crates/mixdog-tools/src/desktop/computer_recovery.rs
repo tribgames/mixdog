@@ -66,18 +66,14 @@ pub(super) fn recapture_window(action: &str, input: &Value, message: &str) -> Op
     (!OBSERVATION_ACTIONS.contains(&action) && RECAPTURE_CODES.contains(&lead_code(message).as_str())).then(|| mixdog_js::value_to_string(id))
 }
 
-/// The refusal with the exact window captured again below it: what the model reads when no input was sent.
-pub(super) fn refusal_with_capture(message: &str, window: &str, capture: &[ToolPart]) -> String {
-    let mut out = format!(
+/// The refusal with the exact window captured again below it, as the parts the model reads when no input was sent: the refusal
+/// text, then the capture's own parts (its text, then its image).
+pub(super) fn refusal_with_capture(message: &str, window: &str, capture: Vec<ToolPart>) -> Vec<ToolPart> {
+    let mut parts = vec![ToolPart::Text(format!(
         "Error: {message}\nRecovery: no input was sent; window {window} was captured again below. Act only on its fresh refs, OCR marks, or frame_id."
-    );
-    for part in capture {
-        if let ToolPart::Text(text) = part {
-            out.push('\n');
-            out.push_str(text);
-        }
-    }
-    out
+    ))];
+    parts.extend(capture);
+    parts
 }
 
 fn target_label(args: &Value) -> String {
@@ -197,12 +193,19 @@ mod tests {
     }
 
     #[test]
-    fn the_recapture_is_attached_to_the_refusal_as_text() {
-        let capture = [ToolPart::Text("{\"frame_id\":\"f2\"}".into()), ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1]), width: None, height: None }];
-        let out = refusal_with_capture("stale_target: gone", "w-7", &capture);
+    fn the_recapture_is_attached_to_the_refusal_with_its_image() {
+        let image = ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1]), width: None, height: None };
+        let capture = vec![ToolPart::Text("{\"frame_id\":\"f2\"}".into()), image.clone()];
+        let out = refusal_with_capture("stale_target: gone", "w-7", capture);
         assert_eq!(
             out,
-            "Error: stale_target: gone\nRecovery: no input was sent; window w-7 was captured again below. Act only on its fresh refs, OCR marks, or frame_id.\n{\"frame_id\":\"f2\"}"
+            vec![
+                ToolPart::Text(
+                    "Error: stale_target: gone\nRecovery: no input was sent; window w-7 was captured again below. Act only on its fresh refs, OCR marks, or frame_id.".into()
+                ),
+                ToolPart::Text("{\"frame_id\":\"f2\"}".into()),
+                image,
+            ]
         );
     }
 

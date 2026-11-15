@@ -23,14 +23,13 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
-import type { DesktopService, DesktopServiceMethod } from './desktop-service-contract';
+import type { DesktopService, DesktopServiceMethod, SessionFinalAnswer } from './desktop-service-contract';
 import type { CapabilityLane } from './protocol/capability-route';
 import type { OperationLane } from './protocol/desktop-operation-route';
 import type { ServiceLane } from './protocol/service-route';
 import type { SessionLane } from './protocol/session-lane';
 import { filterSessionIds } from './desktop-state';
 import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
-import type { SessionFinalAnswer } from './session-final-answer';
 
 interface DesktopServiceClientOptions {
   initialSnapshot?: SessionSnapshot;

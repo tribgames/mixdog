@@ -43,9 +43,9 @@ impl Failure {
 /// The ledger reader's refusals: a period the caller got wrong is Node's `TypeError`/`RangeError`
 /// text; a full read lane is `queueFull`.
 pub fn ledger_failure(error: LedgerError, domain: &'static str) -> CoreError {
-    match error {
-        LedgerError::Period { message, .. } => failed(domain, message),
-        LedgerError::Busy { queue } => CoreError::QueueFull { queue: queue.into() },
+    match error.unshared() {
+        LedgerError::Period { message, .. } => failed(domain, *message),
+        LedgerError::Busy { queue } => CoreError::QueueFull { queue: (*queue).into() },
         LedgerError::Stopped => CoreError::Cancelled { by: "caller".into() },
         other => failed(domain, other.to_string()),
     }

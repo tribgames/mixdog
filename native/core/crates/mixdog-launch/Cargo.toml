@@ -21,12 +21,22 @@ required-features = ["fake-core"]
 mixdog-app-server-client = { workspace = true }
 # One implementation of the crash capture's exit text, retention and capture directory: the core's own (crash_record.rs, stale_temps.rs).
 mixdog-app-server-daemon = { workspace = true }
+# The system proxy decision and the routed download client the staging rides (`netproxy`): the proxy resolution the CLI adopts for its own process.
+mixdog-ai = { workspace = true }
+# `compare_semver`: the one version order of the update check and of the swap.
+mixdog-core-domains = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-rt = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+# The release archive of the `mixdog` binary: one deflate zip per platform.
+zip = { workspace = true }
+# The one runtime the staging worker blocks on for its download (reqwest needs one).
+tokio = { workspace = true, features = ["rt", "time", "net"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]

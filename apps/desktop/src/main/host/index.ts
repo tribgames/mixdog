@@ -130,7 +130,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
     })
     .catch(() => {});
   const humanOnly = registerHumanOnlyHolds(connection);
-  registerNotificationHost(connection, options.notifications);
+  const closeNotifications = registerNotificationHost(connection, options.notifications);
   // host/state/set is a request, host/window/closed a notification.
   const windowHost =
     options.windows
@@ -158,6 +158,8 @@ export function createDesktopHost(options: DesktopHostOptions) {
 
   return {
     reports,
+    /** Closes every toast the host still holds (at quit). */
+    closeNotifications,
     /** `host/window/closed` (only for windows the core asked for) and the windowFocus report; null without `windows`. */
     windowHost,
     /** Claims the host role; commands are served from here on. */
