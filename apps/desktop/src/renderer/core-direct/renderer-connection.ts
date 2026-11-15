@@ -41,6 +41,20 @@ const toStatus = (state: string): DesktopProtocolStatus =>
  *  updates), the loss of a sign-in feed, and the section changes of the scoped feeds it watches (`push`). */
 export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLost' | 'push'>;
 
+/** A file call of the window asks for `nodeErrors`: a path beyond the project is refused with Node's plain `Error` text ("Path is outside
+ *  the project."), as the window's IPC path showed it, not as the bare permission refusal the core's other callers get. */
+export function asNodeErrors(method: string, params: unknown): unknown {
+  if (!method.startsWith('projectFs/') || params === null || typeof params !== 'object' || Array.isArray(params)) return params;
+  return { ...(params as Record<string, unknown>), nodeErrors: true };
+}
+
+/** A file save over a file that changed is Node's one sentence for it (the core's refusal carries the contents, not the text). */
+export const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before saving.';
+export function staleSave(method: string, error: unknown): unknown {
+  const data = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+  return method.startsWith('projectFs/') && data?.kind === 'rpc' && data.data?.reason === 'preconditionFailed' ? new Error(FILE_CHANGED, { cause: error }) : error;
+}
+
 /** How one request leaves for the core. The default is the client call; the size-aware sender plugs in here. */
 export type Sender = (client: ProtocolClient<SessionFold>, method: string, params: unknown) => Promise<unknown>;
 export const plainSender: Sender = (client, method, params) =>
@@ -402,7 +416,9 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
         return method === 'feed/subscribe' ? connection.watchFeed(window, feedId) : connection.unwatchFeed(window, feedId);
       }
       const live = await connectedAfterFirstOpen();
-      const reply = await withDirectErrors(request(method, params));
+      const reply = await withDirectErrors(request(method, asNodeErrors(method, params)).catch((error: unknown) => {
+        throw staleSave(method, error);
+      }));
       const flow = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
       if (typeof flow?.flowId === 'string' && flow.flowId) {
         if (LOGIN_START_METHODS.has(method)) await followLogin(live, flow.flowId);
