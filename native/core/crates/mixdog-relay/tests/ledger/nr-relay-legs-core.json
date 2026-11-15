@@ -24,7 +24,7 @@
     "rust": "legs_core::a_superseded_pc_leg_closing_does_not_tell_phones_the_pc_is_gone"
   },
   {
-    "node": "apps/relay/lib/relay-legs.test.mjs::isTransportFrame recognises MXT\u0001 in clear and nothing else",
+    "node": "apps/relay/lib/relay-legs.test.mjs::isTransportFrame recognises MXT\\x01 in clear and nothing else",
     "rust": "legs_core::a_transport_frame_is_recognised_by_its_magic_in_clear_and_nothing_else"
   },
   {

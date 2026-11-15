@@ -7,7 +7,7 @@
   {"node": "apps/relay/lib/pair-codes.test.mjs::the whole code space shares one guess budget across sources", "rust": "pair_codes::the_whole_code_space_shares_one_guess_budget_across_sources"},
   {"node": "apps/relay/lib/pair-codes.test.mjs::relay: a desktop can no longer register a chosen code or probe for occupied ones", "twin": "nr-relay-twin-identity: pair-code-request over WebSocket"},
   {"node": "apps/relay/lib/pair-codes.test.mjs::relay: a redial gets a fresh code and the old leg code dies with its socket", "twin": "nr-relay-twin-identity: pair-code redial"},
-  {"node": "apps/relay/lib/pair-codes.test.mjs::relay: /support is throttled and never returns a host name", "twin": "nr-relay-twin-identity: pair-code support"},
+  {"node": "apps/relay/lib/pair-codes.test.mjs::relay: /support is throttled and never returns a host name", "twin": "identity/pair_code_support_throttled"},
   {"node": "apps/relay/lib/pair-codes.test.mjs::relay: a registered code redeems into a claim the desktop sees as a code claim", "twin": "nr-relay-twin-identity: pair-code resolve and claim"},
   {"node": "apps/relay/lib/pair-codes.test.mjs::relay: wrong guesses are limited per source and never echo the code", "twin": "nr-relay-twin-identity: pair-code resolve rate limit"},
   {"node": "apps/relay/lib/pair-codes.test.mjs::relay: oversize and malformed code requests are refused, cross-origin callers too", "twin": "nr-relay-twin-identity: pair-code resolve bad requests"},
