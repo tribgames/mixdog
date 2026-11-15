@@ -341,7 +341,6 @@ impl Document {
         Ok((width, height))
     }
 
-    /// The page drawn into `width` x `height` at the largest uniform scale that fits, centred; straight RGBA.
     /// The tree to draw at `scale`: the smooth-filtered one when an embedded image is drawn larger than its own pixels (the bilinear filter
     /// of cairo), else the one that keeps the pixels (an image placed at its own size is laid as it is, one drawn smaller is averaged).
     fn tree_for(&self, scale: f64) -> &usvg::Tree {
@@ -351,6 +350,7 @@ impl Document {
         }
     }
 
+    /// The page drawn into `width` x `height` at the largest uniform scale that fits, centred; straight RGBA.
     fn render(&self, width: u32, height: u32) -> Result<Image, RasterError> {
         if self.blank {
             return Ok(Image::from_rgba(width, height, 4, vec![0; width as usize * height as usize * 4]));
@@ -369,7 +369,11 @@ impl Document {
         // `SUPERSAMPLE_PIXELS` is drawn as it is.
         let factor = supersample_factor(width, height);
         let tree = self.tree_for(scale);
-        let premultiplied = paint_shapes(tree, width as usize, height as usize, factor as usize, scale, left, top)?;
+        let premultiplied = if needs_whole_tree(tree.root()) {
+            whole_tree(tree, width, height, factor, scale, left, top)?
+        } else {
+            paint_shapes(tree, width as usize, height as usize, factor as usize, scale, left, top)?
+        };
         // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes the rasterizer's
         // premultiplied pixels back to straight alpha.
         let data = premultiplied
@@ -382,6 +386,34 @@ impl Document {
             .collect();
         Ok(Image::from_rgba(width, height, 4, data))
     }
+}
+
+/// Whether the tree has a unit shape-by-shape painting cannot lay on its own: a group blended with what is under it (its mode needs the
+/// backdrop), or a pattern-painted shape without area (`resvg::render_node` has no box for it and would drop it).
+fn needs_whole_tree(group: &usvg::Group) -> bool {
+    group.children().iter().any(|node| match node {
+        usvg::Node::Group(inner) => inner.blend_mode() != usvg::BlendMode::Normal || (!inner.should_isolate() && needs_whole_tree(inner)),
+        usvg::Node::Path(path) => {
+            let pattern = |paint: &usvg::Paint| matches!(paint, usvg::Paint::Pattern(_));
+            node.abs_layer_bounding_box().is_none()
+                && (path.fill().is_some_and(|fill| pattern(fill.paint())) || path.stroke().is_some_and(|stroke| pattern(stroke.paint())))
+        }
+        _ => false,
+    })
+}
+
+/// The premultiplied pixels of the whole tree drawn at once, `factor` times larger and averaged.
+fn whole_tree(tree: &usvg::Tree, width: u32, height: u32, factor: u32, scale: f64, left: f64, top: f64) -> Result<Vec<[u8; 4]>, RasterError> {
+    let (big_width, big_height) = (width * factor, height * factor);
+    let mut pixmap = tiny_skia::Pixmap::new(big_width, big_height).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
+    let k = f64::from(factor);
+    let transform = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, (left * k) as f32, (top * k) as f32);
+    resvg::render(tree, transform, &mut pixmap.as_mut());
+    Ok(if factor == 1 {
+        pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
+    } else {
+        mean_of_blocks(pixmap.pixels(), width as usize, height as usize, factor as usize)
+    })
 }
 
 /// Whether the tree has a raster image (not an SVG one) anywhere.
