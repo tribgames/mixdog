@@ -147,7 +147,8 @@ fn build_paint<'a>(state: &State, style: &'a Style) -> Option<Paint<'a>> {
         }
         Style::Gradient(gradient) => gradient.shader(state.global_alpha)?,
         Style::Pattern(pattern) => {
-            let mode = if pattern.repetition == Repetition::Repeat { SpreadMode::Repeat } else { SpreadMode::Pad };
+            // `repeat-x` and `repeat-y` repeat both ways and are cut to their band by the draw mask.
+            let mode = if pattern.repetition == Repetition::NoRepeat { SpreadMode::Pad } else { SpreadMode::Repeat };
             Pattern::new(Pixmap::as_ref(&pattern.pixmap), mode, state.quality.filter(state.smoothing), state.global_alpha, pattern.transform)
         }
     };
@@ -1167,6 +1168,12 @@ mod tests {
         assert_eq!(px(&single, 1, 1), [255, 0, 0, 255]);
         assert_eq!(px(&single, 5, 5)[3], 0);
         assert_eq!(px(&single, 5, 0)[3], 0);
+        let mut across = canvas(8, 8);
+        across.set_fill_style(Style::Pattern(PatternStyle::new(&cell, Repetition::RepeatX)));
+        across.fill_rect(0.0, 0.0, 8.0, 8.0);
+        assert_eq!(px(&across, 6, 0), [255, 0, 0, 255], "repeat-x repeats along its row");
+        assert_eq!(px(&across, 7, 1), [255, 0, 0, 255]);
+        assert_eq!(px(&across, 6, 5)[3], 0, "and nowhere below it");
     }
 
     #[test]
