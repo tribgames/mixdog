@@ -31,12 +31,6 @@ pub(super) struct Transition {
     pub panel_close_ink_mask_rows: usize,
 }
 
-/// `isCompletedTranscriptTailAppendedThisCommit(latest, previousTailId)`: the tail is a done row that was not the tail of
-/// the last commit.
-fn completed_tail_appended_this_commit(latest: Option<&TranscriptTail>, previous_tail_id: Option<&str>) -> bool {
-    latest.is_some_and(|item| (item.kind == "turndone" || item.kind == "statusdone") && item.id.as_deref() != previous_tail_id)
-}
-
 /// Rows the same commit already backfills, so masking them blank for one commit would only bounce the transcript:
 /// - Turn-end spinner meta collapse: the 2-row live-spinner band disappears in the same commit the engine appends the
 ///   turndone or statusdone tail. The done row must have been appended in this commit (the tail id changed): a command
@@ -45,7 +39,10 @@ fn completed_tail_appended_this_commit(latest: Option<&TranscriptTail>, previous
 /// - Queued-band promotion: draining removes the queued band and appends the promoted user transcript row in the same
 ///   commit. Queue edits and removals without a tail append keep the mask.
 fn same_commit_backfill_rows(prev_signature: &str, next_signature: &str, latest: Option<&TranscriptTail>, previous_tail_id: Option<&str>) -> usize {
-    let spinner_meta_collapse_rows = if completed_tail_appended_this_commit(latest, previous_tail_id) {
+    let spinner_meta_collapse_rows = if mixdog_tui_widgets::spinner::is_completed_transcript_tail_appended_this_commit(
+        latest.map(|item| mixdog_tui_widgets::spinner::TranscriptTail { kind: &item.kind, id: item.id.as_deref() }),
+        previous_tail_id,
+    ) {
         signature_rows(prev_signature, token::PROMPT_META).saturating_sub(signature_rows(next_signature, token::PROMPT_META))
     } else {
         0
@@ -196,16 +193,6 @@ mod tests {
         assert_eq!(refs.panel_transition.tail_id.as_deref(), Some("d1"));
         record_transcript_tail(&mut refs, None);
         assert_eq!(refs.panel_transition.tail_id, None);
-    }
-
-    #[test]
-    fn only_a_done_row_appended_in_this_commit_backfills() {
-        let done = TranscriptTail { id: Some("d1".into()), kind: "turndone".into() };
-        assert!(completed_tail_appended_this_commit(Some(&done), Some("u1")));
-        assert!(completed_tail_appended_this_commit(Some(&done), None));
-        assert!(!completed_tail_appended_this_commit(Some(&done), Some("d1")), "a stale done row at the tail");
-        assert!(!completed_tail_appended_this_commit(Some(&TranscriptTail { id: Some("u2".into()), kind: "user".into() }), Some("u1")));
-        assert!(!completed_tail_appended_this_commit(None, None));
     }
 
     #[test]

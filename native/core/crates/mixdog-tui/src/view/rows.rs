@@ -113,6 +113,61 @@ pub fn paint_viewport(painter: &mut Painter, top: i32, height: usize, frame_colu
     painter.pop_clip(outer);
 }
 
+/// The item column in a clipping box one row high, holding more rows than that. Yoga does not keep the column's height here
+/// the way it does for a box of two rows or more (the column is measured at most one row high, and its items, which can
+/// shrink, give up all their content rows): what stays is each item's top margin, the gap above its first content row. The
+/// column is then as tall as the margins add up to and, pinned to the bottom edge, starts that many rows above the box's
+/// bottom row; an item's content is a text that is still drawn whole from the item's top, and the items overprint each other in
+/// order. A content row lands on the box row when the margins of the items after it add up to one: the row shown is the first
+/// content row of the item before the last (the second-to-last item's text), as Ink draws it.
+fn paint_squeezed_column(painter: &mut Painter, box_top: i32, rows: &MountedRows) {
+    let margins: Vec<usize> = rows.items.iter().map(|lines| lines.iter().take_while(|line| line.0.is_empty()).count()).collect();
+    let mut after = 0usize;
+    let mut tops = vec![0i32; rows.items.len()];
+    for (at, margin) in margins.iter().enumerate().rev() {
+        tops[at] = 1 - after as i32;
+        after += margin;
+    }
+    for (at, lines) in rows.items.iter().enumerate() {
+        for (k, line) in lines.iter().skip(margins[at]).enumerate() {
+            let y = tops[at] + k as i32;
+            if y == 0 && !line.0.is_empty() {
+                painter.line(0, box_top, &without_container_fill(&line.0), Style::default());
+            }
+        }
+    }
+}
+
+/// The text of an item's row without the fill of the box around it: a box that keeps no rows paints no background, so the
+/// padding before the text stays unpainted and the fill after it is not there (the text keeps its own background).
+fn without_container_fill(line: &str) -> String {
+    const RESET: &str = "\u{1b}[0m";
+    let pieces: Vec<&str> = line.split(RESET).collect();
+    let split = |piece: &str| -> (usize, bool) {
+        // `\e[...m` then the text: a fill is blank text under a background and no foreground.
+        match piece.strip_prefix('\u{1b}').and_then(|rest| rest.find('m').map(|end| (end + 1, &rest[..=end]))) {
+            Some((sgr_len, sgr)) => (sgr_len + 1, !piece[sgr_len + 1..].is_empty() && piece[sgr_len + 1..].chars().all(|c| c == ' ') && sgr.contains("48;") && !sgr.contains("38;")),
+            None => (0, false),
+        }
+    };
+    let is_text = |piece: &str| !piece.is_empty() && !split(piece).1;
+    let (Some(first), Some(last)) = (pieces.iter().position(|piece| is_text(piece)), pieces.iter().rposition(|piece| is_text(piece))) else {
+        return line.to_owned();
+    };
+    let mut out = String::with_capacity(line.len());
+    for (at, piece) in pieces.iter().enumerate() {
+        let (start, fill) = split(piece);
+        if fill && at > last {
+            continue;
+        }
+        if at > 0 {
+            out.push_str(RESET);
+        }
+        out.push_str(if fill && at < first { &piece[start..] } else { piece });
+    }
+    out
+}
+
 /// The column of items in its clipping box: the column's bottom edge is the box's bottom plus the scroll offset.
 fn paint_item_column(painter: &mut Painter, box_top: i32, box_height: usize, frame_columns: usize, rows: &MountedRows) {
     // The box may start above the viewport (its top overflows and is clipped): only the part from row 0 is a clip.
@@ -124,6 +179,11 @@ fn paint_item_column(painter: &mut Painter, box_top: i32, box_height: usize, fra
     let clip = Rect::new(0, visible_top as u16, frame_columns as u16, u16::try_from(visible_height).unwrap_or(u16::MAX));
     let outer = painter.push_clip(clip);
     let drawn: usize = rows.items.iter().map(|lines| lines.len()).sum();
+    if box_height == 1 && drawn > 1 && rows.scroll_offset == 0 && rows.bottom_spacer_rows == 0 {
+        paint_squeezed_column(painter, box_top, rows);
+        painter.pop_clip(outer);
+        return;
+    }
     let column_bottom = box_top + box_height as i32 + rows.scroll_offset as i32;
     let mut y = column_bottom - (drawn + rows.bottom_spacer_rows) as i32;
     for lines in &rows.items {
