@@ -1,0 +1,53 @@
+# nr-tui-pickers-settings: integration fragment
+
+Fills `native/core/crates/mixdog-tui/src/pickers/settings.rs` and `src/pickers/settings/`: the Settings picker (rows from one
+`getSettingsSnapshot`, toggles, listed cyclers, navigation, the live refresh), Update, Auto-clear, Profile and Developer.
+Nothing in it was compiled by its author (no cargo in the task); the lead compiles it with the wave.
+
+## Hot files
+
+None. The crate is already a workspace member and takes no new dependency edge: the code uses `mixdog-js`, `mixdog-termtext`
+(`wrap::wrap_ansi`), `mixdog-tui-style` (`time_format`, `theme_color`), `mixdog-tui-widgets` (`picker`, `confirm_bar`),
+`mixdog-view-model` (`display::model_display`), `serde_json`, all in the crate's `Cargo.toml` already. No protocol row and no
+`SERVICE_PENDING` name: every store call below is a method of `inventory.rs` today (`getSettingsSnapshot`, `getVoiceStatus`,
+`toggleVoice`, `getUpdateSettings`, `getUpdateStatus`, `setAutoUpdate`, `checkForUpdate`, `runUpdateNow`, `getAutoClear`,
+`setAutoClear`, `getProfile`, `setProfile`, `getDeveloperSettings`, `setDeveloperOption`, `setCompactionSettings`,
+`setWebSearchEnabled`, `setMemoryToolsEnabled`, `listOutputStyles`, `setOutputStyle`, `listWorkflows`, `setWorkflow`,
+`listThemes`, `getTheme`, `setTheme`).
+
+## What the wiring (nr-tui-app-run) must apply
+
+* Implement `mixdog_tui::pickers::settings::host::PickerHost` (a supertrait over `slash::host::SlashHost`) on the object that
+  owns the application state:
+  * `claim_picker` is `surface.claim()` (the claim holds until the panel epoch is superseded, also before any panel was painted:
+    `owns_surface` of such a claim is the epoch check alone, not "a picker is open"); `paint_panel` is `own.paint(panel)` and
+    answers the claim re-armed on the epoch the write took (a paint can itself be the handover); `clear_context` is
+    `own.context(null)` (it supersedes the epoch); `close_surface` closes the picker the claim owns.
+  * `settings_state` is one `pickers::settings::SettingsState` kept for the life of the application (the refs Node's per-render
+    factory read: build ticket, heavy-read cache, live refresh, heavy-read gate).
+  * `route_model_label(route)` is `routeModelLabel` of `model-options.mjs` (nr-tui-pickers-model): `(unset)` for a route with no
+    model, else `Model . Effort . Fast` without the provider.
+* `SlashHost::open(opener, options)` for `Opener::Settings`, `AutoClear`, `Profile`, `Update` and `Developer` calls
+  `pickers::settings::open(host, opener, &options)`: `Opening::Open(picker)` is the picker the application keeps until another
+  surface replaces it (route its keys to `PickerController::left/right/select/confirm/cancel` with the `value` of the highlighted
+  row, its panel is `PickerController::panel()` for the renderer); `Closed` is an abandoned open (nothing on screen);
+  `NotMine` is every other opener. `SlashHost::open_with_return` (the auto-clear picker opened from its provider prompt)
+  calls `open(AutoClear, {"advanced": true, "returnTo": "settings"})` when the prompt carries `_returnTo`, else without `returnTo`.
+* A settings change from elsewhere (the notification that re-read Node's `settingsLiveRefreshRef.current()`) calls
+  `pickers::settings::picker::run_live_refresh(host)`: a no-op unless the Settings panel is still the one on screen.
+* Options the pickers pass to the other pickers instead of Node's functions (`returnTo: openSettingsPicker` and the like):
+  `returnTo: "settings"`, `onAfterSelect: "settings"`, `onCancel: "settings"` name the picker to come back to
+  (`open(Opener::Settings, {})`); `handoffPanel` is the Settings loading panel as JSON (`Panel::to_json`);
+  `returnLabel`, `returnOnNestedCancel`, `continueLabel`, `continueDescription` are as Node. The model, web-search, workflow,
+  output-style, theme, provider-setup, MCP, plugins, skills and memory pickers (their own tasks) read these options.
+* The text-entry prompts the pickers raise are `TextPrompt`s of kind `system-shell`, `autoclear-provider` (fields `provider`,
+  `builtInMs`, flag `_returnTo`) and `profile-title`; their submit is `slash::submit` (already ported).
+
+## Notes for the lead
+
+* Voice is routed to the core (`getVoiceStatus` for the row and the busy check, `toggleVoice(enabled)` for the flip, notices
+  made from its `result`): no Node voice setup is kept. The row costs one `getVoiceStatus` call beside the snapshot because
+  `getSettingsSnapshot` has no voice member; adding `voice: { enabled }` to it (nr-tui-core-gaps, `tui_client_methods.rs`) would make
+  Settings one round trip again and the call in `picker.rs::voice_enabled` could then read the snapshot.
+* The JavaScript exception paths of Node (`panelFailed` notices for a `formatDuration` or paint that throws) have no Rust
+  counterpart: the Rust functions do not fail there.
