@@ -69,3 +69,21 @@ test('table_matches_rust_json', () => {
   const rust = JSON.parse(readFileSync(new URL('../../../../../native/core/crates/mixdog-app-protocol/src/boundary/blob_fields.json', import.meta.url), 'utf8')).methods;
   assert.deepEqual(BLOB_REF_FIELDS, rust);
 });
+
+test('feedback_attachment_images_travel_as_blob_refs', async () => {
+  const { client, sent, blobs } = harness();
+  const png = Buffer.alloc(300 * 1024, 9);
+  const input = {
+    id: 'id-1',
+    kind: 'bug',
+    message: 'it broke',
+    attachments: [{ name: 'a.png', mimeType: 'image/png', data: png.toString('base64') }, { name: 'b.png', mimeType: 'image/png', data: 'not base64!' }],
+  };
+  await sizedCall(client, 'feedback/upload', { input });
+  assert.equal(blobs.length, 1);
+  assert.equal(Buffer.from(blobs[0].bytes).equals(png), true);
+  const attachments = sent[0].params.input.attachments;
+  assert.deepEqual(attachments[0].data, { $blobRef: 'sha256:1', as: 'base64' });
+  assert.equal(attachments[1].data, 'not base64!');
+  assert.equal(sent[0].params.input.message, 'it broke');
+});

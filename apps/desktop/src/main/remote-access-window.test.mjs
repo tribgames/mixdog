@@ -37,15 +37,19 @@ test('a QR build failure answers null and is logged instead of rejecting', async
   assert.match(String(logged.mock.calls[0].arguments[0]), /pairing QR build failed/);
 });
 
-// Source-text on purpose: index.ts imports Electron and cannot be loaded by a test, so
-// the routing of its three actions through the guarded builder is pinned in its text.
-test('every remote-access action in the main process builds its card through the guarded path', async () => {
-  const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  for (const name of ['remoteAccessInfo', 'rotateRemoteAccess', 'revokeRemoteAccessClient']) {
-    const start = main.indexOf(`async function ${name}(`);
-    assert.ok(start >= 0, `${name} is defined`);
-    const body = main.slice(start, main.indexOf('\n}\n', start));
-    assert.match(body, /remoteAccessInfoFromDescriptor\(/, `${name} uses the guarded card builder`);
-    assert.doesNotMatch(body, /buildRemoteAccessInfo\(/, `${name} does not build the card unguarded`);
+// The remote-access actions are the renderer's core-direct calls (renderer/core-direct/api-settings.ts), no longer functions of
+// the main process: each of the three that answer a card goes through `access`, which builds it with the guarded builder.
+test('every remote-access action of the window builds its card through the guarded path', async () => {
+  const source = await readFile(new URL('../renderer/core-direct/api-settings.ts', import.meta.url), 'utf8');
+  assert.match(source, /const access = async [^\n]*remoteAccessInfoFromDescriptor\(await op\(/, 'access uses the guarded card builder');
+  assert.doesNotMatch(source, /buildRemoteAccessInfo\(/, 'the card is never built unguarded');
+  for (const [key, call] of [
+    ['rotateRemoteAccess', "access('remoteAccessRotate')"],
+    ['revokeRemoteAccessClient', "access('remoteAccessRevokeClient'"],
+    ['getRemoteAccessInfo', "access('remoteAccessInfo'"],
+  ]) {
+    const start = source.indexOf(`${key}: `);
+    assert.ok(start >= 0, `${key} is defined`);
+    assert.ok(source.slice(start, source.indexOf('\n', start)).includes(call), `${key} answers through access`);
   }
 });

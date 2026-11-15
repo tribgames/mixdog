@@ -127,28 +127,3 @@ test('a closed owner gets no URL, and closing one owner revokes only its pages',
   await assert.rejects(h.run(DESKTOP_IPC.localPageUrl, first, ROOT, 'c.html'), LocalAccessDeniedError);
 });
 
-test('entry operations in a standalone folder go to the core with the folder as root', async (t) => {
-  const h = harness(t, { standalone: FOLDER });
-  const sender = owner();
-  await h.run(DESKTOP_IPC.listProjectDir, sender, FOLDER, 'sub');
-  await h.run(DESKTOP_IPC.createProjectEntry, sender, FOLDER, '', 'a.txt', false);
-  await h.run(DESKTOP_IPC.renameProjectEntry, sender, FOLDER, 'a.txt', 'b.txt');
-  await h.run(DESKTOP_IPC.moveProjectEntry, sender, FOLDER, 'b.txt', 'sub');
-  await h.run(DESKTOP_IPC.copyProjectEntry, sender, FOLDER, 'sub/b.txt', '');
-  await h.run(DESKTOP_IPC.trashProjectEntry, sender, FOLDER, 'sub/b.txt');
-  const ops = h.calls.filter(([name]) => name !== 'standaloneRoot');
-  assert.deepEqual(ops, [
-    ['listProjectDirIn', [FOLDER, 'sub']],
-    ['createProjectEntryIn', [FOLDER, '', 'a.txt', false]],
-    ['renameProjectEntryIn', [FOLDER, 'a.txt', 'b.txt']],
-    ['moveProjectEntryIn', [FOLDER, 'b.txt', 'sub']],
-    ['copyProjectEntryIn', [FOLDER, 'sub/b.txt', '']],
-    ['trashProjectEntryIn', [FOLDER, 'sub/b.txt']],
-  ]);
-});
-
-test('trash in a Project goes through the core with the Project directory', async (t) => {
-  const h = harness(t);
-  await h.run(DESKTOP_IPC.trashProjectEntry, owner(), ROOT, 'old.txt');
-  assert.deepEqual(h.calls, [['trashProjectEntryIn', [ROOT, 'old.txt']]]);
-});

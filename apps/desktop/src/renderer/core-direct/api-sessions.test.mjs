@@ -369,3 +369,9 @@ test('a resync after the fold changed delivers what the window last showed, and 
   client.emitStore({ type: 'thread', threadId: S1 });
   assert.equal(seen[3].snapshot.items.length, 2);
 });
+
+test('a favorite is sent for the trimmed session id with the boolean as given', async () => {
+  const { client, api } = await opened();
+  await api.setSessionFavorite(` ${S1} `, false);
+  assert.deepEqual(sent(client), [['thread/metadata/update', { threadId: S1, favorite: false }]]);
+});
