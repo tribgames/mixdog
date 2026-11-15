@@ -10,6 +10,8 @@ workspace = true
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-view-model = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }

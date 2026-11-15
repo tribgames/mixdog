@@ -1,0 +1,40 @@
+# nr-tui-sv-reducer: what the lead applies (nothing here is applied by the task)
+
+## native/core/Cargo.lock (offline, --locked)
+
+The `[[package]] name = "mixdog-session-view"` entry gains two dependencies, both workspace crates already in the lock file. Its
+`dependencies` list becomes (alphabetical, as cargo writes it):
+
+    dependencies = [
+     "mixdog-app-protocol",
+     "mixdog-app-server-client",
+     "mixdog-js",
+     "mixdog-view-model",
+     "mixdog-workspace-hack",
+     "serde_json",
+     "thiserror 2.0.21",
+     "tokio",
+    ]
+
+(`cargo metadata --offline` regenerates it.) native/core/crates/mixdog-session-view/Cargo.toml already names both as
+`{ workspace = true }`; `mixdog-js` and `mixdog-view-model` are in [workspace.dependencies] already.
+
+## native/core/crates/mixdog-workspace-hack
+
+No change: the new edges add no crate feature beyond what mixdog-view-model and mixdog-js already use (serde_json
+`preserve_order` is the workspace's own).
+
+## mixdog-app-server-daemon/src/compose_flip.rs SERVICE_PENDING
+
+Nothing to remove: this task registers no service and adds no protocol method.
+
+## For the tasks after this one
+
+- nr-tui-sv-store: the fold is `mixdog_session_view::reducer::SessionReducer` (set it as `ClientOptions::thread_reducer`); the state
+  a UI reads is `mixdog_session_view::state::desktop_session_state(&fold, &client.pending_server_requests(), host_shell_jobs)`, with
+  `host_shell_jobs` the value of the app feed's `hostShellJobs` section (`None` before the section arrives; a stubbed section's `null`
+  value is passed as `Some(&Value::Null)` as the TypeScript passes it). `framed_session_state` and `frames_of` are the phone's
+  `subscribeFramedSessionStates`: one state per `thread/frame`. A history page's rows are `mixdog_session_view::rows::rows_of`
+  (one item and the compaction dividers after it), a transcript is `rows::row_of` then `rows::merge_tool_rows` (or the `_steps`
+  form with a yield callback).
+- The approval card needs `card` on the typed approval params: see pending-rows/nr-tui-sv-reducer.rows.
