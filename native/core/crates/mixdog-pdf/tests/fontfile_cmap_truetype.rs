@@ -642,6 +642,7 @@ fn font_with_cmap(cmap: Vec<u8>) -> Vec<u8> {
             ("cmap", cmap),
             ("head", head_table(1000, -200, 900, 0)),
             ("hhea", hhea_table(800, -200, 0)),
+            ("hmtx", vec![0; 4]),
             ("maxp", maxp_table(5)),
             ("loca", loca_table(false)),
             ("glyf", glyf_table()),
@@ -948,6 +949,7 @@ fn long_glyph_locations_give_the_same_answer() {
         &[
             ("head", head_table(1000, 0, 0, 1)),
             ("hhea", hhea_table(0, 0, 0)),
+            ("hmtx", vec![0; 4]),
             ("maxp", maxp_table(5)),
             ("loca", loca_table(true)),
             ("glyf", glyf_table()),
@@ -971,6 +973,7 @@ fn a_short_loca_table_is_read_with_zeros_after_its_end() {
         &[
             ("head", head_table(1000, 0, 0, 0)),
             ("hhea", hhea_table(0, 0, 0)),
+            ("hmtx", vec![0; 4]),
             ("maxp", maxp_table(5)),
             ("loca", loca),
             ("glyf", glyf_table()),
@@ -986,6 +989,7 @@ fn font_of(skip: &str, maxp: Vec<u8>, head: Vec<u8>, loca: Vec<u8>) -> TrueTypeF
     let all = [
         ("head", head),
         ("hhea", hhea_table(0, 0, 0)),
+        ("hmtx", vec![0; 4]),
         ("maxp", maxp),
         ("loca", loca),
         ("glyf", glyf_table()),
@@ -1035,6 +1039,7 @@ fn opentype_fonts_with_cff_outlines_have_no_missing_glyph_table() {
         &[
             ("head", head_table(1000, 0, 0, 0)),
             ("hhea", hhea_table(0, 0, 0)),
+            ("hmtx", vec![0; 4]),
             ("maxp", maxp_table(0)),
             ("CFF ", vec![1, 0, 4, 1, 0, 0, 0, 0]),
         ],

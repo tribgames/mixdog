@@ -516,7 +516,8 @@ where
             }
         }
     }
-    match use_cmap {
+    // `useCMap ? extend(useCMap) : cMap`: an empty name is falsy.
+    match use_cmap.filter(|name| !name.is_empty()) {
         Some(name) => extend(cmap, &name),
         None => Ok(()),
     }

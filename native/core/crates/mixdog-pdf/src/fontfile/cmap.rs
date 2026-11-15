@@ -227,7 +227,7 @@ impl CMap {
         }
         if self.identity {
             return match value {
-                CMapValue::Cid(n) if (0..=0xffff).contains(n) => *n,
+                CMapValue::Cid(n) if *n <= 0xffff => *n,
                 _ => -1,
             };
         }
@@ -588,7 +588,12 @@ fn parse_cmap(mut cmap: CMap, mut lexer: Lexer, use_cmap: Option<&str>) -> Resul
             Err(error) => tracing::warn!("Invalid cMap data: {error}"),
         }
     }
-    let use_cmap = use_cmap.map(str::to_owned).or(embedded_use_cmap);
+    // An empty name is falsy in pdf.js: it neither replaces the embedded one nor extends.
+    let use_cmap = use_cmap
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .or(embedded_use_cmap)
+        .filter(|name| !name.is_empty());
     if let Some(name) = use_cmap {
         extend_cmap(&mut cmap, &name)?;
     }
