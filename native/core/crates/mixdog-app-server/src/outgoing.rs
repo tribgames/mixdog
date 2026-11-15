@@ -318,7 +318,7 @@ impl Outgoing {
             .shard(id)
             .get(id)
             .filter(|pending| pending.delivered.contains(&from))
-            .map(|pending| (pending.req.thread.clone(), pending.req.method.clone()))
+            .map(|pending| (pending.req.thread.clone(), pending.req.method))
     }
 
     /// Records `conn` as the newest host claimant for what it declared at `initialize`. A
