@@ -1,0 +1,225 @@
+{
+  "id": "claim_refusals",
+  "description": "claims are refused before any desktop hears of them: malformed fields and unknown desktops 404, foreign or missing Origin 403, bad JSON 400, wrong method 405, an offline desktop 503; polling an unknown id is `unknown`",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "dA",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"nope\",\"clientId\":\"nope\",\"publicKey\":\"x\"}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "https://evil.example"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}",
+      "expect_status": 403,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}",
+      "expect_status": 403,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{",
+      "expect_status": 400,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "PUT",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{}",
+      "expect_status": 405,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/claim",
+      "expect_status": 405,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/claim/",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/claim/%E0%A4%A",
+      "expect_status": 400,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/claim/missing",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "dA",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "close": true
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"a1b2c3d4-0000-4000-8000-00000000000a\",\"clientId\":\"bbbbbbbb\",\"publicKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\"}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    }
+  ]
+}

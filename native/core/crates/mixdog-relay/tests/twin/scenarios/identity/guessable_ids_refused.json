@@ -1,0 +1,82 @@
+{
+  "id": "guessable_ids_refused",
+  "description": "trust-on-first-use binds only unguessable ids: a short hex id, a non-id, an upper-case id and a short secret are refused and leave no row; a UUID with a 16-character secret registers",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "short",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "00000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 401
+    },
+    {
+      "do": "ws_open",
+      "conn": "label",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "my-desktop",
+        "0123456789abcdef"
+      ],
+      "expect_status": 401
+    },
+    {
+      "do": "ws_open",
+      "conn": "upper",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "A1B2C3D4-0000-4000-8000-00000000000A",
+        "0123456789abcdef"
+      ],
+      "expect_status": 401
+    },
+    {
+      "do": "ws_open",
+      "conn": "secret15",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "123456789abcdef"
+      ],
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/pair-code/support?deviceId=00000001",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/pair-code/support?deviceId=a1b2c3d4-0000-4000-8000-00000000000a",
+      "expect_status": 404,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "uuid",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "http",
+      "method": "GET",
+      "path": "/pair-code/support?deviceId=a1b2c3d4-0000-4000-8000-00000000000a",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    }
+  ]
+}

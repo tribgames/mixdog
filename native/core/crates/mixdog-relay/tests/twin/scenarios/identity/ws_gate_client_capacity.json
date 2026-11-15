@@ -1,0 +1,535 @@
+{
+  "id": "ws_gate_client_capacity",
+  "description": "a desktop serves at most 32 live browser legs: the 33rd is refused 429 until one leaves",
+  "knobs": {
+    "handshakeStallMs": 600000,
+    "livenessProbeMs": 600000
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "dA",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "a1b2c3d4-0000-4000-8000-00000000000a",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "dA",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"set-client-token\",\"token\":\"fedcba9876543210\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/client/register?token=fedcba9876543210",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"clientId\":\"bbbbbbbb\",\"name\":\"Android · Chrome\",\"platform\":\"Android\",\"browser\":\"Chrome\"}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "browser",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "p0",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p1",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p2",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p3",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p4",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p5",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p6",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p7",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p8",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p9",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p10",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p11",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p12",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p13",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p14",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p15",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p16",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p17",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p18",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p19",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p20",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p21",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p22",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p23",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p24",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p25",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p26",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p27",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p28",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p29",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p30",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "p31",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "over",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 429
+    },
+    {
+      "do": "send",
+      "conn": "p0",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "p0",
+      "close": true
+    },
+    {
+      "do": "wait",
+      "ms": 150
+    },
+    {
+      "do": "ws_open",
+      "conn": "again",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "over2",
+      "path": "/ws?token=${browser}",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 429
+    }
+  ]
+}
