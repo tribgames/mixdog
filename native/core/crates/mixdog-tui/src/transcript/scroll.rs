@@ -1,29 +1,24 @@
-//! The transcript scroll state (`src/tui/app/use-transcript-scroll*.mjs`, `transcript-anchor-lock.mjs`,
-//! `use-transcript-follow.mjs`). Filled by `nr-tui-transcript-scroll` against the window signatures of `window.rs`.
+//! The transcript scroll engine (`src/tui/app/transcript-anchor-lock.mjs`, `transcript-anchor-sync.mjs`,
+//! `transcript-scroll-anchor.mjs`, `use-transcript-scroll.mjs`, `use-transcript-scroll-state.mjs`, `use-transcript-follow.mjs`,
+//! `use-transcript-activity.mjs`, `use-transcript-swap-reset.mjs` and the `MIXDOG_TUI_SCROLL_*` parsing of
+//! `transcript-window.mjs`).
+//!
+//! Positions are rows scrolled up from the tail (`0` is the live tail). The Node hooks ran on React refs, timers and
+//! effects; here every timer is the caller's: the run loop calls [`engine::TranscriptScroll::glide_tick`] every
+//! [`engine::GLIDE_INTERVAL_MS`] while a glide runs, and [`coalesce::ScrollCoalescer::tick`] when its deadline passes, and
+//! passes the clock in as milliseconds. The selection side of a scroll (harvest before, rebuild after) belongs to the mouse
+//! module and is reached through [`engine::ScrollHost`].
+//!
+//! * [`tuning`] - the `MIXDOG_TUI_SCROLL_*` knobs and the wheel acceleration step;
+//! * [`anchor`] - the reading anchor arithmetic and the bottom snap band;
+//! * [`engine`] - the scroll state, follow, glide and `scrollTranscriptRows`;
+//! * [`lock`] - the render-time anchor lock and the post-commit reconciliation;
+//! * [`coalesce`] - the leading-edge wheel and edge-drag coalescer;
+//! * [`activity`] - the agent revision key, the active-tool signature and the statusline stats projection.
 
-/// The scroll position and whether the tail is followed.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ScrollState {
-    /// Rows from the top of the transcript to the top of the viewport.
-    pub top_row: usize,
-    /// The streaming tail is followed only while armed; a manual scroll disarms it.
-    pub following: bool,
-}
-
-/// The item at the viewport top and the offset inside it, kept still while items above change height.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct AnchorLock {
-    pub item: usize,
-    pub offset: usize,
-}
-
-/// A wheel step of `delta` rows (negative scrolls up); it disarms the follow.
-pub fn apply_wheel(state: ScrollState, delta: i32, max_top: usize) -> ScrollState {
-    let top_row = state.top_row.saturating_add_signed(delta as isize).min(max_top);
-    ScrollState { top_row, following: false }
-}
-
-/// The state that follows the tail of a transcript whose last viewport starts at `max_top`.
-pub fn follow_tail(max_top: usize) -> ScrollState {
-    ScrollState { top_row: max_top, following: true }
-}
+pub mod activity;
+pub mod anchor;
+pub mod coalesce;
+pub mod engine;
+pub mod lock;
+pub mod tuning;
