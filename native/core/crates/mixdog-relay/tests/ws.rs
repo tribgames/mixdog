@@ -966,6 +966,27 @@ async fn the_raw_tap_sees_the_leftover_bytes_first_and_may_pause_before_the_pars
 }
 
 #[tokio::test]
+async fn a_hold_standing_when_the_close_frame_is_parsed_does_not_stop_the_close() {
+    let session = open_session(ServerOptions::new(1024), joined(&[upgrade(), close_frame(1000, "bye")]), |_| {}).await;
+    let Session { mut client, ws, mut events, server: _server, .. } = session;
+    let chunks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    ws.set_raw_tap(Box::new(Tap { chunks, hold_after_first: true }));
+    // The peer reads the echoed close frame and the end of the stream, then drops the connection.
+    let peer = tokio::spawn(async move {
+        let mut echoed = Vec::new();
+        client.read_to_end(&mut echoed).await.expect("the echoed close and the end");
+        echoed
+    });
+    // As ws resumes the socket after the close frame, the end of the stream is read with the hold still standing: the
+    // close event comes now, not after the 30 s close timeout.
+    let event = timeout(Duration::from_secs(5), events.next()).await.expect("the close event").expect("an event");
+    assert_eq!(event, WsEvent::Close { code: 1000, reason: Bytes::from_static(b"bye") });
+    assert!(ws.gate().is_held(Holder::Ingress), "the tap's own hold is left as it was");
+    let echoed = timeout(Duration::from_secs(5), peer).await.expect("the peer finished").expect("peer");
+    assert_eq!(echoed, vec![0x88, 5, 0x03, 0xe8, b'b', b'y', b'e']);
+}
+
+#[tokio::test]
 async fn a_malformed_frame_on_a_closing_socket_ends_the_connection_and_frees_its_slot() {
     let session =
         open_session(ServerOptions { max_payload: 1024, close_timeout: Duration::from_millis(300) }, upgrade(), |_| {})
