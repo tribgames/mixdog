@@ -77,10 +77,20 @@ struct Placed {
 /// 16.16 fixed point from it (`FT_DivFix`), the advance as `FT_MulDiv(units, scale, 64)`, all rounded half away from zero; the result is in 16.16 fixed point.
 fn scaled_fixed(units: i32, size: f32, units_per_em: u16) -> i64 {
     let upem = i64::from(units_per_em.max(1));
-    let size26 = (f64::from(size) * 64.0) as i64;
+    // FT_Set_Char_Size clamps to one pixel. Skia compensates below one pixel with
+    // fMatrix22Scalar (SkFontHost_FreeType.cpp:1052), using the actual FT scale.
+    let size26 = ((f64::from(size) * 64.0) as i64).max(64);
     let scale = (size26 * 65536 + upem / 2) / upem;
     let product = i64::from(units) * scale;
-    if product >= 0 { (product + 32) / 64 } else { -((-product + 32) / 64) }
+    let fixed = if product >= 0 { (product + 32) / 64 } else { -((-product + 32) / 64) };
+    if size < 1.0 {
+        let actual_ppem = upem as f32 * (scale as f32 / 65536.0) / 64.0;
+        let matrix = size / actual_ppem;
+        // Skia returns a float advance; skhb_position then rounds it to 16.16.
+        ((fixed as f32 / 65536.0 * matrix) * 65536.0).round() as i64
+    } else {
+        fixed
+    }
 }
 
 /// A shaper adjustment (a kerning value, a mark offset) scaled as HarfBuzz scales it: the font scale is the size in
@@ -377,6 +387,14 @@ mod tests {
         assert_eq!(scaled_fixed(0, 16.0, 2048), 0);
         // The scale is made from the size in 26.6 and rounded at 16 bits, as FreeType does: 305 units at 9 px.
         assert_eq!(scaled_fixed(305, 9.0, 1000), 179_898);
+    }
+
+    #[test]
+    fn subpixel_sizes_use_freetypes_minimum_size_and_skias_matrix() {
+        // Noto Sans Lisu "Hello Worl": the pen before the final d in the recorded
+        // 0.5px "Hello World". Skia returns right=3.4459686279296875 (pen + 1px ink).
+        let advances = [741, 564, 258, 258, 605, 260, 930, 605, 413, 258];
+        assert_eq!(advances.into_iter().map(|units| scaled_fixed(units, 0.5, 1000)).sum::<i64>(), 160_299);
     }
 
     #[test]
