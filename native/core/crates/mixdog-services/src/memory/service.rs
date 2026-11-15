@@ -2,7 +2,7 @@
 //! host acting for the user) and `memory/recall`. Recall answers from, in
 //! order: the configured profile (a "who am I" query), the current session's
 //! own messages, the session's stored rows (after the live transcript is
-//! ingested), and last the general memory recall.
+//! ingested), and last the general memory recall. The `memory` tool also carries the maintenance actions (`maintenance`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -18,11 +18,14 @@ use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply};
 use mixdog_js::{JsRegex, js_trim, js_words, json_stringify, slice_utf16, to_number, value_to_string};
 use serde_json::{Map, Value, json};
 
+pub mod maintenance;
+
 use crate::memory::core::action::{CoreContext, run};
 use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Db;
 use crate::memory::recall::{Recall, RecallOutcome};
 use crate::memory::reply::ToolReply;
+use maintenance::{Action, Maintenance};
 
 /// The session a call belongs to, as the memory domain reads it.
 #[derive(Debug, Clone)]
@@ -85,11 +88,18 @@ pub struct LocalMemory {
     lane: mixdog_rt::DurabilityIo,
     /// The sessions [`MemoryModule::note_session_use`] marked that no close has taken since.
     session_uses: Mutex<HashSet<String>>,
+    /// The cycle, embedding and transcript pieces of the maintenance actions, attached by the stack that owns them.
+    maintenance: std::sync::OnceLock<Maintenance>,
 }
 
 impl LocalMemory {
     pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default() }
+        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default(), maintenance: std::sync::OnceLock::new() }
+    }
+
+    /// Hands the maintenance actions what they run cycle1, embed and ingest transcripts with; the first attachment stands.
+    pub fn attach_maintenance(&self, maintenance: Maintenance) {
+        let _ = self.maintenance.set(maintenance);
     }
 
     pub fn db(&self) -> &Db {
@@ -104,13 +114,47 @@ impl LocalMemory {
         self.revision.clone()
     }
 
-    /// The `memory` tool's reply, with the error flag the text alone does not carry.
+    /// The `memory` tool's reply, with the error flag the text alone does not carry: the action it names
+    /// (`core` when it names none) and, for a name outside the table, the unknown-action answer.
     pub async fn memory_reply(&self, args: &Value) -> ToolReply {
-        if args.get("action").and_then(Value::as_str) == Some("status") {
-            return crate::memory::status::status(&self.db, self.recall.now_ms()).await;
+        let action = match maintenance::parse_action(args) {
+            Ok(action) => action,
+            Err(name) => return maintenance::unknown_action_reply(&name),
+        };
+        match self.run_action(action, args).await {
+            Ok(reply) => reply,
+            Err(error) => maintenance::failure_reply(&error),
         }
-        let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
-        run(&ctx, args).await
+    }
+
+    async fn run_action(&self, action: Action, args: &Value) -> crate::memory::error::Result<ToolReply> {
+        Ok(match action {
+            Action::Core => {
+                let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
+                run(&ctx, args).await
+            }
+            Action::Status => crate::memory::status::status(&self.db, self.recall.now_ms()).await,
+            Action::IngestSession => {
+                // Node's proxy projects the transcript before the runtime sees it (`prepareMemoryToolArgumentsForWire`), so
+                // the ingest's `limit` window and the collected rows' times count the projected rows.
+                let mut args = args.clone();
+                if let Some(messages) = args.get_mut("messages").filter(|m| m.is_array()) {
+                    *messages = Value::Array(crate::memory::ingest_shape::project_session_messages_for_ingest(messages));
+                }
+                ToolReply::ok(self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message()))
+            }
+            Action::Search => {
+                let outcome = self.recall.handle_search(args, &tokio_util::sync::CancellationToken::new()).await?;
+                maintenance::search_reply(outcome)
+            }
+            Action::DumpSessionRoots => maintenance::dump_session_roots(&self.db, args).await?,
+            Action::Prune => maintenance::prune(&self.db, args).await?,
+            Action::Purge => maintenance::purge(&self.db, args).await?,
+            Action::Cycle1 | Action::Flush | Action::Rebuild | Action::Backfill | Action::Manage => match self.maintenance.get() {
+                Some(maintenance) => maintenance.run(&self.db, action, args).await?,
+                None => ToolReply::error("memory maintenance is not available in this process"),
+            },
+        })
     }
 
     /// The `recall` tool's outcome, with the error flag the text alone does not carry, for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
@@ -133,15 +177,6 @@ impl MemoryModule for LocalMemory {
     }
 
     async fn memory(&self, args: Value) -> String {
-        if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
-            // Node's proxy projects the transcript before the runtime sees it (`prepareMemoryToolArgumentsForWire`), so
-            // the ingest's `limit` window and the collected rows' times count the projected rows.
-            let mut args = args;
-            if let Some(messages) = args.get_mut("messages").filter(|m| m.is_array()) {
-                *messages = Value::Array(crate::memory::ingest_shape::project_session_messages_for_ingest(messages));
-            }
-            return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
-        }
         self.memory_reply(&args).await.text
     }
 
@@ -421,5 +456,39 @@ mod tests {
         assert_eq!(current_session_recall_rows(&messages, "", Some(&json!(2))).lines().count(), 2);
         assert_eq!(current_session_recall_rows(&messages, "zzz", None), "(no results)");
         assert_eq!(current_session_recall_rows(&[], "x", None), "(no results)");
+    }
+
+    #[tokio::test]
+    async fn the_memory_tool_names_an_unknown_action_and_asks_for_the_attachment_of_the_cycle_pieces() {
+        use crate::memory::ingest::embed_flush::RawEmbedFlush;
+        use crate::memory::pg::db::Schema;
+        use crate::memory::recall::period::Clock;
+        use crate::memory::recall::{Recall, RecallDeps};
+        use crate::memory::schema::ensure_memory_schema;
+        use crate::memory::tests::support::TestPg;
+
+        let pg = TestPg::start().await;
+        let db = pg.db(Schema::Memory).await;
+        ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let recall = Recall::new(RecallDeps {
+            db: db.clone(),
+            clock: Arc::new(|| Clock { now_ms: 0, zone: chrono_tz::UTC }),
+            embedder: None,
+            session_cwd: None,
+            lane,
+            estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
+            trace: None,
+        });
+        let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 0), lane);
+        let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
+        let unknown = memory.memory_reply(&json!({ "action": "format_disk" })).await;
+        assert!(unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.", "{}", unknown.text);
+        let unattached = memory.memory_reply(&json!({ "action": "backfill" })).await;
+        assert_eq!((unattached.is_error, unattached.text.as_str()), (true, "memory maintenance is not available in this process"));
+        let purge = memory.memory_reply(&json!({ "action": "purge" })).await;
+        assert_eq!(purge.text, "purge requires confirm: \"DELETE ALL MEMORY\"");
+        let dump = memory.memory_reply(&json!({ "action": "dump_session_roots" })).await;
+        assert_eq!(dump.text, "(no current session)");
     }
 }
