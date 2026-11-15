@@ -1,0 +1,98 @@
+[
+  {
+    "node": "apps/relay/deploy/coturn/render-turnserver-conf.test.mjs::every marker of the template is filled",
+    "rust": "tool_coturn::render::every_marker_of_the_template_is_filled"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/render-turnserver-conf.test.mjs::a variable left unset fails instead of rendering an empty value",
+    "rust": "tool_coturn::render::a_variable_left_unset_fails_instead_of_rendering_an_empty_value"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/render-turnserver-conf.test.mjs::a missing template stops provisioning when rendered inside a command substitution",
+    "rust": "tool_coturn::render::a_missing_template_stops_provisioning_when_rendered_inside_a_command_substitution"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/render-turnserver-conf.test.mjs::a template marker the renderer does not know fails the render, without the secret in the error",
+    "rust": "tool_coturn::render::a_template_marker_the_renderer_does_not_know_fails_the_render_without_the_secret_in_the_error"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::port lists parse, merge and print the way the kernel reads them",
+    "rust": "tool_coturn::port_lists_parse_merge_and_print_the_way_the_kernel_reads_them"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::missing, added and removed parts are exact",
+    "rust": "tool_coturn::missing_added_and_removed_parts_are_exact"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::apply reserves only the missing part and leaves what others reserved",
+    "rust": "tool_coturn::apply_reserves_only_the_missing_part_and_leaves_what_others_reserved"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::release takes back only what apply added, keeping reservations others made meanwhile",
+    "rust": "tool_coturn::release_takes_back_only_what_apply_added_keeping_reservations_others_made_meanwhile"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::a range that was already reserved is neither recorded nor released",
+    "rust": "tool_coturn::a_range_that_was_already_reserved_is_neither_recorded_nor_released"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::an apply after a crash keeps owning what the interrupted one added",
+    "rust": "tool_coturn::an_apply_after_a_crash_keeps_owning_what_the_interrupted_one_added"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::ownership is recorded before the reservation changes: a failed save leaves nothing reserved",
+    "rust": "tool_coturn::ownership_is_recorded_before_the_reservation_changes_a_failed_save_leaves_nothing_reserved"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::a crash between the steps leaves a record that releases whatever was reserved",
+    "rust": "tool_coturn::a_crash_between_the_steps_leaves_a_record_that_releases_whatever_was_reserved"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::a release whose sysctl write fails keeps the record, so it can be retried",
+    "rust": "tool_coturn::a_release_whose_sysctl_write_fails_keeps_the_record_so_it_can_be_retried"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::a damaged ownership record is refused, not guessed at",
+    "rust": "tool_coturn::a_damaged_ownership_record_is_refused_not_guessed_at"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::covers fails, naming what is reserved, when the range is not wholly in the set",
+    "rust": "tool_coturn::covers_fails_naming_what_is_reserved_when_the_range_is_not_wholly_in_the_set"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/reserved-ports.test.mjs::a bad command or port is refused",
+    "rust": "tool_coturn::a_bad_command_or_port_is_refused"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::a Binding request is a bare RFC 8489 header",
+    "rust": "tool_coturn::a_binding_request_is_a_bare_rfc_8489_header"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::the mapped address is un-XORed, skipping other attributes, and foreign replies are ignored",
+    "rust": "tool_coturn::the_mapped_address_is_un_xored_skipping_other_attributes_and_foreign_replies_are_ignored"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::truncated or inconsistent messages are refused, not read around",
+    "rust": "tool_coturn::truncated_or_inconsistent_messages_are_refused_not_read_around"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::a XOR-MAPPED-ADDRESS must be the complete 8-byte IPv4 form",
+    "rust": "tool_coturn::a_xor_mapped_address_must_be_the_complete_8_byte_ipv4_form"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::the retransmission schedule is the RFC 8489 ¡×6.2.1 one",
+    "rust": "tool_coturn::the_retransmission_schedule_is_the_rfc_8489_6_2_1_one"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::probeStun resends the same request on the doubling schedule and answers on a later copy",
+    "rust": "tool_coturn::probe_stun_resends_the_same_request_on_the_doubling_schedule_and_answers_on_a_later_copy"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::probeStun gives up after Rc requests and Rm times the RTO of silence",
+    "rust": "tool_coturn::probe_stun_gives_up_after_rc_requests_and_rm_times_the_rto_of_silence"
+  },
+  {
+    "node": "apps/relay/deploy/coturn/stun-probe.test.mjs::probeStun ignores a malformed reply and keeps waiting for a good one",
+    "rust": "tool_coturn::probe_stun_ignores_a_malformed_reply_and_keeps_waiting_for_a_good_one"
+  }
+]
