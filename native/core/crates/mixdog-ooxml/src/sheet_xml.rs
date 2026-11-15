@@ -800,12 +800,9 @@ fn column_attributes(xml: &str) -> BTreeMap<u32, String> {
         for found in COL.captures_iter(&xml[existing]) {
             let attrs = found.get(1).unwrap_or("");
             let min = whole(string_to_number(&xml_attribute(attrs, "min")));
-            let max = match whole(string_to_number(&xml_attribute(attrs, "max"))) {
-                0 => min,
-                other => other,
-            };
+            let max = last_column(&xml_attribute(attrs, "max"), min);
             let mut column = min;
-            while column >= 1 && column <= max && column - min < 2048 {
+            while column >= 1 && f64::from(column) <= max && column - min < 2048 {
                 entries.insert(column, attrs.to_owned());
                 column += 1;
             }
@@ -817,6 +814,13 @@ fn column_attributes(xml: &str) -> BTreeMap<u32, String> {
 /// `Number(text) || 0` as a column or row number.
 fn whole(number: f64) -> u32 {
     if number.is_nan() || number < 0.0 { 0 } else { number.min(f64::from(u32::MAX)) as u32 }
+}
+
+/// `Number(max) || min`: the last column of a declaration; a negative or fractional `max` stays as written, so it covers
+/// what Node's loop covers.
+fn last_column(max: &str, min: u32) -> f64 {
+    let number = string_to_number(max);
+    if number.is_nan() || number == 0.0 { f64::from(min) } else { number }
 }
 
 fn write_column_attributes(xml: &str, entries: &BTreeMap<u32, String>) -> String {
@@ -879,15 +883,12 @@ pub fn hidden_sheet_areas(xml: &str) -> HiddenAreas {
             continue;
         }
         let first = whole(string_to_number(&xml_attribute(attributes, "min")));
-        let last = match whole(string_to_number(&xml_attribute(attributes, "max"))) {
-            0 => first,
-            other => other,
-        };
+        let last = last_column(&xml_attribute(attributes, "max"), first);
         if first == 0 {
             continue;
         }
         let mut index = first;
-        while index <= last && index - first < 2048 {
+        while f64::from(index) <= last && index - first < 2048 {
             hidden.columns.insert(index);
             index += 1;
         }
@@ -1135,6 +1136,9 @@ mod tests {
         let hidden = hidden_sheet_areas("<worksheet><cols><col min=\"2\" max=\"3\" hidden=\"1\"/></cols><sheetData><row r=\"7\" hidden=\"true\"/><row r=\"8\"/></sheetData></worksheet>");
         assert_eq!(hidden.rows.iter().copied().collect::<Vec<_>>(), vec![7]);
         assert_eq!(hidden.columns.iter().copied().collect::<Vec<_>>(), vec![2, 3]);
+        // `Number(max) || min` keeps a negative max, and Node's loop then covers no column.
+        assert!(hidden_sheet_areas("<cols><col min=\"2\" max=\"-1\" hidden=\"1\"/></cols>").columns.is_empty());
+        assert_eq!(write_column_widths("<worksheet><cols><col min=\"2\" max=\"-1\"/></cols></worksheet>", &[(1, 5.0)]), "<worksheet><cols><col min=\"1\" max=\"1\" width=\"5\" customWidth=\"1\"/></cols></worksheet>");
         let shown = write_column_visibility(xml, &[1], true);
         assert!(shown.contains("<col min=\"1\" max=\"1\" width=\"5\"/>"));
         assert!(write_column_visibility("<worksheet><sheetData/></worksheet>", &[3], false).contains("<col min=\"3\" max=\"3\" width=\"9.14\" customWidth=\"1\" hidden=\"1\"/>"));
