@@ -352,6 +352,9 @@ pub async fn run_pptx_html_authoring(
     };
     let path = output.to_path_buf();
     let (bytes, removed) = lanes.compute(move || normalize_built_deck(bytes, &path)).await??;
+    // The deck is written once, built and normalised; the ledger is told before it is (Node's normaliser told it when it
+    // rewrote the package).
+    note.note_write(output);
     lanes.write_file(output, bytes.clone()).await?;
     let logs: Vec<Value> = measured.notes.iter().map(|text| json!({ "level": "warn", "text": text })).collect();
     Ok(json!({
