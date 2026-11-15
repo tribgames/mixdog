@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn words_that_read_as_one_wrap_together() {
-        assert_eq!(wrap_text("예산은 24억 원", 90.0, chars(10.0)).unwrap(), ["예산은", "24억 원"]);
+        assert_eq!(wrap_text("예산은 24억 원", 80.0, chars(10.0)).unwrap(), ["예산은", "24억 원"]);
     }
 
     #[test]

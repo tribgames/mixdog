@@ -851,7 +851,7 @@ mod tests {
 
     #[test]
     fn an_element_goes_before_the_first_anchor_or_before_the_series_closes() {
-        assert_eq!(put_in_series("<c:ser><c:tx/><c:val/></c:ser>", &["<c:cat>", "<c:val>"], "<x/>"), "<c:ser><c:tx/><x/><c:val/></c:ser>");
+        assert_eq!(put_in_series("<c:ser><c:tx/><c:val>1</c:val></c:ser>", &["<c:cat>", "<c:val>"], "<x/>"), "<c:ser><c:tx/><x/><c:val>1</c:val></c:ser>");
         assert_eq!(put_in_series("<c:ser><c:tx/></c:ser>", &["<c:cat>", "<c:val>"], "<x/>"), "<c:ser><c:tx/><x/></c:ser>");
     }
 

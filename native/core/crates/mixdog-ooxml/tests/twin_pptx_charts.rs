@@ -93,7 +93,11 @@ fn every_output_equals_the_recording() {
             twin::assert_matches(&what, expected, &produced);
         }
         let produced = zip.as_ref().map_or(Value::Null, snapshot);
-        twin::assert_matches(&format!("{name}, the deck"), &sequence["snapshot"], &produced);
+        let (expected, produced) = match &zip {
+            Some(package) => twin::settle_embedded(&sequence["snapshot"], &produced, |name| package.file(name).map(<[u8]>::to_vec)),
+            None => (sequence["snapshot"].clone(), produced),
+        };
+        twin::assert_matches(&format!("{name}, the deck"), &expected, &produced);
     }
 }
 

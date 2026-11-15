@@ -165,6 +165,15 @@ fn the_page_texts_of_every_recorded_file_are_the_page_body_of_pdfjs_items() {
             max_output_bytes: f64::INFINITY,
             ..InspectOptions::default()
         };
+        // A page pdf.js could not load makes `getPage` reject, and with it the whole inspection: the failure is the page's.
+        if let Some(message) = outcome["pages"].as_array().and_then(|list| list.iter().find_map(|page| page["error"]["message"].as_str())) {
+            match inspect_pdf_buffer(&bytes, &options) {
+                Err(failure) if failure.to_string() == message => files += 1,
+                Err(failure) => differences.push(format!("{file}: failed with {failure}, pdf.js has {message}")),
+                Ok(_) => differences.push(format!("{file}: read, pdf.js fails with {message}")),
+            }
+            continue;
+        }
         let inspection = match inspect_pdf_buffer(&bytes, &options) {
             Ok(inspection) => inspection,
             Err(failure) => {
