@@ -184,6 +184,18 @@ impl Package {
         Self::load_with(bytes, false)
     }
 
+    /// `JSZip.loadAsync(readFile(path))` as a caller that does not go through the package reader's error clean-up sees
+    /// it: jszip's own wording for a file with no end-of-central-directory record keeps the hint it appends.
+    pub fn load_unchecked_raw_error(bytes: &[u8]) -> Result<Self, String> {
+        Self::load_unchecked(bytes).map_err(|message| {
+            if message == "Can't find end of central directory" {
+                format!("{message} : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html")
+            } else {
+                message
+            }
+        })
+    }
+
     fn load_with(bytes: &[u8], check_crc: bool) -> Result<Self, String> {
         if bytes.len() < 22 {
             return Err(no_end_of_central_directory(bytes));

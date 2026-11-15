@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn unknown_commands_are_dropped_with_their_place() {
-        let (ops, _) = read_all("1 0 0 1 5 5 Tm foo BT");
+        let (ops, _) = read_all("1 0 0 1 5 5 Tm zzz BT");
         let kinds: Vec<TextOp> = ops.iter().map(|(op, _)| *op).collect();
         assert_eq!(kinds, vec![TextOp::SetTextMatrix, TextOp::BeginText]);
     }

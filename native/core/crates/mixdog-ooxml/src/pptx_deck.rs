@@ -405,7 +405,7 @@ pub fn handle_set_footer_or_set_slide_number(zip: &mut Package, slides: &[SlideR
 pub fn handle_apply_theme<P: ReadProof>(proof: &P, zip: &mut Package, op: &Value) -> Handled {
     let source_path = file_path(op)?;
     let bytes = mixdog_fsio::read(proof, Path::new(&source_path)).map_err(|error| os_message(&error, "open", Path::new(&source_path)))?;
-    let source = Package::load_unchecked(&bytes)?;
+    let source = Package::load_unchecked_raw_error(&bytes)?;
     let theme_pattern = compiled(r"^(?:ppt\/)?theme\/theme\d+\.xml$", "i");
     let Some(theme_part) = source.names().into_iter().find(|name| theme_pattern.is_match(name)) else {
         return Err(format!("apply_theme source has no theme part: {source_path}"));

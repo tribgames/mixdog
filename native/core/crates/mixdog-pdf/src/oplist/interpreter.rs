@@ -1410,6 +1410,7 @@ impl<'a> Evaluator<'a> {
         } else {
             let has_mask = dict.has("SMask") || dict.has("Mask");
             if is_inline && w + h < SMALL_IMAGE_DIMENSIONS && !has_mask {
+                crate::image::check_small_inline_image(xref, Some(resources), image)?;
                 let op = Op::PaintInlineImage(InlineImage {
                     width: w,
                     height: h,
