@@ -25,9 +25,6 @@ use mixdog_core_api::domain::ext::ExtWorkerState;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostPool;
 use mixdog_exthost::RenderBrowserConfig;
-use mixdog_exthost::SyntaxCheck;
-use mixdog_exthost::SyntaxKind;
-use mixdog_exthost::check_syntax;
 use mixdog_exthost::worker_count;
 use mixdog_protocol::ThreadId;
 use serde_json::Value;
@@ -35,9 +32,11 @@ use serde_json::json;
 
 type Stream = Box<dyn EventSource<ExtFrame>>;
 
-fn host_dir() -> PathBuf {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
-    root.join("src").join("ext-host").join("test")
+/// The pool over the real Rust worker (`ext_worker_dev`: the document, pdf and image methods of `mixdogd ext-worker`).
+fn real_worker_config() -> ExtHostConfig {
+    let mut real = config(1, &[]);
+    real.program = super::composer_resize::worker_binary();
+    real
 }
 
 /// The fake browser started in `mode` (`endpoint`, `silent` or `stderr-closed`), the last two recording their pid in `pid_file`.
@@ -51,7 +50,6 @@ fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
     ExtHostConfig {
         program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
         args: extra.iter().map(Into::into).collect(),
-        electron: false,
         workers,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
@@ -370,9 +368,9 @@ async fn workers_share_one_render_browser() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_missing_runtime_answers_unavailable() {
+async fn a_missing_worker_program_answers_unavailable() {
     let mut config = config(1, &[]);
-    config.program = "mixdog-no-such-node".into();
+    config.program = "mixdog-no-such-worker".into();
     let pool = ExtHostPool::new(config).unwrap();
     let mut stream = pool.call(call("a", "echo", json!(1))).unwrap();
     let (_, outcome) = finish(&mut stream).await;
@@ -509,17 +507,6 @@ async fn the_public_render_browser_is_the_one_the_workers_use() {
     assert!(handle.endpoint().await.is_err(), "after close no browser is launched");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn electron_workers_run_in_node_mode_and_others_do_not() {
-    let mut electron = config(1, &[]);
-    electron.electron = true;
-    let pool = ExtHostPool::new(electron).unwrap();
-    assert_eq!(run(&pool, call("a", "electronMode", json!(null))).await, json!("1"));
-
-    let pool = ExtHostPool::new(config(1, &[])).unwrap();
-    assert_eq!(run(&pool, call("a", "electronMode", json!(null))).await, json!(null));
-}
-
 /// Node's own extraction, recorded by `benchmarks/rust-core/recorders/record-media-text.mjs`: the text
 /// of each attached-document format, `null` for a file with no text form, and the fixed text for a
 /// PDF the parser rejects. The real worker must answer every case exactly as Node did.
@@ -535,10 +522,7 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
     let load = |name: &str| -> Vec<Value> {
         serde_json::from_slice(&std::fs::read(fixtures.join(name)).unwrap()).unwrap()
     };
-    let mut real = config(1, &[]);
-    real.program = "node".into();
-    real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
-    let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
+    let pool = std::sync::Arc::new(ExtHostPool::new(real_worker_config()).unwrap());
     let media = ExtDocumentText::new(pool.clone());
     let thread = ThreadId::from("t");
 
@@ -647,11 +631,13 @@ fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
     .concat()
 }
 
-/// The image calls over a real worker: `read_resize` replays Node's recorded `read` results
-/// (`mixdog-tools/src/fs/golden/image_cases.json`: the resized bytes' sha-256, size and mime), and
-/// every op the compaction codec needs round-trips a png, a jpeg and a webp to Node's own bytes.
+/// The image calls over the real Rust worker: `read_resize` replays Node's recorded `read` results
+/// (`mixdog-tools/src/fs/golden/image_cases.json`): mime and both sizes exact, the answer decoding at the displayed size; and
+/// every op the compaction codec needs round-trips a png, a jpeg and a webp to Node's sizes. The encoder is the Rust one, so the
+/// bytes of a re-encode are not sharp's (the picture twins of `mixdog-imaging` and `composer_resize` compare the pixels).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
+async fn image_codec_answers_nodes_sharp_shapes_for_png_jpeg_and_webp() {
+    use base64::Engine as _;
     use mixdog_agent::compact::image::CodecError;
     use mixdog_agent::compact::image::ImageCodec;
     use mixdog_agent::compact::image::ImageSize;
@@ -663,10 +649,7 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
     use sha2::Digest;
 
     let hex = |bytes: &[u8]| format!("{:x}", sha2::Sha256::digest(bytes));
-    let mut real = config(1, &[]);
-    real.program = "node".into();
-    real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
-    let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
+    let pool = std::sync::Arc::new(ExtHostPool::new(real_worker_config()).unwrap());
     let codec = ExtImageCodec::new(pool.clone());
     let resizer: &dyn ImageResizer = &codec;
     let thread = ThreadId::from("t");
@@ -694,22 +677,21 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
         let got = within(resizer.resize(&thread, &bytes, "png")).await.unwrap().expect("sharp is present");
         let image = case["content"].as_array().unwrap().iter().find(|b| b["type"] == "image").unwrap();
         assert_eq!(got.mime, image["mimeType"].as_str().unwrap(), "{name}");
-        assert_eq!(got.data_base64.len() as u64, image["base64Length"].as_u64().unwrap(), "{name}");
-        assert_eq!(hex(got.data_base64.as_bytes()), image["base64Sha256"].as_str().unwrap(), "{name}");
+        let out = base64::engine::general_purpose::STANDARD.decode(&got.data_base64).unwrap();
+        assert_eq!(within(codec.probe(&out)).await, Ok(ImageSize { width: got.display_w, height: got.display_h }), "{name}: the answer decodes at the displayed size");
         assert_eq!((got.display_w, got.display_h), (image["width"].as_u64().unwrap() as u32, image["height"].as_u64().unwrap() as u32), "{name}");
         assert_eq!((got.original_w, got.original_h), (png["width"].as_u64().unwrap() as u32, png["height"].as_u64().unwrap() as u32), "{name}");
     }
 
     // A jpeg and a webp (64x48 gradients, `tests/fixtures/image`): the sub-patch image is lifted to
-    // the 200 px floor in its own format; the hashes are Node's `resizeImageBuffer` on the same bytes.
+    // the 200 px floor in its own format; the size is Node's `resizeImageBuffer` on the same bytes.
     let jpeg: &[u8] = include_bytes!("../fixtures/image/gradient.jpg");
     let webp: &[u8] = include_bytes!("../fixtures/image/gradient.webp");
-    for (bytes, ext, mime, len, sha) in [
-        (jpeg, "jpeg", "image/jpeg", 3388, "64970ad2533d273244ce5ff439ba4a0611262d386eeb73c6335f9b57a27a9928"),
-        (webp, "webp", "image/webp", 1472, "536f81364c100726792f398ad75054bdf59654f83daad07c9642941b47768e53"),
-    ] {
+    for (bytes, ext, mime) in [(jpeg, "jpeg", "image/jpeg"), (webp, "webp", "image/webp")] {
         let got = within(codec.read_resize(&thread, bytes, ext)).await.unwrap().unwrap();
-        assert_eq!((got.mime.as_str(), got.data_base64.len(), hex(got.data_base64.as_bytes()).as_str()), (mime, len, sha), "{ext}");
+        assert_eq!(got.mime.as_str(), mime, "{ext}");
+        let out = base64::engine::general_purpose::STANDARD.decode(&got.data_base64).unwrap();
+        assert_eq!(within(codec.probe(&out)).await, Ok(ImageSize { width: 267, height: 200 }), "{ext}");
         assert_eq!((got.original_w, got.original_h, got.display_w, got.display_h), (64, 48, 267, 200), "{ext}");
     }
 
@@ -720,12 +702,11 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
         assert_eq!(within(codec.probe(bytes)).await, Ok(ImageSize { width, height }));
         assert_eq!(within(codec.validate(bytes, "png")).await, Ok(()));
     }
-    for (bytes, len, sha) in [
-        (jpeg, 372, "fc9052f6d6194503b3eb7c6c934634c564ce587cae88624700d3932cecfd772b"),
-        (webp, 404, "28e1413eae1b1927e5eb970ea5586ba7598991d093d6c1dfb93eb4b87334d4df"),
-    ] {
+    for bytes in [jpeg, webp] {
         let out = within(codec.jpeg(bytes, 32, 24, false, 85)).await.unwrap();
-        assert_eq!((out.bytes.len(), hex(&out.bytes).as_str(), out.size), (len, sha, ImageSize { width: 32, height: 24 }));
+        assert_eq!(out.size, ImageSize { width: 32, height: 24 });
+        assert_eq!(&out.bytes[..2], &[0xff, 0xd8]);
+        assert_eq!(within(codec.probe(&out.bytes)).await, Ok(out.size));
     }
     // The enlargement flag lifts a small image past its own size, and not otherwise.
     let lifted = within(codec.jpeg(jpeg, 128, 96, true, 70)).await.unwrap();
@@ -741,12 +722,14 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
     assert!(within(codec.jpeg(junk, 32, 24, false, 85)).await.is_err());
     assert_eq!(within(codec.read_resize(&thread, junk, "png")).await, Err(ReadResizeError::Invalid));
 
-    // The media store's still rendition (Node's `encodeStill`): the webp at the variant's size and
-    // quality. The expected bytes are Node's, for the 64x48 gradient jpeg (never enlarged).
-    let thumb = within(codec.still_rendition(&thread, jpeg, RenditionVariant::Thumb)).await.unwrap().unwrap();
-    assert_eq!((thumb.extension.as_str(), thumb.bytes.len(), hex(&thumb.bytes).as_str()), (".webp", 222, "d380e48dd72a6df4e76e627f9f998b2ddf48422be3cf8ad3ddf15b3ae007f1c6"));
-    let display = within(codec.still_rendition(&thread, jpeg, RenditionVariant::Display)).await.unwrap().unwrap();
-    assert_eq!((display.bytes.len(), hex(&display.bytes).as_str()), (258, "3b548906e0a790213c3f51289a9a30cf03a40c2388feb69e656356333206e1ed"));
+    // The media store's still rendition (Node's `encodeStill`): a webp at the variant's size (the 64x48 gradient jpeg is never
+    // enlarged). The worker twin (`still_twin`) holds the recorded sizes; here the codec's reading of the answer.
+    for variant in [RenditionVariant::Thumb, RenditionVariant::Display] {
+        let still = within(codec.still_rendition(&thread, jpeg, variant)).await.unwrap().unwrap();
+        assert_eq!(still.extension.as_str(), ".webp");
+        assert_eq!(&still.bytes[..4], b"RIFF");
+        assert!(within(codec.probe(&still.bytes)).await.unwrap().width <= 64, "never enlarged");
+    }
     // A source that does not decode is Node's `null`.
     assert_eq!(within(codec.still_rendition(&thread, junk, RenditionVariant::Thumb)).await, Ok(None));
 
@@ -755,23 +738,6 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
     assert!(matches!(within(codec.read_resize(&thread, jpeg, "jpeg")).await, Err(ReadResizeError::Host(_))));
     assert!(within(codec.still_rendition(&thread, jpeg, RenditionVariant::Thumb)).await.is_err());
     assert!(matches!(within(codec.probe(jpeg)).await, Err(CodecError::Environment(Some(_)))));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn syntax_check_asks_a_real_worker_whether_v8_compiles_the_source() {
-    let mut real = config(1, &[]);
-    real.program = "node".into();
-    real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
-    let pool = ExtHostPool::new(real).unwrap();
-    let thread = || ThreadId::from("t");
-    let check = |source: &'static str| check_syntax(&pool, thread(), source, SyntaxKind::CommonJsScript);
-
-    assert_eq!(within(check("const a = 1; a + 1")).await.unwrap(), SyntaxCheck::Ok);
-    // Top-level await is not a CommonJS script; V8's own message comes back.
-    match within(check("await 1")).await.unwrap() {
-        SyntaxCheck::Invalid { message } => assert!(message.contains("await"), "{message}"),
-        SyntaxCheck::Ok => panic!("top-level await compiled as a script"),
-    }
 }
 
 #[test]

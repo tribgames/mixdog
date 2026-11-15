@@ -4481,7 +4481,6 @@ dependencies = [
  "mixdog-core-run",
  "mixdog-core-session",
  "mixdog-exthost",
- "mixdog-exthost-worker",
  "mixdog-fonts",
  "mixdog-fsio",
  "mixdog-js",

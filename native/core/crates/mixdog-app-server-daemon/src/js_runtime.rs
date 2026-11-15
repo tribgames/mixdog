@@ -1,5 +1,5 @@
 //! Where the install layout keeps the JavaScript runtime (WP-INSTALL): the interpreter and the
-//! package root holding `src/skill-script-entry.mjs` and `src/ext-host/worker.mjs`.
+//! package root holding `src/skill-script-entry.mjs` and the pptxgenjs authoring entry.
 //!
 //! An install describes it in `js-runtime.json` beside the `mixdogd` binary it ships with:
 //!
@@ -105,7 +105,7 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(),
         node_version: manifest.node_version,
         #[cfg(test)]
-        script_hosts: false,
+        ext_worker: None,
     })
 }
 

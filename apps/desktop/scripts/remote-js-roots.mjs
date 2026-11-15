@@ -2,18 +2,18 @@
 // so the list cannot drift from the code: a package some entry reaches is a root, a package nothing
 // reaches is not shipped.
 //
-// Entries: the ext-host worker (office, PDF, OCR, render), the skill script entry and every shipped skill
-// script (`remoteJsEntries`). The walk follows
+// Entries: the pptxgenjs authoring script entry (the native office worker starts it on the install's interpreter), the skill
+// script entry and every shipped skill script (`remoteJsEntries`). The walk follows
 // relative imports and `new URL('./x.mjs', import.meta.url)` workers inside the directories the
-// extension host runs (`SCOPE`); a file outside them that those files import is a helper: its own bare
+// authoring script runs (`SCOPE`); a file outside them that those files import is a helper: its own bare
 // imports count, its imports are not followed. Following them is not sound: office/index.mjs reaches the
 // agent runtime through a barrel whose packages (MCP, mail, providers) are loaded only by code the
-// extension host never calls. The ext-host e2e suites, run against the trimmed bundle, confirm the set.
+// authoring script never calls. The trimmed-bundle test, run against the staged payload, confirms the set.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
 
-const FIXED_ENTRIES = Object.freeze(['src/ext-host/worker.mjs', 'src/skill-script-entry.mjs']);
+const FIXED_ENTRIES = Object.freeze(['src/runtime/office/authoring/pptx-script-entry.mjs', 'src/skill-script-entry.mjs']);
 const SKILLS_DIR = 'src/defaults/skills';
 
 /** The fixed entries plus every shipped skill script (`src/defaults/skills/<skill>/scripts/**.mjs`, tests
@@ -31,7 +31,7 @@ export function remoteJsEntries(packageRootDir) {
   if (existsSync(join(packageRootDir, SKILLS_DIR))) walk(SKILLS_DIR);
   return [...FIXED_ENTRIES, ...scripts.sort()];
 }
-const SCOPE = /^src\/(ext-host|runtime\/office|runtime\/attachments)\//;
+const SCOPE = /^src\/(runtime\/office|runtime\/attachments)\//;
 const NOT_SHIPPED = /\.(test|slow\.test|e2e\.test)\.mjs$|\/test\//;
 
 const BUILTINS = new Set(builtinModules);
@@ -63,7 +63,7 @@ export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(pa
     }
     return source;
   };
-  // An entry outside SCOPE (the skill entry) is small and followed in full; SCOPE bounds the extension host's.
+  // An entry outside SCOPE (the skill entry) is small and followed in full; SCOPE bounds the authoring script's.
   const queue = entries.map((entry) => ({ file: join(packageRootDir, entry), all: !SCOPE.test(entry) }));
   while (queue.length) {
     const { file, all } = queue.pop();

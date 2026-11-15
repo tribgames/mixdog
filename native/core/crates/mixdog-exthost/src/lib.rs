@@ -1,5 +1,5 @@
-//! The extension host (RL §11; D5, D-L2): a pool of Node worker processes for the office tool and
-//! pdf.js, behind the [`ExtPool`](mixdog_core_api::domain::ext::ExtPool) contract.
+//! The extension host (RL §11; D5, D-L2): a pool of Rust worker processes (`mixdogd ext-worker`) for the office tool,
+//! pdf and image methods, behind the [`ExtPool`](mixdog_core_api::domain::ext::ExtPool) contract.
 //!
 //! - Each worker serves one call at a time over a framed stdio pipe ([`frame`]); a worker's
 //!   chunks flow under a per-call byte window the consumer re-grants as it takes them.
@@ -7,7 +7,6 @@
 //!   in flight at ⌈W/2⌉ and answers `Overloaded` beyond a global pending cap.
 //! - A worker that holds state for a thread (office sessions live in the worker's memory) pins
 //!   the thread to itself until it exits.
-//! - [`RoutedExtPool`] puts a Rust worker pool and this Node pool behind one `ExtPool`, by method.
 //! - HTML layout shares one headless browser owned by the core ([`RenderBrowserConfig`]).
 //! - A cancelled call leaves its worker's slot occupied until the worker answers or exits; an
 //!   operator ends a stuck worker with `stop_worker`. Process exit is the only crash signal.
@@ -26,11 +25,9 @@ mod owner;
 pub mod frame;
 mod pool;
 mod process;
-mod routed;
 mod schedule;
 mod shared;
 mod stream;
-mod syntax;
 mod visualize_panes;
 
 pub use containment::Containment;
@@ -57,8 +54,4 @@ pub use pool::ExtHostConfig;
 pub use pool::ExtHostPool;
 pub use pool::GraceWait;
 pub use pool::worker_count;
-pub use routed::RoutedExtPool;
-pub use syntax::SyntaxCheck;
-pub use syntax::SyntaxKind;
-pub use syntax::check_syntax;
 pub use frame::CALL_WINDOW_BYTES;

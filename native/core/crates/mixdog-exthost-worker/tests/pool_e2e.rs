@@ -27,7 +27,6 @@ fn config(workers: usize) -> ExtHostConfig {
     ExtHostConfig {
         program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
         args: Vec::new(),
-        electron: false,
         workers,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
