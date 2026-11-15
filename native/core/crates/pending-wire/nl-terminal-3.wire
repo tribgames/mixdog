@@ -1,0 +1,13 @@
+# nl-terminal-3 (finished by t1-terminal-23)
+
+Nothing for the lead to wire: the change is inside native/mixdog-spawn/src/terminal/mod.rs.
+
+- The held-tail release (HELD_FLUSH, 50 ms) is retained per tab (TabState::held_timer) and cancelled when a chunk, the
+  shell's end or the exit supersedes it. The timer callback checks generation, holding, flushing and exited
+  (Tab::flush_ready) BEFORE it spawns the flush thread, so a stale deadline never creates an OS thread.
+- Focus stays a 30 s lease (FOCUS_LEASE), renewed by the renderer's heartbeat; a relative cwd resolves against the working directory.
+- Manager::feed_of is already unconditional in the tree (no cfg to remove).
+- The terminal tool stays available on a server and from the CLI: no gate was added (nothing to wire).
+- Tests (core-test): admitted_replaces_the_timer_and_only_dispatches_the_current_tail,
+  finish_cancels_the_real_armed_tail_and_a_dequeued_stale_callback_is_refused,
+  a_stale_callback_that_still_fires_never_dispatches_a_thread, focus_arms_and_renews_the_actual_thirty_second_lease.
