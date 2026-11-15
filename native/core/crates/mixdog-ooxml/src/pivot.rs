@@ -4,6 +4,7 @@
 //! destination with the definition alone opens empty in Excel and holds nothing for a snapshot, an autofit or a fit audit
 //! to read.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use mixdog_js::{
@@ -49,6 +50,12 @@ fn string_of(value: Option<&Value>) -> String {
     }
 }
 
+/// `[...new Set(items)]`: each item once, in the order first seen.
+fn distinct(items: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    items.filter(|item| seen.insert(item.clone())).collect()
+}
+
 /// `summarizePivotFields(headers, records, axes)`: the fields of a source range. `axes` holds the field indexes laid out
 /// as rows or columns. A numeric field on an axis is still a set of items; left as a bare number range it had no items
 /// to lay out, and the pivot showed a lone "Grand Total" column under the "Year" heading.
@@ -70,24 +77,12 @@ pub fn summarize_pivot_fields(headers: &[String], records: &[Vec<Value>], axes: 
                 let max = numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                 let integer = numbers.iter().all(|value| value.is_finite() && value.trunc() == *value);
                 if axes.contains(&index) {
-                    let mut items: Vec<String> = Vec::new();
-                    for number in &numbers {
-                        let item = number_to_string(*number);
-                        if !items.contains(&item) {
-                            items.push(item);
-                        }
-                    }
+                    let items = distinct(numbers.iter().map(|number| number_to_string(*number)));
                     return PivotField { name: name.clone(), numeric: false, numeric_items: true, min, max, integer, items };
                 }
                 return PivotField { name: name.clone(), numeric: true, numeric_items: false, min, max, integer, items: Vec::new() };
             }
-            let mut items: Vec<String> = Vec::new();
-            for value in &column {
-                let item = string_of(*value);
-                if !items.contains(&item) {
-                    items.push(item);
-                }
-            }
+            let items = distinct(column.iter().map(|value| string_of(*value)));
             PivotField { name: name.clone(), numeric: false, numeric_items: false, min: 0.0, max: 0.0, integer: false, items }
         })
         .collect()
@@ -149,24 +144,31 @@ fn item_key(field: &PivotField, value: Option<&Value>) -> String {
     if field.numeric_items { number_to_string(to_number_of(value)) } else { string_of(value) }
 }
 
-/// Each text item's position among its field's shared items (the first, when an item repeats).
-fn item_position(field: &PivotField, key: &str) -> Option<usize> {
-    field.items.iter().position(|item| item == key)
+/// Each text item's position among its field's shared items (the first, when an item repeats), read once per field
+/// instead of searched for every cell.
+fn item_positions(field: &PivotField) -> HashMap<&str, usize> {
+    let mut positions = HashMap::new();
+    for (index, item) in field.items.iter().enumerate() {
+        positions.entry(item.as_str()).or_insert(index);
+    }
+    positions
 }
 
 fn cache_records_xml(fields: &[PivotField], records: &[Vec<Value>]) -> String {
+    let positions: Vec<Option<HashMap<&str, usize>>> =
+        fields.iter().map(|field| if field.numeric { None } else { Some(item_positions(field)) }).collect();
     let rows: String = records
         .iter()
         .map(|record| {
             let cells: String = record
                 .iter()
                 .enumerate()
-                .filter_map(|(index, value)| fields.get(index).map(|field| (field, value)))
-                .map(|(field, value)| {
-                    if field.numeric {
+                .filter_map(|(index, value)| fields.get(index).map(|field| (index, field, value)))
+                .map(|(index, field, value)| {
+                    let Some(positions) = &positions[index] else {
                         return format!("<n v=\"{}\"/>", number_to_string(to_number(value)));
-                    }
-                    let position = item_position(field, &item_key(field, Some(value)));
+                    };
+                    let position = positions.get(item_key(field, Some(value)).as_str()).copied();
                     format!("<x v=\"{}\"/>", position.unwrap_or(0))
                 })
                 .collect();

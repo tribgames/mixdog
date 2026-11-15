@@ -789,10 +789,12 @@ fn moved_note_shape(shape: &str, mv: &Move) -> String {
     replace_first(&NOTE_ANCHOR, &shape, |caps| {
         let mut corners: Vec<String> = group(caps, 1).split(',').map(|value| js_trim(value).to_owned()).collect();
         for position in if mv.rows { [2, 6] } else { [0, 4] } {
+            // A corner past the end is `undefined` in Node: it reads as NaN, and the places before it join as empty.
+            let value = corners.get(position).map_or(f64::NAN, |corner| string_to_number(corner));
             while corners.len() <= position {
                 corners.push(String::new());
             }
-            corners[position] = number_to_string(string_to_number(&corners[position]) + delta as f64);
+            corners[position] = number_to_string(value + delta as f64);
         }
         format!("<x:Anchor>{}</x:Anchor>", corners.join(", "))
     })
