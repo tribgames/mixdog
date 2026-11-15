@@ -577,13 +577,13 @@ mod tests {
     fn a_chart_pdf_is_cut_to_the_chart() {
         let directory = scratch("chart");
         let path = directory.join("chart.pdf");
-        let block = json!({ "categories": ["North", "South"], "values": [1200, 800], "title": "Sales", "unit": "k", "highlight": "North" });
+        let block = json!({ "categories": ["North", "East"], "values": [1200, 800], "title": "Sales", "unit": "k", "highlight": "North" });
         let result = create_chart_pdf(&Unlaned, &FontEnv::default(), &path.to_string_lossy(), &block, 420.0, None).expect("written");
         assert_eq!(result["width"], 428);
         assert!(result["height"].as_f64().is_some_and(|height| height > 8.0));
         let text = pages_text(&path);
         assert_eq!(text.len(), 1);
-        assert!(text[0].contains("Sales") && text[0].contains("1,200k") && text[0].contains("South"));
+        assert!(text[0].contains("Sales") && text[0].contains("1,200k") && text[0].contains("East"));
         let refused = create_chart_pdf(&Unlaned, &FontEnv::default(), &path.to_string_lossy(), &json!({ "categories": ["a"], "values": [] }), 420.0, None).unwrap_err();
         assert_eq!(refused.message(), "PDF block 1 (chart) values must be a non-empty array of numbers, zero or more.");
         mixdog_testkit::remove_dir_all(&directory);

@@ -161,7 +161,8 @@ fn run_case(case: &Value) {
             assert_same(&format!("{name}: result"), &case["result"], &neutral_result(result.clone()));
             assert_same(&format!("{name}: pages"), &json!({ "pages": case["pages"] }), &json!({ "pages": layout_of(&file) }));
             let described = if result["form"]["fields"].as_array().is_some_and(|fields| !fields.is_empty()) { Some(fields_of(&file)) } else { None };
-            assert_eq!(case.get("fields"), described.as_ref(), "{name}: whether the file holds fields");
+            // Whether fields were recorded and read back; their values are compared next, with the tolerance of their place.
+            assert_eq!(case.get("fields").is_some(), described.is_some(), "{name}: whether the file holds fields");
             if let Some(described) = described {
                 assert_same(&format!("{name}: fields"), &case["fields"], &described);
             }

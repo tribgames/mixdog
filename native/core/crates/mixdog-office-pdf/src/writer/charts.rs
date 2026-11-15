@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn bars_across_take_a_row_each_and_upright_bars_a_plot() {
         let (font, bold) = (helvetica("F1", StandardFontName::Helvetica, 1), helvetica("F2", StandardFontName::HelveticaBold, 2));
-        let across = json!({ "type": "chart", "categories": ["North", "South"], "values": [10, 20], "title": "Sales", "unit": "k" });
+        let across = json!({ "type": "chart", "categories": ["North", "East"], "values": [10, 20], "title": "Sales", "unit": "k" });
         let layout = chart_layout(&font, &bold, &across, TextBox { left: 54.0, width: 487.0 }).unwrap();
         assert!(layout.across);
         assert_eq!(layout.labels, ["10k", "20k"]);

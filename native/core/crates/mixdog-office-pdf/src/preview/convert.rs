@@ -241,6 +241,9 @@ async fn derive_key(preview: &DocumentPreview, descriptor: &Descriptor, password
         request.cancelled().await;
         stop.cancel();
     });
+    // The watcher sits in this worker's run-next slot, which no other worker steals from; the lane job below can hold this thread
+    // for the whole derivation, so the watcher is polled once now and then waits for its wake-up from anywhere.
+    tokio::task::yield_now().await;
     let waited = job(preview.lanes.cpu_bulk, move |_: &InLane<CpuBulk>| derivation.wait()).await;
     watcher.abort();
     waited?.map_err(key_error)

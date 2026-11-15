@@ -121,15 +121,20 @@ impl std::error::Error for PreviewError {}
 
 /// Runs `job` on `lane` and waits for its answer. File work of a preview is not abortable (Node's is not either): where a
 /// request's cancellation counts, the caller checks it.
-pub(crate) async fn job<L, R, F>(lane: L, work: F) -> Result<R, PreviewError>
+///
+/// The future is boxed here, where its `Send` is proved for any job: left as an `async fn`, a caller that has to be `Send`
+/// cannot prove it through the higher-ranked job closures.
+pub(crate) fn job<L, R, F>(lane: L, work: F) -> BoxFuture<'static, Result<R, PreviewError>>
 where
     L: LaneToken,
     R: Send + 'static,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
 {
-    let cancel = CancellationToken::new();
-    let handle = lane.submit_wait(&cancel, work).await.map_err(|error| PreviewError::plain(error.to_string()))?;
-    handle.await.map_err(|error| PreviewError::plain(error.to_string()))
+    Box::pin(async move {
+        let cancel = CancellationToken::new();
+        let handle = lane.submit_wait(&cancel, work).await.map_err(|error| PreviewError::plain(error.to_string()))?;
+        handle.await.map_err(|error| PreviewError::plain(error.to_string()))
+    })
 }
 
 /// The text of a failed system call as Node words it (`ENOENT: no such file or directory, stat '<path>'`).
@@ -239,6 +244,8 @@ impl PreviewEngines for SystemEngines {
     fn render_libre_office(&self, path: PathBuf, output: PathBuf, cancel: CancellationToken) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move {
             let follow = CancelFlag::follow(&cancel);
+            // As in the password derivation: the watcher must be polled before a lane job holds this thread.
+            tokio::task::yield_now().await;
             let flag = Arc::clone(&follow.flag);
             let soffice = self.soffice;
             let done = job(self.lanes.maintenance_io, move |lane: &InLane<MaintenanceIo>| {

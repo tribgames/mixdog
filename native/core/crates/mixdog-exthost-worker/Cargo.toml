@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 # The scripted worker the pool tests drive (`ext_worker_dev`).
-test-support = []
+test-support = ["mixdog-rt/test-support"]
 
 [[bin]]
 name = "ext_worker_dev"
@@ -50,10 +50,14 @@ required-features = ["test-support"]
 base64 = { workspace = true }
 bytes = { workspace = true }
 dunce = { workspace = true }
+mixdog-fonts = { workspace = true }
 mixdog-fsio = { workspace = true }
 mixdog-imaging = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-office-base = { workspace = true }
+mixdog-office-com = { workspace = true }
+mixdog-office-pdf = { workspace = true }
+mixdog-ooxml = { workspace = true }
 mixdog-ooxml-text = { workspace = true }
 mixdog-pdf = { workspace = true }
 mixdog-rt = { workspace = true }

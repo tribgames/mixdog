@@ -1,6 +1,7 @@
 //! The methods the worker serves. Each family registers itself here as its task lands.
 
 pub mod document;
+mod document_engine;
 mod image;
 mod media_office;
 mod office_journal;

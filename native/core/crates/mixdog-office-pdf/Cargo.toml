@@ -10,16 +10,22 @@ workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+flate2 = { workspace = true }
 mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-office-com = { workspace = true }
+mixdog-office-crypto = { workspace = true }
 mixdog-pdf = { workspace = true }
 mixdog-raster = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+zip = { workspace = true }
 mixdog-office-base = { workspace = true }
 mixdog-ooxml = { workspace = true }
 mixdog-rt = { workspace = true }
-tokio = { workspace = true, features = ["rt", "time", "process", "io-util"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "macros"] }
 uuid = { workspace = true, features = ["v4"] }
 mixdog-fonts = { workspace = true }
 tracing = { workspace = true }
@@ -29,4 +35,7 @@ mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt"] }
+flate2 = { workspace = true }
+sha2 = { workspace = true }
+zip = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "net", "io-util", "sync", "macros"] }
