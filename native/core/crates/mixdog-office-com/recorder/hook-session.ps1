@@ -17,6 +17,6 @@ if ($env:MIXDOG_COM_RECORDER_LOG) {
 
     $script:MixdogRecorderFindRunning = ${function:Find-RunningDocumentExact}
     function Find-RunningDocumentExact([string]$format, [string]$path) {
-        & $script:MixdogRecorderFindRunning $format $path | ForEach-Object { Convert-ToRecordedObject $_ }
+        & $script:MixdogRecorderFindRunning $format $path | ForEach-Object { Convert-ToRecordedObject $_ -ReleaseSource }
     }
 }

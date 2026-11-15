@@ -28,18 +28,24 @@ public static class MixdogComRecorder
 
     # An object the host got from Office, as the proxy of its COM identity (the same proxy for the same identity, so
     # [object]::ReferenceEquals and RuntimeHelpers.GetHashCode behave as unhooked). Anything that is not a COM object,
-    # and an object the DLL declines, is returned as it came.
-    function Convert-ToRecordedObject($object) {
+    # and an object the DLL declines, is returned as it came. Every answer leaves with the unary comma, so a collection
+    # (a List, an object[,] from New-Object) comes back whole instead of being unrolled by the function's output.
+    # -ReleaseSource gives back the reference the raw wrapper took when the object was just acquired (New-Object,
+    # GetActiveObject, the running-object table): the host's own ReleaseComObject then reaches the proxy, and Office
+    # holds one reference for the host, as unhooked. An object that already is a proxy comes back as it came.
+    function Convert-ToRecordedObject($object, [switch]$ReleaseSource) {
         if ($null -eq $object) { return $null }
         $base = if ($object -is [System.Management.Automation.PSObject]) { $object.psobject.BaseObject } else { $object }
-        if ($null -eq $base -or -not [System.Runtime.InteropServices.Marshal]::IsComObject($base)) { return $object }
+        if ($null -eq $base -or -not [System.Runtime.InteropServices.Marshal]::IsComObject($base)) { return , $object }
         $unknown = [IntPtr]::Zero
         $proxy = [IntPtr]::Zero
         try {
             $unknown = [System.Runtime.InteropServices.Marshal]::GetIUnknownForObject($base)
             $proxy = [MixdogComRecorder]::mixdog_com_recorder_wrap($unknown)
-            if ($proxy -eq [IntPtr]::Zero) { return $object }
-            return [System.Runtime.InteropServices.Marshal]::GetObjectForIUnknown($proxy)
+            if ($proxy -eq [IntPtr]::Zero -or $proxy -eq $unknown) { return , $object }
+            $recorded = [System.Runtime.InteropServices.Marshal]::GetObjectForIUnknown($proxy)
+            if ($ReleaseSource) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($base) }
+            return , $recorded
         }
         finally {
             if ($unknown -ne [IntPtr]::Zero) { [void][System.Runtime.InteropServices.Marshal]::Release($unknown) }
@@ -59,14 +65,14 @@ public static class MixdogComRecorder
     # back as it was (the one-element array keeps a collection from being unrolled by the function's output).
     function New-Object {
         $created = Microsoft.PowerShell.Utility\New-Object @args
-        return , (Convert-ToRecordedObject $created)
+        return , (Convert-ToRecordedObject $created -ReleaseSource)
     }
 
     $script:MixdogRecorderActiveApplication = ${function:Active-Application}
     function Active-Application([string]$progId) {
         $application = & $script:MixdogRecorderActiveApplication $progId
         if ($null -eq $application) { return $null }
-        return Convert-ToRecordedObject $application
+        return Convert-ToRecordedObject $application -ReleaseSource
     }
 
     # One marker per operation, snapshot and issues call, each with what the host was given; the call goes through to

@@ -107,7 +107,6 @@ const VT_BYREF: u16 = 0x4000;
 const VT_TYPEMASK: u16 = 0x0FFF;
 
 pub(crate) const S_OK: i32 = 0;
-pub(crate) const S_FALSE: i32 = 1;
 pub(crate) const E_NOINTERFACE: i32 = 0x8000_4002_u32 as i32;
 pub(crate) const E_POINTER: i32 = 0x8000_4003_u32 as i32;
 const E_INVALIDARG: i32 = 0x8007_0057_u32 as i32;
@@ -808,6 +807,7 @@ fn unwrap_pointer(pointer: *mut c_void) -> *mut c_void {
 /// The arguments of a call with the proxies replaced by the real objects. The caller's VARIANTs are copied (shallowly:
 /// the pointers are borrowed for the call), so nothing the caller owns is written to; what this makes (a by-reference
 /// slot, a copied array) is held here and released when it is dropped.
+#[allow(clippy::vec_box)] // `args` points into each boxed slot: the boxes keep those addresses fixed while the vectors grow
 struct Forward {
     args: Vec<Variant>,
     slots: Vec<Box<*mut c_void>>,
@@ -1136,6 +1136,7 @@ mod tests {
 
     /// A real object stand-in: an `IDispatch` of the C ABI whose members are `1` (answers an I4 of 42) and `2` (answers
     /// another object), and that has no type information.
+    #[allow(dead_code)] // `vtbl` is the first word of the object: COM reads it, this code never does
     #[repr(C)]
     struct Fake {
         vtbl: *const IDispatchVtbl,

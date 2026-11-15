@@ -188,6 +188,7 @@ mod tests {
     use crate::CAPTURE;
 
     /// An enumerator of the integers 1 to `limit`.
+    #[allow(dead_code)] // `vtbl` is the first word of the object: COM reads it, this code never does
     #[repr(C)]
     struct Fake {
         vtbl: *const IEnumVariantVtbl,
