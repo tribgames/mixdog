@@ -63,6 +63,18 @@ pub fn slice16_from(text: &str, from: usize) -> &str {
     &text[utf16_to_byte(text, from)..]
 }
 
+/// `text.slice(0, from) + insert + text.slice(to)` by UTF-16 offsets. A cut inside a surrogate pair leaves its half in the
+/// result, and two halves that meet join into the pair they make; a half left alone reads as U+FFFD, as it does when Node
+/// encodes the string.
+pub fn splice16(text: &str, from: usize, to: usize, insert: &str) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let (from, to) = (from.min(units.len()), to.min(units.len()));
+    let mut out: Vec<u16> = units[..from].to_vec();
+    out.extend(insert.encode_utf16());
+    out.extend_from_slice(&units[to..]);
+    String::from_utf16_lossy(&out)
+}
+
 /// The offsets of a live selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range {
@@ -100,7 +112,7 @@ pub fn replace_selection(draft: &Draft, input: &str) -> Draft {
     let range = selection_range(draft);
     let start = range.map_or_else(|| clamp_offset(&draft.value, draft.cursor), |r| r.start);
     let end = range.map_or(start, |r| r.end);
-    let value = format!("{}{}{}", slice16(&draft.value, 0, start), input, slice16_from(&draft.value, end));
+    let value = splice16(&draft.value, start, end, input);
     Draft { value, cursor: start + len16(input), selection_anchor: None }
 }
 
@@ -349,7 +361,7 @@ pub fn vertical_offset(
 
 /// `draft` with the text between `from` and `to` removed and the caret at `cursor`.
 fn cut(draft: &Draft, from: usize, to: usize, cursor: usize) -> Draft {
-    let value = format!("{}{}", slice16(&draft.value, 0, from), slice16_from(&draft.value, to));
+    let value = splice16(&draft.value, from, to, "");
     Draft { value, cursor, selection_anchor: None }
 }
 

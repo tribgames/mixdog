@@ -350,7 +350,11 @@ fn every_scenario_makes_the_same_calls_notices_and_prompt_changes_as_node() {
             got_log.len(),
             want_log.len(),
         );
-        m.expect(|| format!("{name} log entries"), first_difference, None);
+        m.expect(
+            || format!("{name} log entries (got {:?}, want {:?})", first_difference.map(|at| &got_log[at]), first_difference.map(|at| &want_log[at])),
+            first_difference,
+            None,
+        );
         m.expect(|| format!("{name} paste"), Value::Array(outcome.paste), scenario["paste"].clone());
         m.expect(|| format!("{name} returns"), Value::Array(outcome.returns), scenario["returns"].clone());
     }
