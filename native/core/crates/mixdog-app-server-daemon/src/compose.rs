@@ -830,14 +830,11 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     ));
     let scoped_feeds: Arc<dyn ScopedFeeds> = feed_index.clone();
     let js = &js_runtime;
-    let entry = js.package_root.join("src").join("skill-script-entry.mjs");
-    let skill_runtime = ExecSkillRuntime {
-        platform: node_platform().to_owned(),
-        interpreter: js.program.to_string_lossy().into_owned(),
-        entry: entry.to_string_lossy().into_owned(),
-        electron: js.electron,
-    };
-    let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
+    // The `mixdog-skill-node` launchers start the core executable as `skill-run`: it runs a shipped script itself and hands any
+    // other script to the install's script interpreter.
+    let core_program = js.core_program.to_string_lossy().into_owned();
+    let skill_runtime = ExecSkillRuntime { platform: node_platform().to_owned(), interpreter: core_program.clone(), entry: "skill-run".to_owned(), electron: false };
+    let skills = SkillRuntime::new(core_program, "skill-run", false);
     let skill_launcher_dir =
         skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
     let ext_host = Arc::new(
