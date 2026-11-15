@@ -479,7 +479,7 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
     // other way, which it keeps as PowerPoint's refresh keeps it.
     let orientation = spec.axis.and_then(|axis| axis.get("categoryOrientation")).filter(|value| truthy(value));
     let reversed = match orientation {
-        Some(value) => value_to_string(value) == "maxMin",
+        Some(value) => value.as_str() == Some("maxMin"),
         None => family.direction == Some("bar"),
     };
     let references = spec.references.unwrap_or_default();
