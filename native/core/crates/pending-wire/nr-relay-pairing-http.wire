@@ -1,0 +1,26 @@
+# nr-relay-pairing-http: browser registration, approval claims and the pair-code routes of mixdog-relay
+# (native/core/crates/mixdog-relay): src/pairing/{mod,register,claims,http}.rs, tests/pairing.rs, tests/ledger/nr-relay-pairing-http.json
+# Nothing here could be compiled (no cargo in this task).
+
+## 1. Cargo.toml, Cargo.lock, mixdog-workspace-hack, compose_flip.rs SERVICE_PENDING
+No change. tests/pairing.rs is picked up as the test target `pairing` (the crate does not turn auto-discovery off) and needs no
+test-support item. Every dependency used (bytes, serde_json, url, uuid with v4, mixdog-js, mixdog-rt) is already a dependency of the crate.
+No protocol method is registered.
+
+## 2. src/lib.rs
+`pub mod pairing;` is already there; src/pairing/mod.rs now declares `claims`, `codes`, `http` and `register`.
+
+## 3. What the task that runs the relay (nr-relay-server) must apply
+- One `pairing::Pairing` per process: `let pairing = Pairing::new(hub.clone(), unauthorized_limiter.clone());` where `unauthorized_limiter` is the
+  relay-wide `Arc<Mutex<RateLimiter>>` the static gate also charges (`unauthorizedLimiter`, the one `reject_unauthorized_text` takes by `&mut`).
+  The presence limiter (`createPresenceLimiter`, 60 per 60 s per address) and the pool of claims and the live codes belong to `Pairing`; the
+  server builds none of them.
+- Right after the hub exists and before the first desktop leg is accepted: `pairing.register()?`. It registers on `hub.dispatch()` the frame
+  types `claim-approve`, `claim-deny`, `pair-code-request`, `pair-code-clear`, and the close hook that clears a device's code when its live
+  leg closes (`liveDesktops.get(deviceId)?.socket === socket` of server.mjs). Nothing else may register those four types.
+- router.rs, in the order of server.mjs: a target starting with `/pair-code/` goes to `pairing.handle_pair_code(request, response).await`
+  (after /hook/, before /app); a target starting with `/client/register` goes to `pairing.handle_registration(..)` (after the web-push routes);
+  a target starting with `/claim` goes to `pairing.handle_claim(..)`. Each answers the whole request, 400/403/404/405/429/503 included.
+  An asynchronous failure is the router's `fail_request(label, ..)`: labels `pair code`, `client registration`, `claim request`.
+- nr-relay-twin-identity: the twin scenarios of pair-codes.test.mjs ("relay: ...") and the claim scenarios of security.test.mjs that need the full
+  relay drive these routes through the real server; tests/pairing.rs covers the routes over loopback with a recording desktop leg.
