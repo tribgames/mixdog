@@ -218,7 +218,10 @@ fn manage_project_branch(params: &Value) -> Checked {
 fn select_branch(params: &Value) -> Checked {
     let name = "selectBranch input";
     with_object(params, "input", name, false, |input| {
-        allow_keys(input, &["branch", "create", "expectedRevision", "confirmLarge"], name)?;
+        // `txId` is the transaction id the core reads (worktree_service.rs select_input), as Node's `selectBranch` did
+        // (`worktree-intents.mjs`: `{ branch, create, expectedRevision, confirmLarge, txId }`): a resend under the same id
+        // settles on the same checkout. The desktop's IPC check never saw it; its value is the service's to read.
+        allow_keys(input, &["branch", "create", "expectedRevision", "confirmLarge", "txId"], name)?;
         ref_text(input, "branch", "selectBranch input.branch")?;
         optional_boolean(input, "create", name)?;
         optional_boolean(input, "confirmLarge", name)?;
@@ -526,6 +529,27 @@ mod validate_worktree_import {
             Some(Err(ErrorData::InvalidParams {
                 path: "/params/selection/ids".to_owned(),
                 expected: "startConversationImport selection.ids must be a list of ids.".to_owned(),
+            }))
+        );
+    }
+
+    /// The fields the worktree service reads from a `thread/selectBranch` and a `thread/requestWorktree` input
+    /// (`worktree_service.rs` `select_input`, `request_input`) are all accepted; a field it does not read is still refused.
+    #[test]
+    fn validate_worktree_inputs_take_every_field_the_service_reads() {
+        let call = |method: &str, input: Value| check(method, Some(&serde_json::json!({ "threadId": "thread-1", "input": input })));
+        let select = serde_json::json!({ "branch": "dev", "create": false, "expectedRevision": 3, "confirmLarge": false, "txId": "c2" });
+        assert_eq!(call("thread/selectBranch", select), Some(Ok(())));
+        let request = serde_json::json!({
+            "name": "feat", "expectedRevision": 3, "confirmLarge": false, "provision": true, "carryChanges": "leave", "prompt": "fix it", "txId": "c1"
+        });
+        assert_eq!(call("thread/requestWorktree", request), Some(Ok(())));
+        let unread = serde_json::json!({ "branch": "dev", "txId": "c2", "prompt": "fix it" });
+        assert_eq!(
+            call("thread/selectBranch", unread),
+            Some(Err(ErrorData::InvalidParams {
+                path: "/input".to_owned(),
+                expected: "selectBranch input contains an unsupported field.".to_owned(),
             }))
         );
     }
