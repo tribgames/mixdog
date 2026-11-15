@@ -1,0 +1,9 @@
+[
+  {"node": "apps/relay/lib/device-store-persistence.mjs::devices.json written by one runtime authenticates the same desktops and browsers in the other (profiles, versions, revoked browser)", "twin": "data/devices_across_runtimes"},
+  {"node": "apps/relay/lib/device-store-persistence.mjs::loadDeviceStore repairs legacy rows and keeps key order; the rewrite by saveDeviceStore is byte-identical between runtimes", "twin": "data/device_store_placed_rows"},
+  {"node": "apps/relay/lib/device-store-auth.mjs::revokeDevice is on disk before it is acknowledged: the other runtime no longer knows the device or its browsers", "twin": "data/device_revocation_across_runtimes"},
+  {"node": "apps/relay/lib/feedback.mjs::pending and delivered records with attachments survive a switch of runtime (same hash, same mail bytes, retried)", "twin": "data/feedback_across_runtimes"},
+  {"node": "apps/relay/lib/feedback.mjs::records placed in the stored layout load (legacy pending, delivered, stray file) and are rewritten in that layout", "twin": "data/feedback_records_placed"},
+  {"node": "apps/relay/lib/web-push.mjs::the VAPID identity, the capable PCs and the subscriptions written by one runtime are served by the other, a retired subscription is dropped from the file", "twin": "data/web_push_across_runtimes"},
+  {"node": "apps/relay/server.mjs::a switch of runtime in the middle of live traffic is a restart: desktops redial, phones reconnect, a claim answers unknown, a pairing code is published again", "twin": "data/switch_rehearsal_live_traffic"}
+]
