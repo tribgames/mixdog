@@ -5,16 +5,14 @@
 use mixdog_tui_style::Key;
 use mixdog_tui_style::theme::theme_color;
 use mixdog_tui_widgets::picker::layout::FooterInput;
+use mixdog_view_model::display::clean::clean;
 use serde_json::{Value, json};
 
 use crate::slash::notices::{truthy, value_text};
 
 /// The text of member `key` of a setup row, `String(row[key] ?? '')` trimmed (`clean`).
 fn clean_member(row: &Value, key: &str) -> String {
-    match row.get(key) {
-        None | Some(Value::Null) => String::new(),
-        Some(value) => mixdog_js::js_trim(&value_text(value)).to_owned(),
-    }
+    clean(row.get(key))
 }
 
 fn member_is(row: &Value, key: &str, text: &str) -> bool {
