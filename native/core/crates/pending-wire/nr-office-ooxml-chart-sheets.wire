@@ -1,0 +1,66 @@
+# nr-office-ooxml-chart-sheets: what the wiring applies (nothing here was compiled: cargo was not run)
+
+Three modules of the existing crate mixdog-ooxml: `chart` (portable-chart.mjs), `sheet_page` (portable-sheet-page.mjs) and
+`shared_formulas` (portable-shared-formulas.mjs), with the twin test tests/twin_chart_sheets.rs and the recording
+native/core/fixtures/office-chart-sheets. No protocol method, service or SERVICE_PENDING name belongs to it.
+
+## native/core/crates/mixdog-ooxml/src/lib.rs
+
+After the line `pub mod xlsx_cell_values;` (any place among the `pub mod` lines) add:
+
+    pub mod chart;
+    pub mod shared_formulas;
+    pub mod sheet_page;
+
+and in the crate documentation add `chart`, `sheet_page` and `shared_formulas` to the list of modules if the list is kept.
+
+## native/core/crates/mixdog-ooxml/Cargo.toml
+
+`shared_formulas` translates a shared formula with the engine tokenizer. Under `[dependencies]`, after the line
+`mixdog-office-base = { workspace = true }`, add:
+
+    mixdog-xlsx-formula = { workspace = true }
+
+(the workspace entry already exists: `mixdog-xlsx-formula = { path = "crates/mixdog-xlsx-formula" }`; the crate does not
+depend on mixdog-ooxml, so there is no cycle). No dev-dependency is new: the twin test uses tempfile, mixdog-office-base
+(feature test-support), mixdog-fonts, mixdog-fsio, serde_json, all already listed.
+
+## native/core/Cargo.lock and mixdog-workspace-hack
+
+In the package entry `mixdog-ooxml` add the dependency `mixdog-xlsx-formula` (cargo does it: `cargo update --workspace
+--offline`). The hack needs nothing: no third-party crate or feature is new.
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, keeping the list sorted by set name (after `office-capability-tables`, before `office-colour`), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-chart-sheets.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-chart-sheets/MANIFEST.json",
+      "manifestSha256": "2e261c7a2fd5b59e5a66bc214c0a7d4ee254c2ac8376b41553261b144a213e68",
+      "recorder": "benchmarks/rust-core/recorders/record-office-chart-sheets.mjs",
+      "set": "office-chart-sheets",
+      "totalBytes": 614170
+    }
+
+(If the recording is made again the two numbers change: `sha256sum office-chart-sheets/MANIFEST.json`, and the golden's size.)
+
+## What the later tasks of the office track consume
+
+- `mixdog_ooxml::chart`: `chart_xml(&ChartSpec) -> Result<String, String>`, `chart_workbook_rows`, `DEFAULT_SERIES_COLORS`,
+  `SHEET_CHART_TEXT`, `SLIDE_CHART_TEXT` (`ChartText`). The xlsx chart writer (portable-xlsx-charts) and the pptx chart writer
+  (portable-pptx-charts) call it; series and categories stay `serde_json::Value`, as the tool call carries them.
+- `mixdog_ooxml::sheet_page`: `maximum_digit_width`, `workbook_digit_width`, `text_characters`, `column_file_width`,
+  `column_pixels`, `worksheet_geometry` (`WorksheetGeometry`), `worksheet_drawings` (`WorksheetDrawing`), `content_print_area`,
+  `fit_drawing_sheet_one_page_wide`, `apply_worksheet_page_setup`. Everything that measures takes the `TextMeasurer` the caller
+  holds (the registry of the Office faces the caller registered) and answers the reason a face could not be measured.
+- `mixdog_ooxml::shared_formulas::expand_shared_formulas(xml, &mut records) -> Result<Vec<SharedFormulaFailure>, String>`:
+  the snapshot, the range layout and the recalculation read each sheet through it. A patched record carries the formula with
+  the cell's own value as its cached value and cache state `present` (Node left both unset, which Rust's `FormulaInfo` cannot
+  say); no reader of Node counted such a record as a missing cache.
+
+## Not compiled
+
+Cargo was not run (the lead compiles the wave). The recording was made by running the Node source once
+(`node benchmarks/rust-core/recorders/record-office-chart-sheets.mjs --tree C:/Project/mixdog --faces <office-measure/faces>`).
