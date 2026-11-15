@@ -159,7 +159,9 @@ fn replay_packages(golden: &Value) {
         match decrypt_package(&descriptor, &key, &package) {
             Ok(plain) => {
                 assert_eq!(encode(&plain), record["decrypted"], "{name}: decrypted");
-                if let Some(sha) = record["plainSha256"].as_str() {
+                // The recorder digests the plain text the package was made from; a package altered after it was made
+                // (intact false) decrypts to other bytes, which the `decrypted` check above already holds exactly.
+                if let (Some(sha), true) = (record["plainSha256"].as_str(), record["intact"] == json!(true)) {
                     let digest: String = Sha256::digest(&plain)
                         .iter()
                         .map(|byte| format!("{byte:02x}"))
