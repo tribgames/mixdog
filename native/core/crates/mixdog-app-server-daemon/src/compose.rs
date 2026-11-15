@@ -784,13 +784,13 @@ pub struct ExtHostConfigs {
     pub native_methods: Vec<&'static str>,
 }
 
-/// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole,
-/// the document methods until the office-pdf document engine is registered in the worker: the list decides the route,
-/// nothing else does.
+/// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole, and
+/// `document.installLibreOffice` until the font provisioner it runs after an install is reachable from the worker: the list
+/// decides the route, nothing else does.
 pub fn native_ext_methods() -> Vec<&'static str> {
     mixdog_exthost_worker::native_methods()
         .into_iter()
-        .filter(|method| !method.starts_with("image.") && !method.starts_with("document."))
+        .filter(|method| !method.starts_with("image.") && *method != "document.installLibreOffice")
         .collect()
 }
 
