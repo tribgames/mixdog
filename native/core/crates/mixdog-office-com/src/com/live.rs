@@ -886,7 +886,15 @@ impl ComObject for LiveObject {
             self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named)
         } else {
             named_ids.reverse();
-            self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named_ids)
+            match self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named_ids) {
+                // PowerPoint answers a plain property read of some members (the HWND of its application) with "member not
+                // found" and gives the value when the read also names the method kind, which is how .NET reads a member of
+                // a late-bound object. The name was resolved above, so the member is there: it is asked for again that way.
+                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET => {
+                    self.invoke_id(dispatch, member_id, DISPATCH_METHOD | DISPATCH_PROPERTYGET, &mut arguments, &mut named_ids)
+                }
+                other => other,
+            }
         };
         match result {
             Ok(result) => from_variant(&result.0),
