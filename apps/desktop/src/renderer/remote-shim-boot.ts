@@ -25,8 +25,10 @@ import { installRemotePairing } from './remote-shim-pairing';
 import { REMOTE_CONNECTION_READY_EVENT, createRemoteShimContext, type RemoteShimContext } from './remote-shim-state';
 
 export function installPhoneShim(adapters: readonly PhoneProtocolAdapter[]): void {
-  const w = window as Window & { mixdogDesktop?: DesktopApi };
-  if (w.mixdogDesktop || typeof WebSocket === 'undefined') return;
+  const w = window as Window & { mixdogDesktop?: DesktopApi; mixdogDesktopHost?: unknown };
+  // Inside the desktop app the preload exposes the host half (window.mixdogDesktopHost) and the window composes
+  // window.mixdogDesktop from it later (core-direct/install): the phone's API must not take its place meanwhile.
+  if (w.mixdogDesktop || w.mixdogDesktopHost || typeof WebSocket === 'undefined') return;
 
   const ctx = createRemoteShimContext();
   installRemotePairing(ctx);
