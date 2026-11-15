@@ -539,7 +539,7 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
     let connector = tokio_rustls::TlsConnector::from(Arc::new(client));
     let name = rustls::pki_types::ServerName::try_from("localhost".to_owned()).unwrap();
 
-    let tcp = TcpStream::connect(([127, 0, 0, 1], server.port())).await.unwrap();
+    let tcp = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, server.port())).await.unwrap();
     let mut stream = connector.connect(name.clone(), tcp).await.unwrap();
     assert_eq!(stream.get_ref().1.alpn_protocol(), None, "h2 is never offered");
     stream.write_all(b"GET /hello HTTP/1.1\r\nHost: relay.test\r\nConnection: close\r\n\r\n").await.unwrap();
@@ -548,7 +548,7 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
     let text = latin1_text(&out);
     assert!(text.starts_with("HTTP/1.1 200 OK\r\n") && text.ends_with("hello"), "{text:?}");
 
-    let tcp = TcpStream::connect(([127, 0, 0, 1], server.port())).await.unwrap();
+    let tcp = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, server.port())).await.unwrap();
     let mut stream = connector.connect(name, tcp).await.unwrap();
     stream
         .write_all(b"GET /ws HTTP/1.1\r\nHost: relay.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n\x81\x80abcd")

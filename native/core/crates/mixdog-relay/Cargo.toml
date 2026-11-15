@@ -31,12 +31,28 @@ name = "twin"
 path = "tests/twin/main.rs"
 required-features = ["test-support"]
 
+[[test]]
+name = "smtp"
+path = "tests/smtp.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "smtp_twin"
+path = "tests/smtp_twin.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "feedback_service"
+path = "tests/feedback_service.rs"
+required-features = ["test-support"]
+
 [dependencies]
 base64 = { workspace = true }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 hmac = { workspace = true }
 httparse = { workspace = true }
+md-5 = { workspace = true }
 mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-rt = { workspace = true }
@@ -69,4 +85,4 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util", "process"] }
