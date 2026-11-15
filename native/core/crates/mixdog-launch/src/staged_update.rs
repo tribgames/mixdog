@@ -254,11 +254,8 @@ pub fn run_staged_install_worker(version: &str) -> i32 {
 /// terminal inherited and `MIXDOG_SWAP_REEXEC=1` set so it never swaps again; the exit code it ends with. `None` when it could not
 /// be started: the caller then goes on in place.
 pub fn reexec_swapped(exe: &Path, args: &[OsString]) -> Option<i32> {
-    let mut command = Command::new(exe);
-    command.args(args).env(SWAP_REEXEC_VAR, "1");
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
-    let status = command.status().ok()?;
+    // No creation flag: the child shares this terminal (its console on Windows), as Node's `spawnSync` with inherited stdio did.
+    let status = Command::new(exe).args(args).env(SWAP_REEXEC_VAR, "1").status().ok()?;
     Some(exit_code_of(status))
 }
 
