@@ -115,8 +115,9 @@ fn default_layout(layouts: &Com) -> Result<Layout> {
         }
         index += 1;
     }
+    // `@{ Index = $layouts.Count; Layout = $layouts.Item($layouts.Count) }`: the count is read for each.
     let last = count(layouts)?;
-    found(layouts, last)
+    Ok(Layout { index: last, layout: item(layouts, count(layouts)?)? })
 }
 
 /// `PowerPoint-Layout $presentation $reference`.

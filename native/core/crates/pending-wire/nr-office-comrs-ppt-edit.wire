@@ -41,6 +41,13 @@ This task needed them and the Word and Excel editors are written in parallel, so
 nr-office-comrs-excel-edit (add_chart, set_chart_series, ...) and nr-office-comrs-word-edit (add_provenance) must call these and not
 carry a second copy; if either already wrote its own, delete that copy and point it here (or move both to a shared module, which is the
 lead's call: no other file of this task changes).
+Found at review (wave Gnr10): nr-office-comrs-excel-edit did write its own copies in src/excel/edit/charts.rs (`chart_type_code`,
+`set_chart_title_face`, `ink_on_fill`) and src/excel/edit/structure.rs (`provenance_text`), and nr-office-comrs-word-edit one in
+src/word/edit/review.rs (`provenance_text`). `Set-ChartTitleFace` and `Ink-OnFill` are one script function each too; this task has them
+as `crate::ppt::edit::chart_data::set_chart_title_face(&Com, f32)` and `crate::ppt::edit::shapes::ink_on_fill(&str) -> String` (the
+excel copy of ink_on_fill answers a Result). Keep one of each. Likewise `Excel-ColumnLetters` exists as
+`crate::excel::cells::column_letters` (pub(super)) and as the private `column_letters` of src/ppt/edit/chart_data.rs: once
+excel/cells.rs makes it pub(crate), the ppt copy is deleted and chart_data.rs calls that one.
 
 ## 5. After the recording
 `node recorder/record-office-com.mjs --area ppt-edit` (on the migration PC with Microsoft PowerPoint and Excel) writes
