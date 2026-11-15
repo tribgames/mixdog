@@ -125,17 +125,11 @@ import { readDisplays } from './computer/host/display-reads';
 import { assertPublicComputerRequest } from './computer/host/request-policy';
 import type { ComputerCommand } from './computer/shared/types';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
-import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
-import { createTerminalRunDispatch } from './terminal/run-dispatch';
-import { TerminalBridgeServer } from './terminal/bridge-server';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { CorePortRelay } from './core-port/relay';
-import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
-import { createTerminalRunRequests } from './terminal/run-requests';
-import { createTerminalBridgeBackend } from './terminal/bridge-backend';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
@@ -651,7 +645,6 @@ function startDaemonService(): void {
   void localConnection
     .start()
     .then(() => {
-      terminalBridge.start();
       hostRole.claimNow();
       refreshCorePageOrigin();
       diagnostics?.write('daemon-service-ready', {
@@ -716,40 +709,9 @@ function activatePrimaryWindow(): void {
 // Native notifications stay referenced until clicked, closed or failed: the
 // OS toast holds none, and a collected one never delivers its click.
 const liveNotifications = new Set<unknown>();
-// Agent `terminal` tool: a loopback bridge over the daemon-owned PTYs that
-// lists, reads and runs commands in a session's side terminal. A hidden
-// always-on built-in (like Media Studio): it runs for the app's lifetime, so
-// headless runs without the desktop app never see the tool. It serves this
-// PC's agents, so it uses this PC's daemon.
-// A run's reveal goes to the desktop window (true when it took the request) and,
-// stripped of the ack id and paths, to paired clients through the relay.
-const requestTerminalRun = createTerminalRunDispatch({
-  sendToWindow: (request) => {
-    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
-    mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
-    return true;
-  },
-  // Paired clients: the core sends ui/openRequested{kind: terminal} itself (protocol/open-requested.ts).
-  relay: () => {},
-});
-const terminalRuns = createTerminalRunRequests(requestTerminalRun);
-// A run waits for a pane to claim its reveal (the renderer watches
-// TERMINAL_SHOWN_WAIT_MS) plus the claim's trip back, then reports background.
-const TERMINAL_CLAIM_GRACE_MS = 500;
-const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
-  dataDirectory: bridgeDiscoveryDirectory,
-  execute: createTerminalCommandExecutor(
-    createTerminalBridgeBackend({
-      invoke: (name, args) => localService.invokeDesktopOperation(name, args),
-      sessionCwd: async (sessionId) =>
-        (await localService.listSessions()).find((session) => session.id === sessionId)?.cwd || null,
-      reveal: (request) => terminalRuns.reveal(request, TERMINAL_SHOWN_WAIT_MS + TERMINAL_CLAIM_GRACE_MS),
-    })
-  ),
-});
 // Agent `visualize` tool: shows produced artifacts in the session's side
 // panel. Default-on built-in; the runtime gates the tool by its toggle, and
-// the bridge runs for the app's lifetime like the terminal bridge.
+// the bridge runs for the app's lifetime.
 let browserFeatureInstalled = false;
 let hostRoleReady = false;
 /** One diagnostics record for every failed visualize publish: change events and the claim-time snapshot. */
@@ -1178,7 +1140,6 @@ localProtocol.onEvent(
     // (`host/browser/surface`); the core's `ui/openRequested` is for the other attached clients, paired phones.
     browser: () => {},
     // The window's own core link receives `ui/openRequested{kind: terminal}` itself (renderer core-direct/api-terminal.ts);
-    // main's own terminal bridge reveals still go to it as DESKTOP_IPC.terminalRunRequested (requestTerminalRun above).
     terminal: () => {},
     visualize: (event) => visualize.openRequested(event),
     watchNewTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
@@ -1489,7 +1450,6 @@ function disposeDesktopResources(): Promise<void> {
       await browserHost?.dispose();
       await browserHostDisposal;
       await computerHost?.dispose();
-      await terminalBridge.stop();
       await visualizeBridge.stop();
       visualize.dispose();
     })();
