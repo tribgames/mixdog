@@ -1,0 +1,185 @@
+{
+  "id": "app_page_apk_recorded",
+  "description": "a recorded APK link sends Android straight to it, other phones get the page that links it, and /app/latest.json reports the version",
+  "files": {
+    "mobile_release": {
+      "androidUrl": "https://github.com/tribgames/mixdog/releases/download/mobile-v0.1.13/Mixdog-0.1.13.apk"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "Android phone",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8)"
+        ]
+      ],
+      "expect_status": 302
+    },
+    {
+      "do": "http",
+      "label": "Android phone, lower-case user agent",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "android"
+        ]
+      ],
+      "expect_status": 302
+    },
+    {
+      "do": "http",
+      "label": "iPhone",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "no user agent",
+      "path": "/app",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "desktop browser",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/120.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "with a query",
+      "path": "/app?utm=1",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8)"
+        ]
+      ],
+      "expect_status": 302
+    },
+    {
+      "do": "http",
+      "label": "HEAD Android",
+      "method": "HEAD",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Linux; Android 14; Pixel 8)"
+        ]
+      ],
+      "expect_status": 302
+    },
+    {
+      "do": "http",
+      "label": "HEAD iPhone",
+      "method": "HEAD",
+      "path": "/app",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "POST",
+      "method": "POST",
+      "path": "/app",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "trailing slash is the gated shell",
+      "path": "/app/",
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "label": "latest",
+      "path": "/app/latest.json",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "latest with a query",
+      "path": "/app/latest.json?x=1",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "latest HEAD",
+      "method": "HEAD",
+      "path": "/app/latest.json",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "latest POST",
+      "method": "POST",
+      "path": "/app/latest.json",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "latest PUT",
+      "method": "PUT",
+      "path": "/app/latest.json",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "connect page",
+      "path": "/connect",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "connect HEAD",
+      "method": "HEAD",
+      "path": "/connect",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "connect with a query",
+      "path": "/connect?code=123456",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "connect POST",
+      "method": "POST",
+      "path": "/connect",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "connect trailing slash is the gated shell",
+      "path": "/connect/",
+      "expect_status": 401
+    }
+  ]
+}

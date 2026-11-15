@@ -1,0 +1,623 @@
+{
+  "id": "static_conditional_requests",
+  "description": "conditional GET and HEAD with every ETag form: identity, br and gzip carry their own validators; a 304 has no body or length and keeps cookies and security headers; device manifests validate per device",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"11111111-2222-4333-8444-555555555555\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"3490f80401886d12f3861ec190f5c16419b26345497a92bc4530e22f5d8b4295\",\n        \"name\": \"Phone\",\n        \"platform\": \"ios\",\n        \"browser\": \"safari\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  },\n  \"66666666-7777-4888-8999-aaaaaaaaaaaa\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {}\n  }\n}"
+    },
+    "renderer": {
+      "index.html": "<p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p><p>asset content</p>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "self.addEventListener(\"fetch\", () => {});\n",
+      "index.html.gz": {
+        "base64": "Z3otc2libGluZy1vZi1pbmRleA=="
+      },
+      "index.html.br": {
+        "base64": "YnItc2libGluZy1vZi1pbmRleA=="
+      }
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "first identity",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ]
+      ],
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "etag_identity",
+          "from": "header",
+          "name": "ETag",
+          "regex": "^W/(.*)$"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "label": "first br",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ]
+      ],
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "etag_br",
+          "from": "header",
+          "name": "ETag",
+          "regex": "^W/(.*)$"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "label": "first gzip",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ]
+      ],
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "etag_gzip",
+          "from": "header",
+          "name": "ETag",
+          "regex": "^W/(.*)$"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "label": "GET identity: strong form in a list",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_identity}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "GET identity: weak form",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_identity}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD identity: strong form in a list",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_identity}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD identity: weak form",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_identity}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "GET br: strong form in a list",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_br}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "GET br: weak form",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_br}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD br: strong form in a list",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_br}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD br: weak form",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_br}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "GET gzip: strong form in a list",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_gzip}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "GET gzip: weak form",
+      "method": "GET",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_gzip}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD gzip: strong form in a list",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ],
+        [
+          "If-None-Match",
+          "\"unrelated\", ${etag_gzip}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "HEAD gzip: weak form",
+      "method": "HEAD",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "gzip"
+        ],
+        [
+          "If-None-Match",
+          "W/${etag_gzip}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "wildcard",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "If-None-Match",
+          "*"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "wildcard in a list",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "If-None-Match",
+          "\"x\", *"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "list with spaces and a weak entry",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "  \"a\" ,  W/${etag_br}  "
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "the br validator against an identity request",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "${etag_br}"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "the identity validator against a br request",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "${etag_identity}"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "the gzip validator against a br request",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "${etag_gzip}"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "an unrelated validator",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "If-None-Match",
+          "\"nothing\""
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "an empty validator",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "If-None-Match",
+          ""
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "a validator without quotes",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "Accept-Encoding",
+          "identity"
+        ],
+        [
+          "If-None-Match",
+          "abc"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "a 304 keeps the pairing cookie and the security headers",
+      "path": "/index.html?token=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "headers": [
+        [
+          "Accept-Encoding",
+          "gzip"
+        ],
+        [
+          "If-None-Match",
+          "${etag_gzip}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "a 304 keeps the device cookie",
+      "path": "/index.html",
+      "headers": [
+        [
+          "Cookie",
+          "mixdog_device=11111111-2222-4333-8444-555555555555"
+        ],
+        [
+          "Accept-Encoding",
+          "br"
+        ],
+        [
+          "If-None-Match",
+          "${etag_br}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "device manifest",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "etag_manifest",
+          "from": "header",
+          "name": "ETag",
+          "regex": "^W/(.*)$"
+        }
+      ]
+    },
+    {
+      "do": "http",
+      "label": "device manifest, validator matches",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "headers": [
+        [
+          "If-None-Match",
+          "${etag_manifest}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "device manifest HEAD, validator matches",
+      "method": "HEAD",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "headers": [
+        [
+          "If-None-Match",
+          "W/${etag_manifest}"
+        ]
+      ],
+      "expect_status": 304
+    },
+    {
+      "do": "http",
+      "label": "device manifest HEAD",
+      "method": "HEAD",
+      "path": "/d/11111111-2222-4333-8444-555555555555/manifest.webmanifest",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "another device manifest, first validator",
+      "path": "/d/66666666-7777-4888-8999-aaaaaaaaaaaa/manifest.webmanifest",
+      "headers": [
+        [
+          "If-None-Match",
+          "${etag_manifest}"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "root manifest, first validator",
+      "path": "/manifest.webmanifest",
+      "headers": [
+        [
+          "If-None-Match",
+          "${etag_manifest}"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "root manifest",
+      "path": "/manifest.webmanifest",
+      "expect_status": 200
+    }
+  ]
+}

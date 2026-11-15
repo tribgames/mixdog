@@ -1,0 +1,53 @@
+{
+  "id": "readyz_not_ready_missing_worker_import",
+  "description": "a worker import that is missing is not ready",
+  "files": {
+    "renderer": {
+      "index.html": "<!doctype html><meta name=\"mixdog-shell-version\" content=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"><meta name=\"mixdog-shell-assets\" content=\"boot.js,manifest.webmanifest,sw.js\"><link rel=\"manifest\" href=\"manifest.webmanifest\"><script src=\"boot.js\"></script>",
+      "boot.js": "window.mixdogBoot = true;\n",
+      "manifest.webmanifest": "{\"id\":\"/\",\"name\":\"Mixdog\",\"start_url\":\"/\",\"scope\":\"/\",\"share_target\":{\"action\":\"/share-target\",\"method\":\"POST\"},\"icons\":[]}",
+      "sw.js": "importScripts(\"gone.js\");"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "GET /readyz",
+      "path": "/readyz",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "HEAD /readyz",
+      "method": "HEAD",
+      "path": "/readyz",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "with a query",
+      "path": "/readyz?probe=1",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "POST /readyz",
+      "method": "POST",
+      "path": "/readyz",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "trailing slash is the gated shell",
+      "path": "/readyz/",
+      "expect_status": 401
+    },
+    {
+      "do": "http",
+      "label": "health",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}
