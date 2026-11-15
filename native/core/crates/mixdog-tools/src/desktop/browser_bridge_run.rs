@@ -104,8 +104,8 @@ const RUNTIME_FIELDS: [&str; 7] = ["session_id", "turn_id", "internalStep", "una
 
 const BAD_CLEANUP_CONTEXT: &str = "Invalid browser task cleanup context.";
 const COMMAND_CANCELLED: &str = "browser command cancelled";
-const PAYMENT_IN_RUN: &str = "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
-const NO_RUN_OWNER: &str = "Browser Use step refused: the run's owning bot could not be established; nothing was dispatched";
+pub(super) const PAYMENT_IN_RUN: &str = "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
+pub(super) const NO_RUN_OWNER: &str = "Browser Use step refused: the run's owning bot could not be established; nothing was dispatched";
 
 /// [`ApprovalPort`] for the steps a bridge command raises, in front of the core's one approval path: what only a bridge command
 /// carries is decided here (the unattended run's rule and the session's allowance by the life mark the runtime sent), everything
