@@ -371,7 +371,8 @@ mod tests {
     #[test]
     fn times_parse_from_numbers_and_dates() {
         assert_eq!(time_ms(Some(&serde_json::json!(5))), 5.0);
-        assert_eq!(time_ms(Some(&serde_json::json!(-5))), 0.0);
+        // Node reads the string "-5" through V8's legacy date parser: 1 May 2001, local midnight, so the value follows the zone.
+        assert_eq!(time_ms(Some(&serde_json::json!(-5))), date_parse("2001-05-01T00:00:00"));
         assert_eq!(time_ms(Some(&serde_json::json!("1970-01-01T00:00:01.000Z"))), 1000.0);
         assert_eq!(time_ms(Some(&serde_json::json!("junk"))), 0.0);
         assert_eq!(time_ms(None), 0.0);

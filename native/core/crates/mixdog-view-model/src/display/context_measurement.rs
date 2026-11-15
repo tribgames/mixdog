@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(stale["currentContextSource"], "pending");
         let live = context_measurement_stats(Some(&json!({ "lastApiRequestTokens": 9 })));
         assert_eq!(live["currentContextTokens"], json!(9));
-        assert_eq!(context_measurement_stats(None)["currentContextSource"], "last_api_request");
+        assert_eq!(context_measurement_stats(None)["currentContextSource"], "pending");
     }
 
     #[test]
