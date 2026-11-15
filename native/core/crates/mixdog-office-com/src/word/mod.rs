@@ -26,6 +26,7 @@ use crate::com::Value as Com;
 use crate::com::errtext;
 use crate::format::FormatReader;
 use crate::office::Env;
+use crate::office::item_of as item;
 use crate::ps::Value;
 use crate::ps::convert;
 use crate::ps::datetime;
@@ -127,11 +128,6 @@ fn indexed(value: &Com, name: &str, args: &[Com]) -> Result<Com> {
         Some(object) => object.get_with(name, args),
         None => Err(errtext::null_method_call()),
     }
-}
-
-/// `$collection.Item($index)`.
-fn item(collection: &Com, index: i32) -> Result<Com> {
-    indexed(collection, "Item", &[Com::I4(index)])
 }
 
 /// `[int]$collection.Count`.
