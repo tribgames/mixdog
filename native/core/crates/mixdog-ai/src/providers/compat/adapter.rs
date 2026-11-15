@@ -10,7 +10,6 @@ use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
 use crate::providers::idle::IdleWatch;
 use crate::providers::idle::Stalled;
-use crate::providers::idle::progressed;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -454,8 +453,8 @@ struct CompatStream {
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
-    /// The semantic idle window (`nextAsyncWithWatchdog`): armed by the first chunk, started again by every chunk that
-    /// decoded progress; a keepalive does not.
+    /// The semantic idle window (`nextAsyncWithWatchdog`, `semanticIdleDeadlineAt`): started by the first output and again
+    /// by each later progress; a keepalive does not ([`IdleWatch::note`]).
     idle: IdleWatch,
 }
 
@@ -503,9 +502,7 @@ impl ModelStream for CompatStream {
             match read {
                 Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
                     Ok(events) => {
-                        if self.idle.unarmed() || progressed(&events) {
-                            self.idle.rearm();
-                        }
+                        self.idle.note(&events);
                         self.queue.extend(events);
                     }
                     Err(err) => {

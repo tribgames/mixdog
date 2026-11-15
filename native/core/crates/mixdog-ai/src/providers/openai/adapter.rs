@@ -15,7 +15,6 @@
 
 use crate::providers::idle::IdleWatch;
 use crate::providers::idle::Stalled;
-use crate::providers::idle::progressed;
 use crate::transport::deadlines::openai_http_response;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -483,7 +482,7 @@ impl OpenAiAdapter {
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());
-            let idle = IdleWatch::new(self.http_idle_ms, "OpenAI HTTP fallback");
+            let idle = IdleWatch::new(self.http_idle_ms, codec.http_label());
             return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request)).with_idle(idle)));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
@@ -528,7 +527,12 @@ impl OpenAiAdapter {
                 }
             };
             let (socket, upgrade) = match dialed {
-                Ok(connected) => connected,
+                Ok((socket, upgrade)) => {
+                    // The ping schedule `MIXDOG_PROVIDER_WS_PING_INTERVAL_MS` and `MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS`
+                    // tune replaces the dialer's before the first frame; a link that cannot take it keeps the dialer's.
+                    let _ = socket.link().arm(&self.keepalive);
+                    (socket, upgrade)
+                }
                 Err(ConnectError::Transport(fault)) => {
                     let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
                     // `ws` reports a connection reset during the upgrade as the request's own error.
@@ -586,7 +590,7 @@ impl OpenAiAdapter {
                 error
             })?;
         let owner = checkout.owner;
-        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(IdleWatch::new(self.ws_idle_ms, "OpenAI OAuth WS"));
+        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(IdleWatch::new(self.ws_idle_ms, "Responses WS"));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
         // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
@@ -1111,9 +1115,7 @@ impl ModelStream for ResponsesStream {
                     self.note_frame(&unit);
                     match self.decoder.feed(&unit) {
                         Ok(events) => {
-                            if progressed(&events) {
-                                self.idle.rearm();
-                            }
+                            self.idle.note(&events);
                             self.push(events);
                         }
                         Err(err) => {
