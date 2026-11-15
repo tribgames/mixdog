@@ -150,6 +150,11 @@ impl EmbeddingProvider {
         info_of(model, self.config.dtype.as_deref(), dims, self.is_ready())
     }
 
+    /// An install is running or waiting for its turn.
+    pub fn is_installing(&self) -> bool {
+        self.installing.is_busy()
+    }
+
     /// `getEmbeddingInfo()` on a host with no ONNX runtime to build a provider over: Node answers the same metadata there
     /// (nothing loaded, `supported` true wherever onnxruntime ships a binding), where the provider does not exist.
     pub fn info_unbuilt(model_id: &str, dtype: Option<&str>) -> Value {
@@ -257,7 +262,8 @@ impl EmbeddingProvider {
     /// arrive. A model that is already loaded keeps its files. Needs no timer:
     /// bytes arriving drive it, and `cancel` ends it.
     pub async fn install(&self, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
-        self.installing
+        let outcome = self
+            .installing
             .run(cancel, async {
                 if self.is_ready() {
                     return Ok(());
@@ -268,7 +274,10 @@ impl EmbeddingProvider {
                 outcome
             })
             .await
-            .map_err(|_| InstallError::Cancelled)?
+            .map_err(|_| InstallError::Cancelled);
+        // The gate is free now: a watcher woken by this tick reads `is_installing` as false (the tick inside the run is bumped while it is held).
+        self.tick.bump();
+        outcome?
     }
 
     /// The change tick this provider bumps.
@@ -373,5 +382,24 @@ mod idle_tests {
         assert!(never.warmup().await.is_err());
         mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         assert!(never.current().get().is_some());
+    }
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    /// A watcher woken by the last tick of an install reads it as over: that tick comes after the gate is free
+    /// (the two ticks around the download are bumped while it is held).
+    #[tokio::test]
+    async fn an_install_ends_with_a_tick_after_the_gate_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = EmbeddingProvider::installed_with_load(dir.path(), || Box::pin(async { Err("no model".to_owned()) }));
+        let mut ticks = provider.tick().subscribe();
+        let before = *ticks.borrow_and_update();
+        assert!(!provider.is_installing());
+        provider.install(None, &CancellationToken::new()).await.unwrap();
+        assert!(!provider.is_installing());
+        assert_eq!(*ticks.borrow_and_update(), before + 3, "a tick before and after the download, and one once the gate is free");
     }
 }

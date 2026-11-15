@@ -1800,11 +1800,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
     // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
     // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
+    // The first start downloads the database runtime and the embedding model: each is a desktop notice while it runs, so the app says so instead of looking hung (Node reported no progress here; the nothing-lost finding mem.pg-progress asks for it).
+    let start_notices = MemoryStartNotices::new(desktop_notices.clone());
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
         let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
+        let notices = start_notices.clone();
         let production: mixdog_services::memory::boot::PgInstall = Arc::new(move |cancel| {
-            let (data_dir, release_repositories, now) = (data_dir.clone(), release_repositories.clone(), now.clone());
+            let (data_dir, release_repositories, now, notices) = (data_dir.clone(), release_repositories.clone(), now.clone(), notices.clone());
             Box::pin(async move {
                 let options = pg::InstallOptions {
                     data_dir,
@@ -1814,9 +1817,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     durability,
                     bulk,
                     now,
-                    progress: None,
+                    progress: Some(notices.sink(MemoryStartNotices::DATABASE)),
                 };
-                pg::ensure_runtime(&options, &cancel).await.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
+                let installed = pg::ensure_runtime(&options, &cancel).await;
+                notices.clear(MemoryStartNotices::DATABASE);
+                installed.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
             })
         });
         #[cfg(test)]
@@ -1849,13 +1854,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         session_lanes(),
     ));
     let late_cycle_llm = Arc::new(crate::late_session::LateCycleLlm::default()); // bound after `TurnPath::new` (the memory stack is an input of it)
+    if let Some(provider) = b.models.embeddings.clone() {
+        start_notices.follow_embedding_install(provider, b.acquired.token());
+    }
     let memory = mixdog_services::memory::boot::MemoryStack::start(mixdog_services::memory::boot::MemoryBoot {
         data_dir: b.data_dir.clone(),
         pg_runtime,
         embedder: b.models.embeddings.clone(),
         embedding_provider: config.full().get("embedding").and_then(|e| e.get("provider")).and_then(serde_json::Value::as_str).map(str::to_owned),
         flags: mixdog_services::memory::runtime::RuntimeFlags::from_env(&*b.env),
-        progress: None,
+        progress: Some(start_notices.sink(MemoryStartNotices::EMBEDDING)),
         sensitive: sensitive.clone(),
         lane: b.tokens.durability_io,
         maintenance: b.tokens.maintenance_io,
@@ -3909,6 +3917,60 @@ impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
     }
 }
 
+/// The first-start downloads of the memory runtime as desktop notices (key `memory-runtime:<stage>`, code `memory-runtime-preparing`, param `stage`):
+/// raised by the first bytes of a download and removed when it ends, so the desktop shows "setting up" once per download and the first start does not look hung.
+struct MemoryStartNotices {
+    notices: Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>,
+}
+
+impl MemoryStartNotices {
+    const DATABASE: &'static str = "database";
+    const EMBEDDING: &'static str = "embedding";
+
+    fn new(notices: Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>) -> Arc<Self> {
+        Arc::new(Self { notices })
+    }
+
+    fn key(stage: &str) -> String {
+        format!("memory-runtime:{stage}")
+    }
+
+    fn raise(&self, stage: &'static str) {
+        self.notices.raise(&Self::key(stage), "memory-runtime-preparing", &[("stage", stage)]);
+    }
+
+    fn clear(&self, stage: &'static str) {
+        self.notices.clear(&Self::key(stage));
+    }
+
+    /// The sink of a download of `stage`: its bytes raise the notice.
+    fn sink(self: &Arc<Self>, stage: &'static str) -> mixdog_services::model_install::ProgressSink {
+        let notices = self.clone();
+        Arc::new(move |_progress| notices.raise(stage))
+    }
+
+    /// The embedding model's install ends (done, failed or cancelled) when its provider ticks with no install running: the notice goes then.
+    fn follow_embedding_install(self: &Arc<Self>, provider: Arc<mixdog_services::memory::embed::provider::EmbeddingProvider>, cancel: tokio_util::sync::CancellationToken) {
+        let notices = self.clone();
+        let mut ticks = provider.tick().subscribe();
+        drop(mixdog_rt::spawn("memory-embedding-install-notice", mixdog_rt::TaskClass::Work, async move {
+            loop {
+                tokio::select! {
+                    () = cancel.cancelled() => return,
+                    changed = ticks.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                        if !provider.is_installing() {
+                            notices.clear(Self::EMBEDDING);
+                        }
+                    }
+                }
+            }
+        }));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3939,6 +4001,28 @@ mod tests {
             })
             .collect();
         assert_eq!(serde_json::Value::Array(delivered), step["delivered"]);
+    }
+
+    /// The first start's downloads are a notice while they run and no notice after: a progress report raises it once, the end removes it.
+    #[test]
+    fn a_first_start_download_is_a_notice_until_it_ends() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = MemoryStartNotices::new(mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(publisher.clone()));
+        let sink = notices.sink(MemoryStartNotices::DATABASE);
+        for downloaded in [1, 2, 3] {
+            sink(mixdog_services::model_install::Progress { label: "postgres".to_owned(), downloaded, total: 3 });
+        }
+        notices.clear(MemoryStartNotices::DATABASE);
+        notices.clear(MemoryStartNotices::DATABASE);
+        let published = publisher.published();
+        assert_eq!(published.len(), 2, "one raise for three reports, one removal for two clears");
+        let (section, key, change) = &published[0];
+        assert!(matches!(section, SectionName::Notice));
+        assert_eq!(key.as_deref(), Some("memory-runtime:database"));
+        let SectionChange::Set(bytes) = change else { panic!("a raise sets the entry") };
+        let notice: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        assert_eq!(notice, serde_json::json!({ "key": "memory-runtime:database", "code": "memory-runtime-preparing", "params": { "stage": "database" } }));
+        assert!(matches!(published[1].2, SectionChange::Removed));
     }
 }
 
