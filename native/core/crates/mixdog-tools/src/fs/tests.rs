@@ -226,6 +226,12 @@ async fn a_replayed_call_that_never_ends_fails_naming_it() {
 }
 
 async fn replay_fs_search(scenario: &str) {
+    replay_fs_search_slice(scenario, None).await;
+}
+
+/// `slice` of `Some((k, n))` replays the calls whose index is `k` modulo `n` (the calls of a scenario that keeps no state
+/// from one call to the next); every call lies in exactly one slice.
+async fn replay_fs_search_slice(scenario: &str, slice: Option<(usize, usize)>) {
     let fixture: JsonValue = serde_json::from_str(
         &std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/tools-fs-search/{scenario}.json")),
@@ -368,8 +374,13 @@ async fn replay_fs_search(scenario: &str) {
     // the grace has passed, and it stays given up, its volume's, until the replay's end.
     let stuck = fixture["stalled"]["timeouts"].as_array().map_or(0, Vec::len);
     let mut failures = Vec::new();
+    let mut replayed = 0;
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
         use mixdog_workspace::localfs::deadline_script::Script;
+        if slice.is_some_and(|(k, n)| index % n != k) {
+            continue;
+        }
+        replayed += 1;
         let tool = call["tool"].as_str().unwrap();
         // The stand-in's script: a deadline after so many files, a server that never answers, a full queue; an empty one
         // leaves the real server to answer.
@@ -438,6 +449,9 @@ async fn replay_fs_search(scenario: &str) {
     }
     // The held reads end.
     mixdog_workspace::localfs::deadline_script::unstick(&ws);
+    let expected = (0..fixture["calls"].as_array().unwrap().len()).filter(|index| slice.is_none_or(|(k, n)| index % n == k)).count();
+    assert_eq!(replayed, expected, "executed search calls");
+    println!("{scenario}: {replayed} calls replayed");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -758,9 +772,37 @@ async fn grep_over_several_paths_budgets_and_caps_as_node_does() {
 /// selection and its continuation, the bounded anchor stream, long lines, several patterns, binary and invalid UTF-8
 /// files, files and count over five paths past the final cap, matches on a file's first and last line, offsets past
 /// the end.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn grep_renders_as_node_does() {
-    replay_fs_search("grep-render").await;
+const GREP_RENDER_SLICES: usize = 8;
+
+macro_rules! grep_render_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_GREP_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn $name() {
+            replay_fs_search_slice("grep-render", Some(($slice, GREP_RENDER_SLICES))).await;
+        })*
+    };
+}
+
+grep_render_slices! {
+    grep_renders_as_node_does_slice_0 => 0,
+    grep_renders_as_node_does_slice_1 => 1,
+    grep_renders_as_node_does_slice_2 => 2,
+    grep_renders_as_node_does_slice_3 => 3,
+    grep_renders_as_node_does_slice_4 => 4,
+    grep_renders_as_node_does_slice_5 => 5,
+    grep_renders_as_node_does_slice_6 => 6,
+    grep_renders_as_node_does_slice_7 => 7,
+}
+
+#[test]
+fn the_grep_render_slices_replay_every_recorded_call_exactly_once() {
+    let fixture: JsonValue = serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools-fs-search/grep-render.json")).unwrap()).unwrap();
+    let total = fixture["calls"].as_array().unwrap().len();
+    assert_eq!(REGISTERED_GREP_SLICES, &(0..GREP_RENDER_SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_GREP_SLICES.iter().map(|slice| (0..total).filter(|index| index % GREP_RENDER_SLICES == *slice).count()).sum();
+    println!("{total} calls in {GREP_RENDER_SLICES} slices");
+    assert_eq!(covered, total);
 }
 
 /// A search that reaches its deadline, the deadline an input as it was in the recording: the soft one passing after a
@@ -1334,17 +1376,23 @@ fn snapshot(dir: &Path, base: &Path, out: &mut Tree) {
 
 /// Cases recorded from Node over the files each one starts with (`golden/record.mjs`): the reply
 /// text, the error flag and the resulting tree must all match.
-#[tokio::test]
-async fn edit_and_apply_patch_match_recorded_node_cases() {
+const EDIT_PATCH_SLICES: usize = 6;
+
+async fn edit_and_apply_patch_slice(slice: usize) {
     let cases: Vec<JsonValue> = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/cases.json")).unwrap();
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EditTool::new()), Box::new(ApplyPatchTool::new())];
     let mut failures = Vec::new();
-    for case in &cases {
+    let (mut executed, mut platform_skipped) = (0, 0);
+    for (position, case) in cases.iter().enumerate() {
+        if position % EDIT_PATCH_SLICES != slice {
+            continue;
+        }
         // The delete-of-a-missing-file case quotes the recording machine's OS message and its
         // Windows verbatim path.
         let os_message = std::io::Error::from_raw_os_error(2).to_string();
         let want = case["text"].as_str().unwrap().replace("지정된 파일을 찾을 수 없습니다. (os error 2)", &os_message);
         if !cfg!(windows) && want.contains("\\\\?\\") {
+            platform_skipped += 1;
             continue;
         }
         let want = want.as_str();
@@ -1371,8 +1419,10 @@ async fn edit_and_apply_patch_match_recorded_node_cases() {
         };
         #[cfg(not(windows))]
         if case.get("hold").is_some() {
+            platform_skipped += 1;
             continue;
         }
+        executed += 1;
         let tool_name = case["tool"].as_str().unwrap();
         let tool = tools.iter().find(|t| t.spec().name == tool_name).unwrap();
         let root_text = root.as_path().to_string_lossy().replace('\\', "/");
@@ -1406,7 +1456,40 @@ async fn edit_and_apply_patch_match_recorded_node_cases() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{} of {} cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+    assert!(REGISTERED_EDIT_SLICES.contains(&slice));
+    let selected = (0..cases.len()).filter(|position| position % EDIT_PATCH_SLICES == slice).count();
+    assert_eq!(executed + platform_skipped, selected, "each selected edit case executed or retained its original OS exclusion");
+    println!("slice {slice}: {executed} edit cases executed, {platform_skipped} original platform exclusions");
+    assert!(failures.is_empty(), "{} of {} cases (slice {slice}) differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+macro_rules! edit_patch_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_EDIT_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test]
+        async fn $name() {
+            edit_and_apply_patch_slice($slice).await;
+        })*
+    };
+}
+
+edit_patch_slices! {
+    edit_and_apply_patch_match_recorded_node_cases_slice_0 => 0,
+    edit_and_apply_patch_match_recorded_node_cases_slice_1 => 1,
+    edit_and_apply_patch_match_recorded_node_cases_slice_2 => 2,
+    edit_and_apply_patch_match_recorded_node_cases_slice_3 => 3,
+    edit_and_apply_patch_match_recorded_node_cases_slice_4 => 4,
+    edit_and_apply_patch_match_recorded_node_cases_slice_5 => 5,
+}
+
+#[test]
+fn the_edit_and_apply_patch_slices_cover_every_recorded_case_exactly_once() {
+    let cases: Vec<JsonValue> = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/cases.json")).unwrap();
+    let total = cases.len();
+    assert_eq!(REGISTERED_EDIT_SLICES, &(0..EDIT_PATCH_SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_EDIT_SLICES.iter().map(|slice| (0..total).filter(|position| position % EDIT_PATCH_SLICES == *slice).count()).sum();
+    println!("{total} cases in {EDIT_PATCH_SLICES} slices");
+    assert_eq!(covered, total);
 }
 
 /// Two routes to one file (a symlinked directory and its referent) share a lock: an edit through

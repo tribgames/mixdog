@@ -161,10 +161,17 @@ fn a_probe_and_a_decode_fail_where_sharp_fails_with_its_libheif_sentence() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-#[test]
-fn a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does() {
+const SLICES: usize = 8;
+
+/// Compares the rows whose index is `slice` modulo `SLICES`; every row lies in exactly one slice.
+fn compare_slice(slice: usize) {
     let mut failures = Vec::new();
-    for row in rows() {
+    let mut compared = 0;
+    for (index, row) in rows().into_iter().enumerate() {
+        if index % SLICES != slice {
+            continue;
+        }
+        compared += 1;
         let name = name_of(&row);
         let bytes = bytes_of(&row);
         let recorded = &row["resize"];
@@ -207,7 +214,39 @@ fn a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does() {
             (want, got) => failures.push(format!("{name}: sharp's answer {} against {got:?}", want.map_or("an error", |_| "ok"))),
         }
     }
+    assert!(REGISTERED_SLICES.contains(&slice));
+    assert_eq!(compared, (0..rows().len()).filter(|index| index % SLICES == slice).count(), "executed AVIF rows of slice {slice}");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+macro_rules! avif_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SLICES: &[usize] = &[$($slice),*];
+        $(#[test]
+        fn $name() {
+            compare_slice($slice);
+        })*
+    };
+}
+
+avif_slices! {
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_0 => 0,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_1 => 1,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_2 => 2,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_3 => 3,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_4 => 4,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_5 => 5,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_6 => 6,
+    a_resized_avif_is_an_avif_labelled_heif_that_reads_back_as_sharps_does_slice_7 => 7,
+}
+
+#[test]
+fn the_slices_cover_every_resized_avif_row_exactly_once() {
+    let total = rows().len();
+    assert_eq!(REGISTERED_SLICES, &(0..SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SLICES.iter().map(|slice| (0..total).filter(|index| index % SLICES == *slice).count()).sum();
+    println!("{total} rows in {SLICES} slices");
+    assert_eq!(covered, total);
 }
 
 #[test]

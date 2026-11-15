@@ -32,6 +32,24 @@ fn strings(value: &Value) -> Vec<String> {
     value.as_array().expect("a list").iter().map(|item| item.as_str().expect("a string").to_owned()).collect()
 }
 
+/// Calls `make(n)` for every `n` below `count`, the numbers split among as many threads as the machine has (tens of thousands
+/// of files and folders are made, each its own file system call).
+fn in_parallel(count: u64, make: impl Fn(u64) + Sync) {
+    let threads = std::thread::available_parallelism().map_or(4, usize::from) as u64;
+    let make = &make;
+    std::thread::scope(|scope| {
+        for thread in 0..threads {
+            scope.spawn(move || {
+                let mut n = thread;
+                while n < count {
+                    make(n);
+                    n += threads;
+                }
+            });
+        }
+    });
+}
+
 fn write_input(root: &Path, input: &Value) {
     mixdog_testkit::create_dir_all(root);
     for dir in input["dirs"].as_array().into_iter().flatten() {
@@ -58,17 +76,13 @@ fn write_input(root: &Path, input: &Value) {
             let dir = root.join(files["dir"].as_str().expect("a folder"));
             mixdog_testkit::create_dir_all(&dir);
             let (name, body) = (files["name"].as_str().expect("a name"), files["body"].as_str().expect("a body"));
-            for n in 0..files["count"].as_u64().expect("a count") {
-                mixdog_testkit::write(dir.join(name.replace("{n}", &n.to_string())), body);
-            }
+            in_parallel(files["count"].as_u64().expect("a count"), |n| mixdog_testkit::write(dir.join(name.replace("{n}", &n.to_string())), body));
         } else {
             let dirs = &generated["dirs"];
             let dir = root.join(dirs["dir"].as_str().expect("a folder"));
             mixdog_testkit::create_dir_all(&dir);
             let name = dirs["name"].as_str().expect("a name");
-            for n in 0..dirs["count"].as_u64().expect("a count") {
-                mixdog_testkit::create_dir(dir.join(name.replace("{n}", &n.to_string())));
-            }
+            in_parallel(dirs["count"].as_u64().expect("a count"), |n| mixdog_testkit::create_dir(dir.join(name.replace("{n}", &n.to_string()))));
         }
     }
 }
@@ -86,10 +100,15 @@ fn clip(text: &str) -> String {
 
 /// Runs `run` for every case of `kind` the filter admits and returns the differences from the recording.
 fn compare(kind: &str, admit: impl Fn(&Value) -> bool, run: impl Fn(&[String], &str) -> Outcome) -> (usize, Vec<String>) {
+    compare_picked(kind, admit, |_| true, run)
+}
+
+/// As `compare`, over the admitted cases whose position among the admitted cases `pick` takes.
+fn compare_picked(kind: &str, admit: impl Fn(&Value) -> bool, pick: impl Fn(usize) -> bool, run: impl Fn(&[String], &str) -> Outcome) -> (usize, Vec<String>) {
     let today = utc_today();
     let mut ran = 0;
     let mut differences = Vec::new();
-    for case in cases(kind).iter().filter(|case| admit(&case["input"])) {
+    for (_, case) in cases(kind).iter().filter(|case| admit(&case["input"])).enumerate().filter(|(position, _)| pick(*position)) {
         let name = case["case"].as_str().expect("a case name");
         let root = tempfile::tempdir().expect("temp dir");
         write_input(root.path(), &case["input"]);
@@ -135,11 +154,27 @@ fn inventory_prints_what_node_prints() {
 }
 
 /// The two bounds that need tens of thousands of files and folders: more than 20000 test files, more than 50000 folders.
-#[test]
-fn inventory_refuses_what_node_refuses_at_its_bounds() {
-    let (ran, differences) = compare("inventory", |input| input.get("gen").is_some(), |args, today| run_inventory(&Unlaned, args, today));
-    assert_eq!(ran, 2);
+fn inventory_bound(position: usize) {
+    let (ran, differences) = compare_picked("inventory", |input| input.get("gen").is_some(), |at| at == position, |args, today| run_inventory(&Unlaned, args, today));
+    assert_eq!(ran, 1);
     assert_twin("inventory bounds", ran, &differences);
+}
+
+#[test]
+fn inventory_refuses_what_node_refuses_at_its_bounds_case_0() {
+    inventory_bound(0);
+}
+
+#[test]
+fn inventory_refuses_what_node_refuses_at_its_bounds_case_1() {
+    inventory_bound(1);
+}
+
+#[test]
+fn the_two_bound_cases_are_all_the_generated_inventory_cases() {
+    let generated = cases("inventory").iter().filter(|case| case["input"].get("gen").is_some()).count();
+    println!("{generated} generated inventory cases");
+    assert_eq!(generated, 2);
 }
 
 fn config_of(name: &str) -> (Vec<OptionSpec>, bool) {

@@ -103,7 +103,8 @@ fn migrated(store: &Map<String, Value>) -> DataDir {
     let data = home.join("data");
     durable::create_dir_all(&data.join("sessions")).unwrap();
     for (path, text) in store {
-        durable::write_synced(&data.join(path), text.as_str().unwrap().as_bytes()).unwrap();
+        // The recorded store is the migration's input: it needs no flush (the flush per file was the dominant cost of a large store).
+        crate::run_host::fixture_fs::write_unsynced(data.join(path), text.as_str().unwrap());
     }
     let roots = MigrationRoots { data, home, profile: None };
     let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: tokio::runtime::Handle::current() };
@@ -216,12 +217,12 @@ fn now(golden: &Exact) -> i64 {
     plain(golden.get("clock").get("dateNow")).as_i64().unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_agents_pool_lists_nodes_recorded_stores() {
+// The replay is split by recorded case (the rounds of case 0 one each) so the cases run in parallel; `every_case_is_replayed`
+// holds the count.
+
+async fn case_0_initial() {
     let golden = golden();
     let now = now(&golden);
-    let none = HashSet::new();
-
     // Case 0: every state of the churned store, listed cold.
     let want = observed(&golden, 0, "an incrementally updated pool lists exactly what a cold read of the same store lists");
     let live = running(want.get("running"));
@@ -230,9 +231,23 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let daemon = Daemon::up(&data, now, &live).await;
     same(&daemon.list().await, want.get("initial").get("listed"), "case 0 initial");
     same(&daemon.list().await, want.get("initial").get("listedAgain"), "case 0 initial again");
+}
+
+/// Round `at` of case 0: the store with every round up to it applied, listed by a fresh daemon.
+async fn case_0_round(at: usize) {
+    let golden = golden();
+    let now = now(&golden);
+    let want = observed(&golden, 0, "an incrementally updated pool lists exactly what a cold read of the same store lists");
+    let live = running(want.get("running"));
+    let mut replayed = 0;
+    let mut store = files(want.get("store"));
     // Round 5 removes `sessions/churn-22.json` and keeps its index row, which Node lists with a null header.
-    for round in want.get("rounds").as_array() {
+    for (position, round) in want.get("rounds").as_array().iter().enumerate() {
         store = changed(&store, &files(round.get("storeChanged")));
+        if position != at {
+            continue;
+        }
+        replayed += 1;
         let data = migrated(&store);
         let daemon = Daemon::up(&data, now, &live).await;
         let label = format!("case 0 round {}", plain(round.get("round")));
@@ -240,7 +255,13 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
             same(&daemon.list().await, round.get(key), &format!("{label} {key}"));
         }
     }
+    assert_eq!(replayed, 1, "requested pool round {at} was exercised");
+}
 
+async fn case_1() {
+    let golden = golden();
+    let now = now(&golden);
+    let none = HashSet::new();
     // Case 1: the record's title rewritten while the pool stays up, and each store state listed cold.
     let want = observed(&golden, 1, "a session rewrite that keeps its size and mtime is still read, settled or not");
     let stores = want.get("storeAtEachList").as_array();
@@ -257,12 +278,17 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
         daemon.patch("stamp-child", json!({ "title": record["title"] })).await;
         same(&daemon.list().await, &lists[index], &format!("case 1 list {index} after the rewrite"));
     }
+}
 
+async fn case_2_or_3(which: usize) {
+    let golden = golden();
+    let now = now(&golden);
+    let none = HashSet::new();
     // Cases 2 and 3: one store listed twice by the same pool.
     for (index, name, keys) in [
         (2, "a settled, unchanged header is served from the cache, however many there are", ["first", "second"]),
         (3, "the awaited listing touches the store only through async I/O, and its caches serve the next one", ["listed", "sync"]),
-    ] {
+    ].into_iter().filter(|(index, ..)| *index == which) {
         let want = observed(&golden, index, name);
         let data = migrated(&files(want.get("store")));
         let daemon = Daemon::up(&data, now, &none).await;
@@ -270,7 +296,12 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
             same(&daemon.list().await, want.get(key), &format!("case {index} {key}"));
         }
     }
+}
 
+async fn case_4() {
+    let golden = golden();
+    let now = now(&golden);
+    let none = HashSet::new();
     // Case 4: the worker index row's title rewritten while the pool stays up, and each store state listed cold.
     let want = observed(&golden, 4, "a worker index rewrite that keeps its size and mtime is still read");
     let stores = want.get("storeAtEachList").as_array();
@@ -286,7 +317,11 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     worker.insert("title".into(), index["workers"][0]["title"].clone());
     daemon.patch("same-size", json!({ "worker": worker })).await;
     same(&daemon.list().await, want.get("afterRewrite"), "case 4 after the rewrite");
+}
 
+async fn case_5() {
+    let golden = golden();
+    let now = now(&golden);
     // Case 5: restarts over one data dir, and the store changed while the daemon was down.
     let want = observed(&golden, 5, "the persisted header cache across daemon restarts");
     let live = running(want.get("running"));
@@ -316,7 +351,11 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     for key in ["restartedRows", "nextRestartRows"] {
         same(&Daemon::up(&data, now, &live).await.list().await, down.get(key), &format!("case 5 changed while down, {key}"));
     }
+}
 
+async fn case_6() {
+    let golden = golden();
+    let now = now(&golden);
     // Case 6: two data dirs, each listed by its own daemon.
     let want = observed(&golden, 6, "switching data directories before a scheduled persist still persists the new directory");
     let live = running(want.get("running"));
@@ -326,7 +365,11 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let second = Daemon::up(&dirs[1], now, &live).await;
     same(&second.list().await, &listings[1], "case 6 second dir");
     same(&second.list().await, &listings[2], "case 6 second dir again");
+}
 
+async fn case_7() {
+    let golden = golden();
+    let now = now(&golden);
     // Case 7: a large index (1800 rows, 351 sessions), listed by a fresh pool and twice by another. Its rows without a session
     // record are settled long ago and Node lists none of them, nor does the core.
     let want = observed(&golden, 7, "listing a large index costs a bounded number of fs calls, whatever its row count");
@@ -336,6 +379,85 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let daemon = Daemon::up(&data, now, &live).await;
     same(&daemon.list().await, want.get("cold"), "case 7 cold");
     same(&daemon.list().await, want.get("warm"), "case 7 warm");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_initial() {
+    case_0_initial().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_0() {
+    case_0_round(0).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_1() {
+    case_0_round(1).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_2() {
+    case_0_round(2).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_3() {
+    case_0_round(3).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_4() {
+    case_0_round(4).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_0_round_5() {
+    case_0_round(5).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_1() {
+    case_1().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_2() {
+    case_2_or_3(2).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_3() {
+    case_2_or_3(3).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_4() {
+    case_4().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_5() {
+    case_5().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_6() {
+    case_6().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agents_pool_lists_nodes_recorded_stores_case_7() {
+    case_7().await;
+}
+
+#[test]
+fn every_case_is_replayed() {
+    let golden = golden();
+    let cases = golden.get("cases").as_array().len();
+    let rounds = observed(&golden, 0, "an incrementally updated pool lists exactly what a cold read of the same store lists").get("rounds").as_array().len();
+    println!("{cases} recorded cases, {rounds} rounds of case 0");
+    assert_eq!((cases, rounds), (8, 6));
 }
 
 /// A listing reads the workers' stored records: it loads none of their sessions (a profile holds hundreds of them, and a
