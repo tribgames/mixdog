@@ -10,7 +10,6 @@ use mixdog_fsio::{ReadProof, WriteLane};
 use mixdog_js::{js_to_lowercase, json_number, json_stringify, locale_compare, to_number_of, value_to_string};
 use mixdog_office_base::values::{sha256, truthy};
 use mixdog_ooxml::xml::{compiled, xml_decode};
-use mixdog_ooxml::zipio::Package;
 use mixdog_rt::InLane;
 use serde_json::{Map, Value, json};
 
@@ -136,7 +135,7 @@ pub fn inspect_office_template<P: ReadProof>(proof: &P, path: &str, format: &str
         return Ok(json!({ "sampleSlides": [], "nativeLayouts": [], "theme": null }));
     }
     let bytes = mixdog_fsio::read(proof, path).map_err(|error| fs_message(&error, "open", Path::new(path)))?;
-    let zip = Package::load_unchecked(&bytes)?;
+    let zip = super::load_zip(&bytes)?;
     let names = zip.names();
     let entries = pptx_slide_entries(&zip);
     let mut sample_slides: Vec<Value> = entries.iter().map(|entry| pptx_sample_slide(entry.slide, entry.part, &zip.text(&entry.name))).collect();

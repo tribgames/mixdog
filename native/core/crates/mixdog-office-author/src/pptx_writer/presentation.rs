@@ -7,11 +7,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_ooxml::zipio::Package;
 
+use super::charts::{ChartData, ChartKind, ChartOptions};
 use super::slide::{Slide, SlideNumber};
 use super::theme::{
     LAYOUT_RELS, MASTER_RELS, NOTES_MASTER, NOTES_MASTER_RELS, PRES_PROPS, ROOT_RELS, TABLE_STYLES, ThemeFonts, VIEW_PROPS, layout_xml, master_xml, notes_slide_rels_xml, theme_xml,
 };
 use super::{CRLF, EMU, Layout, encode_xml_entities, round};
+
+/// The chart parts counted so far in this process, as the library counts them.
+static CHART_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// The folders `exportPresentation` creates first, in its order.
 const FOLDERS: [&str; 19] = [
@@ -141,6 +145,19 @@ impl Presentation {
         self.theme = theme;
     }
 
+    /// What `addChart` leaves behind when it throws while reading its data: the library has counted the chart already, so the next one is numbered after it.
+    pub fn count_failed_chart(&mut self) {
+        CHART_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// `slide.addChart(type, data, options)` on the slide at `index`.
+    pub fn add_chart(&mut self, index: usize, kind: ChartKind, data: Vec<ChartData>, options: ChartOptions) -> Result<(), String> {
+        // pptxgenjs keeps `_chartCounter` at module level: chart part numbers keep rising across the decks of one process.
+        let id = CHART_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        let slide = self.slides.get_mut(index).ok_or_else(|| format!("no slide {index}"))?;
+        slide.add_chart(kind, data, options, id)
+    }
+
     /// `pres.addSlide()`: a new last slide on the current sheet.
     pub fn add_slide(&mut self) -> &mut Slide {
         self.slides.push(Slide::new(self.slides.len() + 1, self.layout.clone()));
@@ -192,9 +209,13 @@ impl Presentation {
         xml.push_str("<Default Extension=\"xlsx\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\"/>");
         xml.push_str("<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>");
         xml.push_str("<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>");
-        for index in 1..=self.slides.len() {
+        for (at, slide) in self.slides.iter().enumerate() {
+            let index = at + 1;
             xml.push_str(&format!("<Override PartName=\"/ppt/slideMasters/slideMaster{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>"));
             xml.push_str(&format!("<Override PartName=\"/ppt/slides/slide{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>"));
+            for chart in slide.charts() {
+                xml.push_str(&format!("<Override PartName=\"{}\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", chart.target()));
+            }
         }
         xml.push_str("<Override PartName=\"/ppt/presProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presProps+xml\"/>");
         xml.push_str("<Override PartName=\"/ppt/viewProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml\"/>");
@@ -315,6 +336,13 @@ impl Presentation {
             for rel in slide.rels_media.iter().filter(|rel| !rel.is_duplicate) {
                 let name = rel.target.replacen("..", "ppt", 1);
                 package.set(&name, rel.bytes().map_err(|error| format!("{name}: {error}"))?);
+            }
+        }
+        for slide in &self.slides {
+            for chart in slide.charts() {
+                for (name, bytes) in chart.parts()? {
+                    package.set(&name, bytes);
+                }
             }
         }
         Ok(package)
