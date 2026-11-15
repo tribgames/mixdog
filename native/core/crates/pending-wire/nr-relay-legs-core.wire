@@ -1,0 +1,70 @@
+# nr-relay-legs-core: wire lines for mixdog-relay (native/core/crates/mixdog-relay): src/legs/{hub,desktop,watchdog,dispatch}.rs, src/legs/mod.rs, tests/legs_core.rs
+# Nothing here could be compiled (no cargo in this task).
+
+## 1. native/core/crates/mixdog-relay/Cargo.toml
+Add a test target next to the other `[[test]]` entries:
+    [[test]]
+    name = "legs_core"
+    path = "tests/legs_core.rs"
+    required-features = ["test-support"]
+No new dependency and no new workspace edge: the code uses bytes, serde_json, tokio (rt, sync types only), uuid (v4), mixdog-rt, mixdog-js
+and the crate's own store, ws, diagnostics, pairing and logline modules.
+
+## 2. native/core/crates/mixdog-relay/src/logline.rs and tests/core_units.rs (a signature that cannot carry what Node prints)
+`slow_phone_handshake(turn: u64, ...)` and `desktop_leg_missed_handshake_turn(turn: u64)` take the turn as a number, but Node's turn is
+the name `challenge` or `ready` (`[relay] slow phone handshake turn=challenge; desktop leg is live, leaving the leg up`). watchdog.rs calls
+them with `turn.name()` (a `&str`), so apply this first:
+- logline.rs: `pub fn slow_phone_handshake(turn: &str, heard: &str) -> Line` and `pub fn desktop_leg_missed_handshake_turn(turn: &str) -> Line`
+  (the format strings keep `turn={turn}`).
+- tests/core_units.rs, the two assertions near lines 303 and 307: pass `"challenge"` where they pass `3`, and expect `turn=challenge` in
+  the expected text instead of `turn=3`.
+
+## 3. native/core/Cargo.lock, mixdog-workspace-hack, compose_flip.rs SERVICE_PENDING
+No change. No protocol method is registered.
+
+## 4. src/legs/mod.rs
+Written by this task: `pub mod desktop; pub mod dispatch; pub mod hub; pub mod watchdog;` beside `envelope`, `ingress` and `policy`.
+
+## 5. What the tasks that come after must apply (the API this task adds)
+One `Hub` per process: `Hub::new(store, HubConfig { max_frame_bytes, uplink_capacity_ceiling, max_inflight_bytes, handshake, ingress }, pool)`
+(`createRelayState`'s `liveDesktops`, `maxFrameBytes`, `maxInflightBytes`, `uplinkCapacityBytes`, `handshakeStallMs`/`livenessProbeMs` and the
+`legIngress` numbers; the one `IngressPool` is the process's). The hub normalises the uplink capacity ceiling itself.
+
+- Desktop leg (nr-relay-server's `/desktop` upgrade, after `authenticatedLegDevice`): `desktop::run_desktop_leg(hub, device_id, ws, events).await`
+  over the `WebSocket` and `WsEvents` of `handle_upgrade`; it meters ingress, attaches (`attachDesktop`: the previous entry is reused, its
+  old socket closed 4000 `superseded`, pending media failed, the media lane reset), publishes the capabilities and replays `client-open`
+  for every phone still attached. `Hub::attach_desktop` / `DesktopHandle::{frame, pong, closed}` are the same thing for a caller that
+  drives the events itself.
+- Phone leg (nr-relay-legs-phone, `runClientLeg`): after its decision and `store.touchClient`, `hub.attach_phone(device_id, Arc::new(ws),
+  PhoneOptions { browser_client_id, inflight_ceiling: config.max_inflight_bytes, ingress: Some(Box::new(move |kind| IngressLeg::install(&pool,
+  &ws, kind, limits))) })`; `Err(NoDesktop)` means the entry is gone. Then per socket event: `Message` -> `handle.frame(data, is_binary)` (it
+  already calls `note_delivery`, answers the `{"ping"` probe with `{"pong":1}`, refuses oversize without closing, envelopes the frame, sends
+  it up the desktop leg with the 2 MiB uplink pause and the 10 s safety resume, and tells a phone whose desktop is gone at most once a second),
+  `Pong` -> `handle.pong()`, `Close { code, reason }` -> `handle.closed(code, &reason)` (client-close to the desktop, the leg's accounting, the
+  `[relay] phone leg closed ...` line). The phone's handshake turns are driven by the hub through watchdog.rs.
+  `Hub::client_count(device_id)` is `entry.clients.size` for `phoneClientCapacityAvailable`; `Hub::desktop_open(device_id)` is `desktopLegOpen`.
+- Sweep (nr-relay-legs-phone, `sweepLegs`): `Hub::legs()` lists every registered socket (`wss.clients`) as `SweepLeg { socket, liveness, ingress }`;
+  desktop and phone legs register themselves, the hook leg and the sockets answered only with a close code call `Hub::register_leg` /
+  `unregister_leg`. `Liveness::{mark, is_alive, start_window, bump_grace}` are `isAlive` and `sweepGrace`; `LegSocket::{buffered_amount,
+  read_held, ping, terminate, close}` are what the sweep reads and does; `SweepLeg.ingress.sweep(now)` is the ingress branch.
+- Registrations (`hub.dispatch()`): `register("claim-approve" | "claim-deny" | "pair-code-request" | "pair-code-clear" | "native-push-bind" |
+  "native-push-unbind" | "native-push" | "webpush-send" | "webpush-ready" | "ice-servers-request", handler)` and `register_prefix("media-", handler)`
+  with `Handler = Arc<dyn Fn(LegCall) -> HandlerFuture>`; `LegCall { hub, device_id, message }`. A handler is awaited in frame order; one that waits on
+  the network or the disk starts that work itself with `mixdog_rt::spawn`. A handler is only called for the live, unrevoked leg. The ten frame
+  types in `desktop::BUILT_IN_TYPES` cannot be registered. `register_capability(|| CapabilityOffer { native_push_platforms, web_push, ice })`
+  (`nativePush`, `nativePushPlatforms`, `webPush`, `ice` of `relay-capabilities`), `register_connect_frame(|device_id| Some(frame))` (the
+  `webpush-subscriptions` frame, sent after the capabilities), `register_revoke_hook(impl RevokeHook)` (`device_revoked`: drop native and web push
+  bindings; `client_revoked`: drop that browser's and publish the web push set when it changed), `register_close_hook(|device_id|)` (the live leg's
+  pairing code dies with it: `pairCodes.clear(deviceId)`).
+- HTTP-side questions: `Hub::send_to_desktop(device_id, &Value)` (the `claim`, `pair-code-used`, `media-*` frames), `desktop_info(device_id)`
+  (`online`, `mediaLane`, `pairV2`, `hostName`, client count), `online_browsers(device_id)`, `with_media(device_id, |MediaView| ..)` (the media lane flag,
+  the leg socket and the `entry.media` slot: a pending stream implements `MediaPending::fail`, which the hub calls when the leg closes or is
+  superseded), `snapshot()` for `diagnostics::start_socket_diagnostics`, `meter()` for `relayInflightBytes`, `shutdown()` for `closeRelay`'s walk over the live
+  desktops.
+- Log lines kept: `[relay] phone leg closed ...` (PhoneHandle::closed), `[relay] slow phone handshake turn=...` and `[relay] desktop leg missed a
+  phone handshake turn=... and its probe; closing it` (watchdog.rs). `[relay] phone upgrade refused ...` is the phone legs' (their /ws decision).
+
+## 6. Not in this task
+`phone.rs` and `sweep.rs` (with the three cases of `relay-sweep.test.mjs` and the phone-level security cases) are nr-relay-legs-phone's, as the
+plan's split says. The tests/ledger row of `the PC-offline close is its own code and never a pairing-revoking one` stays with core_units; this task's
+test `the_parked_phones_of_a_gone_pc_are_closed_4002_after_the_grace` covers the 45 s timer behind it.
