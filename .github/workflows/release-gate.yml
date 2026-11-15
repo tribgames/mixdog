@@ -739,6 +739,10 @@ jobs:
             sleep $((attempt * 10))
           done
           exit 1
+      # The Node half of the twins (the host that runs apps/relay/server.mjs with the scenario's knobs and fakes) has
+      # its own suite outside every package's test roots, so it runs here.
+      - name: Node twin host
+        run: node --test native/core/crates/mixdog-relay/tests/twin/node/relay-host.test.mjs
       # The nextest release the local runs use (`native/core/.config/nextest.toml` profiles), as its prebuilt binary.
       - name: cargo-nextest
         run: curl -fsSL "https://get.nexte.st/0.9.151/linux" | tar -xzf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
