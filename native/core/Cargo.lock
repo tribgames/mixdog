@@ -1373,6 +1373,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid 0.9.6",
+ "pem-rfc7468",
  "zeroize",
 ]
 
@@ -1615,6 +1616,7 @@ dependencies = [
  "generic-array",
  "group",
  "hkdf",
+ "pem-rfc7468",
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
@@ -5663,6 +5665,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-relay"
+version = "1.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "flate2",
+ "hmac 0.12.1",
+ "httparse",
+ "libc",
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-rt",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "p256",
+ "pem 3.0.6",
+ "rand 0.9.5",
+ "rcgen",
+ "regex",
+ "reqwest",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+ "webpki-roots",
+]
+
+[[package]]
 name = "mixdog-remote"
 version = "1.5.0"
 dependencies = [
@@ -6215,8 +6254,11 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "crypto-common 0.1.7",
+ "der",
  "digest 0.10.7",
  "displaydoc",
+ "ecdsa",
+ "elliptic-curve",
  "errno",
  "fastrand",
  "flate2",
@@ -6247,13 +6289,16 @@ dependencies = [
  "log",
  "memchr",
  "mio",
+ "moxcms",
  "nom 7.1.3",
  "num",
  "num-bigint",
  "num-traits",
  "objc2-core-foundation",
  "once_cell",
+ "p256",
  "percent-encoding",
+ "pkcs8",
  "potential_utf",
  "rand_core 0.6.4",
  "rcgen",
@@ -6263,13 +6308,17 @@ dependencies = [
  "regress",
  "reqwest",
  "rustix",
+ "rustls",
  "scopeguard",
+ "sec1",
  "serde",
  "serde_core",
  "serde_json",
+ "sha2 0.10.9",
  "simd-adler32",
  "slab",
  "smallvec",
+ "spki",
  "stable_deref_trait",
  "subtle",
  "syn 2.0.119",
@@ -6801,6 +6850,15 @@ checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
 dependencies = [
  "base64 0.23.1",
  "serde_core",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]

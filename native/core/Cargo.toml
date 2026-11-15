@@ -60,6 +60,7 @@ members = [
     "crates/mixdog-app-server-daemon",
     "crates/mixdog-app-server-client",
     "crates/mixdog-askpass",
+    "crates/mixdog-relay",
     "crates/mixdog-ssh",
     "crates/mixdog-connections",
     "crates/mixdog-exthost-worker",
@@ -220,6 +221,7 @@ mixdog-termtext = { path = "crates/mixdog-termtext" }
 mixdog-tui-style = { path = "crates/mixdog-tui-style" }
 mixdog-view-model = { path = "crates/mixdog-view-model" }
 mixdog-askpass = { path = "crates/mixdog-askpass" }
+mixdog-relay = { path = "crates/mixdog-relay" }
 
 # External crates. Versions match codex-rs/Cargo.toml wherever Codex uses the same crate;
 # the few not in Codex are marked. Declared once here, referenced with `workspace = true`.
