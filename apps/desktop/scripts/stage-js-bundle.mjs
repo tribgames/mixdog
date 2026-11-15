@@ -122,17 +122,17 @@ const npm = (args, cwd) =>
 /** The tree of the root lockfile that the remote entry points reach, for `key`, into `pkgDir/node_modules`.
  *  The dependencies are the roots `deriveRemoteRoots` finds in the package; a reached package that is
  *  not a dependency, not locked or not installed stops the stage. */
-export async function installProductionModules(pkgDir, key, { packageRootDir = rootDir } = {}) {
+export async function installProductionModules(pkgDir, key, { packageRootDir = rootDir, extraRoots = [] } = {}) {
   const { platform, arch } = splitKey(key);
   const { roots } = deriveRemoteRoots({ packageRootDir });
   // The ONNX Runtime library the core loads is the one inside onnxruntime-node; no JS entry imports the
   // package (the core loads the library itself), so it is a root of its own, where the platform has one.
   const withOrt = onnxRuntimeSupported(platform, arch);
-  const target = { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined };
+  const target = { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined, keep: new Set(extraRoots) };
   const trimmed = trimManifest({
     manifest: JSON.parse(await readFile(join(packageRootDir, 'package.json'), 'utf8')),
     lock: JSON.parse(await readFile(join(packageRootDir, 'package-lock.json'), 'utf8')),
-    roots: [...roots.keys(), ...(withOrt ? [ORT_PACKAGE] : [])],
+    roots: [...roots.keys(), ...extraRoots, ...(withOrt ? [ORT_PACKAGE] : [])],
     target,
   });
   await mkdir(pkgDir, { recursive: true });
@@ -154,7 +154,7 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
   // npm installs platform variants whose libc the lockfile does not record, so each package's own
   // package.json decides; then the whole reached tree, not just the roots, must be there.
   const inapplicable = new Set([...trimmed.inapplicable, ...pruneInapplicable(join(pkgDir, 'node_modules'), target)]);
-  for (const name of roots.keys()) {
+  for (const name of [...roots.keys(), ...extraRoots]) {
     if (!existsSync(join(pkgDir, 'node_modules', name, 'package.json'))) throw new Error(`${name} is reached from the remote entry points but was not installed`);
   }
   verifyInstalledTree(pkgDir, inapplicable);

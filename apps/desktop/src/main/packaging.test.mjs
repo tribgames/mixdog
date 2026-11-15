@@ -168,13 +168,28 @@ test('the capture harness stays out of the production entry and the package', as
 test('runtime preparation reads back the architecture of every native artifact it packages', async () => {
   const preparation = await text('../../scripts/prepare-runtime.mjs');
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
-  assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
+  assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{/);
 });
 
-test('packaged runtime verification runs the app binary as Node with the caller environment', async () => {
-  const verifier = await text('../../scripts/verify-packaged-runtime.mjs');
-  assert.match(verifier, /ELECTRON_RUN_AS_NODE:\s*'1'/);
-  assert.match(verifier, /env:\s*\{\s*\.\.\.process\.env,/);
+// Nothing in the app opens an archive of the root package's runtime (the core reads real files through
+// js-runtime.json and MIXDOG_ROOT: local-core.ts); the package ships the real-file tree only.
+test('the package ships the core\'s dependency closure as real files and no runtime archive', async () => {
+  const builder = await text('../../electron-builder.yml');
+  assert.doesNotMatch(builder, /runtime\.asar\s*$/m);
+  assert.doesNotMatch(builder, /from:\s*\.runtime\/runtime\.asar\s/);
+  assert.match(builder, /from: \.runtime\/native-modules\s+to: runtime\.asar\.unpacked\/node_modules/);
+  const preparation = await text('../../scripts/prepare-runtime.mjs');
+  assert.doesNotMatch(preparation, /createAsarPackage|@electron\/asar/);
+  assert.match(preparation, /mirrorCoreRuntime\(/);
+  assert.match(preparation, /installProductionModules\(/);
+  const packageJson = JSON.parse(await text('../../package.json'));
+  assert.equal(packageJson.scripts['verify:packaged-runtime'], undefined);
+});
+
+test('the desktop ships only the native tools the app executes: graph and computer, not the patch and spawn libraries', async () => {
+  const preparation = await text('../../scripts/prepare-runtime.mjs');
+  assert.match(preparation, /const DESKTOP_NATIVE_TOOL_KINDS = Object\.freeze\(\['graph'\]\);/);
+  assert.doesNotMatch(preparation, /NATIVE_TOOL_KINDS\b(?<!DESKTOP_NATIVE_TOOL_KINDS)/);
 });
 
 test('desktop package does not declare the repository as a dependency', async () => {

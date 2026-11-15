@@ -31,6 +31,14 @@ on:
         description: "The caller already ran mixdogd-build.yml in this run (its mixdogd-<target> artifacts exist); skip the build here. Artifact names are unique per run, so a second build would fail the upload."
         type: boolean
         default: false
+      server_cores_prebuilt:
+        description: "The caller provides this run's verified server-cores artifact."
+        type: boolean
+        default: false
+      packages_prebuilt:
+        description: "Verify the caller's mixdog-linux-packages artifacts instead of rebuilding the same packages."
+        type: boolean
+        default: false
     outputs:
       verified_sha:
         description: "The commit SHA every job of this run checked out and verified"
@@ -93,6 +101,13 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.sha }}
     secrets: inherit
+
+  server-cores:
+    needs: [plan, mixdogd]
+    if: ${{ !cancelled() && !inputs.server_cores_prebuilt && needs.plan.result == 'success' && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') }}
+    uses: ./.github/workflows/server-cores-build.yml
+    with:
+      ref: ${{ needs.plan.outputs.sha }}
 
   tests:
     name: tests-${{ matrix.suite }}-${{ matrix.arch }}-${{ matrix.shard }}
@@ -161,8 +176,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
-          # graph/patch must come from native-out: no silent fallback to the pinned download.
-          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+          # graph must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph" >> "$GITHUB_ENV"
       # The two trees are independent, so they install side by side; each PID
       # is waited on so either failure fails the step. A transient registry
       # failure is retried; a deterministic one fails all three attempts.
@@ -188,10 +203,8 @@ jobs:
       # Fonts and LibreOffice serve the Office suites of the root lane only.
       - uses: ./.github/actions/office-runtime
         if: matrix.suite == 'root'
-      - name: Build native spawn test binary
-        run: npm run build:spawn:test
       # `npm ci` no longer stages the native tools (postinstall only prunes the
-      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # embedding runtime): stage the pinned graph tool the
       # suites resolve in native-tools/.
       - name: Stage the native tools
         run: node scripts/stage-native-tools.mjs
@@ -239,8 +252,8 @@ jobs:
 
   verify:
     name: linux-${{ matrix.arch }}
-    needs: [plan, native-tools, mixdogd]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') }}
+    needs: [plan, native-tools, mixdogd, server-cores]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') && (needs.server-cores.result == 'success' || needs.server-cores.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -278,8 +291,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
-          # graph/patch must come from native-out: no silent fallback to the pinned download.
-          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+          # graph must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
@@ -319,6 +332,7 @@ jobs:
       # through prepare-runtime's input fingerprint. A failed attempt removes
       # its partial state, and a deterministic failure fails all three.
       - name: Prepare the Linux runtime
+        if: ${{ !inputs.packages_prebuilt }}
         working-directory: apps/desktop
         run: |
           for attempt in 1 2 3; do
@@ -329,12 +343,31 @@ jobs:
           exit 1
       # fpm compresses the .deb payload with `tar -J` (XZ_OPT=-3), one thread
       # by default; xz reads XZ_DEFAULTS before XZ_OPT, so -T0 uses every core.
-      # build:linux stages the cores (stage-core.mjs) from native/core/target.
+      # Stage the host and adopt server bundles once before packaging. Calling
+      # build:linux here would restage and rebuild the four server bundles.
       - uses: ./.github/actions/stage-mixdogd
+        if: ${{ !inputs.packages_prebuilt }}
+      - uses: actions/download-artifact@v5
+        if: ${{ !inputs.packages_prebuilt }}
+        with:
+          name: server-cores
+          path: server-cores-in
+      - name: Adopt the run's server bundles
+        if: ${{ !inputs.packages_prebuilt }}
+        run: node apps/desktop/scripts/stage-core.mjs --server-cores=server-cores-in
+      - name: Download the release packages under verification
+        if: ${{ inputs.packages_prebuilt }}
+        uses: actions/download-artifact@v5
+        with:
+          name: mixdog-linux-packages-${{ matrix.arch }}
+          path: apps/desktop/dist
       - name: Build Linux package
+        if: ${{ !inputs.packages_prebuilt }}
         env:
           XZ_DEFAULTS: -T0
-        run: npm run build:linux -- --${{ matrix.arch }} --publish never
+        run: |
+          npm run build
+          npx --no-install electron-builder --linux --${{ matrix.arch }} --publish never
         working-directory: apps/desktop
       - name: Package size
         run: |
@@ -435,7 +468,7 @@ jobs:
             node apps/desktop/scripts/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop smoke-deb | tee smoke-deb/smoke.log
           grep -q 'sandbox: enabled' smoke-deb/smoke.log
       - name: Upload AppImage, .deb and update feed
-        if: always()
+        if: ${{ always() && !inputs.packages_prebuilt }}
         uses: actions/upload-artifact@v5
         with:
           name: mixdog-linux-packages-${{ matrix.arch }}
@@ -464,8 +497,8 @@ jobs:
   # feed in `update-path`. Packaging only; the verify job owns the test suites.
   build-next:
     name: build-next-x64
-    needs: [plan, native-tools, mixdogd]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') }}
+    needs: [plan, native-tools, mixdogd, server-cores]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') && (needs.server-cores.result == 'success' || needs.server-cores.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -501,8 +534,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
-          # graph/patch must come from native-out: no silent fallback to the pinned download.
-          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+          # graph must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph" >> "$GITHUB_ENV"
       # As in the verify job: parallel, retried, and the CUDA skip stays out of
       # the packaged runtime's own staging install.
       - name: Install root and desktop dependencies
@@ -538,6 +571,12 @@ jobs:
           done
           exit 1
       - uses: ./.github/actions/stage-mixdogd
+      - uses: actions/download-artifact@v5
+        with:
+          name: server-cores
+          path: server-cores-in
+      - name: Adopt the run's server bundles
+        run: node apps/desktop/scripts/stage-core.mjs --server-cores=server-cores-in
       - name: Build N+1 Linux package (patch version bumped)
         working-directory: apps/desktop
         env:
@@ -545,7 +584,8 @@ jobs:
         run: |
           next=$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")
           echo "N+1 version: $next"
-          npm run build:linux -- --x64 --publish never "-c.extraMetadata.version=$next"
+          npm run build
+          npx --no-install electron-builder --linux --x64 --publish never "-c.extraMetadata.version=$next"
           grep -q "^version: $next\$" dist/latest-linux.yml
           deb=$(ls dist/*.deb)
           dpkg-deb -f "$deb" Package Version | tee ../../next-deb-fields.txt

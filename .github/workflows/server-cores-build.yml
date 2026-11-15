@@ -1,0 +1,56 @@
+# Builds the four server bundles (Linux and macOS, x64 and arm64: mixdogd and its JS runtime, the file the SSH
+# install uploads) ONCE per run, for every package job to take. Each of the five desktop packages and the
+# Linux verification used to rebuild all four (a pinned Node download and a trimmed lockfile install per
+# platform, eight times a release); the inputs are the same in every job: the mixdogd artifacts of
+# mixdogd-build.yml, package-lock.json, node-pin.json and src/. The consumers stage them with
+# `stage-core.mjs --server-cores=<dir>`, which refuses a set that does not match their own mixdogd builds.
+# Needs the mixdogd-<target> artifacts of this run (mixdogd-build.yml) and uploads `server-cores`; the
+# artifact name is unique per run, so call this once per run.
+name: server-cores-build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to build (defaults to the caller's github.sha)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  server-cores:
+    name: server-cores
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      # The pinned Node tarballs are verified against node-pin.json on every use, so a stale cache cannot ship.
+      - name: Restore the pinned Node downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.runtime/node-cache
+          key: server-node-${{ hashFiles('apps/desktop/scripts/node-pin.json') }}
+      - uses: ./.github/actions/stage-mixdogd
+      - name: Build the server bundles
+        run: node apps/desktop/scripts/stage-core.mjs --servers-only
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-cores
+          path: apps/desktop/.runtime/server-cores
+          if-no-files-found: error

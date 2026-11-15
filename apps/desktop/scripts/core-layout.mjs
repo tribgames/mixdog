@@ -50,6 +50,12 @@ export const officeTemplateProblems = (executableDir) =>
   );
 export const ORT_PACKAGE = 'onnxruntime-node';
 
+/** Packages the desktop's interpreter loads that no entry point names: the Linux app runs the JS on Electron's own
+ *  binary, whose system GLib breaks sharp's native addon, so `src/runtime/shared/sharp-electron-linux.mjs` routes
+ *  sharp to its WebAssembly build by name (the remote's plain Node keeps the native addon). They are roots of a
+ *  desktop install beside the ones the entry points reach. */
+export const desktopExtraRoots = (platform) => (platform === 'linux' ? ['@img/sharp-wasm32'] : []);
+
 /** What `mixdogd` reads from the package root as plain files. Directories must hold at least one file. The
  *  k1-assets slice owns the contents of the shipped directories; this is the one list the packaging checks.
  *  Derived from the core's reads of `<package root>/src` (`resource_root()`, mixdog-store paths.rs):
@@ -72,6 +78,12 @@ export const CORE_READS = Object.freeze({
     'src/runtime/office/authoring/pptx-script-entry.mjs',
     'src/runtime/channels/data/voice-runtime-manifest.json',
     'src/defaults/shipped-history.json',
+    // Native pptx script hosting reads these bytes directly; npm package presence
+    // alone does not prove the authored-script data payload was copied.
+    'data/pptxgenjs/pptxgen.cjs.js',
+    'data/pptxgenjs/jszip.min.js',
+    'data/pptxgenjs/LICENSE-pptxgenjs',
+    'data/pptxgenjs/LICENSE-jszip.markdown',
   ],
   dirs: ['src/rules', 'src/output-styles', 'src/agents', 'src/defaults', 'src/orchestration', 'src/workflows'],
 });
@@ -195,7 +207,7 @@ export function verifyCoreInstall({ manifestDir, kind, platform, arch, checkProg
   const at = (relative) => resolve(manifestDir, relative);
   const packageRoot = at(expected.packageRoot);
   if (checkProgram && !isFile(at(expected.program))) problems.push(`interpreter ${at(expected.program)} does not exist`);
-  problems.push(...coreTreeProblems({ modulesDir: dirname(packageRoot), platform, arch }));
+  problems.push(...coreTreeProblems({ modulesDir: dirname(packageRoot), platform, arch, kind }));
   problems.push(...officeTemplateProblems(manifestDir));
   if (problems.length) throw new Error(`${kind} core install ${manifestDir} is incomplete:\n- ${problems.join('\n- ')}`);
   return { manifest, packageRoot };
@@ -208,8 +220,10 @@ export function verifyCoreInstall({ manifestDir, kind, platform, arch, checkProg
  * null where the target has none). The result is checked as `verifyCoreTree` checks an install.
  */
 export async function mirrorCoreRuntime({ modulesDir, destination, platform, arch, ortBinarySource }) {
-  const { dirs, skipped } = closureOf(modulesDir);
-  const mirrored = [join(modulesDir, PACKAGE_DIR), ...dirs].sort();
+  const { dirs, skipped } = closureOf(modulesDir, desktopExtraRoots(platform));
+  // ORT is loaded by Rust, so no JS import reaches it. Keep its package metadata
+  // and licence as well as the library, so shipped-version verification covers it.
+  const mirrored = [...new Set([join(modulesDir, PACKAGE_DIR), ...dirs, ...(ortBinarySource ? [join(modulesDir, ORT_PACKAGE)] : [])])].sort();
   for (const dir of mirrored) {
     // A nested package comes with the package that holds it.
     if (mirrored.some((other) => other !== dir && dir.startsWith(`${other}${sep}`))) continue;
@@ -222,15 +236,15 @@ export async function mirrorCoreRuntime({ modulesDir, destination, platform, arc
   if (ortBinarySource) await cp(ortBinarySource, join(destination, ORT_PACKAGE, ortBinaryDir(platform, arch)), { recursive: true });
   await mkdir(destination, { recursive: true });
   writeClosureRecord(destination, skipped);
-  verifyCoreTree({ modulesDir: destination, platform, arch });
+  verifyCoreTree({ modulesDir: destination, platform, arch, kind: 'desktop' });
 }
 
 /** The closure the extension host and the skill launchers need in the installed tree `modulesDir` (its `mixdog`
  *  package holds the entry points). Throws on a required package that is not installed; an optional one
  *  the installer left out is `skipped`. */
-function closureOf(modulesDir) {
+function closureOf(modulesDir, extraRoots = []) {
   const { roots } = deriveRemoteRoots({ packageRootDir: join(modulesDir, PACKAGE_DIR) });
-  const { dirs, missing, skipped } = installedClosure(modulesDir, roots.keys(), (_name, kind) => kind === 'optional dependency');
+  const { dirs, missing, skipped } = installedClosure(modulesDir, [...roots.keys(), ...extraRoots], (_name, kind) => kind === 'optional dependency');
   if (missing.length) throw new Error(`The extension host closure is incomplete:\n- ${missing.join('\n- ')}`);
   return { dirs, skipped };
 }
@@ -253,7 +267,7 @@ export function verifyCoreTree(options) {
 }
 
 /** What `verifyCoreInstall` checks of the files: everything under `modulesDir`, whichever layout holds it. */
-function coreTreeProblems({ modulesDir, platform, arch }) {
+function coreTreeProblems({ modulesDir, platform, arch, kind }) {
   const problems = [];
   const packageRoot = join(modulesDir, PACKAGE_DIR);
   for (const file of CORE_READS.files) if (!isFile(join(packageRoot, file))) problems.push(`missing file ${file} in the package root`);
@@ -264,7 +278,8 @@ function coreTreeProblems({ modulesDir, platform, arch }) {
     const record = join(modulesDir, CLOSURE_RECORD);
     if (isFile(record)) {
       const skipped = new Set(JSON.parse(readFileSync(record, 'utf8')).skippedOptional);
-      problems.push(...installedClosure(modulesDir, roots.keys(), (name) => skipped.has(name)).missing);
+      const extra = kind === 'desktop' ? desktopExtraRoots(platform) : [];
+      problems.push(...installedClosure(modulesDir, [...roots.keys(), ...extra], (name) => skipped.has(name)).missing);
     } else {
       problems.push(`${CLOSURE_RECORD} is missing: the dependency closure was not recorded by the staging`);
     }
@@ -272,6 +287,7 @@ function coreTreeProblems({ modulesDir, platform, arch }) {
 
   const ortPackage = join(modulesDir, ORT_PACKAGE);
   if (onnxRuntimeSupported(platform, arch)) {
+    if (!isFile(join(ortPackage, 'package.json'))) problems.push('ONNX Runtime package.json is missing: its shipped version cannot be verified');
     const binaryDir = join(ortPackage, ortBinaryDir(platform, arch));
     if (!isFile(join(binaryDir, ORT_LIBRARY_FILE[platform]))) problems.push(`ONNX Runtime library ${join(binaryDir, ORT_LIBRARY_FILE[platform])} does not exist`);
     for (const sibling of ORT_SIBLINGS[platform]) if (!isFile(join(binaryDir, sibling))) problems.push(`${sibling} is missing beside the ONNX Runtime library`);
