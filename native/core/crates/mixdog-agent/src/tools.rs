@@ -153,7 +153,20 @@ impl ToolSet {
 
     /// The tool a call runs: one of the surface, else the registry's.
     pub fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.get(name).cloned().or_else(|| self.registry.as_ref().and_then(|r| r.resolver.resolve(r.scope.as_deref(), name)))
+        let hit = self.get(name);
+        // A name the surface reaches only through another tool's alias (`terminal` is an alias of the foreign `run` adapter)
+        // yields to a registered tool of exactly that name: a deferred tool called by its name runs, it is not refused as foreign.
+        if let Some(tool) = hit
+            && tool.spec().name == name
+        {
+            return Some(tool.clone());
+        }
+        let registered = self.registry.as_ref().and_then(|r| r.resolver.resolve(r.scope.as_deref(), name));
+        match (hit, registered) {
+            (_, Some(tool)) if tool.spec().name == name => Some(tool),
+            (Some(tool), _) => Some(tool.clone()),
+            (None, registered) => registered,
+        }
     }
 
     /// What a call to `call_tool` stands for, when the surface carries a projecting tool under that
@@ -1483,6 +1496,25 @@ mod tests {
         };
         let agent = agent.map(|text| ToolSpec { description: text.into(), ..spec.clone() });
         Arc::new(Plain { spec, agent })
+    }
+
+    /// A deferred tool called by its name beats an alias of another tool that spells the same: `terminal` is an alias of
+    /// the foreign `run` adapter, and the registry's `terminal` tool is what a call of that name runs.
+    #[test]
+    fn a_registered_tool_of_the_called_name_outranks_an_alias_of_another_tool() {
+        struct Registry(Vec<Arc<dyn Tool>>);
+        impl mixdog_tools::policy::ToolResolver for Registry {
+            fn resolve(&self, _: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
+                self.0.iter().find(|tool| tool.spec().name == name).cloned()
+            }
+        }
+        let run: Arc<dyn Tool> = Arc::new(Plain { spec: ToolSpec { aliases: vec!["terminal".into()], ..plain("run", "", false, None).spec().clone() }, agent: None });
+        let terminal = plain("terminal", "side terminal", true, None);
+        let surface = ToolSet::new(vec![run.clone()]).with_registry(Arc::new(Registry(vec![run.clone(), terminal])), None);
+        assert_eq!(surface.resolve("terminal").unwrap().spec().name, "terminal");
+        assert_eq!(surface.resolve("run").unwrap().spec().name, "run");
+        let alone = ToolSet::new(vec![run.clone()]);
+        assert_eq!(alone.resolve("terminal").unwrap().spec().name, "run", "with no registered terminal the foreign name stays refused by the adapter");
     }
 
     /// A `public: false` tool is in the set (a rewritten call finds it by name) but never in what the
