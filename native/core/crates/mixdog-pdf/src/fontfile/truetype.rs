@@ -624,7 +624,11 @@ impl TrueTypeFont {
     /// with CFF outlines. The errors are pdf.js's, by their messages.
     pub fn glyph_info(&self, num_glyphs_from_cff: Option<i32>) -> Result<GlyphInfo> {
         let loca = if self.is_true_type() {
-            Some(self.required("loca")?)
+            let loca = self.required("loca")?;
+            if self.table("glyf").is_none() {
+                tracing::warn!("Required \"glyf\" table is not found -- trying to recover.");
+            }
+            Some(loca)
         } else {
             None
         };
@@ -662,6 +666,12 @@ impl TrueTypeFont {
                     loca_length = expected;
                 }
             }
+        }
+        // `sanitizeMetrics` reads `metrics.length` of the `hmtx` table whenever there is an `hhea`.
+        if self.table("hhea").is_some() && self.table("hmtx").is_none() {
+            return Err(PdfError::Unknown(
+                "Cannot read properties of null (reading 'length')".to_owned(),
+            ));
         }
         self.sanitize_head(head, num_glyphs, loca_length)?;
         let missing_glyphs = match loca_range {
