@@ -80,7 +80,7 @@ pub(super) fn add_provenance(document: &Obj, op: &Value) -> Result<Value> {
 
 /// `delete_comment`: recursively when the comment has replies.
 pub(super) fn delete_comment(document: &Obj, op: &Value) -> Result<Value> {
-    let index = index_in(document, op, "comment", "Comment index out of range")?;
+    let index = index_in(document, op, "comment", "Comments", "Comment index out of range")?;
     let comment = super::item(&document.get("Comments")?, index)?;
     if super::count_of_collection(&comment.member("Replies")?)? > 0 {
         comment.call_member("DeleteRecursively", &[])?;
@@ -92,7 +92,7 @@ pub(super) fn delete_comment(document: &Obj, op: &Value) -> Result<Value> {
 
 /// `set_comment_resolved`.
 pub(super) fn set_comment_resolved(document: &Obj, op: &Value) -> Result<Value> {
-    let index = index_in(document, op, "comment", "Comment index out of range")?;
+    let index = index_in(document, op, "comment", "Comments", "Comment index out of range")?;
     let comment = super::item(&document.get("Comments")?, index)?;
     let resolved = truthy(&prop(op, "resolved"));
     if comment.set_member("Done", Com::Bool(resolved)).is_err() {
@@ -196,7 +196,7 @@ pub(super) fn resolve_revisions(document: &Obj, op: &Value) -> Result<Value> {
 
 /// `resolve_revision`.
 pub(super) fn resolve_revision(document: &Obj, op: &Value) -> Result<Value> {
-    let index = index_in(document, op, "revision", "Revision index out of range")?;
+    let index = index_in(document, op, "revision", "Revisions", "Revision index out of range")?;
     let reject = same(&lower(&text_of(&prop(op, "resolution"))), "reject");
     let revision = super::item(&document.get("Revisions")?, index)?;
     settle(&revision, reject)?;
