@@ -1,0 +1,32 @@
+# nr-office-comrs-ppt-read: the PowerPoint reader of mixdog-office-com (src/ppt/{mod,snapshot,selection,ink,issues}.rs and the stub
+# src/ppt/edit/mod.rs that nr-office-comrs-ppt-edit takes over), tests/ppt_read.rs, tests/ppt_read_live.rs, recorder/scenarios/ppt-read.json
+# and tests/fixtures/ppt-read/inputs/pixel.png.
+# Nothing was compiled (the lead builds the wave); the sources were checked to parse with rustfmt only.
+# No protocol row, no service, no SERVICE_PENDING name belongs to this task. No new dependency edge: the code uses only what the crate has.
+
+## 1. native/core/crates/mixdog-office-com/src/lib.rs (not owned by this task)
+Add to the `pub mod` block (after `pub mod platform;`):
+
+    pub mod ppt;
+
+## 2. native/core/crates/mixdog-office-com/src/drivers.rs (not owned by this task)
+Register the reader: replace the empty `READERS` table by (keep the doc comment above it, and the lines the Word and Excel readers add)
+
+    static READERS: &[(&str, &dyn FormatReader)] = &[("pptx", &crate::ppt::Reader)];
+
+## 3. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Test targets, after `[[test]] name = "actions_live"`:
+
+    [[test]]
+    name = "ppt_read"
+    path = "tests/ppt_read.rs"
+
+    [[test]]
+    name = "ppt_read_live"
+    path = "tests/ppt_read_live.rs"
+
+## 4. After the recording
+`node recorder/record-office-com.mjs --area ppt-read` (on the migration PC with Microsoft PowerPoint) writes tests/fixtures/ppt-read/<scenario>.json
+and updates tests/fixtures/MANIFEST.json; `recorded_scenarios_are_replayed` of tests/ppt_read.rs replays every snapshot and issues step of them
+(it passes without a fixture and says so). The first replay may need the cut of the call log adjusted (the test cuts a step's calls at the
+snapshot and issues boundary markers and treats the calls after the reader as the host closing the document).
