@@ -1,0 +1,17 @@
+{
+  "id": "healthz",
+  "description": "/healthz answers 200 with its JSON body and the headers it sets",
+  "steps": [
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200,
+      "headers": [
+        [
+          "Accept",
+          "application/json"
+        ]
+      ]
+    }
+  ]
+}
