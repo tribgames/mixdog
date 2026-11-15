@@ -19,7 +19,7 @@ use crate::opc::{
     image_content_type, image_pixel_size, part_from_target, part_relationship_path,
 };
 use crate::package::os_message;
-use crate::slide_shapes::EMU_PER_POINT;
+use crate::slide_shapes::{EMU_PER_POINT, remove_first, replace_first_text, replace_first_with};
 use crate::snapshot_docx::{DocxBodyModel, docx_body_model, numbering_level_format};
 pub use crate::xml::WORD_MAIN_NS;
 use crate::xml::{
@@ -36,15 +36,7 @@ const DOCUMENT_PART: &str = "word/document.xml";
 
 /// `text.replace(pattern, () => replacement)` for a pattern without the `g` flag: the first match only.
 fn replace_first(pattern: &JsRegex, text: &str, replacement: &str) -> String {
-    match pattern.find(text) {
-        Some(range) => format!("{}{replacement}{}", &text[..range.start], &text[range.end..]),
-        None => text.to_owned(),
-    }
-}
-
-/// `text.replace(search, () => replacement)` for a string pattern: the first occurrence only.
-fn replace_text(text: &str, search: &str, replacement: &str) -> String {
-    text.replacen(search, replacement, 1)
+    replace_first_with(pattern, text, |_| replacement.to_owned())
 }
 
 /// `text.slice(0, -1)`: the text without its last character.
@@ -398,7 +390,7 @@ fn ensure_note_styles(zip: &mut Package, definition: &NoteDefinition) {
         ));
     }
     if !additions.is_empty() {
-        zip.set(part, replace_text(&styles, "</w:styles>", &format!("{additions}</w:styles>")));
+        zip.set(part, replace_first_text(&styles, "</w:styles>", &format!("{additions}</w:styles>")));
     }
 }
 
@@ -483,7 +475,7 @@ pub fn register_comment_thread(zip: &mut Package, comment_id: u64, parent_id: u6
     let next = if pattern.is_match(&extended.xml) {
         replace_first(&pattern, &extended.xml, &entry)
     } else {
-        replace_text(&extended.xml, "</w15:commentsEx>", &format!("{entry}</w15:commentsEx>"))
+        replace_first_text(&extended.xml, "</w15:commentsEx>", &format!("{entry}</w15:commentsEx>"))
     };
     zip.set(&extended.part, next);
     para_id
@@ -564,7 +556,7 @@ pub fn register_comment_identity(zip: &mut Package, comment_id: u64, date: &str)
     let ids = ensure_comment_sidecar(zip, &SIDECAR_IDS);
     if !ids.xml.contains(&format!("w16cid:paraId=\"{para_id}\"")) {
         let entry = format!("<w16cid:commentId w16cid:paraId=\"{para_id}\" w16cid:durableId=\"{durable_id}\"/></{}>", SIDECAR_IDS.root);
-        zip.set(&ids.part, replace_text(&ids.xml, &format!("</{}>", SIDECAR_IDS.root), &entry));
+        zip.set(&ids.part, replace_first_text(&ids.xml, &format!("</{}>", SIDECAR_IDS.root), &entry));
     }
     let extensible = ensure_comment_sidecar(zip, &SIDECAR_EXTENSIBLE);
     if !extensible.xml.contains(&format!("w16cex:durableId=\"{durable_id}\"")) {
@@ -573,7 +565,7 @@ pub fn register_comment_identity(zip: &mut Package, comment_id: u64, date: &str)
             xml_encode(date),
             SIDECAR_EXTENSIBLE.root
         );
-        zip.set(&extensible.part, replace_text(&extensible.xml, &format!("</{}>", SIDECAR_EXTENSIBLE.root), &entry));
+        zip.set(&extensible.part, replace_first_text(&extensible.xml, &format!("</{}>", SIDECAR_EXTENSIBLE.root), &entry));
     }
     (para_id, durable_id)
 }
@@ -588,7 +580,7 @@ pub fn forget_comment_identity(zip: &mut Package, comment_xml: &str) -> Vec<Stri
     };
     let extended = zip.text("word/commentsExtended.xml");
     let thread = compiled(&format!(r#"<w15:commentEx\b[^>]*\bw15:paraId="{para_id}"[^>]*\/>"#), "");
-    let extended_next = replace_first(&thread, &extended, "");
+    let extended_next = remove_first(&thread, &extended);
     if extended_next != extended {
         zip.set("word/commentsExtended.xml", extended_next);
         removed.push("word/commentsExtended.xml".to_owned());
@@ -596,13 +588,13 @@ pub fn forget_comment_identity(zip: &mut Package, comment_xml: &str) -> Vec<Stri
     let ids = zip.text(SIDECAR_IDS.part);
     let id_pattern = compiled(&format!(r#"<w16cid:commentId\b[^>]*\bw16cid:paraId="{para_id}"[^>]*\/>"#), "");
     let Some(id_entry) = id_pattern.find(&ids).map(|range| ids[range].to_owned()) else { return removed };
-    zip.set(SIDECAR_IDS.part, replace_text(&ids, &id_entry, ""));
+    zip.set(SIDECAR_IDS.part, replace_first_text(&ids, &id_entry, ""));
     removed.push(SIDECAR_IDS.part.to_owned());
     let durable = compiled(r#"\bw16cid:durableId="([0-9A-Fa-f]+)""#, "");
     let Some(durable_id) = durable.captures(&id_entry).and_then(|found| found.get(1).map(str::to_owned)) else { return removed };
     let extensible = zip.text(SIDECAR_EXTENSIBLE.part);
     let timestamp = compiled(&format!(r#"<w16cex:commentExtensible\b[^>]*\bw16cex:durableId="{durable_id}"[^>]*\/>"#), "");
-    let extensible_next = replace_first(&timestamp, &extensible, "");
+    let extensible_next = remove_first(&timestamp, &extensible);
     if extensible_next != extensible {
         zip.set(SIDECAR_EXTENSIBLE.part, extensible_next);
         removed.push(SIDECAR_EXTENSIBLE.part.to_owned());
@@ -614,7 +606,8 @@ pub fn forget_comment_identity(zip: &mut Package, comment_xml: &str) -> Vec<Stri
 pub fn anchor_docx_comment(paragraph_xml: &str, id: impl std::fmt::Display) -> String {
     let opening_pattern = compiled(r"^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?", "");
     let opening = opening_pattern.find(paragraph_xml).map_or("<w:p>", |range| &paragraph_xml[range]);
-    let body = &paragraph_xml[opening.len()..];
+    // `paragraphXml.slice(opening.length)`: past the end of a paragraph that is not one, the text is empty.
+    let body = paragraph_xml.get(opening.len()..).unwrap_or("");
     let anchored = format!("{opening}<w:commentRangeStart w:id=\"{id}\"/>{body}");
     match anchored.strip_suffix("</w:p>") {
         Some(head) => format!("{head}<w:commentRangeEnd w:id=\"{id}\"/><w:r><w:commentReference w:id=\"{id}\"/></w:r></w:p>"),
@@ -961,7 +954,7 @@ pub fn ensure_numbering(zip: &mut Package, kind: &str, restart: bool) -> Numberi
         };
         next = format!("{}{}{}", &xml[..position], numbering_definition(abstract_id, kind), &xml[position..]);
     }
-    next = replace_text(&next, "</w:numbering>", &format!("{definition}</w:numbering>"));
+    next = replace_first_text(&next, "</w:numbering>", &format!("{definition}</w:numbering>"));
     zip.set(part, next.clone());
     NumberingPart { xml: next, num_id, created: true }
 }

@@ -10,6 +10,7 @@ use mixdog_js::{JsRegex, js_trim};
 use crate::docx_revisions::{
     ResolveOptions, rendered_word_text, resolve_docx_property_changes, resolve_docx_revisions, revision_owner,
 };
+use crate::slide_shapes::remove_first;
 use crate::snapshot_docx::docx_body_model;
 use crate::xml::{
     WORD_RUN_SOURCE, compiled, container_inner, word_run_open, word_run_properties, xml_encode,
@@ -159,14 +160,6 @@ fn mark_properties(properties: &str) -> &str {
 
 fn marked_paragraph(properties: &str, tag: &str, author: &str) -> bool {
     marker(tag, author).is_match(mark_properties(properties))
-}
-
-/// `text.replace(pattern, '')` for a pattern without the `g` flag.
-fn remove_first(pattern: &JsRegex, text: &str) -> String {
-    match pattern.find(text) {
-        Some(range) => format!("{}{}", &text[..range.start], &text[range.end..]),
-        None => text.to_owned(),
-    }
 }
 
 fn cleared_paragraph(paragraph_xml: &str, tag: &str, author: &str) -> String {
