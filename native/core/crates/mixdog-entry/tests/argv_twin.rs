@@ -59,3 +59,24 @@ fn every_recorded_command_line_is_read_as_nodes_cli_read_it() {
     }
     assert!(differences.is_empty(), "{} of {} line(s) differ from Node's CLI; the first:\n{}", differences.len(), cases.len(), differences.iter().take(5).cloned().collect::<Vec<_>>().join("\n"));
 }
+
+/// The exec lines of the read-only recording (`fixtures/exec-readonly/cli.json`, Node's `classifyCliInvocation` on the read-only
+/// runtime's command lines): the core's `--tool-mode` spelling and `--readonly` are refused on an exec as Node refused them.
+#[test]
+fn the_read_only_recordings_exec_lines_are_read_as_nodes_cli_read_them() {
+    let recorded_lines: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-readonly/cli.json")).unwrap();
+    for case in recorded_lines.as_array().unwrap() {
+        let words: Vec<String> = case["argv"].as_array().unwrap().iter().map(|word| word.as_str().unwrap().to_owned()).collect();
+        let got = recorded(&words, &argv::classify(&words));
+        let node = &case["result"];
+        assert_eq!(got["kind"], node["kind"], "{words:?}");
+        assert_eq!(got["skipHostPrelude"], node["skipHostPrelude"], "{words:?}");
+        assert_eq!(got["error"], node.get("error").cloned().unwrap_or(Value::Null), "{words:?}");
+        assert_eq!(got["message"], node["exec"].get("message").cloned().unwrap_or(Value::Null), "{words:?}");
+        if let Some(options) = node.get("options").and_then(Value::as_object) {
+            for (name, value) in options {
+                assert_eq!(&got["options"][name], value, "{words:?}: {name}");
+            }
+        }
+    }
+}
