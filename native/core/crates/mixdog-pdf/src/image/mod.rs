@@ -81,16 +81,6 @@ pub fn decode_small_inline_image(
         .create_image_data(xref, true)
 }
 
-/// The `new PDFImage` of a small inline image without a mask, which the operator list builds at the paint
-/// (`buildPaintImageXObject`): it fails for an image the display layer could not read, and the paint is then left out.
-pub fn check_small_inline_image(
-    xref: &Xref,
-    resources: Option<&Dict>,
-    image: &Arc<PdfStream>,
-) -> Result<()> {
-    PdfImage::new(xref, resources, image, true, None, None, false, None).map(|_| ())
-}
-
 /// An image mask (`PDFImage.createMask`).
 pub fn decode_image_mask(xref: &Xref, image: &Arc<PdfStream>) -> Result<StencilMask> {
     let dict = &image.dict;
