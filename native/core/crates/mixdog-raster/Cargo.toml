@@ -1,0 +1,20 @@
+[package]
+name = "mixdog-raster"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The raster operations of the Office stack that sharp (libvips) did: decode, resize with every fit and kernel, crop, extend, composite, greyscale, trim and channel statistics over RGBA8 pixels"
+
+[lints]
+workspace = true
+
+[dependencies]
+image = { workspace = true }
+mixdog-imaging = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+base64 = { workspace = true }
+mixdog-testkit = { workspace = true }
+serde_json = { workspace = true }
