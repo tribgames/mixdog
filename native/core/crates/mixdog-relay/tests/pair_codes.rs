@@ -177,14 +177,15 @@ fn the_lockout_doubles_per_strike_and_stops_at_one_hour() {
     let mut codes = PairCodes::new();
     let mut now = T0;
     let mut expected = IP_BACKOFF_BASE_MS;
-    for _ in 0..9 {
+    // Past the 64th strike the doubling no longer fits an i64: the lockout is still one hour.
+    for _ in 0..70 {
         for _ in 0..IP_FAILS_PER_STRIKE {
             resolve(&mut codes, "000000", "bad", now);
         }
         let wait = expected.min(60 * 60_000);
         assert_eq!(codes.retry_after_ms_at("bad", now), wait);
         now += wait;
-        expected *= 2;
+        expected = (expected * 2).min(60 * 60_000);
     }
 }
 

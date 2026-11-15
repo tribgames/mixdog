@@ -257,7 +257,7 @@ impl PairCodes {
     fn ip_state(&mut self, ip: &str, now: i64) -> Option<IpState> {
         let state = self.ip_states.get(ip).copied()?;
         if now - state.seen_at > IP_STATE_TTL_MS && state.blocked_until <= now {
-            drop(self.ip_states.remove(ip));
+            self.ip_states.remove(ip);
             return None;
         }
         Some(state)
@@ -290,14 +290,18 @@ impl PairCodes {
                 IpState { fails: 0, strikes: 0, blocked_until: 0, seen_at: now }
             }
         };
-        drop(self.ip_states.remove(ip));
+        self.ip_states.remove(ip);
         state.seen_at = now;
         state.fails += 1;
         if state.fails >= IP_FAILS_PER_STRIKE {
             state.fails = 0;
             state.strikes += 1;
-            let backoff = IP_BACKOFF_BASE_MS.saturating_mul(1i64.checked_shl(state.strikes - 1).unwrap_or(i64::MAX));
-            state.blocked_until = now.saturating_add(backoff.min(IP_BACKOFF_MAX_MS));
+            // `Math.min(max, base * 2 ** (strikes - 1))`: a power past i64 is past the cap.
+            let backoff = 2i64
+                .checked_pow(state.strikes - 1)
+                .and_then(|factor| IP_BACKOFF_BASE_MS.checked_mul(factor))
+                .map_or(IP_BACKOFF_MAX_MS, |ms| ms.min(IP_BACKOFF_MAX_MS));
+            state.blocked_until = now.saturating_add(backoff);
         }
         self.ip_states.insert(ip.to_owned(), state);
     }
