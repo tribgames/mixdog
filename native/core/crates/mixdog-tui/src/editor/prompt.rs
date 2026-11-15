@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mixdog_js::{js_to_lowercase, js_trim};
 use mixdog_term::KeyFlags;
 use mixdog_termtext::display_width;
+use mixdog_termtext::lone::stored;
 
 use super::draft::Draft;
 use super::editing::{
@@ -346,7 +347,7 @@ impl PromptEditor {
     /// The live selection with its text (empty for a masked prompt).
     pub fn selection(&self, mask: bool) -> Option<SelectionInfo> {
         let range = selection_range(&self.draft)?;
-        let text = if mask { String::new() } else { slice16(&self.draft.value, range.start, range.end).to_owned() };
+        let text = if mask { String::new() } else { stored(slice16(&self.draft.value, range.start, range.end)).into_owned() };
         Some(SelectionInfo { start: range.start, end: range.end, text })
     }
 
@@ -412,7 +413,7 @@ impl PromptEditor {
         self.request_render(if options.throttled_render { RenderRequest::Throttled } else { RenderRequest::Immediate });
         if self.draft.value != self.last_reported_value {
             self.last_reported_value.clone_from(&self.draft.value);
-            cb.on_draft_change(&self.draft.value);
+            cb.on_draft_change(&stored(&self.draft.value));
         }
         self.report_caret(self.draft.cursor, cb);
     }
@@ -447,13 +448,15 @@ impl PromptEditor {
     /// Asks the owner to bring queued messages back into the box. The owner merges them with the latest draft when its
     /// answer settles ([`super::restore::merge_queued_restore_draft`]) and puts the result in through [`Self::commit_draft`].
     pub fn restore_queued_to_draft(&mut self, show_hint: bool, cb: &mut dyn PromptCallbacks) -> bool {
-        let request = RestoreRequest { show_hint, current_text: self.draft.value.clone(), draft: self.draft.clone() };
+        let current_text = stored(&self.draft.value).into_owned();
+        let draft = Draft { value: current_text.clone(), ..self.draft.clone() };
+        let request = RestoreRequest { show_hint, current_text, draft };
         cb.on_restore_queued(&request)
     }
 
     fn apply_history_navigation(&mut self, direction: HistoryDirection, cb: &mut dyn PromptCallbacks) -> bool {
         let empty_draft = self.draft.value.is_empty();
-        let value = self.draft.value.clone();
+        let value = stored(&self.draft.value).into_owned();
         let Some(next) = cb.on_history_navigate(direction, &value, empty_draft) else { return false };
         self.commit(Draft::at_end(next), cb);
         true
@@ -521,7 +524,7 @@ impl PromptEditor {
             return;
         }
         self.submit_gate = true;
-        let accepted = cb.on_submit(&next.value);
+        let accepted = cb.on_submit(&stored(&next.value));
         if !accepted {
             self.submit_gate = false;
             self.commit(next, cb);
@@ -536,7 +539,7 @@ impl PromptEditor {
     fn submit_enter_chunk(&mut self, prefix: &str, props: &PromptProps, cb: &mut dyn PromptCallbacks) {
         let next = if prefix.is_empty() { self.draft.clone() } else { insert_text(&self.draft, prefix) };
         if props.command_palette_active {
-            let accepted = cb.on_command_palette_accept(&next.value, next.cursor);
+            let accepted = cb.on_command_palette_accept(&stored(&next.value), next.cursor);
             if let Some(replacement) = palette_result_draft(&accepted) {
                 self.commit(replacement, cb);
             } else if accepted != PaletteReply::Declined {
@@ -709,14 +712,14 @@ impl PromptEditor {
 
         if key.tab {
             if props.command_palette_active {
-                let value = self.draft.value.clone();
+                let value = stored(&self.draft.value).into_owned();
                 let completed = palette_result_draft(&cb.on_command_palette_complete(&value, self.draft.cursor));
                 if let Some(completed) = completed {
                     self.commit(completed, cb);
                 }
                 return;
             }
-            let value = self.draft.value.clone();
+            let value = stored(&self.draft.value).into_owned();
             if cb.on_tab(&value) {
                 return;
             }
@@ -823,7 +826,7 @@ impl PromptEditor {
             return;
         }
         if props.command_palette_active {
-            let value = self.draft.value.clone();
+            let value = stored(&self.draft.value).into_owned();
             let accepted = cb.on_command_palette_accept(&value, self.draft.cursor);
             // A draft-shaped accept (a completed skill mention) replaces the draft.
             if let Some(replacement) = palette_result_draft(&accepted) {
@@ -877,7 +880,7 @@ impl PromptEditor {
     /// Escape (`prompt-input/escape-key.mjs`). Every path ends the key event.
     fn handle_escape_key(&mut self, props: &PromptProps, cb: &mut dyn PromptCallbacks) {
         if props.palette_open() {
-            let value = self.draft.value.clone();
+            let value = stored(&self.draft.value).into_owned();
             cb.on_command_palette_cancel(&value);
             return;
         }
@@ -886,7 +889,7 @@ impl PromptEditor {
             self.commit(cleared, cb);
             return;
         }
-        let current_value = self.draft.value.clone();
+        let current_value = stored(&self.draft.value).into_owned();
         if cb.on_escape(&current_value, EscapePhase::Before) {
             return;
         }

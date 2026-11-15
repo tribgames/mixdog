@@ -3,7 +3,8 @@
 //! lines, or when the built box still overflows.
 
 use mixdog_js::{is_js_space, js_trim};
-use mixdog_termtext::wrap::hard_wrap_ansi_lines;
+use mixdog_termtext::lone::replace_carriers;
+use mixdog_termtext::wrap::hard_wrap_ansi_lines_carried;
 use mixdog_termtext::{display_width, strip_ansi};
 
 use super::cells::{format_cell, plain_cell_text};
@@ -33,7 +34,7 @@ fn collapse_whitespace(value: &str) -> String {
 
 /// `pushFitted(rawLine)`: the line hard-wrapped to `width`.
 fn push_fitted(lines: &mut Vec<String>, raw_line: &str, width: usize) {
-    lines.extend(hard_wrap_ansi_lines(raw_line, width));
+    lines.extend(hard_wrap_ansi_lines_carried(raw_line, width));
 }
 
 pub(super) fn render_vertical_lines(token: &Token, width: usize) -> Vec<String> {
@@ -58,11 +59,11 @@ pub(super) fn render_vertical_lines(token: &Token, width: usize) -> Vec<String> 
             let prefix_width = display_width(&strip_ansi(&prefix));
             let first_value_width = width.saturating_sub(prefix_width).max(1);
             let cont_value_width = width.saturating_sub(indent_width).max(1);
-            let first_value_lines = hard_wrap_ansi_lines(&value, first_value_width);
+            let first_value_lines = hard_wrap_ansi_lines_carried(&value, first_value_width);
             push_fitted(&mut lines, &format!("{prefix}{}", first_value_lines[0]), width);
             let tail = js_trim(&first_value_lines[1..].join(" ")).to_owned();
             if !tail.is_empty() {
-                for cont in hard_wrap_ansi_lines(&tail, cont_value_width) {
+                for cont in hard_wrap_ansi_lines_carried(&tail, cont_value_width) {
                     if js_trim(&cont).is_empty() {
                         continue;
                     }
@@ -71,5 +72,6 @@ pub(super) fn render_vertical_lines(token: &Token, width: usize) -> Vec<String> 
             }
         }
     }
-    lines
+    // Each half of a cut pair travelled as a zero-width carrier; it is what Node writes for it, U+FFFD, in the output.
+    lines.iter().map(|line| replace_carriers(line)).collect()
 }

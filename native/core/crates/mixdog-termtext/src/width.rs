@@ -73,7 +73,7 @@ fn east_asian_width(ch: char, ambiguous_as_wide: bool) -> usize {
 }
 
 fn is_visible(ch: char) -> bool {
-    !in_ranges(NOT_VISIBLE, u32::from(ch))
+    !crate::lone::is_carrier(ch) && !in_ranges(NOT_VISIBLE, u32::from(ch))
 }
 
 fn is_hangul_leading(ch: char) -> bool {

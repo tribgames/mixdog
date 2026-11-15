@@ -48,10 +48,12 @@ pub struct PromptView<'a> {
 /// The value shown for a masked prompt: every character but a newline becomes `*`, one per UTF-16 unit (the JavaScript
 /// replace works on units, so an emoji shows two).
 pub fn mask_value(value: &str) -> String {
-    value.chars().map(|c| if c == '\n' { "\n".to_owned() } else { "*".repeat(c.len_utf16()) }).collect()
+    value.chars().map(|c| if c == '\n' { "\n".to_owned() } else { "*".repeat(mixdog_termtext::lone::units_of(c)) }).collect()
 }
 
 fn push_piece(row: &mut Vec<Span>, text: &str, selected: bool) {
+    // A lone surrogate the draft holds is drawn as the replacement character, as Node's output encodes it.
+    let text = &*mixdog_termtext::lone::stored(text);
     let (fg, bg) = if selected { (Key::SelectionText, Some(Key::SelectionBackground)) } else { (Key::Text, None) };
     match row.last_mut() {
         Some(last) if last.fg == fg && last.bg == bg => last.text.push_str(text),
@@ -115,7 +117,7 @@ pub fn render_prompt(view: &PromptView<'_>) -> PromptRender {
             flushed = step.row > step.drawn_row;
             (row, col) = (step.row, step.col);
         }
-        at += mixdog_js::utf16_len(cluster);
+        at += mixdog_termtext::lone::utf16_len(cluster);
     }
     PromptRender { rows, caret }
 }
