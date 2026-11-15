@@ -343,6 +343,18 @@ fn settle_pictures(at: &str, recorded: &mut Value, produced: &mut Value, found: 
                 && let (Some(Value::String(want_data)), Some(Value::String(got_data))) = (want_png.get("data"), got_png.get("data"))
             {
                 let decode = |data: &str| mixdog_raster::image::Image::decode(&twin::base64_decode(data));
+                // Opt-in test diagnostics only: preserve exact receipt PNGs before normalization.
+                // Labels retain scenario/call/receipt/before-or-after identity; hashes keep Windows paths short.
+                if at.starts_with("pdf:") {
+                    if let Some(root) = std::env::var_os("MIXDOG_TEST_PNG_ARTIFACT_DIR") {
+                        let root = std::path::PathBuf::from(root);
+                        let key: String = Sha256::digest(at.as_bytes()).iter().take(10).map(|b| format!("{b:02x}")).collect();
+                        mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, &root).expect("diagnostic folder");
+                        mixdog_fsio::write(&mixdog_fsio::Unlaned, root.join(format!("{key}.label.txt")), at.as_bytes()).expect("diagnostic label");
+                        mixdog_fsio::write(&mixdog_fsio::Unlaned, root.join(format!("{key}.recorded.png")), twin::base64_decode(want_data)).expect("recorded diagnostic PNG");
+                        mixdog_fsio::write(&mixdog_fsio::Unlaned, root.join(format!("{key}.produced.png")), twin::base64_decode(got_data)).expect("produced diagnostic PNG");
+                    }
+                }
                 let (theirs, ours) = (decode(want_data), decode(got_data));
                 match (theirs, ours) {
                     (Ok(theirs), Ok(ours)) => {
