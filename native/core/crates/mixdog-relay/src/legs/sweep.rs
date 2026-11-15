@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_rt::TaskClass;
-use mixdog_rt::time::{Instant, MissedTickBehavior, interval_at};
+use mixdog_rt::time::{Instant, MissedTickBehavior, interval_at_unrefed};
 use tokio::task::AbortHandle;
 
 use super::hub::{Hub, LegSocket, SweepLeg};
@@ -171,14 +171,15 @@ impl Drop for SweepTask {
     }
 }
 
-/// Start the heartbeat on the relay's runtime: the first pass is one interval from now, as `setInterval`'s is.
+/// Start the heartbeat on the relay's runtime: the first pass is one interval from now, as `setInterval`'s is, and the timer is
+/// unrefed (`heartbeat.unref()`): it never keeps the process alive.
 pub fn start_sweep(hub: Arc<Hub>, hooks: Option<Arc<HookHub>>) -> SweepTask {
     start_sweep_every(hub, hooks, SWEEP_INTERVAL)
 }
 
 /// [`start_sweep`] with its interval given.
 pub fn start_sweep_every(hub: Arc<Hub>, hooks: Option<Arc<HookHub>>, period: Duration) -> SweepTask {
-    let mut ticker = interval_at(Instant::now() + period, period);
+    let mut ticker = interval_at_unrefed(Instant::now() + period, period);
     // `setInterval` does not catch up on ticks it was too late for.
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let task = mixdog_rt::spawn("relay-sweep", TaskClass::Control, async move {

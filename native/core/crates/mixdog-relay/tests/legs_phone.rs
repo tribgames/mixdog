@@ -342,10 +342,11 @@ async fn a_browser_upgrade_from_another_origin_is_refused_403_before_anything_is
 async fn a_missing_stale_or_legacy_token_is_answered_4005_and_a_flood_of_them_is_throttled() {
     let rig = build(PhoneLimits::default()).await;
     let (_desktop, _handle) = desktop_leg(&rig);
+    // An empty token, an unknown one, and the device's own shared secret (not a browser credential).
     for token in ["", "f".repeat(32).as_str(), SECRET] {
         assert_eq!(answered(&decide(&rig, token)), Some((4005, "pairing rescan required")), "token {token:?}");
     }
-    // The device's own shared secret is not a browser credential.
+    // No token at all.
     assert_eq!(answered(&decide_with(&rig, "/ws", Some(&format!("http://{HOST}")))), Some((4005, "pairing rescan required")));
     *locked(&rig.unauthorized) = RateLimiter::new(2, 60_000);
     assert!(answered(&decide(&rig, "nope")).is_some());
@@ -417,7 +418,7 @@ async fn pc_offline_answers_are_rate_limited_and_bounded() {
     assert!(answered(&decide(&rig, &rig.token)).is_some(), "a slot freed is available again");
 }
 
-async fn rig_unlimited() -> Rig {
+async fn build_unlimited() -> Rig {
     build(PhoneLimits { connects_per_window: 10_000, ..PhoneLimits::default() }).await
 }
 

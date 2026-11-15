@@ -21,7 +21,7 @@ use url::Url;
 use super::hub::{Hub, IngressInstall, Liveness, PhoneOptions, SweepLeg};
 use super::ingress::IngressLeg;
 use crate::close_codes::{DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON, PAIRING_RESCAN_REQUIRED, PAIRING_RESCAN_REQUIRED_REASON};
-use crate::http1::Headers;
+use crate::http1::{Headers, refusal_bytes};
 use crate::http1::util::{browser_socket_origin_allowed, client_ip};
 use crate::logline;
 use crate::rate_limit::RateLimiter;
@@ -195,9 +195,8 @@ impl PhoneLegs {
     pub async fn serve_upgrade<S: Transport>(self: &Arc<Self>, request: &PhoneRequest<'_>, mut io: S, head: Bytes) {
         match self.decide(request) {
             Decision::Refuse { status, reason } => {
-                let text = format!("HTTP/1.1 {status} {reason}\r\nConnection: close\r\n\r\n");
                 // The peer may be gone already: it is being refused.
-                let _ = io.write_all(text.as_bytes()).await;
+                let _ = io.write_all(&refusal_bytes(status, reason)).await;
                 let _ = io.shutdown().await;
             }
             Decision::Answer { code, reason, slot } => {
