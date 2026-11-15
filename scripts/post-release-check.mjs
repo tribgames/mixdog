@@ -5,7 +5,7 @@
 //   - the release asset set matches the asset contract (release.yml
 //     "Verify complete hidden release"), and every url/sha512 listed in
 //     latest.yml and latest-mac.yml matches the uploaded assets
-//   - mixdog@<version> is resolvable on npm (retried while it propagates)
+//   - mixdog and every native platform package resolve at the release version on npm
 //   - production relay /app answers 200 and links an existing, published
 //     mobile-v* release
 //   - the effort-judge manifest release exists, is published, and is not Latest
@@ -17,6 +17,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseMacFeed } from './merge-mac-update-feed.mjs';
 import { APP_TAG_RE, currentLatestTag, gh, isHttp404 } from './release-guard.mjs';
+import { PLATFORMS, platformPackageName } from './npm-platforms.mjs';
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -143,6 +144,12 @@ export async function waitForNpm({
     waited += step;
     delay = Math.min(delay * 2, maxDelayMs);
   }
+}
+
+/** The launcher and its optional platform packages must all be published at the same version. */
+export async function waitForNpmPackages(options) {
+  const names = ['mixdog', ...PLATFORMS.map(({ key }) => platformPackageName(key))];
+  return (await Promise.all(names.map((name) => waitForNpm({ ...options, name })))).flat();
 }
 
 const ANDROID_LINK_RE =
@@ -310,7 +317,7 @@ async function main() {
           getRelease,
         }),
     ],
-    ['npm', () => waitForNpm({ name: 'mixdog', version })],
+    ['npm', () => waitForNpmPackages({ version })],
   ];
   const results = await runSections(sections);
 

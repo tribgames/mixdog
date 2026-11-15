@@ -1,16 +1,29 @@
 #!/usr/bin/env node
-// The `mixdog` command of the npm package: starts the native program the package carries for this platform
-// (native-bin/<platform>-<arch>/mixdog) with the same arguments and the same terminal, and ends with its exit code.
-// Nothing of the product runs in this process.
+// The `mixdog` command of the npm package: starts the native program of the platform package npm installed for this
+// machine (`mixdog-<platform>-<arch>`, an optional dependency of this package) with the same arguments and the same
+// terminal, and ends with its exit code. Nothing of the product runs in this process.
 import { spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { delimiter, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The folder of the package's native programs for a platform, and the program in it. */
-export function nativeProgram(packageRoot, platform = process.platform, arch = process.arch) {
-  const folder = join(packageRoot, 'native-bin', `${platform}-${arch}`);
-  return { folder, program: join(folder, platform === 'win32' ? 'mixdog.exe' : 'mixdog') };
+import { SUPPORTED_KEYS, ensureNativeLayout, nativeCandidates, platformPackageName, resolveNativeProgram } from './native-layout.mjs';
+
+export { nativeCandidates, platformPackageName, resolveNativeProgram };
+
+/** What to tell a user whose install has no program for this machine. */
+export function missingProgramMessage(platform = process.platform, arch = process.arch) {
+  const key = `${platform}-${arch}`;
+  const candidates = nativeCandidates(platform, arch);
+  const names = candidates.map(platformPackageName).join(' or ');
+  const supported = candidates.some((candidate) => SUPPORTED_KEYS.includes(candidate));
+  const reason = supported
+    ? `its package (${names}) is not installed: optional dependencies were disabled when mixdog was installed`
+    : `${key} is not a platform mixdog supports (it supports ${SUPPORTED_KEYS.join(', ')})`;
+  return (
+    `mixdog: there is no program to start on ${key}: ${reason}.\n` +
+    (supported ? 'Reinstall with optional dependencies enabled: npm install -g mixdog (not with --omit=optional or --no-optional).\n' : '')
+  );
 }
 
 /**
@@ -33,12 +46,17 @@ const SIGNAL_NUMBERS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 };
 
 function main() {
   const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-  const { folder, program } = nativeProgram(packageRoot);
-  if (!existsSync(program)) {
-    process.stderr.write(
-      `mixdog: this package has no program for ${process.platform}-${process.arch} (looked for ${program}).\n` +
-        `Reinstall it (npm install -g mixdog), or see ${folder} for what was installed.\n`
-    );
+  const found = resolveNativeProgram({ packageRoot });
+  if (!found) {
+    process.stderr.write(missingProgramMessage());
+    process.exit(1);
+  }
+  const { program } = found;
+  try {
+    // The manifest the core reads beside its programs: written by the install, and here when the install's scripts did not run.
+    ensureNativeLayout({ folder: found.folder, packageRoot, platform: found.platform, arch: found.arch });
+  } catch (error) {
+    process.stderr.write(`mixdog: cannot prepare ${found.folder}: ${error.message}\nReinstall as a user who may write there: npm install -g mixdog\n`);
     process.exit(1);
   }
   const child = spawn(program, process.argv.slice(2), { stdio: 'inherit', env: nativeEnv(), windowsHide: false });

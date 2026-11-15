@@ -32,7 +32,6 @@
   },
   "files": [
     "bin/",
-    "native-bin/",
     "README.md",
     "NOTICE.md",
     "LICENSES/",
@@ -44,6 +43,9 @@
     "!scripts/*-smoke.mjs",
     "!scripts/*-bench.mjs",
     "!scripts/*bench-*.mjs",
+    "!scripts/npm-platforms.mjs",
+    "!scripts/stage-npm-native.mjs",
+    "!scripts/check-npm-packages.mjs",
     "!scripts/*.ps1",
     "!scripts/*.jsx",
     "src/",
@@ -52,7 +54,7 @@
     "!src/**/*.test.jsx"
   ],
   "scripts": {
-    "postinstall": "node scripts/prune-embedding-runtime.mjs",
+    "postinstall": "node scripts/prune-embedding-runtime.mjs && node bin/native-layout.mjs",
     "check:model-recommendations": "node scripts/check-model-recommendations.mjs",
     "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "test": "node scripts/test.mjs",

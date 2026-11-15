@@ -1,6 +1,7 @@
 # Reusable application release worker. Deploy computes and commits the version,
-# then calls this workflow with an immutable tag + SHA. The npm package remains
-# staged as an Actions artifact, while verified desktop packages upload directly
+# then calls this workflow with an immutable tag + SHA. The npm packages (one per
+# platform and the main package that lists them, built from the programs mixdogd-build.yml
+# builds once) remain staged as an Actions artifact, while verified desktop packages upload directly
 # to one hidden GitHub draft. The draft becomes public only after the exact
 # four-platform asset set succeeds. Deploy is the only release entry point;
 # there is no direct tag-push trigger.
@@ -148,14 +149,14 @@ jobs:
         run: node scripts/check-release-version.mjs
 
   validate:
-    name: validate-and-stage-npm
+    name: validate-release-source
     needs: identity
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     # onnxruntime-node's postinstall fetches the CUDA execution-provider
     # libraries from NuGet on linux/x64, and a connect timeout there failed
-    # `npm ci`. This job tests and packs the npm package (`npm pack` ships no
-    # node_modules), so it skips them exactly as release-gate.yml does.
+    # `npm ci`. This job tests the Node lane, which needs no native binding,
+    # so it skips them exactly as release-gate.yml does.
     env:
       ONNXRUNTIME_NODE_INSTALL: skip
     steps:
@@ -168,7 +169,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -183,9 +183,15 @@ jobs:
       - name: Verify native sources match the pinned native releases
         run: node scripts/native-release-status.mjs --check
 
+      # The gate already ran the default lane on every gated main push; this
+      # re-runs it only when a critical path changed after the newest gated
+      # commit (deploy.yml run_critical). The lane needs no native binary, no
+      # Office runtime and no staged native tool: the Rust code that changed
+      # under native/ is verified by the rust-lanes job beside this one.
       # Retried for a transient registry failure; a deterministic one fails
       # all three attempts.
       - name: Install
+        if: inputs.run_critical
         run: |
           for attempt in 1 2 3; do
             npm ci --prefer-offline --no-audit --no-fund && exit 0
@@ -194,66 +200,55 @@ jobs:
           done
           exit 1
 
-      # The gate already ran the default lane on every gated main push; this
-      # re-runs it only when a critical path changed after the newest gated
-      # commit (deploy.yml run_critical). The tool-contract files inside the
-      # lane drive the debug native spawn binary.
-      # Same runner provisioning as release-gate.yml.
-      - name: Install fonts and LibreOffice for the Office suites
-        if: inputs.run_critical
-        uses: ./.github/actions/office-runtime
-
-      # An exact hit restores the compiled binary itself and skips cargo.
-      - name: Cache the native spawn test binary
-        id: spawn-bin
-        if: inputs.run_critical
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: native/mixdog-spawn/target/debug/mixdog-spawn
-          key: spawn-test-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/mixdog-spawn/build.rs', 'native/mixdog-spawn/src/**') }}
-
-      - name: Cache the native spawn test build
-        if: inputs.run_critical && steps.spawn-bin.outputs.cache-hit != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/mixdog-spawn/target
-          key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
-          restore-keys: spawn-test-cargo-${{ runner.os }}-
-
-      - name: Build the native spawn test binary
-        if: inputs.run_critical && steps.spawn-bin.outputs.cache-hit != 'true'
-        run: npm run build:spawn:test
-
-      # `npm ci` no longer stages the native tools (postinstall only prunes the
-      # embedding runtime): stage the pinned graph, patch and spawn tools the
-      # suites resolve in native-tools/.
-      - name: Stage the native tools
-        if: inputs.run_critical
-        run: node scripts/stage-native-tools.mjs
-
       - name: Verify changed source-critical release invariants
         if: inputs.run_critical
         run: npm test
 
-      - name: Pack staged npm release
-        id: pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          PACKAGE=$(npm pack --silent --ignore-scripts | tail -n 1)
-          test -n "$PACKAGE"
-          echo "file=$PACKAGE" >> "$GITHUB_OUTPUT"
-
-      - name: Stage npm package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+  # The Rust lanes of the gate (scripts/rust-core/k1-lanes.mjs: the tests of native/core that stand in for the Node suites
+  # the cut removed), re-run when a critical path changed after the newest gated commit. The release commit Deploy stamps is
+  # exempt from the gate and rewrites native/core/Cargo.toml and Cargo.lock, so this is the only run of the lanes on the
+  # code being released. It runs beside the packagers; publish waits for it. The job always runs (publish has no `if`, so a
+  # skipped needed job would skip the publication); its steps run only with run_critical.
+  rust-lanes:
+    name: rust-core-lanes
+    needs: identity
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "3"
+      ONNXRUNTIME_NODE_INSTALL: skip
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_VERSION: release-rust-lanes-rust1.99.1-v1
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        if: inputs.run_critical
         with:
-          name: npm-package
-          path: ${{ steps.pack.outputs.file }}
-          if-no-files-found: error
-          retention-days: 2
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: inputs.run_critical
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        if: inputs.run_critical
+        with:
+          toolchain: "1.99.1"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: inputs.run_critical
+      # scripts/rust-core/lib/core-session.mjs imports `ws`; a clean runner has no node_modules.
+      - name: Install
+        if: inputs.run_critical
+        run: npm ci --prefer-offline --no-audit --no-fund
+      # The scripts start every cargo/mixdogd child through this helper (it ends the child's whole tree, whatever exits first).
+      - name: Build the process-tree helper
+        if: inputs.run_critical
+        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      - name: Run the lanes
+        if: inputs.run_critical
+        run: node scripts/rust-core/k1-lanes.mjs
 
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
@@ -291,7 +286,9 @@ jobs:
           echo "manifest=$(node scripts/manifest-cache-key.mjs \
             apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
 
-      # Key mirrored in release-gate.yml, which warms it on every main push.
+      # Key mirrored in release-gate.yml, which warms it on every main push. It hashes every tree the bundle imports
+      # from outside apps/desktop/src (packages/protocol, packages/protocol-client, src/tui, the shared runtime
+      # modules): a hand-picked list kept missing one, and a hit restores the old bundle and skips the typecheck.
       # The renderer bundles CHANGELOG.md and the desktop package version
       # (Settings > About > changelog), so both belong in the key: the
       # release commit Deploy stamps must rebuild instead of reusing the
@@ -302,17 +299,20 @@ jobs:
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v4-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+            desktop-out-v5-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
               'CHANGELOG.md',
               'changelog/*.md',
               'apps/desktop/package.json',
               'apps/desktop/src/**',
-              '!apps/desktop/src/**/*.test.mjs',
-              '!apps/desktop/src/**/*.test.jsx',
+              'apps/desktop/scripts/**',
               'apps/desktop/electron.vite.config.ts',
               'apps/desktop/tsconfig*.json',
-              'src/runtime/shared/**',
-              '!src/runtime/shared/**/*.test.mjs'
+              'packages/**',
+              'src/**',
+              '!**/*.test.mjs',
+              '!**/*.test.ts',
+              '!**/*.test.tsx',
+              '!**/*.test.jsx'
             ) }}
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -399,13 +399,121 @@ jobs:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
-  # The shipped Linux x64 core boots on a fresh profile and answers a first call
-  # (the release-gate rust-core job does the same on a debug build).
+  # Each shipped core boots on a fresh profile and answers a first call, on its own OS (the release-gate rust-core job does
+  # the same on a debug build). The x86_64 macOS core cannot run on the Apple-silicon runner. A clean runner has no
+  # node_modules (scripts/rust-core/lib/core-session.mjs imports `ws`) and no tree helper (every child of the smoke is
+  # started through it).
   core-smoke:
-    name: boot-shipped-mixdogd
+    name: boot-shipped-mixdogd-${{ matrix.target }}
+    needs: [identity, mixdogd]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, exe: "" }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, exe: "" }
+          - { target: aarch64-apple-darwin, runner: macos-15, exe: "" }
+          - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe" }
+    defaults:
+      run:
+        shell: bash
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-${{ matrix.target }}
+          path: core
+      # Only the pure-JS `ws` is loaded; no install script is needed.
+      - name: Install
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+      - name: Build the process-tree helper
+        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      - name: Boot mixdogd and answer a first call
+        run: |
+          chmod +x core/mixdogd${{ matrix.exe }}
+          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd core/mixdogd${{ matrix.exe }}
+
+  # The npm packages: one per platform (scripts/npm-platforms.mjs), staged from the programs mixdogd-build.yml built once
+  # (mixdogd-<target> and mixdog-entry-<target>), and the main package, which lists them as optional dependencies at the
+  # release version. It waits for the builds only, not for the tests of validate, and no packager waits for it.
+  pack-npm:
+    name: pack-npm-packages
     needs: [identity, mixdogd]
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      # Each artifact lands in a folder of its own name: native-artifacts/mixdogd-<target>/ and .../mixdog-entry-<target>/.
+      - name: Download the core and its helper of every platform
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mixdogd-*
+          path: native-artifacts
+      - name: Download the terminal program of every platform
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mixdog-entry-*
+          path: native-artifacts
+      - name: Stage the platform packages
+        run: node scripts/stage-npm-native.mjs --artifacts native-artifacts --out staged-packages
+      # The committed package.json lists no platform package (`npm ci` would look for them before they exist); the
+      # package that is packed and published lists every one at this release's version.
+      - name: List the platform packages in the main package
+        run: node scripts/stage-npm-native.mjs --lock-optional-dependencies
+      - name: Pack every package
+        run: |
+          set -euo pipefail
+          mkdir npm-tarballs
+          npm pack --ignore-scripts --pack-destination npm-tarballs >/dev/null
+          for dir in staged-packages/*/; do
+            npm pack --ignore-scripts --pack-destination npm-tarballs "$dir" >/dev/null
+          done
+          ls -l npm-tarballs
+      - name: Check the tarballs and start the launcher from an install of them
+        run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run
+      - name: Stage npm packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: npm-tarballs/*.tgz
+          if-no-files-found: error
+          retention-days: 2
+
+  # The same install, started on the other operating systems: the launcher, the manifest it writes and each program of the
+  # platform package, from the packed tarballs. pack-npm did Linux x64 beside the check of the files.
+  verify-npm-install:
+    name: verify-npm-install-${{ matrix.key }}
+    needs: [identity, pack-npm]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { key: linux-arm64, runner: ubuntu-22.04-arm }
+          - { key: darwin-arm64, runner: macos-15 }
+          - { key: win32-x64, runner: windows-2022 }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -416,12 +524,10 @@ jobs:
           node-version: "22"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: mixdogd-x86_64-unknown-linux-gnu
-          path: core
-      - name: Boot mixdogd and answer a first call
-        run: |
-          chmod +x core/mixdogd
-          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd core/mixdogd
+          name: npm-package
+          path: npm-tarballs
+      - name: Start the launcher from the packed tarballs
+        run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run ${{ matrix.key }}
 
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
@@ -557,6 +663,7 @@ jobs:
   linux-verify-sha-gate:
     needs: [linux-verify-full]
     runs-on: ubuntu-22.04
+    timeout-minutes: 5
     steps:
       - env:
           VERIFIED: ${{ needs.linux-verify-full.outputs.verified_sha }}
@@ -569,7 +676,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, desktop-build, core-smoke, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [validate, rust-lanes, desktop-build, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -636,8 +743,6 @@ jobs:
           if (process.env.RELEASE_TAG !== `v${version}`) {
             throw new Error(`Staged ref version ${version} does not match ${process.env.RELEASE_TAG}`);
           }
-          const npm = readdirSync('staged-npm').filter(name => name.endsWith('.tgz'));
-          if (npm.length !== 1) throw new Error(`Expected one staged npm package, found ${npm.length}`);
 
           const release = JSON.parse(readFileSync('/tmp/release.json', 'utf8'));
           if (String(release.id) !== process.env.RELEASE_ID
@@ -723,10 +828,17 @@ jobs:
               throw new Error(`Incomplete hidden release asset: ${asset.name}`);
             }
           }
-          console.log(`Verified hidden ${process.env.RELEASE_TAG}: 1 npm + ${assets.length} desktop assets.`);
+          console.log(`Verified hidden ${process.env.RELEASE_TAG}: ${assets.length} desktop assets.`);
           NODE
 
-      - name: Publish staged npm package
+      # The six tarballs are what pack-npm checked; nothing else may be in the folder.
+      - name: Verify the staged npm packages
+        run: node scripts/check-npm-packages.mjs --dir staged-npm
+
+      # The platform packages first, the main package last: the main package lists them, so an install of it can
+      # never find a version whose platform package is missing. A package already on the registry at this version is
+      # skipped, so a failed release resumes where it stopped.
+      - name: Publish staged npm packages
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -736,11 +848,22 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=${RELEASE_TAG#v}
-          if npm view "mixdog@${VERSION}" version --silent 2>/dev/null | grep -qxF "$VERSION"; then
-            echo "mixdog@${VERSION} is already published; resuming finalization."
-          else
-            npm publish ./staged-npm/*.tgz --provenance --access public
-          fi
+          publish_one() {
+            local name="$1" file="$2"
+            if npm view "${name}@${VERSION}" version --silent 2>/dev/null | grep -qxF "$VERSION"; then
+              echo "${name}@${VERSION} is already published; resuming finalization."
+            else
+              npm publish "./$file" --provenance --access public
+            fi
+          }
+          shopt -s nullglob
+          platform_packages=(staged-npm/mixdog-*-"${VERSION}".tgz)
+          test "${#platform_packages[@]}" -eq 5
+          for file in "${platform_packages[@]}"; do
+            base=${file##*/}
+            publish_one "${base%-"${VERSION}".tgz}" "$file"
+          done
+          publish_one mixdog "staged-npm/mixdog-${VERSION}.tgz"
 
       - name: Publish one complete GitHub release
         env:
