@@ -260,17 +260,18 @@ mod tests {
             }
             out
         });
+        // A reader that gives `split` bytes at a time: the next piece arrives when the pump has asked the socket for more.
+        let mut starved = true;
         let last = loop {
-            // A reader that gives `split` bytes at a time.
-            if buf.is_empty() && !rd.is_empty() {
+            if (starved || buf.is_empty()) && !rd.is_empty() {
                 let take = split.min(rd.len());
                 buf.extend_from_slice(&rd[..take]);
                 rd = &rd[take..];
             }
             let mut empty: &[u8] = &[];
             match pump.step(&mut empty, &mut buf).await {
-                Step::Progress => {}
-                Step::Eof if !rd.is_empty() => {}
+                Step::Progress => starved = false,
+                Step::Eof if !rd.is_empty() => starved = true,
                 other => break other,
             }
         };

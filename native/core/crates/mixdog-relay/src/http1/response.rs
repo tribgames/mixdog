@@ -458,8 +458,8 @@ impl ResponseWriter {
             self.should_keep_alive = false;
         }
         if self.removed_connection {
-            self.last = true;
-            self.should_keep_alive = false;
+            // Without the header an HTTP/1.1 connection still persists by default.
+            self.last = !self.should_keep_alive;
         } else if !connection {
             let send_keep_alive = self.should_keep_alive && (content_length || self.meta.chunked_by_default);
             if send_keep_alive {
