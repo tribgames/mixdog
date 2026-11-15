@@ -1,0 +1,60 @@
+# nr-office-author-xlsx-build: the Excel HTML builder and runner of crate mixdog-office-author. What the lead applies (all of it is
+# in files this task does not own). It was not compiled by this task (no cargo run).
+
+## 0. What must exist first: the xlsx modules of nr-office-ooxml-xlsx-operations
+xlsx_build.rs applies the whole workbook with ONE call and reads one helper:
+
+    use mixdog_ooxml::xlsx::apply_xlsx;                       // apply_xlsx<P: ReadProof>(&P, &TextMeasurer<'_, P>, &mut Package, &[Value]) -> Result<Vec<Value>, String>
+    use mixdog_ooxml::xlsx_sheet_edits::typed_number;         // typed_number(&Value) -> Option<TypedNumber { value: f64, number_format }>
+
+Both live in modules that nr-office-ooxml-xlsx-operations' own .wire adds to mixdog-ooxml's lib.rs (`pub mod xlsx;`,
+`pub mod xlsx_sheet_edits;`). Node's `applyPortableOoxmlBatch` for an xlsx does nothing after the batch but save, so nothing else is called.
+
+## 1. native/core/crates/mixdog-office-author/src/lib.rs
+Beside `pub mod pptx_html_runner;` add:
+
+    pub mod xlsx_build;
+    pub mod xlsx_html_runner;
+
+and extend the crate doc by one sentence: `xlsx_build` is the Excel HTML builder (`authoring/xlsx-html-build.mjs`: the sheets
+`measure_xlsx` read from the browser become a workbook on a column grid cut at the browser's box edges, written through the
+workbook batch of mixdog-ooxml) and `xlsx_html_runner` the Excel HTML runner (`authoring/xlsx-html-runner.mjs`: measure, photograph
+the pictures and each section, build, keep `<workbook>.mixdog-source.html` and the sheet pictures).
+
+## 2. native/core/crates/mixdog-office-author/Cargo.toml, native/core/Cargo.lock, mixdog-workspace-hack
+No change: every crate the two modules and the twin test use (mixdog-fonts, mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-ooxml,
+mixdog-rt, mixdog-core-api, serde_json; dev: async-trait, tokio, mixdog-testkit, base64, mixdog-rt with test-support) is in the manifest already.
+
+## 3. native/core/fixtures/MANIFEST.json (the index of the fixture sets)
+Add this entry in its place in the list sorted by `set` (before `office-xlsx-charts-soffice` or wherever `office-xlsx-build` sorts):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-xlsx-build.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-xlsx-build/MANIFEST.json",
+      "manifestSha256": "9827ba935dae9d27e1759cd9425ebd05211f78d9769e86f0ede93ca9be773c6d",
+      "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-build.mjs",
+      "set": "office-xlsx-build",
+      "totalBytes": 241211
+    },
+
+Recorded with `--tree C:/Project/mixdog` (not an exact commit export, so `product.commit` is null like the other office sets; re-record once
+from the Node product tree and update the digest if the manifest changes). The set is in this task's commit, added with `git add --sparse`.
+The recording reads the Excel suite's measures from native/core/fixtures/office-measure-docs/golden.json (already in the integration tree).
+
+## 4. SERVICE_PENDING (compose_flip.rs)
+No name to remove: this task registers no service and adds no protocol method.
+
+## 5. What the later tasks take from this one
+- The author action (the office worker's `author` route for `.xlsx`) calls
+  `mixdog_office_author::xlsx_html_runner::run_xlsx_html_authoring(endpoint, tokens, registry, note, html, output, XlsxRunOptions::new(target))`
+  and gets Node's result object (`ok`, `output`, `bytes`, `htmlSource`, `htmlPages: [{ page, path }]`, `logs`, `elapsedMs`; or
+  `{ ok: false, error: { message }, elapsedMs }`; a cancellation is `Err(RunError::Cancelled)`). `xlsx_html_artifacts(target)` names the kept files
+  (`source()`, `shot(sheet)`, `compare(page)`). The `shot` pictures are what the review's `render.compare` pairs with the Excel render.
+- The recording of this set has no `runs` section (the recorder needs a browser for it; run it with `--browser` on a machine that has one, then
+  `twin_live_xlsx_build` and the ignored `html_run_*` tests check Rust against the same browser).
+- The recalculation of the formulas' cached values (the chart's value cache, the snapshot's `value`) belongs to the author action, as in Node: the
+  builder writes live formulas with empty caches. The Node tests of `office-xlsx-html.slow.test.mjs` that go through the whole `author`/`snapshot`/
+  `close` action (the session, `render.compare`, the snapshot's cell values) belong to the author action; the build-level ones are ported as
+  `the_report_is_a_native_live_workbook`, `table_values_keep_identifiers_and_type_figures` and `a_workbook_without_a_sheet_is_refused` (offline, on the
+  recorded builds) and `html_run_*` (ignored, browser).
