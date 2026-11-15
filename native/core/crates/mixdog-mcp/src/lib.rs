@@ -12,6 +12,7 @@ pub mod cross_spawn;
 pub mod deadlines;
 pub mod declaration_cache;
 pub mod extension_service;
+pub mod gmail_app_password;
 pub mod gmail_verify;
 pub mod google_mcp;
 pub mod hook_bus;

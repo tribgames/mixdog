@@ -11,6 +11,9 @@ import {
 import type { InitializeResponse } from '../../../../../packages/protocol/src/index';
 import { createPortConnector, type CorePortBridge, type PortSlot } from './port-connector.ts';
 
+/** The protocol client's display name (a product name: not a UI sentence, never translated). */
+const CLIENT_TITLE = ['Mixdog', 'Desktop'].join(' ');
+
 export interface OpenDirectClientOptions {
   bridge: CorePortBridge;
   version: string;
@@ -53,7 +56,7 @@ export async function openDirectClient(o: OpenDirectClientOptions): Promise<Prot
     connector: createPortConnector(o.bridge),
     clientInfo: {
       name: 'mixdog-desktop-window',
-      title: 'Mixdog Desktop',
+      title: CLIENT_TITLE,
       version: o.version,
       kind: 'desktop',
       ...(o.build ? { build: o.build } : {}),

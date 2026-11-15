@@ -144,10 +144,6 @@ pub struct DomainPaths {
     pub user_data_dir: PathBuf,
     /// The package root: the shipped `orchestration/`, `output-styles/`, `workflows/` and `agents/` are under its `src/` (`mixdogRoot()`).
     pub package_root: PathBuf,
-    /// The JS interpreter of the install (`JsRuntime::program`) and whether it is the app binary
-    /// in node mode: what runs the staged update's `npm`.
-    pub node: PathBuf,
-    pub electron: bool,
 }
 
 /// Traits the other owners' services implement; each field says whose.

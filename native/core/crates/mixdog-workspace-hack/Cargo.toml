@@ -16,6 +16,7 @@ publish = false
 ### BEGIN HAKARI SECTION
 [dependencies]
 aho-corasick = { version = "1" }
+bytemuck = { version = "1", default-features = false, features = ["aarch64_simd", "extern_crate_alloc"] }
 chrono = { version = "0.4", features = ["serde"] }
 crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
@@ -74,6 +75,7 @@ tokio-util = { version = "0.7", features = ["codec", "io"] }
 tracing = { version = "0.1" }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ttf-parser = { version = "0.25", features = ["no-std-float"] }
 tungstenite = { version = "0.28", default-features = false, features = ["__rustls-tls", "handshake"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 unicode-properties = { version = "0.1" }

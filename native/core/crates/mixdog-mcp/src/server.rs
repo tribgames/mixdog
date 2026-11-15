@@ -185,6 +185,8 @@ pub struct McpServer {
     secrets: Vec<String>,
     io: McpIo,
     authorizer: Option<Arc<dyn Authorizer>>,
+    /// The Gmail app-password server of this process, for a server whose address is its reserved one.
+    gmail: std::sync::OnceLock<Arc<crate::gmail_app_password::GmailMcp>>,
     generation: AtomicU64,
     connecting: AtomicBool,
     shutdown: CancellationToken,
@@ -409,6 +411,7 @@ impl McpServer {
             secrets,
             io,
             authorizer,
+            gmail: std::sync::OnceLock::new(),
             generation: AtomicU64::new(0),
             connecting: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
@@ -591,6 +594,15 @@ impl McpServer {
             TransportConfig::Http { url, headers } => {
                 self.check_sign_in_client()?;
                 let (transport, rx) = HttpTransport::new(url.clone(), headers, self.authorizer.clone())?;
+                let transport = match self.gmail.get() {
+                    Some(gmail) => transport.with_gmail(gmail.clone()),
+                    // The reserved name never resolves: without the server there is nothing to dial.
+                    None if crate::gmail_app_password::is_service(url) => {
+                        tracing::error!(server = self.config.name, "the Gmail app-password server is not available in this build");
+                        return Err(TransportError::Other("the Gmail app-password server is not available in this build".into()));
+                    }
+                    None => transport,
+                };
                 Ok((Arc::new(transport), rx))
             }
             TransportConfig::Sse { url, headers } => {
@@ -768,6 +780,11 @@ impl McpServer {
             ServerState::Ready(ready) => Ok(Arc::clone(ready)),
             other => Err(CallError::NotReady { server: self.name().to_owned(), state: other.describe() }),
         }
+    }
+
+    /// The Gmail app-password server that answers this server's reserved address (set by the hub before the first start).
+    pub fn set_gmail(&self, gmail: Arc<crate::gmail_app_password::GmailMcp>) {
+        let _ = self.gmail.set(gmail);
     }
 
     /// `setMcpScopeRoot` (mcp/client.mjs:1603) for this server: the folder its scope works in now. A server that
