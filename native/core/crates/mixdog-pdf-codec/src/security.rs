@@ -10,7 +10,9 @@
 //! damaged data: the 16 bytes of the IV come first, a trailing partial block is dropped, and the padding of the last
 //! block is removed only when its bytes agree with their own count.
 
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
@@ -35,9 +37,15 @@ const DEFAULT_PASSWORD_BYTES: [u8; 32] = [
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecurityError {
     /// pdf.js's `PasswordException`: `code` is [`NEED_PASSWORD`] or [`INCORRECT_PASSWORD`].
-    Password { code: u8, message: &'static str },
+    Password {
+        code: u8,
+        message: &'static str,
+    },
     /// pdf.js's `FormatError`.
     Format(String),
+    ResourceLimit {
+        limit: usize,
+    },
 }
 
 impl SecurityError {
@@ -55,6 +63,9 @@ impl fmt::Display for SecurityError {
         match self {
             SecurityError::Password { message, .. } => f.write_str(message),
             SecurityError::Format(message) => f.write_str(message),
+            SecurityError::ResourceLimit { limit } => {
+                write!(f, "decrypted stream longer than {limit} bytes")
+            }
         }
     }
 }
@@ -104,9 +115,37 @@ pub struct EncryptDict {
     pub encrypt_metadata: Option<bool>,
     /// `CF` as `(name, filter)` pairs; `None` when the dictionary has no `CF`.
     pub cf: Option<Vec<(String, CryptFilter)>>,
-    pub stm_f: Option<String>,
-    pub str_f: Option<String>,
-    pub eff: Option<String>,
+    pub stm_f: Option<CryptFilterName>,
+    pub str_f: Option<CryptFilterName>,
+    pub eff: Option<CryptFilterName>,
+}
+
+/// A truthy non-Name must survive dictionary conversion until the cipher is selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CryptFilterName {
+    Name(String),
+    Invalid,
+}
+impl From<String> for CryptFilterName {
+    fn from(value: String) -> Self {
+        Self::Name(value)
+    }
+}
+impl From<&str> for CryptFilterName {
+    fn from(value: &str) -> Self {
+        Self::Name(value.into())
+    }
+}
+impl CryptFilterName {
+    fn name(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name),
+            Self::Invalid => None,
+        }
+    }
+    fn is_identity(&self) -> bool {
+        self.name() == Some("Identity")
+    }
 }
 
 fn lookup<'a>(cf: &'a [(String, CryptFilter)], name: &str) -> Option<&'a CryptFilter> {
@@ -173,7 +212,9 @@ impl AesDecryptor {
     /// `decryptBlock(data, finalize)`. While the IV has not been read, fewer than 16 bytes give nothing.
     fn decrypt_block(&mut self, data: &[u8], finalize: bool) -> Vec<u8> {
         let data = if self.iv.is_none() {
-            let Some(first) = data.first_chunk::<16>() else { return Vec::new() };
+            let Some(first) = data.first_chunk::<16>() else {
+                return Vec::new();
+            };
             self.iv = Some(*first);
             &data[16..]
         } else {
@@ -257,6 +298,7 @@ impl Cipher {
     }
 }
 
+#[derive(Clone)]
 enum CipherKind {
     Null,
     Rc4(Vec<u8>),
@@ -414,9 +456,9 @@ pub struct CipherTransformFactory {
     file_id: Vec<u8>,
     algorithm: i64,
     encrypt_metadata: bool,
-    stm_f: String,
-    str_f: String,
-    eff: String,
+    stm_f: CryptFilterName,
+    str_f: CryptFilterName,
+    eff: CryptFilterName,
     cf: Option<Vec<(String, CryptFilter)>>,
     encryption_key: Option<Vec<u8>>,
 }
@@ -438,13 +480,15 @@ impl CipherTransformFactory {
         }
         let algorithm = match dict.v {
             Some(v @ (1 | 2 | 4 | 5)) => v,
-            _ => return Err(SecurityError::Format("unsupported encryption algorithm".into())),
+            _ => {
+                return Err(SecurityError::Format("unsupported encryption algorithm".into()));
+            }
         };
         let mut key_length = dict.length.unwrap_or(0);
         if key_length == 0 {
             if algorithm <= 3 {
                 key_length = 40;
-            } else if let (Some(cf), Some(stm_f)) = (&dict.cf, &dict.stm_f) {
+            } else if let (Some(cf), Some(CryptFilterName::Name(stm_f))) = (&dict.cf, &dict.stm_f) {
                 key_length = lookup(cf, stm_f).and_then(|f| f.length).filter(|&l| l != 0).unwrap_or(128);
                 if key_length < 40 {
                     key_length <<= 3;
@@ -454,7 +498,7 @@ impl CipherTransformFactory {
         if key_length < 40 || key_length % 8 != 0 {
             return Err(SecurityError::Format("invalid key length".into()));
         }
-        let identity = || "Identity".to_string();
+        let identity = || CryptFilterName::from("Identity");
         let (cf, stm_f, str_f, eff) = if algorithm >= 4 {
             let stm_f = dict.stm_f.clone().unwrap_or_else(identity);
             let str_f = dict.str_f.clone().unwrap_or_else(identity);
@@ -469,15 +513,8 @@ impl CipherTransformFactory {
         let revision = dict.r.unwrap_or(0);
         let encrypt_metadata = (algorithm == 4 || algorithm == 5) && dict.encrypt_metadata != Some(false);
 
-        let key_params = KeyParams {
-            file_id,
-            owner_password,
-            user_password,
-            flags,
-            revision,
-            key_length,
-            encrypt_metadata,
-        };
+        let key_params =
+            KeyParams { file_id, owner_password, user_password, flags, revision, key_length, encrypt_metadata };
         let mut password_bytes: Option<Vec<u8>> = None;
         let mut raw_password_bytes: Option<Vec<u8>> = None;
         if let Some(password) = password {
@@ -518,10 +555,10 @@ impl CipherTransformFactory {
 
         if encryption_key.is_none() {
             let Some(password_bytes) = password_bytes.as_deref() else {
-                if algorithm >= 4 && stm_f == "Identity" && str_f == "Identity" {
+                if algorithm >= 4 && stm_f.is_identity() && str_f.is_identity() {
                     let auth_event = cf
                         .as_deref()
-                        .and_then(|cf| lookup(cf, &eff))
+                        .and_then(|cf| eff.name().and_then(|name| lookup(cf, name)))
                         .and_then(|f| f.auth_event.as_deref());
                     if auth_event == Some("EFOpen") {
                         return Ok(CipherTransformFactory {
@@ -584,6 +621,7 @@ impl CipherTransformFactory {
             stm_f: self.stm_f.clone(),
             str_f: self.str_f.clone(),
             eff: self.eff.clone(),
+            constructors: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -613,12 +651,7 @@ fn create_encryption_key_20(fields: &Revision5Fields<'_>, password: Option<&[u8]
     if algorithm.check_user_password(password, fields.user_validation_salt, fields.user_password) {
         Some(algorithm.user_key(password, fields.user_key_salt, fields.user_encryption))
     } else if !password.is_empty()
-        && algorithm.check_owner_password(
-            password,
-            fields.owner_validation_salt,
-            fields.u_bytes,
-            fields.owner_password,
-        )
+        && algorithm.check_owner_password(password, fields.owner_validation_salt, fields.u_bytes, fields.owner_password)
     {
         Some(algorithm.owner_key(password, fields.owner_key_salt, fields.u_bytes, fields.owner_encryption))
     } else {
@@ -712,9 +745,10 @@ pub struct CipherTransform {
     cf: Option<Vec<(String, CryptFilter)>>,
     num: u32,
     generation: u32,
-    stm_f: String,
-    str_f: String,
-    eff: String,
+    stm_f: CryptFilterName,
+    str_f: CryptFilterName,
+    eff: CryptFilterName,
+    constructors: Arc<Mutex<HashMap<String, CipherKind>>>,
 }
 
 impl fmt::Debug for CipherTransform {
@@ -728,11 +762,58 @@ impl fmt::Debug for CipherTransform {
 }
 
 impl CipherTransform {
-    fn resolve(&self, filter_name: &str) -> Result<CipherKind, SecurityError> {
+    fn cache_key(&self, name: &CryptFilterName) -> String {
+        if self.algorithm < 4 { "__default__".into() } else { name.name().unwrap_or("__default__").to_owned() }
+    }
+    /// Check before validating a selector: a Name("__default__") can populate
+    /// the same constructor slot later used by a non-Name selector.
+    pub fn has_cached_constructor(&self, string: bool, explicit: Option<&str>, embedded: bool) -> bool {
+        let explicit = explicit.map(CryptFilterName::from);
+        let selected = if string {
+            &self.str_f
+        } else {
+            explicit.as_ref().unwrap_or(if embedded { &self.eff } else { &self.stm_f })
+        };
+        self.constructors.lock().unwrap().contains_key(&self.cache_key(selected))
+    }
+    fn constructor(&self, name: &CryptFilterName) -> Result<CipherKind, SecurityError> {
+        let key = self.cache_key(name);
+        if let Some(kind) = self.constructors.lock().unwrap().get(&key).cloned() {
+            return Ok(kind);
+        }
+        let kind = self.resolve(name)?;
+        self.constructors.lock().unwrap().insert(key, kind.clone());
+        Ok(kind)
+    }
+    /// Selectors are exposed so the PDF parser can resolve indirect CF entries lazily.
+    pub fn string_filter_name(&self) -> Result<Option<&str>, SecurityError> {
+        self.selected_name(&self.str_f)
+    }
+    pub fn stream_filter_name(&self, embedded: bool) -> Result<Option<&str>, SecurityError> {
+        self.selected_name(if embedded { &self.eff } else { &self.stm_f })
+    }
+    pub fn uses_crypt_filters(&self) -> bool {
+        self.algorithm >= 4
+    }
+    fn selected_name<'a>(&self, name: &'a CryptFilterName) -> Result<Option<&'a str>, SecurityError> {
+        if self.algorithm < 4 {
+            return Ok(None);
+        }
+        name.name().map(Some).ok_or_else(|| SecurityError::Format("Invalid crypt filter name.".into()))
+    }
+    /// Install only the CF entry actually selected at this lazy access.
+    pub fn with_crypt_filters(mut self, filters: Vec<(String, CryptFilter)>) -> Self {
+        self.cf = Some(filters);
+        self
+    }
+
+    fn resolve(&self, filter_name: &CryptFilterName) -> Result<CipherKind, SecurityError> {
         if self.algorithm < 4 {
             let key = self.encryption_key.as_deref().unwrap_or_default();
             return Ok(CipherKind::Rc4(build_object_key(self.num, self.generation, key, false)));
         }
+        let filter_name =
+            filter_name.name().ok_or_else(|| SecurityError::Format("Invalid crypt filter name.".into()))?;
         let Some(cf) = &self.cf else {
             return Err(SecurityError::Format("Invalid crypt filter dictionary.".into()));
         };
@@ -754,15 +835,22 @@ impl CipherTransform {
         }
     }
 
+    /// Resolve the cipher at createStream time, without consuming encrypted bytes.
+    pub fn validate_stream(&self, crypt_filter_name: Option<&str>, embedded_file: bool) -> Result<(), SecurityError> {
+        let default = if self.algorithm >= 4 && embedded_file { &self.eff } else { &self.stm_f };
+        let explicit = crypt_filter_name.map(CryptFilterName::from);
+        self.constructor(explicit.as_ref().unwrap_or(default)).map(|_| ())
+    }
+
     /// `decryptString`: the bytes of a string object, decrypted with the string crypt filter.
     pub fn decrypt_string(&self, data: &[u8]) -> Result<Vec<u8>, SecurityError> {
-        let mut cipher = self.resolve(&self.str_f)?.instantiate();
+        let mut cipher = self.constructor(&self.str_f)?.instantiate();
         Ok(cipher.decrypt_block(data, true))
     }
 
     /// `createStream`: the bytes of a stream, decrypted in chunks of 512 bytes as `DecryptStream` does, with the
     /// crypt filter named by the stream (`Crypt` filter `Name`), else the embedded file filter when the stream is an
-    /// `EmbeddedFile`, else the stream crypt filter. The output stops at `limit` bytes.
+    /// `EmbeddedFile`, else the stream crypt filter. Output exceeding `limit` returns `ResourceLimit`.
     pub fn decrypt_stream(
         &self,
         data: &[u8],
@@ -771,17 +859,16 @@ impl CipherTransform {
         limit: usize,
     ) -> Result<Vec<u8>, SecurityError> {
         let default_name = if self.algorithm >= 4 && embedded_file { &self.eff } else { &self.stm_f };
-        let name = crypt_filter_name.filter(|n| !n.is_empty()).unwrap_or(default_name);
-        let mut cipher = self.resolve(name)?.instantiate();
+        let explicit = crypt_filter_name.map(CryptFilterName::from);
+        let mut cipher = self.constructor(explicit.as_ref().unwrap_or(default_name))?.instantiate();
         let mut out = Vec::new();
         let mut chunks = data.chunks(DECRYPT_CHUNK).peekable();
         while let Some(chunk) = chunks.next() {
             out.extend_from_slice(&cipher.decrypt_block(chunk, chunks.peek().is_none()));
-            if out.len() >= limit {
-                break;
+            if out.len() > limit {
+                return Err(SecurityError::ResourceLimit { limit });
             }
         }
-        out.truncate(limit);
         Ok(out)
     }
 }

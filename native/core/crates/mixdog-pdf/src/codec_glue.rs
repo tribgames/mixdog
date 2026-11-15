@@ -11,7 +11,8 @@ use std::io::Read;
 use std::sync::Arc;
 
 use mixdog_pdf_codec::security::{
-    CipherTransformFactory, CryptFilter, CryptFilterMethod, EncryptDict, SecurityError,
+    CipherTransform, CipherTransformFactory, CryptFilter, CryptFilterMethod, CryptFilterName,
+    EncryptDict, SecurityError,
 };
 use mixdog_pdf_codec::{CodecError, Filter, PredictorParams, decode_chain};
 
@@ -48,7 +49,14 @@ impl StreamFilters for CodecFilters {
             }
             "BrotliDecode" => return brotli_decode(data, max_output).map(Some),
             "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode"
-            | "JBIG2Decode" => return Ok(Some(data.to_vec())),
+            | "JBIG2Decode" => {
+                if data.len() > max_output {
+                    return Err(PdfError::ResourceLimit(format!(
+                        "decoded stream longer than {max_output} bytes"
+                    )));
+                }
+                return Ok(Some(data.to_vec()));
+            }
             _ => return Ok(None),
         };
         decode_chain(data, &[filter], max_output)
@@ -72,18 +80,28 @@ fn predictor_params(params: Option<&Dict>) -> Option<PredictorParams> {
 /// `BrotliStream`: the whole stream is one Brotli data. The decoder stops one byte past `max_output`, so the caller
 /// sees that the limit was passed.
 fn brotli_decode(data: &[u8], max_output: usize) -> Result<Vec<u8>> {
-    let limit = u64::try_from(max_output).unwrap_or(u64::MAX).saturating_add(1);
+    let limit = u64::try_from(max_output)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
     let mut out = Vec::new();
     brotli::Decompressor::new(data, 4096)
         .take(limit)
         .read_to_end(&mut out)
         .map_err(|e| PdfError::Format(e.to_string()))?;
+    if out.len() > max_output {
+        return Err(PdfError::ResourceLimit(format!(
+            "decoded stream longer than {max_output} bytes"
+        )));
+    }
     Ok(out)
 }
 
 fn from_codec(error: CodecError) -> PdfError {
     match error {
         CodecError::Format(message) => PdfError::Format(message),
+        CodecError::ResourceLimit { limit } => {
+            PdfError::ResourceLimit(format!("decoded stream longer than {limit} bytes"))
+        }
     }
 }
 
@@ -94,6 +112,9 @@ fn from_security(error: SecurityError) -> PdfError {
             code,
         },
         SecurityError::Format(message) => PdfError::Format(message),
+        SecurityError::ResourceLimit { limit } => {
+            PdfError::ResourceLimit(format!("decrypted stream longer than {limit} bytes"))
+        }
     }
 }
 
@@ -115,61 +136,193 @@ impl CodecDecryptorFactory {
 }
 
 impl DecryptorFactory for CodecDecryptorFactory {
-    fn create(
-        &self,
-        encrypt: &Dict,
-        file_id: &[u8],
-        xref: &Xref,
-    ) -> Result<Arc<dyn Decryptor>> {
-        let dict = encrypt_dict(xref, encrypt)?;
-        let factory = CipherTransformFactory::new(&dict, file_id, self.password.as_deref())
-            .map_err(from_security)?;
+    fn create(&self, encrypt: &Dict, file_id: &[u8], xref: &Xref) -> Result<Arc<dyn Decryptor>> {
+        let (mut dict, cf) = encrypt_dict(xref, encrypt)?;
+        let cf_missing = !encrypt.has("CF");
+        let factory = match CipherTransformFactory::new(&dict, file_id, self.password.as_deref()) {
+            Err(SecurityError::Password { code: 1, .. })
+                if dict.v.is_some_and(|v| v >= 4)
+                    && is_identity(&dict.stm_f)
+                    && is_identity(&dict.str_f) =>
+            {
+                // AuthEvent is read only on the no-password EFOpen path, after key derivation fails.
+                let eff = dict.eff.as_ref().or(dict.stm_f.as_ref());
+                let name = match eff {
+                    Some(CryptFilterName::Name(n)) => n.as_str(),
+                    None => "Identity",
+                    _ => "",
+                };
+                let handler = if matches!(cf, Obj::Null) {
+                    Obj::Null
+                } else if matches!(cf, Obj::Dict(_)) {
+                    cf_handler(xref, &cf, name, cf_missing)?
+                } else {
+                    return Err(PdfError::Format("this.cf?.get is not a function".into()));
+                };
+                let auth_event = match handler {
+                    Obj::Null => None,
+                    Obj::Dict(handler) => name_of(&xref.get(&handler, "AuthEvent")?),
+                    _ => {
+                        return Err(PdfError::Format(
+                            "cryptFilter?.get is not a function".into(),
+                        ));
+                    }
+                };
+                dict.cf = Some(vec![(
+                    name.to_owned(),
+                    CryptFilter {
+                        auth_event,
+                        ..Default::default()
+                    },
+                )]);
+                CipherTransformFactory::new(&dict, file_id, self.password.as_deref())
+                    .map_err(from_security)?
+            }
+            result => result.map_err(from_security)?,
+        };
         Ok(Arc::new(CodecDecryptor {
-            factory,
+            factory: Arc::new(factory),
+            cf,
             max_bytes: self.max_bytes,
+            cf_missing,
+            transform: None,
         }))
     }
 }
 
 /// The strings and streams of one document, decrypted per object number and generation.
 struct CodecDecryptor {
-    factory: CipherTransformFactory,
+    factory: Arc<CipherTransformFactory>,
+    cf: Obj,
     max_bytes: usize,
+    cf_missing: bool,
+    transform: Option<CipherTransform>,
 }
-
-impl Decryptor for CodecDecryptor {
-    fn decrypt_string(&self, num: i64, generation: i64, data: &[u8]) -> Vec<u8> {
-        let transform = self
-            .factory
-            .create_cipher_transform(num as u32, generation as u32);
-        match transform.decrypt_string(data) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                tracing::warn!("Cannot decrypt the string of object {num}: \"{e}\".");
-                Vec::new()
-            }
-        }
+impl CodecDecryptor {
+    fn transform(&self, num: i64, generation: i64) -> CipherTransform {
+        self.transform.clone().unwrap_or_else(|| {
+            self.factory
+                .create_cipher_transform(num as u32, generation as u32)
+        })
     }
-
+    fn prepare(
+        &self,
+        num: i64,
+        generation: i64,
+        explicit: Option<&str>,
+        embedded: bool,
+        string: bool,
+        xref: Option<&Xref>,
+    ) -> Result<CipherTransform> {
+        let transform = self.transform(num, generation);
+        if !transform.uses_crypt_filters()
+            || transform.has_cached_constructor(string, explicit, embedded)
+        {
+            return Ok(transform);
+        }
+        let name = if string {
+            transform.string_filter_name().map_err(from_security)?
+        } else if let Some(name) = explicit {
+            Some(name)
+        } else {
+            transform
+                .stream_filter_name(embedded)
+                .map_err(from_security)?
+        };
+        let name = name.expect("version 4/5 has a selected crypt filter");
+        let xref = xref
+            .ok_or_else(|| PdfError::Format("Crypt filter resolution requires an xref.".into()))?;
+        let handler = cf_handler(xref, &self.cf, name, self.cf_missing)?;
+        let filter = crypt_filter(xref, &handler)?;
+        Ok(transform
+            .clone()
+            .with_crypt_filters(vec![(name.to_owned(), filter)]))
+    }
+}
+impl Decryptor for CodecDecryptor {
+    fn for_object(&self, num: i64, generation: i64) -> Option<Arc<dyn Decryptor>> {
+        Some(Arc::new(Self {
+            factory: self.factory.clone(),
+            cf: self.cf.clone(),
+            cf_missing: self.cf_missing,
+            max_bytes: self.max_bytes,
+            transform: Some(
+                self.factory
+                    .create_cipher_transform(num as u32, generation as u32),
+            ),
+        }))
+    }
+    fn uses_embedded_filter(&self) -> bool {
+        self.factory
+            .create_cipher_transform(0, 0)
+            .uses_crypt_filters()
+    }
+    fn decrypt_string(
+        &self,
+        num: i64,
+        generation: i64,
+        data: &[u8],
+        xref: Option<&Xref>,
+    ) -> Result<Vec<u8>> {
+        self.prepare(num, generation, None, false, true, xref)?
+            .decrypt_string(data)
+            .map_err(from_security)
+    }
+    fn validate_stream(
+        &self,
+        num: i64,
+        generation: i64,
+        crypt_name: Option<&str>,
+        embedded_file: bool,
+        xref: Option<&Xref>,
+    ) -> Result<()> {
+        let transform = self.prepare(num, generation, crypt_name, embedded_file, false, xref)?;
+        transform
+            .validate_stream(crypt_name, embedded_file)
+            .map_err(from_security)?;
+        Ok(())
+    }
     fn decrypt_stream(
         &self,
         num: i64,
         generation: i64,
         data: &[u8],
         crypt_name: Option<&str>,
+        embedded_file: bool,
     ) -> Result<Vec<u8>> {
-        self.factory
-            .create_cipher_transform(num as u32, generation as u32)
-            .decrypt_stream(data, crypt_name, false, self.max_bytes)
+        let transform = self.transform(num, generation);
+        transform
+            .decrypt_stream(data, crypt_name, embedded_file, self.max_bytes)
             .map_err(from_security)
     }
 }
+fn is_identity(name: &Option<CryptFilterName>) -> bool {
+    matches!(name, None) || matches!(name, Some(CryptFilterName::Name(n)) if n == "Identity")
+}
+fn cf_handler(xref: &Xref, cf: &Obj, name: &str, missing: bool) -> Result<Obj> {
+    let Obj::Dict(cf) = cf else {
+        return Err(PdfError::Format(
+            match cf {
+                Obj::Null if missing => "Cannot read properties of undefined (reading 'get')",
+                Obj::Null => "Cannot read properties of null (reading 'get')",
+                _ => "this.cf.get is not a function",
+            }
+            .into(),
+        ));
+    };
+    let mut cf = (**cf).clone();
+    cf.suppress_encryption = true;
+    xref.get(&cf, name)
+}
 
-/// `dict.get(key)`, where a failure other than a fatal one reads as a missing value.
-fn soft_get(xref: &Xref, dict: &Dict, key: &str) -> Result<Obj> {
-    match xref.get(dict, key) {
-        Err(e) if !e.is_fatal() => Ok(Obj::Null),
-        other => other,
+fn selector(obj: &Obj) -> Option<CryptFilterName> {
+    if is_falsy(obj) {
+        None
+    } else {
+        Some(match obj.as_name() {
+            Some(name) => CryptFilterName::from(name),
+            None => CryptFilterName::Invalid,
+        })
     }
 }
 
@@ -194,55 +347,140 @@ fn is_falsy(obj: &Obj) -> bool {
 /// The values the standard security handler reads out of the `/Encrypt` dictionary (`CipherTransformFactory`'s
 /// constructor). A `Length` that is not falsy and not an integer is handed over as -1, which the handler rejects as
 /// pdf.js does (`invalid key length`).
-fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<EncryptDict> {
-    let get = |key: &str| soft_get(xref, encrypt, key);
-    let length = match get("Length")? {
-        value if is_falsy(&value) => None,
-        value => Some(value.as_int().unwrap_or(-1)),
+fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
+    let cf_missing = !encrypt.has("CF");
+    let get = |key: &str| xref.get(encrypt, key);
+    let filter = name_of(&get("Filter")?);
+    if filter.as_deref() != Some("Standard") {
+        return Err(PdfError::Format("unknown encryption method".into()));
+    }
+    let v = get("V")?.as_int();
+    if !matches!(v, Some(1 | 2 | 4 | 5)) {
+        return Err(PdfError::Format("unsupported encryption algorithm".into()));
+    }
+    let length_obj = get("Length")?;
+    let mut length = if is_falsy(&length_obj) {
+        0
+    } else {
+        length_obj.as_int().unwrap_or(-1)
     };
-    let cf = match get("CF")? {
-        Obj::Dict(cf) => {
-            let mut cf = (*cf).clone();
-            cf.suppress_encryption = true;
-            let keys: Vec<String> = cf.keys().map(str::to_owned).collect();
-            let mut filters = Vec::with_capacity(keys.len());
-            for key in keys {
-                let handler = soft_get(xref, &cf, &key)?;
-                filters.push((key, crypt_filter(xref, &handler)?));
-            }
-            Some(filters)
+    if length != 0 && (length < 40 || length % 8 != 0) {
+        return Err(PdfError::Format("invalid key length".into()));
+    }
+    let cf = if v.unwrap() >= 4 {
+        get("CF")?
+    } else {
+        Obj::Null
+    };
+    let stm_value = if v.unwrap() >= 4 {
+        get("StmF")?
+    } else {
+        Obj::Null
+    };
+    if length == 0 {
+        if v.unwrap() <= 3 {
+            length = 40;
+        } else if matches!(cf, Obj::Dict(_))
+            && let Some(name) = stm_value.as_name()
+        {
+            let handler = cf_handler(xref, &cf, name, cf_missing)?;
+            let value = match handler {
+                Obj::Null => Obj::Null,
+                Obj::Dict(handler) => xref.get(&handler, "Length")?,
+                _ => {
+                    return Err(PdfError::Format(
+                        "handlerDict?.get is not a function".into(),
+                    ));
+                }
+            };
+            let value = if is_falsy(&value) {
+                Obj::Num(128.0)
+            } else {
+                value
+            };
+            let numeric = crate::page::object_number(&value);
+            length = if numeric < 40.0 {
+                // JavaScript's <<= 3 first performs ToInt32, including numeric strings/arrays.
+                let bits = if numeric.is_finite() {
+                    numeric.trunc().rem_euclid(4_294_967_296.0) as u32
+                } else {
+                    0
+                };
+                i64::from(bits.wrapping_shl(3) as i32)
+            } else {
+                value.as_int().unwrap_or(-1)
+            };
         }
-        _ => None,
+    }
+    if length < 40 || length % 8 != 0 {
+        return Err(PdfError::Format("invalid key length".into()));
+    }
+    let stm_f = selector(&stm_value);
+    let str_f = if v.unwrap() >= 4 {
+        selector(&get("StrF")?)
+    } else {
+        None
     };
-    Ok(EncryptDict {
-        filter: name_of(&get("Filter")?),
-        v: get("V")?.as_int(),
-        r: get("R")?.as_int(),
-        length,
-        o: bytes_of(&get("O")?),
-        u: bytes_of(&get("U")?),
-        oe: bytes_of(&get("OE")?),
-        ue: bytes_of(&get("UE")?),
-        perms: bytes_of(&get("Perms")?),
-        p: get("P")?.as_num().map_or(0, |n| n as i64),
-        encrypt_metadata: match get("EncryptMetadata")? {
+    let eff = if v.unwrap() >= 4 {
+        selector(&get("EFF")?)
+    } else {
+        None
+    };
+    let o = bytes_of(&get("O")?);
+    let u = bytes_of(&get("U")?);
+    let p = get("P")?.as_num().map_or(0, |n| n as i64);
+    let r = get("R")?.as_int();
+    let encrypt_metadata = if v.unwrap() >= 4 {
+        match get("EncryptMetadata")? {
             Obj::Bool(b) => Some(b),
             _ => None,
+        }
+    } else {
+        None
+    };
+    let (oe, ue, perms) = if v == Some(5) {
+        (
+            bytes_of(&get("OE")?),
+            bytes_of(&get("UE")?),
+            bytes_of(&get("Perms")?),
+        )
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
+    Ok((
+        EncryptDict {
+            filter,
+            v,
+            r,
+            length: Some(length),
+            o,
+            u,
+            oe,
+            ue,
+            perms,
+            p,
+            encrypt_metadata,
+            cf: matches!(cf, Obj::Dict(_)).then(Vec::new),
+            stm_f,
+            str_f,
+            eff,
         },
         cf,
-        stm_f: name_of(&get("StmF")?),
-        str_f: name_of(&get("StrF")?),
-        eff: name_of(&get("EFF")?),
-    })
+    ))
 }
 
 /// One entry of the `CF` dictionary. A `CFM` that is missing (or falsy) is the identity, one that is no name is an
 /// unknown method.
 fn crypt_filter(xref: &Xref, handler: &Obj) -> Result<CryptFilter> {
-    let Obj::Dict(handler) = handler else {
+    if matches!(handler, Obj::Null) {
         return Ok(CryptFilter::default());
+    }
+    let Obj::Dict(handler) = handler else {
+        return Err(PdfError::Format(
+            "cryptFilter?.get is not a function".into(),
+        ));
     };
-    let cfm = match soft_get(xref, handler, "CFM")? {
+    let cfm = match xref.get(handler, "CFM")? {
         value if is_falsy(&value) => None,
         Obj::Name(name) => Some(match &*name {
             "None" => CryptFilterMethod::None,
@@ -255,7 +493,6 @@ fn crypt_filter(xref: &Xref, handler: &Obj) -> Result<CryptFilter> {
     };
     Ok(CryptFilter {
         cfm,
-        length: soft_get(xref, handler, "Length")?.as_int(),
-        auth_event: name_of(&soft_get(xref, handler, "AuthEvent")?),
+        ..Default::default()
     })
 }

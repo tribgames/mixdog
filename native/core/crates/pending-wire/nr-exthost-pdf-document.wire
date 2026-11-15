@@ -1,42 +1,98 @@
-# nr-exthost-pdf-document: mixdog-pdf gains document.rs, page.rs and codec_glue.rs, and three dependency edges.
+# nr-exthost-pdf-document corrective integration
 
-## 1. native/core/Cargo.toml
-Nothing: `mixdog-pdf` and `mixdog-pdf-codec` are workspace members and workspace dependencies already; `brotli`,
-`mixdog-testkit`, `serde_json` and `flate2` have workspace entries.
+## Scope and ordering
 
-## 2. native/core/Cargo.lock, package "mixdog-pdf"
-The dependency list becomes (the crate's Cargo.toml now has brotli and mixdog-pdf-codec as dependencies, and
-mixdog-testkit and serde_json beside flate2 as dev-dependencies):
-    [[package]]
-    name = "mixdog-pdf"
-    version = "1.5.0"
-    dependencies = [
-     "brotli",
-     "flate2",
-     "mixdog-pdf-codec",
-     "mixdog-testkit",
-     "serde_json",
-     "tracing",
-    ]
-(`cargo metadata --offline --locked` rewrites it the same way; brotli 9.1.1 is the only brotli in the lock.)
+Integrate the corrective mixdog-pdf-codec sources and tests together with mixdog-pdf parser.rs, stream.rs,
+codec_glue.rs, page.rs, and the updated/new tests. Do not copy unrelated stale worktree files.
+The syntax and codec API changes must land before downstream font/text consumers compile.
+The existing document.rs remains the document/page-tree implementation; no production Node fallback is added.
 
-## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml and .config/hakari.toml
-mixdog-pdf still does not depend on the hack crate. Its edge to mixdog-pdf-codec and brotli (features std, as
-mixdog-ai) adds no feature the hack crate does not already unify. If `cargo hakari verify` asks for mixdog-pdf in
-[final-excludes] workspace-members (beside mixdog-js), add it as the nr-exthost-pdf-syntax fragment said.
+## Exact dependency edge (lead-owned)
 
-## 4. Seams for the later tasks of the track
-- `mixdog_pdf::document::{Document, OpenOptions, Exception, wrap_reason}` and `mixdog_pdf::page::{Page, Viewport}`;
-  `mixdog_pdf::codec_glue::{CodecFilters, CodecDecryptorFactory}`. `lib.rs` (owned by nr-exthost-pdf-syntax) declares
-  the modules and has no `pub use` of them; a task that wants `mixdog_pdf::Document` adds
-  `pub use document::{Document, OpenOptions};` there.
-- `Document::open(bytes, &OpenOptions)`; `Document::page(index)` gives a `Page` with `view`, `rotate`, `user_unit`,
-  `resources(&doc)`, `content(&doc)` (the decoded content streams joined) and `viewport(scale)`.
-  `Document::xref()` is the object access the font and text tasks use; `Document::options()` carries
-  `use_system_fonts` and `disable_font_face` of the reference configuration.
+In native/core/crates/mixdog-pdf/Cargo.toml, [dependencies], add:
+    mixdog-js = { workspace = true }
 
-## 5. No SERVICE_PENDING names, no protocol rows: the crate registers no service.
+No external dependency is introduced. mixdog-js is foundational and has no PDF dependency (checked in both
+this worktree and the integration tree). Use its existing number_to_string/string_to_number implementations.
+Keep the existing brotli, mixdog-pdf-codec, tracing, flate2, mixdog-testkit, and serde_json edges.
+Regenerate Cargo.lock offline as needed without --locked; do not replace its package/dependency blocks with
+this older worktree's lockfile. No Cargo or Rust build/test command was run by the implementing agent.
 
-## 6. Verify (after 2)
-cargo nextest run -p mixdog-pdf --offline
-cargo clippy -p mixdog-pdf --all-targets --offline -- -D warnings
+## API consumers
+
+- Codec ascii85::decode, asciihex::decode, runlength::decode, and lzw::decode now return Result<Vec<u8>, CodecError>.
+  Flate/predictor/decode_chain retain Result but can return CodecError::ResourceLimit { limit }.
+  ResourceLimit is fatal and must never be converted to an empty stream or a successful prefix.
+- security::SecurityError adds ResourceLimit { limit }; EncryptDict's stm_f/str_f/eff become
+  Option<CryptFilterName>, preserving Name versus truthy non-Name. From<String>/From<&str> support literal callers.
+  Existing vector callers have been updated. The transform exposes narrow selector/prepared-CF methods for
+  the structure adapter's lazy resolution. No office-crypto PDF security consumer exists in this worktree or
+  the inspected integration tree; future consumers must propagate this Result contract.
+- Decryptor::decrypt_string(..., xref: Option<&Xref>) -> Result<Vec<u8>>.
+  Decryptor::validate_stream(..., embedded_file: bool, xref: Option<&Xref>) -> Result<()> has a default no-op.
+  Decryptor::uses_embedded_filter() -> bool defaults false; version 4/5 adapters override it.
+  Decryptor::decrypt_stream gains embedded_file: bool. The parser passes context only while selecting a cipher;
+  streams store no Xref reference. Each object owns one constructor cache; no mutex is held during indirect CF fetch.
+  The in-tree Xor test implementation is updated. No other implementations were found.
+- Page.rotate and Viewport.rotation are Obj, preserving numeric strings/arrays as returned by pdf.js.
+  Page.viewport(scale) still returns Viewport. Viewport::new takes Obj and returns Result<Viewport>, rejecting
+  invalid explicit rotations. The in-tree structure twin compares type as well as value. No other callers found.
+  This patch does not add the broader PageViewport cloning/conversion/dontFlip API.
+
+## Evidence and required lead verification
+
+Original Node v22.20.0 / pdf.js 6.4.299 recorded 33 small PDFs in tests/document_followup.json:
+14 Rotate/coercion cases and 19 encryption cases (unused malformed CF, non-dict selected CF, lazy string errors,
+invalid selectors, EFF, explicit Crypt catch behavior). The recorder and original source/input SHA256 values
+are stored in the fixture. The recorder rebuilds correct xrefs, rather than relying on recovery after mutation.
+Its encrypted seed comes from the existing pdf-codec corpus and is embedded as complete tiny PDF hex inputs.
+The encrypted text check validates decoded content presence, not the future text-layout extraction engine.
+Additional tiny Rust regressions cover exact-boundary output, per-stage limits before predictor shrinking,
+raw/decrypted streams, and parser default-versus-explicit Crypt fatal/nonfatal handling.
+
+After integration and corpus placement, the lead should run targeted tests for mixdog-pdf-codec and mixdog-pdf
+(including vectors, syntax, document_followup, structure_twin and codec_twin), then the appropriate lint check.
+No budgets were lowered: existing object/depth/byte defaults are unchanged. Bounded decoders observe at most
+one sentinel byte beyond the byte limit (or their existing small decoding block) and report typed overflow.
+
+## Remaining product stages
+
+fonts/mod.rs, text/mod.rs, fontfile/mod.rs, and inspect.rs are still placeholders owned by future tasks.
+This is document/geometry/decoded-content support, not a complete PDF text/font engine or a service registration.
+Do not remove the existing product path until those engine stages and the service wiring have passed their twins.
+
+
+## Constructor-cache corrective review (pdf.js 6.4.299)
+
+Also integrate the small xref.rs::cipher_for change with stream.rs's default
+Decryptor::for_object(num, generation) hook. CodecDecryptor creates one transform
+per object fetch/parse. The stream retains that object's transform; fetching an
+object again starts a new cache, even for the same object ID.
+
+security.rs caches CipherKind (constructor/key material), never an RC4/AES instance.
+Its shared Arc cache survives temporary prepared-CF transform clones. Both string
+and stream selection consult this cache before invalid-selector validation. A Name
+uses its name as the key; any non-Name selector uses __default__. Thus a string
+using /StrF /__default__ can prime a subsequent truthy non-Name StmF in the same
+object. Every decrypt_string and decrypt_stream instantiates fresh cipher state.
+The earlier adapter-wide stream HashMap is removed; there is only one constructor
+cache implementation, owned by CipherTransform.
+
+The adapter preserves whether /CF was absent versus explicit null. At lazy use,
+missing gives "Cannot read properties of undefined (reading 'get')", null gives
+"Cannot read properties of null (reading 'get')", and /CF false gives
+"this.cf.get is not a function". Its no-password optional AuthEvent access retains
+"this.cf?.get is not a function" for a non-dictionary CF.
+
+Nine new returning Node references cover the __default__ collision, isolation
+between objects, consecutive AES strings and stream, missing/null/false CF,
+unused false CF, and invalid EFF on ordinary versus EmbeddedFile streams.
+The consecutive AES test also inflates each decrypted string and compares it to
+the decoded stream, detecting accidental state sharing across these consumers.
+
+Exact original source evidence: pdf.worker.mjs:63812-63843 CipherTransform,
+#getCipher's Name-or-__default__ key and getOrInsertComputed before resolveCipher;
+createStream/decryptString each use `new Cipher()`. Factory resolver at
+64123-64153 validates Name only on a cache miss, then calls this.cf.get.
+The original source SHA256 is pinned in document_followup.json. The Node oracle
+was rerun; Rust compilation/tests remain lead-owned and were not run here.

@@ -53,7 +53,11 @@ fn differences(golden: &Value) -> Vec<String> {
         match opened {
             Ok(_) => found.push(format!("{name}: opened, pdf.js failed")),
             Err(e) if wrap_reason(&e) != recorded_error(&outcome["error"]) => {
-                found.push(format!("{name}: {:?}, pdf.js {}", wrap_reason(&e), outcome["error"]));
+                found.push(format!(
+                    "{name}: {:?}, pdf.js {}",
+                    wrap_reason(&e),
+                    outcome["error"]
+                ));
             }
             Err(_) => {}
         }
@@ -94,29 +98,51 @@ fn differences(golden: &Value) -> Vec<String> {
         };
         let viewport = page.viewport(1.0);
         let recorded_viewport = &recorded["viewport"];
+        for (label, ours, theirs) in [
+            ("rotate", object_json(&page.rotate), &recorded["rotate"]),
+            (
+                "viewport.rotation",
+                object_json(&viewport.rotation),
+                &recorded_viewport["rotation"],
+            ),
+        ] {
+            if &ours != theirs {
+                found.push(format!(
+                    "{name} page {number} {label}: {ours}, pdf.js {theirs}"
+                ));
+            }
+        }
         let mut check = |what: &str, ours: Vec<f64>, theirs: Vec<f64>| {
             if ours != theirs {
-                found.push(format!("{name} page {number} {what}: {ours:?}, pdf.js {theirs:?}"));
+                found.push(format!(
+                    "{name} page {number} {what}: {ours:?}, pdf.js {theirs:?}"
+                ));
             }
         };
         check("view", page.view.to_vec(), numbers(&recorded["view"]));
-        check("rotate", vec![f64::from(page.rotate)], vec![recorded["rotate"].as_f64().expect("rotate")]);
-        check("userUnit", vec![page.user_unit], vec![recorded["userUnit"].as_f64().expect("userUnit")]);
+        check(
+            "userUnit",
+            vec![page.user_unit],
+            vec![recorded["userUnit"].as_f64().expect("userUnit")],
+        );
         check(
             "viewport",
             vec![
                 viewport.width,
                 viewport.height,
-                f64::from(viewport.rotation),
                 viewport.offset_x,
                 viewport.offset_y,
             ],
-            ["width", "height", "rotation", "offsetX", "offsetY"]
+            ["width", "height", "offsetX", "offsetY"]
                 .iter()
                 .map(|key| recorded_viewport[*key].as_f64().expect("a viewport number"))
                 .collect(),
         );
-        check("transform", viewport.transform.to_vec(), numbers(&recorded_viewport["transform"]));
+        check(
+            "transform",
+            viewport.transform.to_vec(),
+            numbers(&recorded_viewport["transform"]),
+        );
     }
     found
 }
@@ -125,28 +151,45 @@ fn differences(golden: &Value) -> Vec<String> {
 fn every_recorded_document_opens_and_reads_as_in_pdf_js() {
     let manifest = json(fixtures().join("MANIFEST.json"));
     let cases = manifest["cases"].as_array().expect("the cases");
-    assert!(cases.len() >= 74, "the recording lost cases: {}", cases.len());
+    assert!(
+        cases.len() >= 74,
+        "the recording lost cases: {}",
+        cases.len()
+    );
     let mut found = Vec::new();
     for case in cases {
-        let golden = json(fixtures().join("goldens").join(format!("{}.json", case.as_str().expect("a case name"))));
+        let golden = json(
+            fixtures()
+                .join("goldens")
+                .join(format!("{}.json", case.as_str().expect("a case name"))),
+        );
         found.extend(differences(&golden));
     }
     found.truncate(20);
-    assert!(found.is_empty(), "differences from pdf.js:\n{}", found.join("\n"));
+    assert!(
+        found.is_empty(),
+        "differences from pdf.js:\n{}",
+        found.join("\n")
+    );
 }
 
 #[test]
 fn a_file_that_is_not_a_pdf_fails_as_invalid() {
-    let error = Document::open(b"just some text, not a document".to_vec(), &OpenOptions::default())
-        .err()
-        .expect("text is no PDF");
+    let error = Document::open(
+        b"just some text, not a document".to_vec(),
+        &OpenOptions::default(),
+    )
+    .err()
+    .expect("text is no PDF");
     assert_eq!(wrap_reason(&error).name, "InvalidPDFException");
     assert_eq!(wrap_reason(&error).message, "Invalid PDF structure.");
 }
 
 #[test]
 fn an_empty_file_fails_with_the_size_message() {
-    let error = Document::open(Vec::new(), &OpenOptions::default()).err().expect("empty");
+    let error = Document::open(Vec::new(), &OpenOptions::default())
+        .err()
+        .expect("empty");
     assert_eq!(
         wrap_reason(&error),
         Exception {
@@ -155,4 +198,19 @@ fn an_empty_file_fails_with_the_size_message() {
             message: "The PDF file is empty, i.e. its size is zero bytes.".to_owned(),
         }
     );
+}
+
+fn object_json(value: &mixdog_pdf::object::Obj) -> Value {
+    use mixdog_pdf::object::Obj;
+    match value {
+        Obj::Null => Value::Null,
+        Obj::Num(n) if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 => {
+            serde_json::json!(*n as i64)
+        }
+        Obj::Num(n) => serde_json::json!(n),
+        Obj::Bool(b) => serde_json::json!(b),
+        Obj::Str(s) => Value::String(s.iter().map(|&b| char::from(b)).collect()),
+        Obj::Array(a) => Value::Array(a.iter().map(object_json).collect()),
+        other => panic!("unexpected rotate object {other:?}"),
+    }
 }

@@ -16,10 +16,10 @@
 
 use mixdog_pdf_codec::predictor::{self, PredictorParams};
 use mixdog_pdf_codec::security::{
-    CipherTransformFactory, CryptFilter, CryptFilterMethod, EncryptDict, SecurityError, INCORRECT_PASSWORD,
-    NEED_PASSWORD,
+    CipherTransformFactory, CryptFilter, CryptFilterMethod, EncryptDict, INCORRECT_PASSWORD, NEED_PASSWORD,
+    SecurityError,
 };
-use mixdog_pdf_codec::{ascii85, asciihex, decode_chain, flate, lzw, rc4, runlength, Filter};
+use mixdog_pdf_codec::{Filter, ascii85, asciihex, decode_chain, flate, lzw, rc4, runlength};
 
 fn hex(text: &str) -> Vec<u8> {
     (0..text.len() / 2).map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).unwrap()).collect()
@@ -37,12 +37,7 @@ fn lcg(n: usize, alphabet: &[u8], seed: u64) -> Vec<u8> {
 
 fn same(got: &[u8], want: &[u8], what: &str) {
     let first = got.iter().zip(want).position(|(a, b)| a != b);
-    assert!(
-        got == want,
-        "{what}: got {} bytes, want {} bytes, first difference at {first:?}",
-        got.len(),
-        want.len()
-    );
+    assert!(got == want, "{what}: got {} bytes, want {} bytes, first difference at {first:?}", got.len(), want.len());
 }
 
 const NO_LIMIT: usize = usize::MAX;
@@ -69,7 +64,28 @@ const TIFF2_PLAIN: &str = "e2307480";
 const TIFF1_ENCODED: &str = "c480c480";
 const TIFF1_PLAIN: &str = "87008700";
 const A85_TEXT: &str = "87cURD_*#4DfTZ)+Wpab!!\"-MDIal,DfTD3@X3',F!*1m1Ggr~>";
-const A85_PREFIXES: [&str; 20] = ["9`", "9jn", "9jqo", "9jqo^", "9jqo^B`", "9jqo^Bla", "9jqo^BlbB", "9jqo^BlbD-", "9jqo^BlbD-B`", "9jqo^BlbD-Bla", "9jqo^BlbD-Ble@", "9jqo^BlbD-BleB1", "9jqo^BlbD-BleB1D?", "9jqo^BlbD-BleB1DJ&", "9jqo^BlbD-BleB1DJ+(", "9jqo^BlbD-BleB1DJ+*+", "9jqo^BlbD-BleB1DJ+*+Er", "9jqo^BlbD-BleB1DJ+*+F(b", "9jqo^BlbD-BleB1DJ+*+F(f+", "9jqo^BlbD-BleB1DJ+*+F(f,q"];
+const A85_PREFIXES: [&str; 20] = [
+    "9`",
+    "9jn",
+    "9jqo",
+    "9jqo^",
+    "9jqo^B`",
+    "9jqo^Bla",
+    "9jqo^BlbB",
+    "9jqo^BlbD-",
+    "9jqo^BlbD-B`",
+    "9jqo^BlbD-Bla",
+    "9jqo^BlbD-Ble@",
+    "9jqo^BlbD-BleB1",
+    "9jqo^BlbD-BleB1D?",
+    "9jqo^BlbD-BleB1DJ&",
+    "9jqo^BlbD-BleB1DJ+(",
+    "9jqo^BlbD-BleB1DJ+*+",
+    "9jqo^BlbD-BleB1DJ+*+Er",
+    "9jqo^BlbD-BleB1DJ+*+F(b",
+    "9jqo^BlbD-BleB1DJ+*+F(f+",
+    "9jqo^BlbD-BleB1DJ+*+F(f,q",
+];
 const LZW_NO_EOD_CODES: usize = 10;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -159,10 +175,14 @@ fn flate_header_errors() {
 
 #[test]
 fn flate_output_limit() {
-    let want = lcg(2000, b"abcdefghijklmnop", 12345);
-    let got = flate::inflate(&hex(FLATE_DYNAMIC), 100).unwrap();
-    same(&got, &want[..100], "limit 100");
-    assert!(flate::inflate(&hex(FLATE_DYNAMIC), 0).unwrap().is_empty());
+    assert!(matches!(
+        flate::inflate(&hex(FLATE_DYNAMIC), 100),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 100 })
+    ));
+    assert!(matches!(
+        flate::inflate(&hex(FLATE_DYNAMIC), 0),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 0 })
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -170,35 +190,35 @@ fn flate_output_limit() {
 
 #[test]
 fn lzw_specification_example() {
-    let got = lzw::decode(&[0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01], 1, NO_LIMIT);
+    let got = lzw::decode(&[0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01], 1, NO_LIMIT).unwrap();
     assert_eq!(got, [45, 45, 45, 45, 45, 65, 45, 45, 45, 66]);
 }
 
 #[test]
 fn lzw_code_width_grows_with_early_change_one() {
     let want = lcg(4000, b"abcd", 99);
-    let got = lzw::decode(&hex(LZW_BIG_EARLY1), 1, NO_LIMIT);
+    let got = lzw::decode(&hex(LZW_BIG_EARLY1), 1, NO_LIMIT).unwrap();
     same(&got, &want, "early change 1");
 }
 
 #[test]
 fn lzw_code_width_grows_with_early_change_zero() {
     let want = lcg(4000, b"abcd", 99);
-    let got = lzw::decode(&hex(LZW_BIG_EARLY0), 0, NO_LIMIT);
+    let got = lzw::decode(&hex(LZW_BIG_EARLY0), 0, NO_LIMIT).unwrap();
     same(&got, &want, "early change 0");
 }
 
 #[test]
 fn lzw_wrong_early_change_does_not_decode_the_same_data() {
     let want = lcg(4000, b"abcd", 99);
-    let got = lzw::decode(&hex(LZW_BIG_EARLY1), 0, NO_LIMIT);
+    let got = lzw::decode(&hex(LZW_BIG_EARLY1), 0, NO_LIMIT).unwrap();
     assert_ne!(got, want);
 }
 
 #[test]
 fn lzw_without_end_of_data_reads_zeros_to_the_end_of_the_block() {
     // pdf.js decodes 512 codes at a time and the codes missing at the end read as the byte 0.
-    let got = lzw::decode(&hex(LZW_NO_EOD), 1, NO_LIMIT);
+    let got = lzw::decode(&hex(LZW_NO_EOD), 1, NO_LIMIT).unwrap();
     let plain = b"abcabcabcabcabcabc";
     assert_eq!(got.len(), plain.len() + (512 - LZW_NO_EOD_CODES));
     assert_eq!(&got[..plain.len()], plain);
@@ -207,10 +227,11 @@ fn lzw_without_end_of_data_reads_zeros_to_the_end_of_the_block() {
 
 #[test]
 fn lzw_output_limit_and_empty_input() {
-    let want = lcg(4000, b"abcd", 99);
-    let got = lzw::decode(&hex(LZW_BIG_EARLY1), 1, 1000);
-    same(&got, &want[..1000], "limit 1000");
-    assert!(lzw::decode(&[], 1, NO_LIMIT).len() <= 512);
+    assert!(matches!(
+        lzw::decode(&hex(LZW_BIG_EARLY1), 1, 1000),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 1000 })
+    ));
+    assert!(lzw::decode(&[], 1, NO_LIMIT).unwrap().len() <= 512);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -219,10 +240,10 @@ fn lzw_output_limit_and_empty_input() {
 #[test]
 fn ascii85_text_zero_groups_and_whitespace() {
     let want = hex(A85_PLAIN_HEX);
-    assert_eq!(ascii85::decode(A85_TEXT.as_bytes(), NO_LIMIT), want);
+    assert_eq!(ascii85::decode(A85_TEXT.as_bytes(), NO_LIMIT).unwrap(), want);
     let spaced: Vec<u8> = A85_TEXT.bytes().flat_map(|b| [b, b'\n', b' ']).collect();
-    assert_eq!(ascii85::decode(&spaced, NO_LIMIT), want);
-    assert_eq!(ascii85::decode(b"zz~>", NO_LIMIT), [0u8; 8]);
+    assert_eq!(ascii85::decode(&spaced, NO_LIMIT).unwrap(), want);
+    assert_eq!(ascii85::decode(b"zz~>", NO_LIMIT).unwrap(), [0u8; 8]);
 }
 
 #[test]
@@ -230,45 +251,54 @@ fn ascii85_partial_final_group_and_missing_terminator() {
     let plain = b"Man is distinguished";
     for n in 1..=plain.len() {
         let text = A85_PREFIXES[n - 1];
-        assert_eq!(ascii85::decode(text.as_bytes(), NO_LIMIT), &plain[..n], "{n} bytes, no terminator");
+        assert_eq!(ascii85::decode(text.as_bytes(), NO_LIMIT).unwrap(), &plain[..n], "{n} bytes, no terminator");
         let ended = format!("{text}~>");
-        assert_eq!(ascii85::decode(ended.as_bytes(), NO_LIMIT), &plain[..n], "{n} bytes");
+        assert_eq!(ascii85::decode(ended.as_bytes(), NO_LIMIT).unwrap(), &plain[..n], "{n} bytes");
     }
-    assert_eq!(ascii85::decode(b"~>", NO_LIMIT), b"");
-    assert_eq!(ascii85::decode(b"", NO_LIMIT), b"");
+    assert_eq!(ascii85::decode(b"~>", NO_LIMIT).unwrap(), b"");
+    assert_eq!(ascii85::decode(b"", NO_LIMIT).unwrap(), b"");
 }
 
 #[test]
 fn ascii85_output_limit() {
-    assert_eq!(ascii85::decode(b"9jqo^BlbD-~>", 6), b"Man is"[..6].to_vec());
+    assert!(matches!(
+        ascii85::decode(b"9jqo^BlbD-~>", 6),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })
+    ));
 }
 
 #[test]
 fn asciihex_digits_case_whitespace_and_odd_count() {
-    assert_eq!(asciihex::decode(b"48656C6c6F>", NO_LIMIT), b"Hello");
-    assert_eq!(asciihex::decode(b"48 65\n6C 6c\t6F>", NO_LIMIT), b"Hello");
-    assert_eq!(asciihex::decode(b"48656C6C6F7>", NO_LIMIT), b"Hello\x70");
-    assert_eq!(asciihex::decode(b"4x8y>", NO_LIMIT), b"\x48");
-    assert_eq!(asciihex::decode(b"4865>6C", NO_LIMIT), b"He");
+    assert_eq!(asciihex::decode(b"48656C6c6F>", NO_LIMIT).unwrap(), b"Hello");
+    assert_eq!(asciihex::decode(b"48 65\n6C 6c\t6F>", NO_LIMIT).unwrap(), b"Hello");
+    assert_eq!(asciihex::decode(b"48656C6C6F7>", NO_LIMIT).unwrap(), b"Hello\x70");
+    assert_eq!(asciihex::decode(b"4x8y>", NO_LIMIT).unwrap(), b"\x48");
+    assert_eq!(asciihex::decode(b"4865>6C", NO_LIMIT).unwrap(), b"He");
     // A lone digit at the end of an input with no `>` is dropped.
-    assert_eq!(asciihex::decode(b"48656", NO_LIMIT), b"He");
-    assert_eq!(asciihex::decode(b">", NO_LIMIT), b"");
-    assert_eq!(asciihex::decode(b"48656C6C6F>", 3), b"Hel");
+    assert_eq!(asciihex::decode(b"48656", NO_LIMIT).unwrap(), b"He");
+    assert_eq!(asciihex::decode(b">", NO_LIMIT).unwrap(), b"");
+    assert!(matches!(
+        asciihex::decode(b"48656C6C6F>", 3),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 3 })
+    ));
 }
 
 #[test]
 fn runlength_literal_and_repeat_runs() {
-    assert_eq!(runlength::decode(&[2, b'a', b'b', b'c', 254, b'x', 128, 9], NO_LIMIT), b"abcxxx");
-    assert_eq!(runlength::decode(&[0, b'q', 129, b'z'], NO_LIMIT).len(), 1 + 128);
-    assert_eq!(runlength::decode(&[], NO_LIMIT), b"");
-    assert_eq!(runlength::decode(&[3], NO_LIMIT), b"");
+    assert_eq!(runlength::decode(&[2, b'a', b'b', b'c', 254, b'x', 128, 9], NO_LIMIT).unwrap(), b"abcxxx");
+    assert_eq!(runlength::decode(&[0, b'q', 129, b'z'], NO_LIMIT).unwrap().len(), 1 + 128);
+    assert_eq!(runlength::decode(&[], NO_LIMIT).unwrap(), b"");
+    assert_eq!(runlength::decode(&[3], NO_LIMIT).unwrap(), b"");
 }
 
 #[test]
 fn runlength_copy_cut_short_is_padded_and_limit_applies() {
-    assert_eq!(runlength::decode(&[4, b'a', b'b'], NO_LIMIT), [b'a', b'b', 0, 0, 0]);
-    assert_eq!(runlength::decode(&[253, b'k'], NO_LIMIT), b"kkkk");
-    assert_eq!(runlength::decode(&[253, b'k', 253, b'j'], 6), b"kkkkjj");
+    assert_eq!(runlength::decode(&[4, b'a', b'b'], NO_LIMIT).unwrap(), [b'a', b'b', 0, 0, 0]);
+    assert_eq!(runlength::decode(&[253, b'k'], NO_LIMIT).unwrap(), b"kkkk");
+    assert!(matches!(
+        runlength::decode(&[253, b'k', 253, b'j'], 6),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -338,8 +368,10 @@ fn predictor_defaults_none_and_unsupported() {
 
 #[test]
 fn predictor_output_limit() {
-    let got = predictor::decode(&hex(PNG_ENCODED), &params(15, 3, 8, 4), 20).unwrap();
-    same(&got, &hex(PNG_PLAIN)[..20], "limit 20");
+    assert!(matches!(
+        predictor::decode(&hex(PNG_ENCODED), &params(15, 3, 8, 4), 20),
+        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 20 })
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -463,9 +495,9 @@ impl Case {
             perms: hex(self.perms),
             p: self.p,
             encrypt_metadata: None,
-            cf: std_cf.clone().map(|f| vec![("StdCF".to_string(), f)]),
-            stm_f: std_cf.clone().map(|_| "StdCF".to_string()),
-            str_f: std_cf.map(|_| "StdCF".to_string()),
+            cf: std_cf.clone().map(|f| vec![("StdCF".into(), f)]),
+            stm_f: std_cf.clone().map(|_| "StdCF".into()),
+            str_f: std_cf.map(|_| "StdCF".into()),
             eff: None,
         }
     }
@@ -477,10 +509,8 @@ impl Case {
     fn check_decrypts(&self, factory: &CipherTransformFactory) {
         let title = factory.create_cipher_transform(1, 0).decrypt_string(&hex(self.title_enc)).unwrap();
         assert_eq!(title, TITLE, "{}: string", self.name);
-        let stream = factory
-            .create_cipher_transform(5, 0)
-            .decrypt_stream(&hex(self.stream_enc), None, false, NO_LIMIT)
-            .unwrap();
+        let stream =
+            factory.create_cipher_transform(5, 0).decrypt_stream(&hex(self.stream_enc), None, false, NO_LIMIT).unwrap();
         assert_eq!(stream, CONTENT, "{}: stream", self.name);
     }
 }
@@ -495,164 +525,163 @@ fn password_code(result: Result<CipherTransformFactory, SecurityError>) -> u8 {
 
 fn open_cases() -> Vec<Case> {
     vec![
-    Case {
-        name: "rc4_40",
-        v: 1,
-        r: 2,
-        length: Some(40),
-        p: 4294967292,
-        o: "c92422687facee686e373f10b5c7d04738053152f7e2ee30e11c69ec442576ab",
-        u: "a3e39a9a41cec3850080415ca9c679c4233bd1a245822bd4c24eb870b98021c0",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: None,
-        title_enc: "6977439c49d0461d41313e68898a2ade9609cdfc739a099eb8c05d4e",
-        stream_enc: "d0eb39424214e4eb116c2b311f476040e0533c78ee4cf532984d76bc75f7160f69a2144c2b10b648",
-    },
-    Case {
-        name: "rc4_128",
-        v: 2,
-        r: 3,
-        length: Some(128),
-        p: 4294967292,
-        o: "566fa873ee33c797cd3b904fdadf814afa34df9a38f6ed41b984e2c6da2aa6f5",
-        u: "a932071fc3351f83a0fc9289b9dda7be28bf4e5e4e758a4164004e56fffa0108",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: None,
-        title_enc: "4c068b7e790ed965e8a647a6d8279fd19b17c6d1c66e2599c2813858",
-        stream_enc: "854660dc6caa36cdfd9ef17331c96cda4b21e9addbdb599a8394eddce5341b0bffc88f856c0d3876",
-    },
-    Case {
-        name: "aes_128",
-        v: 4,
-        r: 4,
-        length: Some(128),
-        p: 4294967292,
-        o: "566fa873ee33c797cd3b904fdadf814afa34df9a38f6ed41b984e2c6da2aa6f5",
-        u: "a932071fc3351f83a0fc9289b9dda7be28bf4e5e4e758a4164004e56fffa0108",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: Some(CryptFilterMethod::AesV2),
-        title_enc: "be0a94454b149531623affbeddbad188352f7dc642adab048b1ed7507fa044e33d2e83df263ceb108690bf46048e65a4",
-        stream_enc: "3806b2922b577f0d137e42f6d22fc5a68850a264d12e1dcf86a26f2943b9acdfc94c8e45896bd707127d08aa817896a6bf8c1b212d631de256b1e31ef00d896d",
-    },
-    Case {
-        name: "aes_256_r5",
-        v: 5,
-        r: 5,
-        length: Some(256),
-        p: 4294967292,
-        o: "5b3877e1f13e1520a0a02dd6ba73ccad64db2b9b0a0ab178d0c946df0f500f654325e863ad83bbf71f97ee7a2422a3ce",
-        u: "96040438a8052d93dba76921be78e63f7fa94cb39060bc15f8c4a3d9a81839fb970b30497df58c071e195558663da104",
-        oe: "72f536e993d5967c1dc5d98d2e2ab2c97f275f552fe2beb2fe53febc30d5dc3b",
-        ue: "c5dfabfb3576486e3d71fad7a7d5163c06a2918f42514978e409b63db3d91cd3",
-        perms: "333ee9cdb1845cdf2100e49ffc05526f",
-        cfm: Some(CryptFilterMethod::AesV3),
-        title_enc: "f104cc0ade50a9fea1a9a55b7b0174c0cee42a4906c121e54d493362c9def58cb42e6e774a0fe428d73875fad2733bc0",
-        stream_enc: "05f040b76e9ab56edad473b29dd93022baff75b8241536d598ccc5ef0335ebe057ca48629842a2314159fad3f99255ac7a68281d8067ee118305f46bb7729491",
-    },
-    Case {
-        name: "aes_256_r6",
-        v: 5,
-        r: 6,
-        length: Some(256),
-        p: 4294967292,
-        o: "223cc4abe4b0bf4b85ea85fe94ca01304876d013ce9bdc9b5355252d59b557044374e1272058848d93ab4cf6086d4534",
-        u: "153f23b468d8bd824acfb71df423aaf048ae7e6a74eeee05e61de2505824075a1b982b13b6a065670eed48e5ecc52841",
-        oe: "d5f31aba5579e1b7095181b01d7ba560118fdf2c7c47f1f8e77c79ebaf1bfe1e",
-        ue: "6d0c789c17e757c18a246a85e046c1dedc115188622483b1e50fc3db7ded9c9d",
-        perms: "704f2c105704689b74a4daa86548f159",
-        cfm: Some(CryptFilterMethod::AesV3),
-        title_enc: "5dd1627cd20028713f220eda32994f9ef2b02efa711c0f7615e54d2acd62729d7bd2786e7622ce54fb192665d0861a20",
-        stream_enc: "ff7474d616dfdc8d9185cdcf676e6af38b9046d67605fb689dba551c50be06e54b65c4fd7ee5c8cc3b95fdb8e0d335f792ca4f7264c0642e252fe3c9ec45ef77",
-    },
+        Case {
+            name: "rc4_40",
+            v: 1,
+            r: 2,
+            length: Some(40),
+            p: 4294967292,
+            o: "c92422687facee686e373f10b5c7d04738053152f7e2ee30e11c69ec442576ab",
+            u: "a3e39a9a41cec3850080415ca9c679c4233bd1a245822bd4c24eb870b98021c0",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: None,
+            title_enc: "6977439c49d0461d41313e68898a2ade9609cdfc739a099eb8c05d4e",
+            stream_enc: "d0eb39424214e4eb116c2b311f476040e0533c78ee4cf532984d76bc75f7160f69a2144c2b10b648",
+        },
+        Case {
+            name: "rc4_128",
+            v: 2,
+            r: 3,
+            length: Some(128),
+            p: 4294967292,
+            o: "566fa873ee33c797cd3b904fdadf814afa34df9a38f6ed41b984e2c6da2aa6f5",
+            u: "a932071fc3351f83a0fc9289b9dda7be28bf4e5e4e758a4164004e56fffa0108",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: None,
+            title_enc: "4c068b7e790ed965e8a647a6d8279fd19b17c6d1c66e2599c2813858",
+            stream_enc: "854660dc6caa36cdfd9ef17331c96cda4b21e9addbdb599a8394eddce5341b0bffc88f856c0d3876",
+        },
+        Case {
+            name: "aes_128",
+            v: 4,
+            r: 4,
+            length: Some(128),
+            p: 4294967292,
+            o: "566fa873ee33c797cd3b904fdadf814afa34df9a38f6ed41b984e2c6da2aa6f5",
+            u: "a932071fc3351f83a0fc9289b9dda7be28bf4e5e4e758a4164004e56fffa0108",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: Some(CryptFilterMethod::AesV2),
+            title_enc: "be0a94454b149531623affbeddbad188352f7dc642adab048b1ed7507fa044e33d2e83df263ceb108690bf46048e65a4",
+            stream_enc: "3806b2922b577f0d137e42f6d22fc5a68850a264d12e1dcf86a26f2943b9acdfc94c8e45896bd707127d08aa817896a6bf8c1b212d631de256b1e31ef00d896d",
+        },
+        Case {
+            name: "aes_256_r5",
+            v: 5,
+            r: 5,
+            length: Some(256),
+            p: 4294967292,
+            o: "5b3877e1f13e1520a0a02dd6ba73ccad64db2b9b0a0ab178d0c946df0f500f654325e863ad83bbf71f97ee7a2422a3ce",
+            u: "96040438a8052d93dba76921be78e63f7fa94cb39060bc15f8c4a3d9a81839fb970b30497df58c071e195558663da104",
+            oe: "72f536e993d5967c1dc5d98d2e2ab2c97f275f552fe2beb2fe53febc30d5dc3b",
+            ue: "c5dfabfb3576486e3d71fad7a7d5163c06a2918f42514978e409b63db3d91cd3",
+            perms: "333ee9cdb1845cdf2100e49ffc05526f",
+            cfm: Some(CryptFilterMethod::AesV3),
+            title_enc: "f104cc0ade50a9fea1a9a55b7b0174c0cee42a4906c121e54d493362c9def58cb42e6e774a0fe428d73875fad2733bc0",
+            stream_enc: "05f040b76e9ab56edad473b29dd93022baff75b8241536d598ccc5ef0335ebe057ca48629842a2314159fad3f99255ac7a68281d8067ee118305f46bb7729491",
+        },
+        Case {
+            name: "aes_256_r6",
+            v: 5,
+            r: 6,
+            length: Some(256),
+            p: 4294967292,
+            o: "223cc4abe4b0bf4b85ea85fe94ca01304876d013ce9bdc9b5355252d59b557044374e1272058848d93ab4cf6086d4534",
+            u: "153f23b468d8bd824acfb71df423aaf048ae7e6a74eeee05e61de2505824075a1b982b13b6a065670eed48e5ecc52841",
+            oe: "d5f31aba5579e1b7095181b01d7ba560118fdf2c7c47f1f8e77c79ebaf1bfe1e",
+            ue: "6d0c789c17e757c18a246a85e046c1dedc115188622483b1e50fc3db7ded9c9d",
+            perms: "704f2c105704689b74a4daa86548f159",
+            cfm: Some(CryptFilterMethod::AesV3),
+            title_enc: "5dd1627cd20028713f220eda32994f9ef2b02efa711c0f7615e54d2acd62729d7bd2786e7622ce54fb192665d0861a20",
+            stream_enc: "ff7474d616dfdc8d9185cdcf676e6af38b9046d67605fb689dba551c50be06e54b65c4fd7ee5c8cc3b95fdb8e0d335f792ca4f7264c0642e252fe3c9ec45ef77",
+        },
     ]
 }
 
 fn user_cases() -> Vec<Case> {
     vec![
-    Case {
-        name: "rc4_40_user",
-        v: 1,
-        r: 2,
-        length: Some(40),
-        p: 4294967292,
-        o: "94e8094419662a774442fb072e3d9f19e9d130ec09a4d0061e78fe920f7ab62f",
-        u: "34ff6b7a810020b6b02bb8ba42f60777574a93bfaf496cec57f5dd55c7fe7f56",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: None,
-        title_enc: "b19578b4cacbd5c08c1b44074b67ce2c11dc12236b9a67869f0c7864",
-        stream_enc: "4b8625011281ae65fe57888bb6131ff13d83df285ac368abb43914947e5e24c86531139a2961c561",
-    },
-    Case {
-        name: "rc4_128_user",
-        v: 2,
-        r: 3,
-        length: Some(128),
-        p: 4294967292,
-        o: "0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671",
-        u: "3a71d3cd15947682228427ff6e267ce128bf4e5e4e758a4164004e56fffa0108",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: None,
-        title_enc: "b2f67b1b01f3e80178f45c0e7574444958fef9e4c540f71f88f89d76",
-        stream_enc: "2551fa57d3db562bbb05729689157efff70072a88677ea1188881c65091221c4b1334ff0cd6079f0",
-    },
-    Case {
-        name: "aes_128_user",
-        v: 4,
-        r: 4,
-        length: Some(128),
-        p: 4294967292,
-        o: "0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671",
-        u: "3a71d3cd15947682228427ff6e267ce128bf4e5e4e758a4164004e56fffa0108",
-        oe: "",
-        ue: "",
-        perms: "",
-        cfm: Some(CryptFilterMethod::AesV2),
-        title_enc: "95d47441276d813960df84f20291afb542fe279625102154c78d6c1d89dae1b0c8a001e4f18131adadbc3ea959340d50",
-        stream_enc: "047c47b58392c32a55231b4b6a5f49eea06d152ac6c3cc50c1ceabaa48043d19e9cbdc1bde7cfcdbc0527861263265fc367ba941269851845815a82e737babd9",
-    },
-    Case {
-        name: "aes_256_r5_user",
-        v: 5,
-        r: 5,
-        length: Some(256),
-        p: 4294967292,
-        o: "44beda6ec9bc1c7b536bc4c373c902fca4be167ce603a96ac34aca6ce82644eb01d3d28bc68cfd297b24e70b76371893",
-        u: "738f7963fe660d18fd47723958b0e62260a9ba2598c5bcc965aa2d67a5b2b0e748088e2620352ec74abc2b9c7066b642",
-        oe: "f584b4b6066912acc2379afb0a5c1d7fff3e0de5dc816d90d82596f304f850e1",
-        ue: "8d582a6f20272b221920968b45f44ecff918008574eb4f3cf224e5ec93155321",
-        perms: "bafb7840b31b8d9ca184bbdcd2ecc857",
-        cfm: Some(CryptFilterMethod::AesV3),
-        title_enc: "010f70523bc61f7085695f7985c0879e65c5ada095f0e73598b3c8e58fda640133f5b6520f6f8ab9b4e2e661f51bfd78",
-        stream_enc: "4e50ef3b1040a6037e85a4a931646660239332f53f923c49596125ade8a904703efd62a1f289dfdeb4319f50b5e44da3a3bf1e96a7527dda110bd7f7c487f2bc",
-    },
-    Case {
-        name: "aes_256_r6_user",
-        v: 5,
-        r: 6,
-        length: Some(256),
-        p: 4294967292,
-        o: "779d9d361d61a5ddb2610ac6a525ef9859fc3645cd7a069d9453f1701fafa3069383ec98f668fe52ceaec2e9a8f313ed",
-        u: "2a1977d3f32da8f3c9a1e3c585c6a25c5ee8e34559c36b14ebaf3ed361ed3fecfde57350d2deb7869a4679e1c824afe7",
-        oe: "3bfb21df12684b79af9702b7825bc2f7f7181c071f769a4413a95e577b033b8c",
-        ue: "1ed9ee01564fb667432ede434b2763ade3b759a4095ff4abc9b2e8e899147315",
-        perms: "84be67a29b038e834e53f09fb4062a23",
-        cfm: Some(CryptFilterMethod::AesV3),
-        title_enc: "030bb5182b12910351c2205bc993a8399b8d2fe2995306adea8e43e0a9a1bdce6dab5dd23bc976187f64a43bad10bccf",
-        stream_enc: "a51e6e491c773b5156bf972684784be665ef011095eb8ed5ca86e2c478081931be19bc83caf8739eb0ffb044d18a58b75a5b1b975799b5bc8bfe301a2bd4b4a6",
-    },
+        Case {
+            name: "rc4_40_user",
+            v: 1,
+            r: 2,
+            length: Some(40),
+            p: 4294967292,
+            o: "94e8094419662a774442fb072e3d9f19e9d130ec09a4d0061e78fe920f7ab62f",
+            u: "34ff6b7a810020b6b02bb8ba42f60777574a93bfaf496cec57f5dd55c7fe7f56",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: None,
+            title_enc: "b19578b4cacbd5c08c1b44074b67ce2c11dc12236b9a67869f0c7864",
+            stream_enc: "4b8625011281ae65fe57888bb6131ff13d83df285ac368abb43914947e5e24c86531139a2961c561",
+        },
+        Case {
+            name: "rc4_128_user",
+            v: 2,
+            r: 3,
+            length: Some(128),
+            p: 4294967292,
+            o: "0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671",
+            u: "3a71d3cd15947682228427ff6e267ce128bf4e5e4e758a4164004e56fffa0108",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: None,
+            title_enc: "b2f67b1b01f3e80178f45c0e7574444958fef9e4c540f71f88f89d76",
+            stream_enc: "2551fa57d3db562bbb05729689157efff70072a88677ea1188881c65091221c4b1334ff0cd6079f0",
+        },
+        Case {
+            name: "aes_128_user",
+            v: 4,
+            r: 4,
+            length: Some(128),
+            p: 4294967292,
+            o: "0ba3835f88f90388e74e54584125ce142be0de24c6b0d37746e075b891756671",
+            u: "3a71d3cd15947682228427ff6e267ce128bf4e5e4e758a4164004e56fffa0108",
+            oe: "",
+            ue: "",
+            perms: "",
+            cfm: Some(CryptFilterMethod::AesV2),
+            title_enc: "95d47441276d813960df84f20291afb542fe279625102154c78d6c1d89dae1b0c8a001e4f18131adadbc3ea959340d50",
+            stream_enc: "047c47b58392c32a55231b4b6a5f49eea06d152ac6c3cc50c1ceabaa48043d19e9cbdc1bde7cfcdbc0527861263265fc367ba941269851845815a82e737babd9",
+        },
+        Case {
+            name: "aes_256_r5_user",
+            v: 5,
+            r: 5,
+            length: Some(256),
+            p: 4294967292,
+            o: "44beda6ec9bc1c7b536bc4c373c902fca4be167ce603a96ac34aca6ce82644eb01d3d28bc68cfd297b24e70b76371893",
+            u: "738f7963fe660d18fd47723958b0e62260a9ba2598c5bcc965aa2d67a5b2b0e748088e2620352ec74abc2b9c7066b642",
+            oe: "f584b4b6066912acc2379afb0a5c1d7fff3e0de5dc816d90d82596f304f850e1",
+            ue: "8d582a6f20272b221920968b45f44ecff918008574eb4f3cf224e5ec93155321",
+            perms: "bafb7840b31b8d9ca184bbdcd2ecc857",
+            cfm: Some(CryptFilterMethod::AesV3),
+            title_enc: "010f70523bc61f7085695f7985c0879e65c5ada095f0e73598b3c8e58fda640133f5b6520f6f8ab9b4e2e661f51bfd78",
+            stream_enc: "4e50ef3b1040a6037e85a4a931646660239332f53f923c49596125ade8a904703efd62a1f289dfdeb4319f50b5e44da3a3bf1e96a7527dda110bd7f7c487f2bc",
+        },
+        Case {
+            name: "aes_256_r6_user",
+            v: 5,
+            r: 6,
+            length: Some(256),
+            p: 4294967292,
+            o: "779d9d361d61a5ddb2610ac6a525ef9859fc3645cd7a069d9453f1701fafa3069383ec98f668fe52ceaec2e9a8f313ed",
+            u: "2a1977d3f32da8f3c9a1e3c585c6a25c5ee8e34559c36b14ebaf3ed361ed3fecfde57350d2deb7869a4679e1c824afe7",
+            oe: "3bfb21df12684b79af9702b7825bc2f7f7181c071f769a4413a95e577b033b8c",
+            ue: "1ed9ee01564fb667432ede434b2763ade3b759a4095ff4abc9b2e8e899147315",
+            perms: "84be67a29b038e834e53f09fb4062a23",
+            cfm: Some(CryptFilterMethod::AesV3),
+            title_enc: "030bb5182b12910351c2205bc993a8399b8d2fe2995306adea8e43e0a9a1bdce6dab5dd23bc976187f64a43bad10bccf",
+            stream_enc: "a51e6e491c773b5156bf972684784be665ef011095eb8ed5ca86e2c478081931be19bc83caf8739eb0ffb044d18a58b75a5b1b975799b5bc8bfe301a2bd4b4a6",
+        },
     ]
 }
-
 
 #[test]
 fn empty_user_password_opens_every_revision() {
@@ -711,7 +740,10 @@ fn password_error_codes_and_messages() {
 fn set_password_reopens_the_document() {
     let case = &user_cases()[2];
     let mut factory = case.open(Some("user")).unwrap();
-    assert_eq!(factory.set_password(Some("nope")), Err(SecurityError::Password { code: 2, message: "Incorrect Password" }));
+    assert_eq!(
+        factory.set_password(Some("nope")),
+        Err(SecurityError::Password { code: 2, message: "Incorrect Password" })
+    );
     factory.set_password(Some("owner")).unwrap();
     case.check_decrypts(&factory);
 }
@@ -804,7 +836,10 @@ fn stream_decryption_in_chunks_matches_whole_decryption() {
     let encrypted = transform.decrypt_stream(&plain, None, false, NO_LIMIT).unwrap();
     assert_ne!(encrypted, plain);
     assert_eq!(transform.decrypt_stream(&encrypted, None, false, NO_LIMIT).unwrap(), plain);
-    assert_eq!(transform.decrypt_stream(&encrypted, None, false, 700).unwrap(), plain[..700]);
+    assert!(matches!(
+        transform.decrypt_stream(&encrypted, None, false, 700),
+        Err(SecurityError::ResourceLimit { limit: 700 })
+    ));
 }
 
 #[test]
@@ -816,7 +851,7 @@ fn identity_crypt_filters_and_efopen() {
     dict.str_f = None;
     dict.eff = Some("StdCF".into());
     dict.cf = Some(vec![(
-        "StdCF".to_string(),
+        "StdCF".into(),
         CryptFilter { cfm: Some(CryptFilterMethod::AesV2), length: None, auth_event: Some("EFOpen".into()) },
     )]);
     let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
@@ -828,7 +863,7 @@ fn identity_crypt_filters_and_efopen() {
     let error = transform.decrypt_stream(&clear, None, true, NO_LIMIT).unwrap_err();
     assert_eq!(error, SecurityError::Password { code: 1, message: "No password given" });
     // Without the EFOpen event the same document needs its password.
-    dict.cf = Some(vec![("StdCF".to_string(), CryptFilter { cfm: Some(CryptFilterMethod::AesV2), ..Default::default() })]);
+    dict.cf = Some(vec![("StdCF".into(), CryptFilter { cfm: Some(CryptFilterMethod::AesV2), ..Default::default() })]);
     assert_eq!(password_code(CipherTransformFactory::new(&dict, &hex(FILE_ID), None)), NEED_PASSWORD);
 }
 
@@ -837,7 +872,7 @@ fn unknown_crypt_filter_method_is_a_format_error() {
     let case = &open_cases()[2];
     let mut dict = case.dict();
     dict.cf = Some(vec![(
-        "StdCF".to_string(),
+        "StdCF".into(),
         CryptFilter { cfm: Some(CryptFilterMethod::Other("Foo".into())), ..Default::default() },
     )]);
     // The key derivation does not read the method: the document opens, using the filter fails.
@@ -845,7 +880,62 @@ fn unknown_crypt_filter_method_is_a_format_error() {
     let error = factory.create_cipher_transform(1, 0).decrypt_string(&[0; 32]).unwrap_err();
     assert_eq!(error, SecurityError::Format("Unknown crypto method".into()));
     // A filter the dictionary names with the method None leaves the data alone.
-    dict.cf = Some(vec![("StdCF".to_string(), CryptFilter { cfm: Some(CryptFilterMethod::None), ..Default::default() })]);
+    dict.cf = Some(vec![("StdCF".into(), CryptFilter { cfm: Some(CryptFilterMethod::None), ..Default::default() })]);
     let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
     assert_eq!(factory.create_cipher_transform(1, 0).decrypt_string(b"plain").unwrap(), b"plain");
+}
+
+#[test]
+fn tiny_limits_are_fatal_at_each_stage_even_when_predictor_shrinks() {
+    use mixdog_pdf_codec::CodecError;
+    let packed = [0x78, 0x01, 0x01, 4, 0, 0xfb, 0xff, 0, b'a', b'b', b'c'];
+    let filters = [Filter::Flate(Some(params(15, 1, 8, 3)))];
+    assert!(matches!(decode_chain(&packed, &filters, 3), Err(CodecError::ResourceLimit { limit: 3 })));
+    assert_eq!(decode_chain(&packed, &filters, 4).unwrap(), b"abc");
+    assert!(matches!(decode_chain(b"abcd", &[], 3), Err(CodecError::ResourceLimit { limit: 3 })));
+    assert!(matches!(decode_chain(b"61626364>", &[Filter::AsciiHex], 3), Err(CodecError::ResourceLimit { limit: 3 })));
+    assert_eq!(asciihex::decode(b"616263>", 3).unwrap(), b"abc");
+    assert_eq!(ascii85::decode(b"z", 4).unwrap(), [0; 4]);
+    assert!(matches!(ascii85::decode(b"z", 3), Err(CodecError::ResourceLimit { limit: 3 })));
+    assert!(matches!(predictor::decode(&[0, 1], &params(15, 1, 8, 4), 3), Err(CodecError::ResourceLimit { limit: 3 })));
+}
+
+#[test]
+fn non_name_selector_errors_only_when_used_and_empty_name_is_an_override() {
+    use mixdog_pdf_codec::security::CryptFilterName;
+    let case = &open_cases()[2];
+    let mut dict = case.dict();
+    dict.str_f = Some(CryptFilterName::Invalid);
+    let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
+    let transform = factory.create_cipher_transform(5, 0);
+    assert_eq!(transform.decrypt_string(b"x").unwrap_err(), SecurityError::Format("Invalid crypt filter name.".into()));
+    assert_eq!(transform.decrypt_stream(b"abc", Some(""), false, 3).unwrap(), b"abc");
+    assert!(matches!(
+        transform.decrypt_stream(b"abcd", Some(""), false, 3),
+        Err(SecurityError::ResourceLimit { limit: 3 })
+    ));
+    assert!(transform.validate_stream(None, false).is_ok());
+}
+
+#[test]
+fn constructor_cache_precedes_selector_validation_and_never_reuses_cipher_state() {
+    use mixdog_pdf_codec::security::CryptFilterName;
+    let mut dict = open_cases()[2].dict();
+    dict.str_f = Some("__default__".into());
+    dict.stm_f = Some(CryptFilterName::Invalid);
+    let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
+    let transform = factory.create_cipher_transform(4, 0);
+    assert!(transform.validate_stream(None, false).is_err(), "an uncached invalid selector still fails");
+    assert_eq!(transform.decrypt_string(b"one").unwrap(), b"one");
+    assert_eq!(transform.decrypt_string(b"two").unwrap(), b"two");
+    assert!(transform.validate_stream(None, false).is_ok(), "Name __default__ primed the non-Name slot");
+    assert_eq!(transform.decrypt_stream(b"stream", None, false, 100).unwrap(), b"stream");
+    assert!(
+        factory.create_cipher_transform(4, 0).validate_stream(None, false).is_err(),
+        "a new transform has a new cache, even for the same object ID"
+    );
+    let rc4 = open_cases()[1].open(None).unwrap().create_cipher_transform(5, 0);
+    let expected = rc4.decrypt_string(b"repeated input").unwrap();
+    assert_eq!(rc4.decrypt_string(b"repeated input").unwrap(), expected);
+    assert_eq!(rc4.decrypt_stream(b"repeated input", None, false, 100).unwrap(), expected);
 }
