@@ -278,9 +278,10 @@ fn request_head(method: &str, path: &str, length: usize, headers: &[(&str, &str)
     head
 }
 
-async fn call(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> Reply {
+async fn call(addr: SocketAddr, method: &str, path: impl Into<String>, headers: &[(&str, &str)], body: &[u8]) -> Reply {
+    let path: String = path.into();
     let mut stream = TcpStream::connect(addr).await.expect("connect");
-    stream.write_all(request_head(method, path, body.len(), headers).as_bytes()).await.expect("write the request");
+    stream.write_all(request_head(method, &path, body.len(), headers).as_bytes()).await.expect("write the request");
     stream.write_all(body).await.expect("write the body");
     read_reply(stream).await
 }
@@ -315,7 +316,7 @@ async fn webhook_relay_responses_enforce_strict_base64_and_byte_limits() {
         (json!("A".repeat(349_526 * 4)), 502, "{\"error\":\"invalid agent response\"}"),
     ];
     for (body, status, expected) in cases {
-        let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/x"), &[], b"{}"));
+        let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/x"), &[], b"{}"));
         let frame = agent.json().await;
         let reply = json!({ "type": "http-response", "id": frame["id"], "status": 200, "headers": { "content-type": "text/plain" }, "body": body });
         agent.send_text(&reply.to_string()).await;
@@ -344,8 +345,8 @@ async fn hook_http_answers_404_and_503_without_a_live_agent() {
 async fn a_dropped_hook_leg_fails_every_pending_http_response() {
     let rig = boot(HookOptions::default()).await;
     let mut agent = rig.agent(DEVICE).await;
-    let first = tokio::spawn(call(rig.addr, "POST", &hook_path("/a"), &[], b"1"));
-    let second = tokio::spawn(call(rig.addr, "POST", &hook_path("/b"), &[], b"2"));
+    let first = tokio::spawn(call(rig.addr, "POST", hook_path("/a"), &[], b"1"));
+    let second = tokio::spawn(call(rig.addr, "POST", hook_path("/b"), &[], b"2"));
     // Both are on the leg and parked.
     agent.json().await;
     agent.json().await;
@@ -420,7 +421,7 @@ async fn a_request_is_replayed_over_the_leg_and_the_agents_answer_returns() {
     assert!(reply.has("Content-Type: text/plain; charset=utf-8"));
     assert!(reply.has("Content-Length: 7"));
     // Any method goes, and a request without a body or a path beyond the id is told as `/` with an empty body.
-    let caller = tokio::spawn(call(rig.addr, "DELETE", &hook_path(""), &[], b""));
+    let caller = tokio::spawn(call(rig.addr, "DELETE", hook_path(""), &[], b""));
     let frame = agent.json().await;
     assert_eq!((frame["method"].as_str(), frame["path"].as_str(), frame["body"].as_str()), (Some("DELETE"), Some("/"), Some("")));
     // A status outside 100..=599 is the relay's 502, and a content type that is not printable ASCII is JSON.
@@ -434,14 +435,14 @@ async fn a_request_is_replayed_over_the_leg_and_the_agents_answer_returns() {
 async fn an_agent_that_does_not_answer_times_out_with_504() {
     let rig = boot(options(64, Duration::from_millis(300))).await;
     let mut agent = rig.agent(DEVICE).await;
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/slow"), &[], b"{}"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/slow"), &[], b"{}"));
     let frame = agent.json().await;
     let reply = caller.await.expect("the caller");
     assert_eq!(reply.status, 504);
     assert_eq!(reply.body, "{\"error\":\"agent timeout\"}");
     // A late answer finds nothing parked and is ignored; the leg stays usable.
     agent.answer(&frame["id"], json!(200), "text/plain", b"late").await;
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/next"), &[], b"{}"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/next"), &[], b"{}"));
     let frame = agent.json().await;
     agent.answer(&frame["id"], json!(200), "text/plain", b"fine").await;
     assert_eq!(caller.await.expect("the caller").body, "fine");
@@ -451,21 +452,21 @@ async fn an_agent_that_does_not_answer_times_out_with_504() {
 async fn a_new_leg_of_the_same_device_supersedes_the_old_one() {
     let rig = boot(HookOptions::default()).await;
     let mut old = rig.agent(DEVICE).await;
-    let parked = tokio::spawn(call(rig.addr, "POST", &hook_path("/a"), &[], b"1"));
+    let parked = tokio::spawn(call(rig.addr, "POST", hook_path("/a"), &[], b"1"));
     old.json().await;
     let mut new = rig.agent(DEVICE).await;
     // The old leg is closed 4000 and what it held fails; new requests go to the new leg.
     assert_eq!(old.close_code().await, Some((4000, "superseded".to_owned())));
     let reply = parked.await.expect("the caller");
     assert_eq!((reply.status, reply.body.as_str()), (502, "{\"error\":\"agent disconnected\"}"));
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/b"), &[], b"2"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/b"), &[], b"2"));
     let frame = new.json().await;
     new.answer(&frame["id"], json!(200), "text/plain", b"new").await;
     assert_eq!(caller.await.expect("the caller").body, "new");
     // The closed leg's own end does not touch the new one.
     drop(old);
     sleep(Duration::from_millis(100)).await;
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/c"), &[], b"3"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/c"), &[], b"3"));
     let frame = new.json().await;
     new.answer(&frame["id"], json!(200), "text/plain", b"still").await;
     assert_eq!(caller.await.expect("the caller").body, "still");
@@ -488,7 +489,7 @@ async fn webhook_ingress_caps_bodies_that_are_still_arriving_not_just_landed_one
     // ...and a caller that hangs up mid-body gives its reservation back.
     drop(uploads);
     sleep(Duration::from_millis(200)).await;
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/webhook/test"), &[], b"{}"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/webhook/test"), &[], b"{}"));
     let frame = agent.json().await;
     assert_eq!(frame["type"], "http");
     agent.answer(&frame["id"], json!(200), "text/plain", b"ok").await;
@@ -499,7 +500,7 @@ async fn webhook_ingress_caps_bodies_that_are_still_arriving_not_just_landed_one
 async fn closing_the_relay_fails_every_parked_request() {
     let rig = boot(HookOptions::default()).await;
     let mut agent = rig.agent(DEVICE).await;
-    let caller = tokio::spawn(call(rig.addr, "POST", &hook_path("/a"), &[], b"1"));
+    let caller = tokio::spawn(call(rig.addr, "POST", hook_path("/a"), &[], b"1"));
     agent.json().await;
     rig.hub.fail_pending_and_clear();
     let reply = caller.await.expect("the caller");

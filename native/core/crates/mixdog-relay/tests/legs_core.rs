@@ -294,6 +294,17 @@ async fn step(ms: u64) {
     settle().await;
 }
 
+/// Let `ms` pass the way a running process lives it: in slices short enough that a timer which a due timer arms is armed at the
+/// instant its parent fired (one jump of the paused clock arms it at the end of the jump, which no process ever sees).
+async fn elapse(ms: u64) {
+    let mut left = ms;
+    while left > 0 {
+        let slice = left.min(5);
+        step(slice).await;
+        left -= slice;
+    }
+}
+
 async fn send(handle: &DesktopHandle, frame: &Value) {
     handle.frame(wire(frame), false).await;
 }
@@ -438,7 +449,7 @@ async fn a_missed_handshake_turn_closes_the_pc_leg_only_when_the_leg_is_also_sil
         let rig = rig(config()).await;
         let (desktop, _handle) = desktop(&rig.hub, "dev");
         let (phone_socket, _phone) = phone(&rig.hub, "dev", Some("browser-1"));
-        step(150).await;
+        elapse(150).await;
         assert_eq!(desktop.pings(), 1);
         assert_eq!(desktop.closed().map(|(code, _)| code), Some(DESKTOP_HANDSHAKE_STALLED));
         assert_eq!(phone_socket.closed(), None, "the phone keeps its socket through the redial");
@@ -751,24 +762,24 @@ async fn a_handshake_turn_stall_closes_the_pc_leg_so_it_redials() {
     phone.frame(Bytes::from_static(b"{\"hello\":1}"), false);
     assert!(healthy.frames_of("frame").len() == 1);
     send(&healthy_handle, &json!({ "type": "frame", "clientId": client, "data": "{\"ready\":1}" })).await;
-    step(90).await;
+    elapse(90).await;
     assert_eq!(healthy.closed(), None, "an answered handshake leaves the leg alone");
 
     // A leg that neither takes its turn nor answers the probe is dead: the relay closes the leg, never the phone.
     let (silent, _silent_handle) = desktop(&rig.hub, "dev");
-    step(150).await;
+    elapse(150).await;
     assert_eq!(silent.closed().map(|(code, _)| code), Some(DESKTOP_HANDSHAKE_STALLED));
 
     // A leg that sends the challenge but never answers the hello is cut too, and the clock for the answer starts at the hello.
     let (halfway, halfway_handle) = desktop(&rig.hub, "dev");
     step(5).await;
     send(&halfway_handle, &json!({ "type": "frame", "clientId": client, "data": "{\"challenge\":\"d\"}" })).await;
-    step(20).await;
+    elapse(20).await;
     assert_eq!(halfway.closed(), None, "no clock runs while the phone owes its hello");
     phone.frame(Bytes::from_static(b"{\"hello\":2}"), false);
-    step(40).await;
+    elapse(40).await;
     assert_eq!(halfway.closed(), None);
-    step(30).await;
+    elapse(30).await;
     assert_eq!(halfway.closed().map(|(code, _)| code), Some(DESKTOP_HANDSHAKE_STALLED));
     assert_eq!(phone_socket.closed(), None, "the waiting phone keeps its socket through the redial");
 }
@@ -788,10 +799,10 @@ async fn the_parked_phones_of_a_gone_pc_are_closed_4002_after_the_grace() {
     let (phone_socket, _phone) = phone(&rig.hub, "dev", Some("bbbbbbbb"));
     desktop.set_open(false);
     handle.closed();
-    step(44_000).await;
+    elapse(44_000).await;
     assert_eq!(phone_socket.closed(), None);
     assert_eq!(rig.hub.client_count("dev"), 1);
-    step(1_500).await;
+    elapse(1_500).await;
     assert_eq!(phone_socket.closed(), Some((DESKTOP_OFFLINE, "desktop offline".to_owned())));
     assert!(rig.hub.desktop_info("dev").is_none());
 }
