@@ -26,7 +26,7 @@ const OFFICE_TRACE = process.env.MIXDOG_OFFICE_TRACE || '';
 // qa with autoFix repairs the document, so it is excluded at the call site.
 const READ_ONLY_ACTIONS = new Set(['snapshot', 'get', 'query', 'issues', 'validate', 'describe', 'render', 'qa']);
 
-// The caller owns the write ledger and its turn review (src/ext-host/methods.mjs `officeRun`; the core records the
+// The caller owns the write ledger and its turn review (the native worker's `office.run`; the core records the
 // changes it reports).
 export async function executeOfficeTool(args = {}, context = {}) {
   return await tracedOfficeTool(args, context);

@@ -1,5 +1,5 @@
 // The skill launcher runs user and plugin scripts on the shipped interpreter with only its own small file set
-// beside it: the entry copied alone into an empty package root (no npm package, no ext-host) runs a script.
+// beside it: the entry copied alone into an empty package root (no npm package, no office runtime) runs a script.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -40,7 +40,7 @@ test('the launcher file set is the entry and its helpers, with no npm package', 
   assert.ok(files.includes(SKILL_LAUNCHER_ENTRY));
   assert.ok(files.includes('src/runtime/shared/skill-script-runtime.mjs'));
   assert.ok(files.every((file) => file.startsWith('src/')));
-  assert.ok(!files.some((file) => file.startsWith('src/ext-host/') || file.startsWith('src/runtime/office/')));
+  assert.ok(!files.some((file) => file.startsWith('src/runtime/office/')));
 });
 
 test('a script requires a package from its own node_modules and is the main module', () => {

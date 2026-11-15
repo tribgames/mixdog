@@ -25,7 +25,7 @@ use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_workspace::localfs::LocalFileService;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostError;
-use mixdog_exthost::RoutedExtPool;
+use mixdog_exthost::ExtHostPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_mcp::launcher::SkillRuntime;
@@ -182,7 +182,7 @@ pub struct ComposedCore {
     feed_index: Arc<CoreScopedFeeds>,
     ops: CoreOpIndex,
     exec: Exec,
-    ext_host: Arc<RoutedExtPool>,
+    ext_host: Arc<ExtHostPool>,
     file_service: Arc<dyn FileService>,
     catalog: CatalogHost,
     tidy_processes: Processes,
@@ -393,7 +393,7 @@ impl ComposedCore {
     }
 
     /// The extension host pool, for the lifecycle's release procedure.
-    pub fn ext_host(&self) -> &Arc<RoutedExtPool> {
+    pub fn ext_host(&self) -> &Arc<ExtHostPool> {
         &self.ext_host
     }
 
@@ -726,22 +726,22 @@ pub fn drain_feed(app: Arc<mixdog_core_base::state::SectionFeedState>) -> Arc<dy
     Arc::new(move |params| app.notify("core/drain", &params))
 }
 
-/// The bundled JavaScript runtime, from the install layout: what runs skill scripts and the
-/// extension host (Node's `process.execPath` and package root).
+/// The bundled script runtime, from the install layout: what runs the scripts of users and plugins (skill scripts and the
+/// pptxgenjs authoring script; Node's `process.execPath` and package root).
 pub struct JsRuntime {
     pub program: PathBuf,
-    /// The package root holding `src/skill-script-entry.mjs` and `src/ext-host/worker.mjs`.
+    /// The package root holding `src/skill-script-entry.mjs` and `src/runtime/office/authoring/pptx-script-entry.mjs`.
     pub package_root: PathBuf,
     /// The program is an Electron binary that needs node mode.
     pub electron: bool,
-    /// The core executable of the install: the extension host's Rust worker is this program run as `ext-worker`.
+    /// The core executable of the install: the extension host's worker is this program run as `ext-worker`.
     pub core_program: PathBuf,
     /// The script interpreter version as the install metadata states it; the doctor never runs the interpreter to ask.
     pub node_version: Option<String>,
-    /// Compiled for tests only: both halves of the extension host are the script worker and no method is routed to the Rust
-    /// worker, so a test that scripts the worker (a frozen clock, a recorded subject) is answered by the script worker.
+    /// Compiled for tests only: the worker (program and arguments) a test starts instead of the core executable's `ext-worker`, so a
+    /// test that scripts the worker (a frozen clock) is answered by the scripted one.
     #[cfg(test)]
-    pub script_hosts: bool,
+    pub ext_worker: Option<(PathBuf, Vec<std::ffi::OsString>)>,
 }
 
 pub struct ComposeConfig {
@@ -774,44 +774,20 @@ fn process_env() -> mixdog_core::run_host::run_seams::EnvReader {
     Arc::new(|name: &str| std::env::var(name).ok())
 }
 
-/// The two halves of the extension host of this install: the Rust worker (the core executable run as `ext-worker`) and the
-/// script worker. The Rust half's render browser is the one both use.
-#[derive(Clone, Debug)]
-pub struct ExtHostConfigs {
-    pub native: ExtHostConfig,
-    pub node: ExtHostConfig,
-    /// The methods the Rust worker answers.
-    pub native_methods: Vec<&'static str>,
-}
-
-/// The methods the Rust worker answers: every one it registers, the image methods among them since the image corpus passes
-/// whole. The list decides the route, nothing else does.
-pub fn native_ext_methods() -> Vec<&'static str> {
-    mixdog_exthost_worker::native_methods()
-}
-
-/// The one constructor of the routing pool: the core and the migration (`boot`, `mixdogd migrate`) use it.
-pub fn ext_host_pool(configs: ExtHostConfigs) -> Result<RoutedExtPool, ExtHostError> {
-    RoutedExtPool::new(configs.native, configs.node, configs.native_methods)
-}
-
-/// The extension host of this install: the core's, and the migration's office extractor (`boot`) start the same workers.
-pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> ExtHostConfigs {
-    let node = ExtHostConfig {
-        program: js.program.clone(),
-        args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
-        electron: js.electron,
+/// The extension host of this install: the core executable run as `ext-worker`. The core's, and the migration's office
+/// extractor (`boot`, `mixdogd migrate`) start the same workers.
+pub fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> ExtHostConfig {
+    let (program, args) = (js.core_program.clone(), vec!["ext-worker".into()]);
+    #[cfg(test)]
+    let (program, args) = js.ext_worker.clone().unwrap_or((program, args));
+    ExtHostConfig {
+        program,
+        args,
         workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
         pending_cap: DEFAULT_PENDING_CAP,
         spawn_io: tokens.spawn_io,
         render_browser: RenderBrowserConfig { command: None, profile_root: data_dir.join("render-browser"), no_sandbox: false },
-    };
-    #[cfg(test)]
-    if js.script_hosts {
-        return ExtHostConfigs { native: node.clone(), node, native_methods: Vec::new() };
     }
-    let native = ExtHostConfig { program: js.core_program.clone(), args: vec!["ext-worker".into()], electron: false, ..node.clone() };
-    ExtHostConfigs { native, node, native_methods: native_ext_methods() }
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
@@ -848,7 +824,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let skill_launcher_dir =
         skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
     let ext_host = Arc::new(
-        ext_host_pool(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
+        ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
     );
     let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());

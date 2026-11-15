@@ -260,8 +260,6 @@ impl Worker {
         let params = &request.params;
         match request.method.as_str() {
             "echo" => answer(params.clone()),
-            // The environment variable the core sets for an Electron-in-node-mode worker.
-            "electronMode" => answer(std::env::var("ELECTRON_RUN_AS_NODE").map_or(Value::Null, Value::String)),
             "whoami" => Ok(Outcome { value: json!(std::process::id()), pin: params["pin"] == json!(true) }),
             "sleep" => {
                 self.wait(params["ms"].as_u64().unwrap_or(0));

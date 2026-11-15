@@ -39,7 +39,6 @@ fn pool() -> ExtHostPool {
     ExtHostPool::new(ExtHostConfig {
         program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
         args: Vec::new(),
-        electron: false,
         workers: 2,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
