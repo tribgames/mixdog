@@ -76,8 +76,8 @@ fn write_string(out: &mut Vec<u8>, bytes: &[u8]) {
     if bytes.iter().all(|b| (0x20..0x7f).contains(b)) {
         out.push(b'(');
         for &byte in bytes {
-            if matches!(byte, b'(' | b')' | b'\') {
-                out.push(b'\');
+            if matches!(byte, b'(' | b')' | b'\\') {
+                out.push(b'\\');
             }
             out.push(byte);
         }
