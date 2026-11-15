@@ -10,10 +10,11 @@
 //! step run unasked (an operator `confirm` too) unless the bot blocks one of its kinds, which refuses it; a `confirm` or a payment
 //! (the page holds payment evidence) asks once, every time, and no grant of any kind covers it (an operator `confirm` of an unattended run asks in every
 //! session, a session that is no bot's own included). A command that carries the life mark of its session (the bridge's: the Node
-//! runtime hosts the session) is offered "allow for this session" under that mark. A core-hosted session sent no
-//! `turn_id`, `session_life` or `unattended_*` field to the desktop, so its decisions were an attended turn's: this port reads the
-//! session's facts as an attended turn's whatever run owns the session, so it never asks where that did not and never refuses a
-//! step that was only asked. What the session's allowances (the registry the core knows) cover may only remove a repeat ask.
+//! runtime hosts the session) is offered "allow for this session" under that mark. A session the core hosts that a schedule or
+//! webhook run owns (not a room member) is an unattended run exactly as the Node runtime marked it: a step is never asked, only the
+//! block of the bot that owns the run refuses it (a run with no owner is refused too), a payment is refused, and an operator
+//! `confirm` asks. An attended turn is asked as above. What the session's allowances (the registry the core knows) cover may only
+//! remove a repeat ask.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -47,6 +48,8 @@ use mixdog_protocol::ToolCallId;
 use serde_json::Value;
 use serde_json::json;
 
+use super::browser_bridge_run::NO_RUN_OWNER;
+use super::browser_bridge_run::PAYMENT_IN_RUN;
 use crate::orch::service::call_approvals;
 use crate::orch::util::cancelled;
 use crate::orch::util::unavailable;
@@ -54,6 +57,7 @@ use crate::policy::action::GrantKey;
 use crate::policy::action::kind_name;
 use crate::policy::gate::PolicySettings;
 use crate::policy::gate::SessionFacts;
+use crate::policy::run_policy::RunKind;
 use crate::policy::grants::AuditEntry;
 use crate::policy::grants::DEV_ALLOW_ALL_DECISION;
 use crate::policy::grants::GrantStore;
@@ -370,14 +374,42 @@ impl ApprovalPort for BrowserApprovals {
         // A standing allow is a bot's own (its home chat or room seat, read from the session id alone); nothing else (a sub-agent, a
         // task session, a coding session, a session a run owns) is asked.
         let bot = own_bot_of_session(&prompt.session_id);
+        let mut facts = self.context.facts(&thread);
+        // A schedule or webhook run the core hosts is unattended exactly as the Node runtime marked it (`unattendedRunOf` read through
+        // `isGrantedRun`: a room member is no run): its owner is the session's agent. A command the bridge carried marks itself.
+        let core_run = !prompt.unattended && facts.run.is_some_and(RunKind::is_granted);
+        let owner = if core_run { facts.agent_id.trim().to_owned() } else { String::new() };
+        let confirm = prompt.kinds.contains(&BrowserApprovalRememberKind::Confirm);
+        if core_run {
+            // A payment is never done in a run, an operator `confirm` step's included (`approval-dialog.ts` checks it first).
+            if prompt.payment {
+                return Err(ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "payment_in_run".to_owned() }, PAYMENT_IN_RUN));
+            }
+            if !confirm {
+                // A run never asks: only the block of the bot that owns it refuses, and it runs under that bot's `run-allowed` line.
+                if owner.is_empty() {
+                    return Err(ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "run_owner_unknown".to_owned() }, NO_RUN_OWNER));
+                }
+                let actions: Option<Vec<ActionKind>> = prompt.kinds.iter().map(|kind| action_kind_of(*kind)).collect();
+                if let Some(actions) = actions.filter(|actions| !actions.is_empty()) {
+                    for kind in &actions {
+                        if matches!(self.store.mode_for(&owner, &GrantKey::Kind(*kind), false).await, Ok(PermissionMode::Block) | Err(_)) {
+                            self.audit(&owner, &actions, "blocked").await;
+                            return Err(ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "blocked".to_owned() }, BLOCKED_BY_PERMISSION));
+                        }
+                    }
+                    self.audit(&owner, &actions, "run-allowed").await;
+                }
+                return Ok(ApprovalAnswer::Allow { remember: Remember::Once });
+            }
+        }
         // An operator `confirm` of a schedule or webhook run asks a person in every session: no allowance, option or kind of session
         // lets it through (`approval-dialog.ts` raises its card where a run's other steps ask nothing).
-        let run_confirm = prompt.unattended && prompt.kinds.contains(&BrowserApprovalRememberKind::Confirm);
+        let run_confirm = (prompt.unattended || core_run) && confirm;
         if bot.is_empty() && !run_confirm {
             return Ok(ApprovalAnswer::Allow { remember: Remember::Once });
         }
-        let mut facts = self.context.facts(&thread);
-        // What a core-hosted session sent the desktop made it an attended turn: the run that owns the session changes nothing here.
+        // The card is an attended one's: the run that owns the session changes nothing in what it offers.
         facts.run = None;
         facts.agent_id = bot.clone();
         facts.acting_bot = Some(bot).filter(|bot| !bot.is_empty());
@@ -782,8 +814,7 @@ mod tests {
         assert!(!rig.decisions().iter().any(|decision| ["blocked", "dev-allow-all", "granted", "session-granted", "remembered"].contains(&decision.as_str())), "a payment is judged by no allowance: {:?}", rig.decisions());
     }
 
-    /// Owner direction 11: a core-hosted session sent the desktop no `turn_id`, `session_life` or `unattended_*`, so it was an
-    /// attended turn: the port adds no ask where that one did not ask.
+    /// An attended core-hosted session: a session that is no bot's own runs unasked, a bot's own session is asked.
     #[tokio::test]
     async fn no_new_ask_for_core_session() {
         let rig = rig();
@@ -791,17 +822,14 @@ mod tests {
             let (shown, outcome) = rig.ask(step(session, kinds), decided(false, None, None)).await;
             assert!(!shown && allowed(&outcome), "{session} {kinds:?}");
         }
-        // A session a bot's run owns is still no bot's own: the desktop read the bot from the session id alone.
-        *rig.ctx.run.lock().unwrap() = Some(RunKind::Schedule);
-        *rig.ctx.run_owner.lock().unwrap() = Some("marketer".to_owned());
-        let (shown, outcome) = rig.ask(step("sess_task", &[Submit]), decided(false, None, None)).await;
-        assert!(!shown && allowed(&outcome), "a run's task session");
+        // A room member's session is no run: it is read as an attended one.
+        *rig.ctx.run.lock().unwrap() = Some(RunKind::Room);
+        let (shown, _) = rig.ask(step(MARKETER, &[Submit]), decided(true, None, None)).await;
+        assert!(shown, "a room is attended");
         *rig.ctx.run.lock().unwrap() = None;
-        *rig.ctx.run_owner.lock().unwrap() = None;
         rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Allow);
         let (shown, outcome) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await;
         assert!(!shown && allowed(&outcome), "a saved allow runs it unasked");
-        assert!(rig.store.audit().iter().all(|row| row.decision == "remembered"), "no session that is no bot's own was read or audited");
     }
 
     #[tokio::test]
@@ -813,24 +841,70 @@ mod tests {
         assert!(rig.store.audit().is_empty(), "no remembered or blocked line for a step that asked: {:?}", rig.decisions());
     }
 
-    /// A bot's session an unattended run owns, whose command carries no unattended field (as a core-hosted one never did), is
-    /// decided as an attended turn: it asks where that asked and is refused nowhere a card would have answered.
+    /// A schedule or webhook run the core hosts is unattended as the Node runtime marked it (`unattended_run`): nothing is asked in
+    /// its own home or in a session it owns; its owner's block, a payment and a run with no owner are refused; an operator `confirm`
+    /// asks; an attended turn is asked as before.
     #[tokio::test]
-    async fn unattended_core_session_unchanged() {
+    async fn unattended_core_session_runs_unasked_but_for_the_original_refusals() {
+        for run in [RunKind::Schedule, RunKind::Webhook] {
+            let rig = rig();
+            *rig.ctx.run.lock().unwrap() = Some(run);
+            *rig.ctx.run_owner.lock().unwrap() = Some("marketer".to_owned());
+            for session in [MARKETER, "sess_task", "sess_agent_worker"] {
+                for kinds in [&[Submit][..], &[Post], &[Upload], &[Submit, Post]] {
+                    let (shown, outcome) = rig.ask(step(session, kinds), decided(false, None, None)).await;
+                    assert!(!shown && allowed(&outcome), "{run:?} {session} {kinds:?} is not asked");
+                }
+            }
+            assert!(rig.decisions().iter().all(|decision| decision == "run-allowed"), "{:?}", rig.decisions());
+            // "Allow all actions" changes nothing for a run.
+            rig.ctx.allow_all.store(true, Ordering::SeqCst);
+            assert!(!rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await.0);
+            rig.ctx.allow_all.store(false, Ordering::SeqCst);
+            // The block of the owning bot refuses, in its home and in a session it owns, and is audited.
+            let before = rig.decisions().iter().filter(|decision| *decision == "blocked").count();
+            rig.allow("marketer", ActionKind::BrowserPost, PermissionMode::Block);
+            for session in [MARKETER, "sess_task"] {
+                let (shown, outcome) = rig.ask(step(session, &[Submit, Post]), decided(true, None, None)).await;
+                assert!(!shown, "{session}");
+                assert_eq!(outcome.unwrap_err().message_for_model, BLOCKED_BY_PERMISSION, "{session}");
+            }
+            assert_eq!(rig.decisions().iter().filter(|decision| *decision == "blocked").count() - before, 4, "one line per kind, per step");
+            // A payment is refused in every session, with or without a kind that can be remembered.
+            for (session, kinds) in [(MARKETER, &[Post][..]), ("sess_task", &[Submit]), ("sess_task", &[Confirm])] {
+                let mut pay = step(session, kinds);
+                pay.payment = true;
+                let (shown, outcome) = rig.ask(pay, decided(true, None, None)).await;
+                assert!(!shown, "{session}");
+                assert_eq!(outcome.unwrap_err().message_for_model, PAYMENT_IN_RUN, "{session}");
+            }
+            // An operator `confirm` still asks, in every session, and offers nothing to remember.
+            for session in [MARKETER, "sess_task"] {
+                let (shown, outcome) = rig.ask(step(session, &[Confirm]), decided(true, Some(ApprovalRemember::Agent), None)).await;
+                assert!(shown, "{session}");
+                assert_eq!(outcome.unwrap(), ApprovalAnswer::Allow { remember: Remember::Once });
+            }
+            assert!(rig.ctx.gate.asked().iter().all(|card| card.remember.is_empty() && card.action_kind.is_none()));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_with_no_owner_is_refused_and_an_attended_turn_is_asked_as_before() {
         let rig = rig();
         *rig.ctx.run.lock().unwrap() = Some(RunKind::Schedule);
+        *rig.ctx.run_owner.lock().unwrap() = Some("  ".to_owned());
+        let (shown, outcome) = rig.ask(step("sess_task", &[Submit]), decided(true, None, None)).await;
+        assert!(!shown);
+        assert_eq!(outcome.unwrap_err().message_for_model, NO_RUN_OWNER);
+        // The same session once the run ended is attended again: a bot's own session asks, a task session runs.
+        *rig.ctx.run.lock().unwrap() = None;
+        *rig.ctx.run_owner.lock().unwrap() = None;
         let (shown, outcome) = rig.ask(step(MARKETER, &[Submit]), decided(true, None, None)).await;
-        assert!(shown && allowed(&outcome), "asks as an attended turn did");
+        assert!(shown && allowed(&outcome));
         let mut pay = step(MARKETER, &[Post]);
         pay.payment = true;
         let (shown, outcome) = rig.ask(pay, decided(true, None, None)).await;
-        assert!(shown && allowed(&outcome), "a payment asks; it is not refused");
-        // The engine's own unattended fields change nothing either.
-        let mut flagged = step(MARKETER, &[Upload]);
-        flagged.unattended = true;
-        flagged.unattended_agent = "marketer".to_owned();
-        let (shown, _) = rig.ask(flagged, decided(false, None, None)).await;
-        assert!(shown);
+        assert!(shown && allowed(&outcome), "an attended payment asks once");
         // A session allowance, known to the core, may remove a repeat ask.
         *rig.ctx.life.lock().unwrap() = Some(LIFE.to_owned());
         let _ = rig.ask(step(MARKETER, &[Post]), decided(true, Some(ApprovalRemember::Session), None)).await;
