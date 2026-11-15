@@ -29,7 +29,6 @@ use mixdog_core_ports::ports::domain_sessions::NamedAttachment;
 use mixdog_core_ports::ports::domain_sessions::SessionAttachments;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_exthost::ExtHostConfig;
-use mixdog_exthost::ExtHostPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_mcp::extension_service::ExtensionHost;
 use mixdog_mcp::plugin_admin::GitRunner;
@@ -469,7 +468,8 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
         .await
         .unwrap();
         let ext_host = Arc::new(
-            ExtHostPool::new(ExtHostConfig {
+            {
+                let script = ExtHostConfig {
                 program: js.program.clone(),
                 args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
                 electron: js.electron,
@@ -481,7 +481,9 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                     profile_root: dir.join("render-browser"),
                     no_sandbox: false,
                 },
-            })
+            };
+                mixdog_exthost::RoutedExtPool::new(script.clone(), script, Vec::<String>::new())
+            }
             .unwrap(),
         );
         let (state, _) = mixdog_store::state::CoreState::open(

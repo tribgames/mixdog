@@ -51,7 +51,7 @@ struct Fixture {
     data: Arc<AtomicU32>,
     flushes: Arc<AtomicU32>,
     released: Arc<Mutex<Vec<u32>>>,
-    ext_host: Arc<ExtHostPool>,
+    ext_host: Arc<mixdog_exthost::RoutedExtPool>,
     drains: Arc<Mutex<Vec<CoreDrainParams>>>,
     reasons: Arc<Mutex<Vec<String>>>,
     core: RuntimeCore,
@@ -80,7 +80,8 @@ fn fixture() -> Fixture {
     let ext_host = {
         let _enter = runtime.enter();
         Arc::new(
-            ExtHostPool::new(mixdog_exthost::ExtHostConfig {
+            {
+                let script = mixdog_exthost::ExtHostConfig {
                 program: js.program.clone(),
                 args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
                 electron: js.electron,
@@ -92,7 +93,9 @@ fn fixture() -> Fixture {
                     profile_root: install.path().join("render-browser"),
                     no_sandbox: false,
                 },
-            })
+            };
+                mixdog_exthost::RoutedExtPool::new(script.clone(), script, Vec::<String>::new())
+            }
             .unwrap(),
         )
     };
