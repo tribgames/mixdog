@@ -41,6 +41,16 @@ if (!tree || !casesPath || (!framesOnlyLevel && !option('--write') && !option('-
 delete process.env.NO_COLOR;
 process.env.FORCE_COLOR = framesOnlyLevel ?? '3';
 process.env.MIXDOG_TUI_AMBIGUOUS_WIDE = '1';
+// The status line reads the shell-job cache under the data directory and the terminal's width: a fresh empty directory
+// and a fixed width keep the recording the same on every machine.
+const dataDirectory = mkdtempSync(join(here, '.tmp-record-data-'));
+process.env.MIXDOG_DATA_DIR = dataDirectory;
+process.on('exit', () => rmSync(dataDirectory, { recursive: true, force: true }));
+try {
+  process.stdout.columns = 120;
+} catch {
+  // A stream that does not allow it keeps its own width.
+}
 if (framesOnlyLevel) process.env.TERM = 'dumb';
 
 const components = resolve(tree, 'src/tui/components');
@@ -61,6 +71,9 @@ const MODULES = {
   inputEditing: '../input-editing.mjs',
   confirmBar: './ConfirmBar.jsx',
   appFormat: '../app/app-format.mjs',
+  StatusLine: './StatusLine.jsx',
+  localLine: './status-line/local-line.mjs',
+  liveSpinnerVisibility: '../app/live-spinner-visibility.mjs',
 };
 
 const { build } = await import('esbuild');
