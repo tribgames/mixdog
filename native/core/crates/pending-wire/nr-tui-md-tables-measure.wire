@@ -1,0 +1,20 @@
+nr-tui-md-tables-measure: what the wiring applies
+
+1. Cargo / workspace / lock / hack: nothing. The task adds no crate and no dependency edge (mixdog-markdown-ansi already
+   depends on mixdog-js, mixdog-termtext and mixdog-tui-style; serde_json and sha2 are its dev-dependencies).
+2. compose_flip.rs SERVICE_PENDING: nothing (no protocol method).
+3. Joining the streaming measurement to the stream split (after nr-tui-md-stream lands; needs a line in stream.rs, which that
+   task owns): `measure::measure_streaming_markdown_rows(text, columns, stream_key, resolve)` takes the split as a closure
+   returning any `measure::StreamingSplit` (plain(), unstable_for_render(), stable_prefix(), stable_chunks(),
+   unstable_suffix()). The stream task's parts struct implements that trait (five one-line accessors) and the caller passes
+   `|text, key| resolve_streaming_markdown_parts(text, key)`. `measure::streaming_stable_chunks` is `streamingStableChunks`; the
+   stream task should call it rather than write a second one. The placeholder `measure_rendered_rows` of the earlier stub is gone
+   (it had no Node counterpart and no caller).
+4. Consumers: `table::build_table_render` keeps its signature (render.rs uses it); `table::build_table_layout` returns the lines
+   and `use_vertical_format`; `table::assistant_body_width` is `assistantBodyWidth`.
+
+Checks after the wave is built:
+   cargo test --offline -p mixdog-markdown-ansi
+   cargo clippy --offline -p mixdog-markdown-ansi --all-targets -- -D warnings
+   node native/core/crates/mixdog-markdown-ansi/tests/recorders/record-tables.mjs --tree C:/Project/mixdog --check native/core/crates/mixdog-markdown-ansi/tests/goldens/tables.json
+   cargo test --offline -p mixdog-markdown-ansi -- --ignored live_tables
