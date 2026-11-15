@@ -38,6 +38,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p1",
       "path": "/ws?token=fe6159d6440d4f5592d04cebfd8cd527c86e60dea0a4b333666334f17023ca62",
@@ -48,6 +52,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -62,6 +70,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p3",
       "path": "/ws?token=abfaf464c5af14f42ec88086887e86eafd324bea59e8ccff02f7f2c5f6306dd2",
@@ -72,6 +84,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -86,6 +102,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p5",
       "path": "/ws?token=c6f52559822d363260d7544e4db287e78fe13a8b35900cdd7caec5bb5451c9e7",
@@ -96,6 +116,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -110,6 +134,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p7",
       "path": "/ws?token=1cb2de83922927641c5285032d788120a9c9d1f6a174b0d2cfd5d838104fd7d3",
@@ -120,6 +148,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -134,6 +166,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p9",
       "path": "/ws?token=1d2d12f4c5917fa45c712b7a2ee4186186ff704ce29098a14a4048641e9716bf",
@@ -144,6 +180,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -158,6 +198,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p11",
       "path": "/ws?token=1a26d2d7e854d77c931dab19863f25a6cd2fcde483a2dbed1da4113cbf984c1e",
@@ -168,6 +212,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -182,6 +230,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p13",
       "path": "/ws?token=04c75c28198373e6322244cc31ca1ef373e333c6df2c310b0c1f658700089d8d",
@@ -192,6 +244,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -206,6 +262,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p15",
       "path": "/ws?token=8457f15363be5267b6ab6f336923edb307c0aeac82b0fcf3e61f69f832669642",
@@ -216,6 +276,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -230,6 +294,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p17",
       "path": "/ws?token=f7321e5d018366935941315084390e50484016c82df47887c673f13fb37c7884",
@@ -240,6 +308,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -254,6 +326,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p19",
       "path": "/ws?token=259a801c54c9054e250048b68fc1c873a6105a2292b6e22a04a1ae353b720d2e",
@@ -264,6 +340,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -278,6 +358,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p21",
       "path": "/ws?token=bbae7bb80f23d55bd527d1ada00f5a4b2a2bbd691126046f4d7d4491ca319418",
@@ -288,6 +372,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -302,6 +390,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p23",
       "path": "/ws?token=1e2a89318a552c6b540db24722e91c886b2225d9316ec895da3f2d547a7f0ece",
@@ -312,6 +404,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -326,6 +422,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p25",
       "path": "/ws?token=0b6718286e861b2625369b42a20d390aea1001c699b66554a768728facc013ce",
@@ -336,6 +436,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -350,6 +454,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p27",
       "path": "/ws?token=56679ba9c27e8e836371bf1d18a46d83e8f3f0a7e2baf93776c22527a8eaec61",
@@ -360,6 +468,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -374,6 +486,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p29",
       "path": "/ws?token=9b266efccac53f88f05410db1325e3f3c58eba42d7c9e37d7b45488ab5563798",
@@ -384,6 +500,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "ws_open",
@@ -398,6 +518,10 @@
       ]
     },
     {
+      "do": "wait",
+      "ms": 5
+    },
+    {
       "do": "ws_open",
       "conn": "p31",
       "path": "/ws?token=820df564a73adb3cf4cf7586565a0f570821a463749e161109ba8ae80dbb3766",
@@ -408,6 +532,10 @@
           "${origin}"
         ]
       ]
+    },
+    {
+      "do": "wait",
+      "ms": 5
     },
     {
       "do": "expect",

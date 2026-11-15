@@ -73,14 +73,14 @@ impl VapidKeys {
             },
             Err(error) if error.kind() == ErrorKind::NotFound => Self::create(&path),
             Err(error) => {
-                logline::emit(&logline::web_push_identity_unreadable(&error.to_string()));
+                logline::emit(&logline::web_push_identity_unreadable(&js::read_file_error(&error, &path)));
                 None
             }
         }
     }
 
     fn parse(text: &str) -> Result<Self, String> {
-        let parsed = js::parse(text).map_err(|error| error.to_string())?;
+        let parsed = js::parse(text).map_err(|error| mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| error.to_string()))?;
         let jwk = parsed.get("privateKeyJwk").ok_or("privateKeyJwk is missing")?;
         let secret = SecretKey::from_jwk_str(&jwk.to_string()).map_err(|error| error.to_string())?;
         let keys = Self::of(&secret);

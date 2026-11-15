@@ -5,7 +5,7 @@
 //! the port and the scratch directory of each run; times (epoch milliseconds or seconds, and ISO dates, within 400
 //! days of the run start), shown as a delta from the run start and compared with a tolerance; ES256 JWTs, whose
 //! signature is verified against the scenario's keys and whose claims other than `exp`, `iat` and `nbf` stay in the
-//! text; the P-256 key material of the VAPID file the relay generates in its data directory; the encrypted body of a web push request (its length stays). A hexadecimal run that is the SHA-256 of a
+//! text; the P-256 key material of the VAPID file the relay generates in its data directory; the encrypted body of a web push request (its length stays). In the relay's log lines, the 8-hex phone id prefix after `client=` and `phone:`, and the milliseconds of `lived=` and `loop-p50=`/`loop-p99=`/`loop-max=`. A hexadecimal run that is the SHA-256 of a
 //! placed file or of an answer body (an ETag, an index digest) is not random and stays as it is.
 //!
 //! Not masked: header names and their order, every byte of a body, close codes and reasons.
@@ -56,6 +56,7 @@ struct Normaliser<'a> {
     re_digits: Regex,
     re_iso: Regex,
     re_port: Option<Regex>,
+    re_relay_log: Regex,
 }
 
 fn civil_days(year: i64, month: i64, day: i64) -> i64 {
@@ -170,7 +171,7 @@ impl<'a> Normaliser<'a> {
         captured.dedup_by(|a, b| a.1 == b.1);
         let ports: Vec<String> = masks.ports.iter().map(u16::to_string).collect();
         let re_port = (!ports.is_empty())
-            .then(|| Regex::new(&format!(r":(?:{})\b", ports.join("|"))))
+            .then(|| Regex::new(&format!(r#"(^|[^"]):(?:{})\b"#, ports.join("|"))))
             .transpose()
             .map_err(|e| e.to_string())?;
         let regex = |pattern: &str| Regex::new(pattern).map_err(|e| e.to_string());
@@ -180,11 +181,12 @@ impl<'a> Normaliser<'a> {
             errors: Vec::new(),
             keys,
             captured,
-            re_ids: regex(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|[0-9a-f]{32,}")?,
+            re_ids: regex(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,}")?,
             re_jwt: regex(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")?,
             re_digits: regex(r"\d+")?,
             re_iso: regex(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z")?,
             re_port,
+            re_relay_log: regex(r"(client=|phone:)[0-9a-f]{8}\b|(lived=|loop-(?:p50|p99|max)=)\d+(?:\.\d+)?ms")?,
         })
     }
 
@@ -222,7 +224,8 @@ impl<'a> Normaliser<'a> {
             text = text.replace(root.as_str(), "<root>");
         }
         if let Some(port) = &self.re_port {
-            text = port.replace_all(&text, ":<port>").into_owned();
+            // A colon after a quote is a JSON key (`"bytes":49152`), not a host's port.
+            text = port.replace_all(&text, "${1}:<port>").into_owned();
         }
         if text.contains("eyJ") {
             text = self.jwts(&text);
@@ -232,6 +235,14 @@ impl<'a> Normaliser<'a> {
                 text = replace_token(&text, value, &format!("<${name}>"));
             }
         }
+        text = self
+            .re_relay_log
+            .replace_all(&text, |found: &regex::Captures<'_>| match (found.get(1), found.get(2)) {
+                (Some(key), _) => format!("{}<client8>", key.as_str()),
+                (_, Some(key)) => format!("{}<ms>", key.as_str()),
+                (None, None) => String::new(),
+            })
+            .into_owned();
         text = self.identifiers(&text);
         self.times(&text)
     }
@@ -392,6 +403,20 @@ mod tests {
     }
 
     #[test]
+    fn relay_log_phone_prefixes_and_durations_are_masked() {
+        let events = vec![
+            json!({"ev": "log", "line": "[relay] phone leg closed client=1a2b3c4d code=1000 reason= lived=5ms"}),
+            json!({"ev": "log", "line": "[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:d8601a87=0B loop-p50=31.6ms loop-p99=32.3ms loop-max=34.2ms"}),
+        ];
+        let out = run(masks(), events);
+        assert_eq!(out[0]["line"], "[relay] phone leg closed client=<client8> code=1000 reason= lived=<ms>");
+        assert_eq!(
+            out[1]["line"],
+            "[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:<client8>=0B loop-p50=<ms> loop-p99=<ms> loop-max=<ms>"
+        );
+    }
+
+    #[test]
     fn identifiers_are_mapped_by_first_appearance_and_equal_structure_compares_equal() {
         let a = run(
             masks(),
@@ -429,6 +454,12 @@ mod tests {
         );
         assert_eq!(out[0]["line"], "[relay] http listening on :<port> (renderer: <root>\\renderer)");
         assert_eq!(out[0]["code"], "{\"code\":\"<$pair>\"} 1234567");
+    }
+
+    #[test]
+    fn a_json_number_equal_to_the_port_is_not_masked() {
+        let out = run(masks(), vec![json!({"line": "{\"bytes\":43211} on :43211"})]);
+        assert_eq!(out[0]["line"], "{\"bytes\":43211} on :<port>");
     }
 
     #[test]

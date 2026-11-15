@@ -86,6 +86,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p1",
       "path": "/ws?token=${browser}",
@@ -110,6 +115,11 @@
       "do": "expect",
       "conn": "p1",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -138,6 +148,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p3",
       "path": "/ws?token=${browser}",
@@ -162,6 +177,11 @@
       "do": "expect",
       "conn": "p3",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -190,6 +210,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p5",
       "path": "/ws?token=${browser}",
@@ -214,6 +239,11 @@
       "do": "expect",
       "conn": "p5",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -242,6 +272,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p7",
       "path": "/ws?token=${browser}",
@@ -266,6 +301,11 @@
       "do": "expect",
       "conn": "p7",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -294,6 +334,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p9",
       "path": "/ws?token=${browser}",
@@ -318,6 +363,11 @@
       "do": "expect",
       "conn": "p9",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -346,6 +396,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p11",
       "path": "/ws?token=${browser}",
@@ -370,6 +425,11 @@
       "do": "expect",
       "conn": "p11",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -398,6 +458,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p13",
       "path": "/ws?token=${browser}",
@@ -422,6 +487,11 @@
       "do": "expect",
       "conn": "p13",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -450,6 +520,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p15",
       "path": "/ws?token=${browser}",
@@ -474,6 +549,11 @@
       "do": "expect",
       "conn": "p15",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -502,6 +582,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p17",
       "path": "/ws?token=${browser}",
@@ -526,6 +611,11 @@
       "do": "expect",
       "conn": "p17",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -554,6 +644,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p19",
       "path": "/ws?token=${browser}",
@@ -578,6 +673,11 @@
       "do": "expect",
       "conn": "p19",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -606,6 +706,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p21",
       "path": "/ws?token=${browser}",
@@ -630,6 +735,11 @@
       "do": "expect",
       "conn": "p21",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -658,6 +768,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p23",
       "path": "/ws?token=${browser}",
@@ -682,6 +797,11 @@
       "do": "expect",
       "conn": "p23",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -710,6 +830,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p25",
       "path": "/ws?token=${browser}",
@@ -734,6 +859,11 @@
       "do": "expect",
       "conn": "p25",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -762,6 +892,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p27",
       "path": "/ws?token=${browser}",
@@ -786,6 +921,11 @@
       "do": "expect",
       "conn": "p27",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -814,6 +954,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p29",
       "path": "/ws?token=${browser}",
@@ -838,6 +983,11 @@
       "do": "expect",
       "conn": "p29",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -866,6 +1016,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p31",
       "path": "/ws?token=${browser}",
@@ -890,6 +1045,11 @@
       "do": "expect",
       "conn": "p31",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -918,6 +1078,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p33",
       "path": "/ws?token=${browser}",
@@ -942,6 +1107,11 @@
       "do": "expect",
       "conn": "p33",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -970,6 +1140,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p35",
       "path": "/ws?token=${browser}",
@@ -994,6 +1169,11 @@
       "do": "expect",
       "conn": "p35",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1022,6 +1202,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p37",
       "path": "/ws?token=${browser}",
@@ -1046,6 +1231,11 @@
       "do": "expect",
       "conn": "p37",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1074,6 +1264,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p39",
       "path": "/ws?token=${browser}",
@@ -1098,6 +1293,11 @@
       "do": "expect",
       "conn": "p39",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1126,6 +1326,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p41",
       "path": "/ws?token=${browser}",
@@ -1150,6 +1355,11 @@
       "do": "expect",
       "conn": "p41",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1178,6 +1388,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p43",
       "path": "/ws?token=${browser}",
@@ -1202,6 +1417,11 @@
       "do": "expect",
       "conn": "p43",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1230,6 +1450,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p45",
       "path": "/ws?token=${browser}",
@@ -1254,6 +1479,11 @@
       "do": "expect",
       "conn": "p45",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1282,6 +1512,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p47",
       "path": "/ws?token=${browser}",
@@ -1306,6 +1541,11 @@
       "do": "expect",
       "conn": "p47",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1334,6 +1574,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p49",
       "path": "/ws?token=${browser}",
@@ -1358,6 +1603,11 @@
       "do": "expect",
       "conn": "p49",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1386,6 +1636,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p51",
       "path": "/ws?token=${browser}",
@@ -1410,6 +1665,11 @@
       "do": "expect",
       "conn": "p51",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1438,6 +1698,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p53",
       "path": "/ws?token=${browser}",
@@ -1462,6 +1727,11 @@
       "do": "expect",
       "conn": "p53",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1490,6 +1760,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p55",
       "path": "/ws?token=${browser}",
@@ -1514,6 +1789,11 @@
       "do": "expect",
       "conn": "p55",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1542,6 +1822,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p57",
       "path": "/ws?token=${browser}",
@@ -1566,6 +1851,11 @@
       "do": "expect",
       "conn": "p57",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1594,6 +1884,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p59",
       "path": "/ws?token=${browser}",
@@ -1618,6 +1913,11 @@
       "do": "expect",
       "conn": "p59",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1646,6 +1946,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p61",
       "path": "/ws?token=${browser}",
@@ -1670,6 +1975,11 @@
       "do": "expect",
       "conn": "p61",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1698,6 +2008,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p63",
       "path": "/ws?token=${browser}",
@@ -1722,6 +2037,11 @@
       "do": "expect",
       "conn": "p63",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1750,6 +2070,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p65",
       "path": "/ws?token=${browser}",
@@ -1774,6 +2099,11 @@
       "do": "expect",
       "conn": "p65",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1802,6 +2132,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p67",
       "path": "/ws?token=${browser}",
@@ -1826,6 +2161,11 @@
       "do": "expect",
       "conn": "p67",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1854,6 +2194,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p69",
       "path": "/ws?token=${browser}",
@@ -1878,6 +2223,11 @@
       "do": "expect",
       "conn": "p69",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1906,6 +2256,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p71",
       "path": "/ws?token=${browser}",
@@ -1930,6 +2285,11 @@
       "do": "expect",
       "conn": "p71",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -1958,6 +2318,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p73",
       "path": "/ws?token=${browser}",
@@ -1982,6 +2347,11 @@
       "do": "expect",
       "conn": "p73",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2010,6 +2380,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p75",
       "path": "/ws?token=${browser}",
@@ -2034,6 +2409,11 @@
       "do": "expect",
       "conn": "p75",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2062,6 +2442,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p77",
       "path": "/ws?token=${browser}",
@@ -2086,6 +2471,11 @@
       "do": "expect",
       "conn": "p77",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2114,6 +2504,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p79",
       "path": "/ws?token=${browser}",
@@ -2138,6 +2533,11 @@
       "do": "expect",
       "conn": "p79",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2166,6 +2566,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p81",
       "path": "/ws?token=${browser}",
@@ -2190,6 +2595,11 @@
       "do": "expect",
       "conn": "p81",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2218,6 +2628,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p83",
       "path": "/ws?token=${browser}",
@@ -2242,6 +2657,11 @@
       "do": "expect",
       "conn": "p83",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2270,6 +2690,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p85",
       "path": "/ws?token=${browser}",
@@ -2294,6 +2719,11 @@
       "do": "expect",
       "conn": "p85",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2322,6 +2752,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p87",
       "path": "/ws?token=${browser}",
@@ -2346,6 +2781,11 @@
       "do": "expect",
       "conn": "p87",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2374,6 +2814,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p89",
       "path": "/ws?token=${browser}",
@@ -2398,6 +2843,11 @@
       "do": "expect",
       "conn": "p89",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2426,6 +2876,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p91",
       "path": "/ws?token=${browser}",
@@ -2450,6 +2905,11 @@
       "do": "expect",
       "conn": "p91",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2478,6 +2938,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p93",
       "path": "/ws?token=${browser}",
@@ -2502,6 +2967,11 @@
       "do": "expect",
       "conn": "p93",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2530,6 +3000,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p95",
       "path": "/ws?token=${browser}",
@@ -2554,6 +3029,11 @@
       "do": "expect",
       "conn": "p95",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2582,6 +3062,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p97",
       "path": "/ws?token=${browser}",
@@ -2606,6 +3091,11 @@
       "do": "expect",
       "conn": "p97",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2634,6 +3124,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p99",
       "path": "/ws?token=${browser}",
@@ -2658,6 +3153,11 @@
       "do": "expect",
       "conn": "p99",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2686,6 +3186,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p101",
       "path": "/ws?token=${browser}",
@@ -2710,6 +3215,11 @@
       "do": "expect",
       "conn": "p101",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2738,6 +3248,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p103",
       "path": "/ws?token=${browser}",
@@ -2762,6 +3277,11 @@
       "do": "expect",
       "conn": "p103",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2790,6 +3310,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p105",
       "path": "/ws?token=${browser}",
@@ -2814,6 +3339,11 @@
       "do": "expect",
       "conn": "p105",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2842,6 +3372,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p107",
       "path": "/ws?token=${browser}",
@@ -2866,6 +3401,11 @@
       "do": "expect",
       "conn": "p107",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2894,6 +3434,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p109",
       "path": "/ws?token=${browser}",
@@ -2918,6 +3463,11 @@
       "do": "expect",
       "conn": "p109",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2946,6 +3496,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p111",
       "path": "/ws?token=${browser}",
@@ -2970,6 +3525,11 @@
       "do": "expect",
       "conn": "p111",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -2998,6 +3558,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p113",
       "path": "/ws?token=${browser}",
@@ -3022,6 +3587,11 @@
       "do": "expect",
       "conn": "p113",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -3050,6 +3620,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p115",
       "path": "/ws?token=${browser}",
@@ -3074,6 +3649,11 @@
       "do": "expect",
       "conn": "p115",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -3102,6 +3682,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p117",
       "path": "/ws?token=${browser}",
@@ -3126,6 +3711,11 @@
       "do": "expect",
       "conn": "p117",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",
@@ -3154,6 +3744,11 @@
       "close": true
     },
     {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
+    },
+    {
       "do": "ws_open",
       "conn": "p119",
       "path": "/ws?token=${browser}",
@@ -3178,6 +3773,11 @@
       "do": "expect",
       "conn": "p119",
       "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "dA",
+      "frames": 2
     },
     {
       "do": "ws_open",

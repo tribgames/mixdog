@@ -1,0 +1,12 @@
+# t19-relay-twins: what the lead applies (hot files)
+
+## Cargo.lock
+native/core/Cargo.lock, [[package]] name = "mixdog-remote": already lists "mixdog-relay" between "mixdog-protocol" and "mixdog-rt" (nothing to do; --locked builds pass)
+(mixdog-remote/Cargo.toml carries the dev-dependency).
+
+## native/core/Cargo.toml, mixdog-workspace-hack, compose*.rs, main.rs, protocol tables
+No change. compose_flip.rs SERVICE_PENDING: no name added or removed.
+
+## Notes from the twin fragments
+- Harness gaps listed in nr-relay-twin-services (background http + await_http step, ICE answer masks, unwritable registry) are owned by tests/twin/harness.rs and scenario.rs.
+- apps/mobile/package.json `test` glob also picks up relay-transport.relay.slow.test.ts: keep *.slow.test.ts out of it (review of nr-relay-clients-phone-e2e).
