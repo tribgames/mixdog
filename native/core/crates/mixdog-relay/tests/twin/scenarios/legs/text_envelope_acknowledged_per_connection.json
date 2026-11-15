@@ -1,0 +1,217 @@
+{
+  "id": "text_envelope_acknowledged_per_connection",
+  "description": "a leg that declares nothing is told so by silence and its text is held to the JSON worst case; a leg that declares the text envelope is acknowledged on its own connection",
+  "knobs": {
+    "maxFrameBytes": 1048576,
+    "uplinkCapacityBytes": 4400
+  },
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"38298baa833bf3396a90bc4e29361fb2a84134e2b849e81945bc06d50cfa3bb6\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  },\n  \"2e9d4b17-6a3c-4f58-9c04-b1d7e8a35f62\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"4555631634d2251d8c5e41661df63ec007588f80d363a055315aea23153ba392\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "undeclared",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80",
+        "0123456789abcdef"
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "undeclared",
+      "frames": 2
+    },
+    {
+      "do": "ws_open",
+      "conn": "pl",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "undeclared",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "cl",
+          "from": "frame_json",
+          "path": "clientId"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "pl",
+      "frame": {
+        "kind": "text",
+        "text": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pl",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "pl",
+      "frame": {
+        "kind": "text",
+        "text": "{\"ping\":1}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pl",
+      "frames": 1
+    },
+    {
+      "do": "ws_open",
+      "conn": "declared",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "2e9d4b17-6a3c-4f58-9c04-b1d7e8a35f62",
+        "0123456789abcdef"
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "declared",
+      "frames": 2
+    },
+    {
+      "do": "send",
+      "conn": "declared",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"desktop-lanes\",\"media\":false,\"textFrames\":1,\"maxPayloadBytes\":4400}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "declared",
+      "frames": 1
+    },
+    {
+      "do": "ws_open",
+      "conn": "pm",
+      "path": "/ws?token=2d94b434b569a2fb488f1e5ae4cc5bfdd27c91ef1a537121d67b84a74a58ed2f",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "expect",
+      "conn": "declared",
+      "frames": 1,
+      "capture": [
+        {
+          "var": "cm",
+          "from": "frame_json",
+          "path": "clientId"
+        }
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "pm",
+      "frame": {
+        "kind": "text",
+        "text": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "declared",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "pm",
+      "frame": {
+        "kind": "text",
+        "text": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pm",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "pm",
+      "frame": {
+        "kind": "text",
+        "text": "{\"ping\":1}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pm",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "pm",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pm",
+      "frames": 0,
+      "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "declared",
+      "frames": 1
+    },
+    {
+      "do": "wait",
+      "ms": 60
+    },
+    {
+      "do": "send",
+      "conn": "pl",
+      "frame": {
+        "kind": "close",
+        "code": 1000
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "pl",
+      "frames": 0,
+      "close": true
+    },
+    {
+      "do": "expect",
+      "conn": "undeclared",
+      "frames": 1
+    },
+    {
+      "do": "wait",
+      "ms": 60
+    }
+  ]
+}
