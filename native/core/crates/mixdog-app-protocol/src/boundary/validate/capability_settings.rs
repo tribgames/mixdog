@@ -314,10 +314,10 @@ fn usage_requests(p: &Fields) -> Result<(), ErrorData> {
     };
     allowed_keys(request, USAGE_REQUEST_KEYS, "/options", "request log options")?;
     // The first page's time, pinned for later pages: the shape only.
-    if let Some(as_of) = request.get("asOf") {
-        if !as_of.as_f64().is_some_and(|time| time.is_finite() && time > 0.0) {
-            return Err(invalid("/options/asOf", "request log asOf must be a positive timestamp."));
-        }
+    if let Some(as_of) = request.get("asOf")
+        && !as_of.as_f64().is_some_and(|time| time.is_finite() && time > 0.0)
+    {
+        return Err(invalid("/options/asOf", "request log asOf must be a positive timestamp."));
     }
     let choice = |key: &str, choices: &[&str], message: &str| match request.get(key) {
         None => Ok(()),
@@ -344,10 +344,10 @@ fn usage_requests(p: &Fields) -> Result<(), ErrorData> {
     if let Some(cursor) = request.get("cursor") {
         required_string(Some(cursor), "/options/cursor", "request log cursor", MAX_USAGE_REQUEST_CURSOR_LENGTH)?;
     }
-    if let Some(limit) = request.get("limit") {
-        if !integer(limit).is_some_and(|limit| (1.0..=MAX_USAGE_REQUEST_PAGE).contains(&limit)) {
-            return Err(invalid("/options/limit", "request log limit must be an integer from 1 to 200."));
-        }
+    if let Some(limit) = request.get("limit")
+        && !integer(limit).is_some_and(|limit| (1.0..=MAX_USAGE_REQUEST_PAGE).contains(&limit))
+    {
+        return Err(invalid("/options/limit", "request log limit must be an integer from 1 to 200."));
     }
     Ok(())
 }
