@@ -424,8 +424,10 @@ fn resample(image: &Image, width: u32, height: u32, x_factor: f64, y_factor: f64
         plane = shrink_axis(&plane, Axis::X, out_w, x_factor, kernel);
     }
     if x_factor < 1.0 || y_factor < 1.0 {
-        let x_inverse = (x_factor < 1.0).then_some(x_factor);
-        let y_inverse = (y_factor < 1.0).then_some(y_factor);
+        // libvips enlarges with one affine over both axes: the axis that is not enlarged goes through it at scale 1, which reads half a pixel
+        // back (the interpolators centre their window on the sample before the one the position falls on).
+        let x_inverse = Some(x_factor.min(1.0));
+        let y_inverse = Some(y_factor.min(1.0));
         plane = match kernel {
             Kernel::Linear => enlarge_linear(&plane, out_w, out_h, x_inverse, y_inverse),
             Kernel::Nearest => {
@@ -862,6 +864,16 @@ mod tests {
                 assert!(out.rgba().chunks_exact(4).all(|p| p[..3] == [30, 60, 90]), "{kernel:?} {w}x{h}");
             }
         }
+    }
+
+    #[test]
+    fn an_axis_that_is_not_enlarged_is_read_half_a_pixel_back_when_the_other_is() {
+        // sharp 0.35.5 (libvips 8.18.7): a 30 x 12 grey picture whose rows are 2 * y * y modulo 256, resized to 64 x 12 with fill.
+        let bytes: Vec<u8> = (0..12u32).flat_map(|y| std::iter::repeat_n(((y * y * 2) % 256) as u8, 30)).collect();
+        let image = Image::from_raw(30, 12, 1, &bytes).unwrap();
+        let out = resize_exact(&image, 64, 12, Kernel::Lanczos3);
+        let column: Vec<u8> = (0..12).map(|y| out.rgba()[(y * 64 + 5) * 4]).collect();
+        assert_eq!(column, [0, 1, 5, 13, 25, 41, 61, 85, 113, 145, 181, 223]);
     }
 
     #[test]
