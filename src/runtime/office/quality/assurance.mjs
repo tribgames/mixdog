@@ -1,5 +1,5 @@
 // Office assurance reviews, split by concern. This facade keeps the public surface
-// stable for the runtime, benchmarks, and scripts/office-design-audit.mjs.
+// stable for the runtime and the benchmarks.
 export {
   analyzeOfficeFilePromptInjection,
   analyzeOfficePromptInjection,
