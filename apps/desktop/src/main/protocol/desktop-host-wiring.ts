@@ -9,7 +9,7 @@ import { computerUseCoordinator } from '../computer/session/coordinator';
 import { createComputerPillSource, type ComputerSectionValue } from '../host/computer-pill';
 import { createDesktopHost, type DesktopHostOptions } from '../host';
 import type { ComputerHostWiring } from '../host/register-s3';
-import { createHostConnection } from './host-connection';
+import { createHostConnection, type HostFault } from './host-connection';
 import type { ProtocolConnection } from './connection';
 
 /** The id this install claims the host role with; created once and kept in the profile. */
@@ -33,9 +33,12 @@ export interface LocalHostRoleOptions extends Omit<DesktopHostOptions, 'connecti
   /** A failed claim (another desktop holds the role, or the core refused) is reported, never retried on a timer:
    *  the next reconnect claims again. */
   onClaimFailed(error: unknown): void;
+  /** A host handler failed where nobody is answered (a notification, an answer the link could not carry, a close listener):
+   *  reported (diagnostics); the connection goes on serving. */
+  onHostFault?: HostFault;
 }
 
-export function createLocalHostRole({ protocol, onClaimFailed, computer, ...options }: LocalHostRoleOptions) {
+export function createLocalHostRole({ protocol, onClaimFailed, onHostFault, computer, ...options }: LocalHostRoleOptions) {
   // The presence mirror: the pill and the arrow follow the core's section (the in-process coordinator while the section
   // names the desktop's own host as the backend); moving the real mouse releases the agent's pointer in the core.
   const computerPill = createComputerPillSource(Date.now, {
@@ -50,7 +53,7 @@ export function createLocalHostRole({ protocol, onClaimFailed, computer, ...opti
     );
   });
   // The mirror exists before the host: the computer handlers draw the app input's arrow through it and ask it who drives the computer.
-  const host = createDesktopHost({ ...options, connection: createHostConnection(protocol), computer: { ...computer, mirror: computerPill } });
+  const host = createDesktopHost({ ...options, connection: createHostConnection(protocol, onHostFault), computer: { ...computer, mirror: computerPill } });
   let wasReady = false;
   let claimed!: () => void;
   /** Settles once the host role is claimed for the first time (the core's windows of saved servers ask for this desktop's from then on). */
