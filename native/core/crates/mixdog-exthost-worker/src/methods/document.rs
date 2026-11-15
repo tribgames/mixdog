@@ -4,15 +4,17 @@
 //! This is the handler layer: the project-entry path rules, the checks of a request's pages, width and password, the roots
 //! the core approved for the call, and the pin of a thread that unlocked a document. The conversion of a document to a PDF and
 //! the rasterising of its pages are a [`DocumentEngine`]; the build that links the office PDF backend registers it with
-//! [`register_with`]. Until one is registered, a call that needs the engine answers `OFFICE_PREVIEW_UNAVAILABLE` and the
-//! reason is logged once at error level; a PDF previews in place and every refusal below is the same with or without it.
+//! [`register_with`]; the worker registers [`super::document_engine::OfficeEngine`], the office PDF backend. A PDF previews in
+//! place without the engine, and every refusal below is the same with any engine.
 //!
 //! Failures carry a stable `code` (the core maps it to the domain's coded error); the message stays the one Node showed.
 
 use std::collections::HashSet;
 use std::io;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
-use std::sync::{Arc, Mutex, Once, PoisonError};
+#[cfg(test)]
+use std::sync::Once;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use mixdog_fsio::Unlaned;
@@ -93,9 +95,11 @@ pub trait DocumentEngine: Send + Sync {
     fn prepare_fonts(&self) -> BoxFuture<()>;
 }
 
-/// The engine of a build that links none: every call that needs one answers `OFFICE_PREVIEW_UNAVAILABLE`.
+/// An engine that links nothing: every call that needs one answers `OFFICE_PREVIEW_UNAVAILABLE` (the handler layer's tests).
+#[cfg(test)]
 struct MissingEngine;
 
+#[cfg(test)]
 impl MissingEngine {
     const REASON: &'static str = "document preview is off: the office PDF backend is not linked into this worker";
 
@@ -106,6 +110,7 @@ impl MissingEngine {
     }
 }
 
+#[cfg(test)]
 impl DocumentEngine for MissingEngine {
     fn preview_pdf(&self, _: PreviewRequest) -> BoxFuture<Result<PdfPreview, CodedError>> {
         Box::pin(async { Err(Self::unavailable()) })
@@ -123,7 +128,8 @@ impl DocumentEngine for MissingEngine {
 }
 
 pub(super) fn register(registry: &mut Registry) {
-    register_with(registry, Arc::new(MissingEngine));
+    register_with(registry, Arc::new(super::document_engine::OfficeEngine::new()));
+    super::document_engine::register_exit(registry);
 }
 
 /// Serves the four `document.*` methods over `engine` (replacing the ones already registered).
@@ -804,7 +810,7 @@ mod tests {
     #[tokio::test]
     async fn without_an_engine_a_conversion_answers_unavailable_and_a_pdf_still_previews() {
         let mut registry = Registry::new();
-        register(&mut registry);
+        register_with(&mut registry, Arc::new(MissingEngine));
         let root = tempfile::tempdir().unwrap();
         let base = root.path();
         std::fs::write(base.join("a.pdf"), b"%PDF").unwrap();

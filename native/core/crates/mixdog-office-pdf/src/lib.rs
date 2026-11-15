@@ -7,6 +7,7 @@
 pub mod analysis;
 pub mod document;
 pub mod limits;
+pub mod ocr;
 pub mod search;
 pub mod adapter;
 pub mod edit_document;
@@ -16,6 +17,8 @@ pub mod structure;
 pub mod forms;
 pub mod contact_sheets;
 pub mod render;
+pub mod preview;
+pub mod writer;
 
 pub use analysis::images::{ExtractedImage, ImageExtraction, ImageOptions, extract_pdf_images};
 pub use analysis::layout::{
@@ -28,5 +31,6 @@ pub use analysis::tables::{
 };
 pub use document::{AnalysisError, PdfSource, open_pdf, selected_pages};
 pub use limits::MAX_PDF_ANALYSIS_PAGES;
+pub use ocr::{OcrContext, PageText, ocr_pdf, pdf_ocr_readiness, recognize_pdf_page_texts};
 pub use render::{RenderPagesOptions, RenderedImage, RenderedPages, render_pdf_pages};
 pub use search::{Rect, SearchMatch, SearchOptions, SearchResult, find_pdf_text};
