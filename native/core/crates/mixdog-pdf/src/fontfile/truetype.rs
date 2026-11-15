@@ -1328,8 +1328,7 @@ fn glyph_signed16(glyf: &[u8], k: i64) -> i64 {
 /// `loca` ranges overlap read what an earlier glyph repaired.
 fn glyph_has_outline(source: &mut [u8], source_start: i64, source_end: i64) -> bool {
     let len = i64::try_from(source.len()).unwrap_or(i64::MAX);
-    if source_start < 0 || source_start >= len || source_end > len || source_end - source_start <= 12
-    {
+    if !(0..len).contains(&source_start) || source_end > len || source_end - source_start <= 12 {
         return false;
     }
     let glyf = &mut source[source_start as usize..source_end as usize];
