@@ -7,8 +7,8 @@ RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop
 # an ADDITIONAL side-by-side release; a relay-only deploy (renderer reused)
 # passes none and registers nothing new.
 DESKTOP_VERSION="${3:-}"
-# The Android release the /app install page links (lib/app-page.mjs reads it
-# from mobile-release.json at startup). Deploy passes the newest release whose
+# The Android release the /app install page links (the relay reads it from
+# mobile-release.json at startup). Deploy passes the newest release whose
 # APK it verified downloadable; without one the installed link is kept.
 ANDROID_URL="${4:-}"
 DATA_DIR=/var/lib/mixdog-relay
@@ -20,6 +20,13 @@ DATA_DIR=/var/lib/mixdog-relay
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_DIR=/opt/mixdog-relay
+# Where the unit must find the binary, and the drop-in that points a unit still
+# running the previous (Node) release at it (release-transaction.sh).
+RELAY_BINARY="$INSTALL_DIR/mixdog-relay"
+EXEC_DROPIN=/etc/systemd/system/mixdog-relay.service.d/exec.conf
+# The previous release when it was a Node tree: kept for a manual return, never
+# touched by the cleanup globs below.
+HANDOVER_DIR=/opt/mixdog-relay.handover
 NEXT_DIR="/opt/mixdog-relay.next-${RELEASE_TAG}"
 BACKUP_DIR="/opt/mixdog-relay.backup-${RELEASE_TAG}"
 LOCK_FILE=/run/mixdog-relay-deploy.lock
@@ -29,10 +36,12 @@ RENDERER_MANIFEST="$SRC_DIR/.cache/renderer-manifest.json"
 if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
 	# Provenance, not just presence: a delta reconstructs its release only on top
 	# of the exact installed tree it was computed from. The manifest records that
-	# base and `renderer-delta.mjs --action=apply` refuses any other tree, so a
+	# base and `mixdog-relay renderer-delta --action=apply` refuses any other tree, so a
 	# cache left over from an earlier release can no longer rebuild stale content
 	# that then passes the post-swap hash check (taken from the same rebuild).
-	RENDERER_BASE="$(node -e 'const {readFileSync}=require("node:fs");const m=JSON.parse(readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof m.base==="string"?m.base:"")' "$RENDERER_MANIFEST")"
+	# The manifest is the tool's own pretty JSON: its top-level "base" is the only
+	# key of that name indented by exactly two spaces.
+	RENDERER_BASE="$(sed -n 's/^  "base": "\([0-9a-f]\{64\}\)"$/\1/p' "$RENDERER_MANIFEST")"
 	if [[ "$RENDERER_BASE" =~ ^[0-9a-f]{64}$ ]]; then
 		RENDERER_MODE="delta"
 	elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
@@ -42,7 +51,7 @@ if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
 	else
 		echo "[deploy] cached renderer delta at $RENDERER_DELTA_DIR has no base provenance, and this upload carries no renderer/." >&2
 		echo "[deploy] fix: rm -rf '$SRC_DIR/.cache' and re-run to keep the installed renderer, or rebuild the delta:" >&2
-		echo "[deploy]   node '$SRC_DIR/deploy/renderer-delta.mjs' --action=create --root=<renderer> --base=<installed manifest> --delta='$RENDERER_DELTA_DIR' --manifest='$RENDERER_MANIFEST'" >&2
+		echo "[deploy]   '$SRC_DIR/mixdog-relay' renderer-delta --action=create --root=<renderer> --base=<installed manifest> --delta='$RENDERER_DELTA_DIR' --manifest='$RENDERER_MANIFEST'" >&2
 		exit 1
 	fi
 elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
@@ -75,8 +84,15 @@ test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 rm -rf "$NEXT_DIR" "$BACKUP_DIR"
 arm_release_transaction
 mkdir -p "$NEXT_DIR"
-cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$NEXT_DIR/"
-cp -r "$SRC_DIR/lib" "$NEXT_DIR/"
+if [[ -f "$SRC_DIR/mixdog-relay" ]]; then
+	install -m 0755 -o root -g root "$SRC_DIR/mixdog-relay" "$NEXT_DIR/mixdog-relay"
+elif [[ -x "$RELAY_BINARY" ]]; then
+	# An upload without a binary is a renderer-only deploy: the installed relay stays.
+	install -m 0755 -o root -g root "$RELAY_BINARY" "$NEXT_DIR/mixdog-relay"
+else
+	echo "[deploy] the upload carries no mixdog-relay binary and $INSTALL_DIR has none to keep" >&2
+	exit 1
+fi
 cp -r "$SRC_DIR/deploy" "$NEXT_DIR/"
 if [[ -n "$ANDROID_URL" ]]; then
 	# The pattern above admits no character that needs JSON escaping.
@@ -85,7 +101,7 @@ elif [[ -f "$INSTALL_DIR/mobile-release.json" ]]; then
 	cp "$INSTALL_DIR/mobile-release.json" "$NEXT_DIR/"
 fi
 if [[ "$RENDERER_MODE" = "delta" ]]; then
-	node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
+	"$NEXT_DIR/mixdog-relay" renderer-delta --action=apply \
 		"--base=$INSTALL_DIR/renderer" \
 		"--delta=$RENDERER_DELTA_DIR" \
 		"--manifest=$RENDERER_MANIFEST" \
@@ -118,37 +134,32 @@ if [[ ! -f "$INSTALL_DIR/renderer-releases/index.json" && -f "$INSTALL_DIR/rende
 	# The renderer serving today becomes the `legacy` release.
 	LEGACY_ARGS=("--legacy=$INSTALL_DIR/renderer")
 fi
-RELEASE_RESULT="$(node "$SRC_DIR/deploy/renderer-releases.mjs" --action=prepare \
+RELEASE_RESULT="$("$NEXT_DIR/mixdog-relay" renderer-releases --action=prepare \
 	"--releases=$RELEASES_DIR" "--renderer=$NEXT_DIR/renderer" \
 	"--desktop-version=$DESKTOP_VERSION" "--devices=$DATA_DIR/devices.json" \
 	${LEGACY_ARGS[@]+"${LEGACY_ARGS[@]}"})"
-RELEASE_ID="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).releaseId||""))' "$RELEASE_RESULT")"
+# The tool prints one JSON line; a release id holds no quote or escape.
+RELEASE_ID="$(sed -n 's/.*[{,]"releaseId":"\([^"\\]*\)".*/\1/p' <<<"$RELEASE_RESULT")"
 echo "[deploy] renderer releases: $RELEASE_RESULT"
-cd "$NEXT_DIR"
-# Deploy-time shortcut (CI/CD 단축): the relay's dependency tree is tiny and
-# rarely moves — when the lockfile hash matches the installed tree, reuse it
-# instead of a fresh npm ci network pass.
-LOCK_HASH="$(sha256sum "$NEXT_DIR/package-lock.json" | awk '{print $1}')"
-if [[ -f "$INSTALL_DIR/node_modules/.mixdog-lock-hash" &&
-	"$(cat "$INSTALL_DIR/node_modules/.mixdog-lock-hash")" = "$LOCK_HASH" ]]; then
-	cp -al "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
-else
-	npm ci --omit=dev --no-audit --no-fund
-	printf '%s' "$LOCK_HASH" >"$NEXT_DIR/node_modules/.mixdog-lock-hash"
-fi
 
 activate_release
 
-# Verification runs from the installed package so its ws dependency is the
-# exact lockfile tree this service runs. Failure is still inside the rollback
-# transaction: a listening process alone is not a usable web deployment.
+# Verification runs the installed binary, the one this service runs. Failure is
+# still inside the rollback transaction: a listening process alone is not a
+# usable web deployment.
 systemctl is-active --quiet mixdog-relay
 test "$(sha256sum "$INSTALL_DIR/renderer/index.html" | awk '{print $1}')" = "$LOCAL_HASH"
-node "$INSTALL_DIR/deploy/verify-release.mjs" \
+"$RELAY_BINARY" verify-release \
 	"--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH" \
 	"--expected-release=$RELEASE_ID"
 
 commit_release_transaction
-rm -rf "$BACKUP_DIR"
+if [[ -f "$BACKUP_DIR/server.mjs" ]]; then
+	# The first switch: the Node tree stays as the handover copy.
+	rm -rf "$HANDOVER_DIR"
+	mv "$BACKUP_DIR" "$HANDOVER_DIR"
+else
+	rm -rf "$BACKUP_DIR"
+fi
 cleanup_stale_releases
 echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH release=${RELEASE_ID:-none} mode=$RENDERER_MODE"

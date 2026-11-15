@@ -7,6 +7,9 @@
   Renderer and relay fingerprints are independent:
     - unchanged inputs skip build, stage, and upload
     - relay-only changes reuse the installed VPS renderer
+    - the relay is the Linux mixdog-relay binary of the mixdogd-build run whose
+      relay sources equal the local tree; without such a run only the renderer
+      is deployed and the relay change is left for the release
     - fresh local renderer output is reused
     - FastDirect builds only stale local targets while upload runs
   The FastDirect swap stays LAST: its detached worker restarts the daemon
@@ -37,9 +40,58 @@ $deployPlanner = Join-Path $relayDir 'scripts\deploy-plan.mjs'
 $deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
 $deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
 
+# The Linux relay binary the VPS runs: the mixdog-relay-x86_64-unknown-linux-gnu
+# artifact of a successful mixdogd-build run whose relay sources (what the binary
+# is built from: relayInputs of apps/relay/scripts/deploy-plan.mjs without deploy/)
+# equal the local tree. Returns the folder holding it, or $null.
+function Get-RelayBinaryDir([string]$cacheDir) {
+    $sources = @('native/core/crates/mixdog-relay', 'native/core/crates/mixdog-js',
+        'native/core/crates/mixdog-fsio', 'native/core/crates/mixdog-rt',
+        'native/core/crates/mixdog-workspace-hack', 'native/core/vendor/regress',
+        'native/core/vendor/icu_collator', 'native/core/Cargo.toml', 'native/core/Cargo.lock')
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return $null }
+    Push-Location $repo
+    try {
+        if (git ls-files --others --exclude-standard -- @sources) { return $null }
+        $runs = & gh run list --workflow mixdogd-build.yml --status success --limit 30 `
+            --json databaseId,headSha 2>$null | ConvertFrom-Json
+        foreach ($run in $runs) {
+            git cat-file -e "$($run.headSha)^{commit}" 2>$null
+            if ($LASTEXITCODE -ne 0) { continue }
+            git diff --quiet $run.headSha -- @sources
+            if ($LASTEXITCODE -ne 0) { continue }
+            $target = Join-Path $cacheDir "relay-binary-$($run.databaseId)"
+            if (-not (Test-Path (Join-Path $target 'mixdog-relay'))) {
+                & gh run download $run.databaseId --name mixdog-relay-x86_64-unknown-linux-gnu --dir $target 2>$null
+                if ($LASTEXITCODE -ne 0) { continue }
+            }
+            if (Test-Path (Join-Path $target 'mixdog-relay')) { return $target }
+        }
+    }
+    finally {
+        Pop-Location
+    }
+    return $null
+}
+
 $planOutput = & node $deployPlanner --action=plan "--state=$deployStatePath" "--plan=$deployPlanPath"
 if ($LASTEXITCODE -ne 0) { throw "live deploy planning exited with $LASTEXITCODE" }
 $deployPlan = $planOutput | Out-String | ConvertFrom-Json
+
+# The binary is needed to deploy a relay change, and (as the delta tool on the
+# VPS) to deploy a renderer to a box whose installed tree is still Node.
+$relayBinaryDir = $null
+$relayDeployed = $true
+if ($deployPlan.relayChanged -or $deployPlan.rendererChanged) {
+    $relayBinaryDir = Get-RelayBinaryDir (Join-Path $relayDir '.cache')
+}
+if ($deployPlan.relayChanged -and -not $relayBinaryDir) {
+    $relayDeployed = $false
+    Write-Warning ('no successful mixdogd-build run has relay sources equal to this tree: the relay ' +
+        'change is not deployed (push, let mixdogd-build finish, and deploy again); the renderer is.')
+    $deployPlan.relayChanged = $false
+    $deployPlan.deploy = [bool]$deployPlan.rendererChanged
+}
 
 if ($deployPlan.rendererBuild) {
     Step 'building changed desktop renderer only'
@@ -71,7 +123,7 @@ if ($deployPlan.stageRenderer) {
 }
 
 $vpsDeployScript = {
-    param($relayDir, $SshHost, $Domain, $version, $includeRenderer, $desktopVersion)
+    param($relayDir, $SshHost, $Domain, $version, $includeRenderer, $desktopVersion, $relayBinaryDir, $uploadRelay, $nativeDir)
     $ErrorActionPreference = 'Stop'
     $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
     # The uploaded renderer is installed as an ADDITIONAL release named by the
@@ -81,32 +133,54 @@ $vpsDeployScript = {
     $releaseDesktopVersion = if ($includeRenderer) { $desktopVersion } else { '' }
     Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
     try {
-        $entries = @('server.mjs', 'package.json', 'package-lock.json', 'lib', 'deploy')
+        $entries = @('deploy')
         if ($includeRenderer) {
-            $deltaTool = Join-Path $relayDir 'deploy\renderer-delta.mjs'
             $cacheDir = Join-Path $relayDir '.cache'
             $baseManifest = Join-Path $cacheDir 'renderer-base-manifest.json'
             $targetManifest = Join-Path $cacheDir 'renderer-manifest.json'
             $deltaDir = Join-Path $cacheDir 'renderer-delta'
             New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-            scp -o BatchMode=yes -q $deltaTool "${SshHost}:/root/mixdog-renderer-delta.mjs"
-            if ($LASTEXITCODE -ne 0) { throw "renderer manifest tool upload exited with $LASTEXITCODE" }
-            $remoteManifest = & ssh -o BatchMode=yes $SshHost `
-                'node /root/mixdog-renderer-delta.mjs --action=manifest --root=/opt/mixdog-relay/renderer'
-            if ($LASTEXITCODE -ne 0) { throw "remote renderer manifest exited with $LASTEXITCODE" }
-            [IO.File]::WriteAllText(
-                $baseManifest,
-                (($remoteManifest -join "`n") + "`n"),
-                [Text.UTF8Encoding]::new($false)
-            )
-            $deltaResult = & node $deltaTool --action=create `
-                "--root=$(Join-Path $relayDir 'renderer')" "--base=$baseManifest" `
-                "--delta=$deltaDir" "--manifest=$targetManifest"
-            if ($LASTEXITCODE -ne 0) { throw "renderer delta creation exited with $LASTEXITCODE" }
-            Write-Host "renderer delta: $($deltaResult -join '')"
-            $entries += @('.cache/renderer-delta', '.cache/renderer-manifest.json')
+            # The installed manifest is computed by the Linux binary on the box: the
+            # uploaded one when this run has it (so a VPS whose installed tree is
+            # still Node works), else the installed one.
+            $remoteTool = $null
+            if ($relayBinaryDir) {
+                scp -o BatchMode=yes -q (Join-Path $relayBinaryDir 'mixdog-relay') "${SshHost}:/root/mixdog-relay-tool"
+                if ($LASTEXITCODE -ne 0) { throw "renderer manifest tool upload exited with $LASTEXITCODE" }
+                ssh -o BatchMode=yes $SshHost 'chmod 0755 /root/mixdog-relay-tool'
+                if ($LASTEXITCODE -ne 0) { throw "renderer manifest tool chmod exited with $LASTEXITCODE" }
+                $remoteTool = '/root/mixdog-relay-tool'
+            }
+            else {
+                ssh -o BatchMode=yes $SshHost 'test -x /opt/mixdog-relay/mixdog-relay'
+                if ($LASTEXITCODE -eq 0) { $remoteTool = '/opt/mixdog-relay/mixdog-relay' }
+            }
+            if ($remoteTool) {
+                $remoteManifest = & ssh -o BatchMode=yes $SshHost `
+                    "$remoteTool renderer-delta --action=manifest --root=/opt/mixdog-relay/renderer"
+                if ($LASTEXITCODE -ne 0) { throw "remote renderer manifest exited with $LASTEXITCODE" }
+                [IO.File]::WriteAllText(
+                    $baseManifest,
+                    (($remoteManifest -join "`n") + "`n"),
+                    [Text.UTF8Encoding]::new($false)
+                )
+                $deltaResult = & cargo run --release --quiet --manifest-path (Join-Path $nativeDir 'Cargo.toml') `
+                    -p mixdog-relay -- renderer-delta --action=create `
+                    "--root=$(Join-Path $relayDir 'renderer')" "--base=$baseManifest" `
+                    "--delta=$deltaDir" "--manifest=$targetManifest"
+                if ($LASTEXITCODE -ne 0) { throw "renderer delta creation exited with $LASTEXITCODE" }
+                Write-Host "renderer delta: $($deltaResult -join '')"
+                $entries += @('.cache/renderer-delta', '.cache/renderer-manifest.json')
+            }
+            else {
+                # Nothing on the box can compute the installed manifest: the whole
+                # renderer goes up and deploy-release.sh installs it in full.
+                $entries += @('renderer')
+            }
         }
-        & tar -czf $tgz -C $relayDir @entries
+        $tarArguments = @('-czf', $tgz, '-C', $relayDir) + $entries
+        if ($uploadRelay) { $tarArguments += @('-C', $relayBinaryDir, 'mixdog-relay') }
+        & tar @tarArguments
         if ($LASTEXITCODE -ne 0) { throw "tar exited with $LASTEXITCODE" }
         scp -o BatchMode=yes -q $tgz "${SshHost}:/root/relay-upload.tgz"
         if ($LASTEXITCODE -ne 0) { throw "scp exited with $LASTEXITCODE" }
@@ -117,7 +191,7 @@ $vpsDeployScript = {
     }
     finally {
         & ssh -o BatchMode=yes -o ConnectTimeout=10 $SshHost `
-            'rm -rf -- /root/relay-upload /root/relay-upload.tgz /root/mixdog-renderer-delta.mjs' 2>$null
+            'rm -rf -- /root/relay-upload /root/relay-upload.tgz /root/mixdog-relay-tool' 2>$null
         Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
     }
     $ErrorActionPreference = 'Continue'
@@ -137,7 +211,8 @@ $vpsDeploySucceeded = $false
 if ($deployPlan.deploy) {
     $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
     $vpsDeployArgs = @(
-        $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged), $desktopVersion
+        $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged), $desktopVersion,
+        $relayBinaryDir, ([bool]$deployPlan.relayChanged), (Join-Path $repo 'native\core')
     )
     if ($FastDirect) {
         Step 'pack + upload + atomic VPS swap (background job)'
@@ -179,6 +254,13 @@ if ($uploadJob) {
     }
 }
 if ($vpsDeploySucceeded) {
+    if (-not $relayDeployed) {
+        # The relay change was not deployed: the state must not say it was.
+        $plan = Get-Content $deployPlanPath -Raw | ConvertFrom-Json
+        $previousState = if (Test-Path $deployStatePath) { Get-Content $deployStatePath -Raw | ConvertFrom-Json } else { $null }
+        $plan.relay.hash = if ($previousState) { [string]$previousState.relayHash } else { '' }
+        [IO.File]::WriteAllText($deployPlanPath, ($plan | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    }
     & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
     if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
 }

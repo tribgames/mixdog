@@ -786,7 +786,7 @@ jobs:
   # activation behind the public release boundary.
   stage-relay:
     name: stage-production-web-relay
-    needs: [identity, desktop-build]
+    needs: [identity, desktop-build, mixdogd]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -799,6 +799,19 @@ jobs:
         with:
           name: desktop-out
           path: apps/desktop/out
+      # The relay is the mixdog-relay binary the mixdogd job built for the VPS
+      # (Linux x64); the box runs no other runtime.
+      - name: Download the relay binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdog-relay-x86_64-unknown-linux-gnu
+          path: apps/relay
+      # download-artifact does not keep the mode; deploy-release.sh installs the
+      # binary 0755 on the VPS, and this check fails here if it cannot run.
+      - name: Restore the relay binary mode
+        run: |
+          chmod 0755 apps/relay/mixdog-relay
+          test -x apps/relay/mixdog-relay
       - name: Restore renderer precompression cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -819,10 +832,7 @@ jobs:
           name: production-relay-${{ github.run_id }}
           overwrite: true
           path: |
-            apps/relay/server.mjs
-            apps/relay/package.json
-            apps/relay/package-lock.json
-            apps/relay/lib
+            apps/relay/mixdog-relay
             apps/relay/deploy
             apps/relay/renderer
           if-no-files-found: error

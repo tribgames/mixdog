@@ -15,13 +15,13 @@ RemainAfterExit=yes
 # Holds what this start added to ip_local_reserved_ports, for the stop to undo.
 RuntimeDirectory=mixdog-coturn-egress
 ExecStart=@NFT_BIN@ -f /etc/mixdog-coturn/egress.nft
-ExecStart=@NODE_BIN@ /etc/mixdog-coturn/reserved-ports.mjs apply @TURN_MIN_PORT@ @TURN_MAX_PORT@ /run/mixdog-coturn-egress/added
+ExecStart=@RELAY_BIN@ reserved-ports apply @TURN_MIN_PORT@ @TURN_MAX_PORT@ /run/mixdog-coturn-egress/added
 ExecStop=@NFT_BIN@ delete table inet mixdog_coturn
 # ExecStopPost runs after a normal stop AND after a start that failed part way
 # (ExecStop does not), and before the runtime directory with the record goes
 # away, so a failed start never leaves a reservation behind. Releasing twice is
 # a no-op.
-ExecStopPost=@NODE_BIN@ /etc/mixdog-coturn/reserved-ports.mjs release /run/mixdog-coturn-egress/added
+ExecStopPost=@RELAY_BIN@ reserved-ports release /run/mixdog-coturn-egress/added
 
 [Install]
 WantedBy=multi-user.target

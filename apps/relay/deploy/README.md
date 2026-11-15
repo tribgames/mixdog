@@ -7,14 +7,35 @@ before the first rename and remains active through post-start verification.
 - Preparation/first-rename failure leaves the installed release untouched.
 - Second-rename, restart, verification failure, or SIGINT/SIGTERM restores the
   previous release and restarts it.
+- A unit that still runs the previous Node release (`systemctl show -p ExecStart`
+  does not name the binary) is pointed at the binary by the drop-in
+  `/etc/systemd/system/mixdog-relay.service.d/exec.conf` (`ExecStart=` reset,
+  then `ExecStart=/opt/mixdog-relay/mixdog-relay`, and `UnsetEnvironment=NODE_OPTIONS`),
+  followed by `daemon-reload` before the restart. The transaction records
+  whether the drop-in existed and what it held; a rollback restores exactly that
+  (and reloads), so a failed first switch returns to the Node release completely.
 - Failure to stop or restore the service exits with status 90. The backup is
   preserved if it has not yet been restored; recovery errors are never success.
 - The successful verification boundary ends rollback eligibility. Only then
-  does the installer remove its old-release backup and stale staging trees.
+  does the installer remove its old-release backup and stale staging trees. When
+  the old release is a Node tree (it holds `server.mjs`, the first switch) the
+  backup is kept as `/opt/mixdog-relay.handover` instead, for a manual return;
+  the cleanup globs never match that name.
+
+## Layout
+
+The relay is one binary. An installed tree holds `mixdog-relay` (root, 0755),
+`deploy/`, `renderer/`, `renderer-releases/` and `mobile-release.json`; no Node
+runtime or `node_modules` is installed. A release upload carries `mixdog-relay`
+(optional for a renderer-only deploy: the installed binary is kept), `deploy/`,
+and the renderer (`renderer/`, or the delta cache from `renderer-delta`).
+`deploy.sh` (first install) places the uploaded binary and tree and writes the
+unit; `deploy-release.sh` stages and swaps a release. The unit's `MemoryMax=800M`
+bounds the process.
 
 ## Verification
 
-The installed `deploy/verify-release.mjs` verifies:
+The installed binary's `mixdog-relay verify-release` verifies:
 
 1. `/healthz` reports a listening relay.
 2. `/readyz` reports readable entry/bootstrap/style/manifest/worker assets,
@@ -37,7 +58,7 @@ must be rebuilt rather than silently reused.
 ## Side-by-side renderer releases
 
 Each phone / second PC is served the web renderer that matches the desktop
-version of the main PC it is paired with (`lib/renderer-releases.mjs`).
+version of the main PC it is paired with (the relay's renderer release registry).
 
 - Desktops send `{ type: 'desktop-version', appVersion, rendererRelease? }` when
   their device leg connects. The relay stores it on the device row in
@@ -65,14 +86,14 @@ version of the main PC it is paired with (`lib/renderer-releases.mjs`).
   per device; ETags are content hashes, so service worker and shell
   validators never collide between releases.
 - Deploy: `deploy-release.sh <domain> <tag> <desktop-version>` runs
-  `renderer-releases.mjs --action=prepare` against the **staged** tree: the
+  `mixdog-relay renderer-releases --action=prepare` against the **staged** tree: the
   installed registry is hardlinked in, the new renderer is added as one more
   release, and GC runs (registry written by rename, so the installed tree
   that rollback restores is never touched). The swap, backup and rollback are
   the unchanged transaction above. A relay-only deploy passes no desktop
   version and registers nothing.
 - `/readyz` inspects the current renderer **and every retained release**; any
-  broken one is not-ready. `verify-release.mjs --expected-release=<id>`
+  broken one is not-ready. `mixdog-relay verify-release --expected-release=<id>`
   additionally requires the release this deploy added.
 
 The transaction tests use real filesystem renames only inside a generated
@@ -92,7 +113,7 @@ package, opens ports and creates a secret, so it is a separate, explicit step.
   and `/etc/mixdog-coturn/turnserver.conf` (root:turnserver, 0640). It is not in
   the repo and not readable by the relay account.
 - The relay issues credentials only on the authenticated desktop leg
-  (`ice-servers-request` → `ice-servers`, `lib/ice-legs.mjs`), only for a device
+  (`ice-servers-request` → `ice-servers`), only for a device
   with at least one paired phone, at most `TURN_ISSUE_LIMIT` times per
   credential lifetime (24 h) per device. A rate-limited answer carries
   `retryAfterMs`; the desktop waits exactly that. The PC hands the same list to
@@ -127,7 +148,7 @@ package, opens ports and creates a secret, so it is a separate, explicit step.
   (never overwriting what is reserved there) and takes back only the part it
   added when it stops or fails to start (ownership is recorded before the
   sysctl is changed), so no outgoing socket of another service sits inside the
-  range (`reserved-ports.mjs`). Residual: a fixed-port UDP service of this host
+  range (`mixdog-relay reserved-ports`). Residual: a fixed-port UDP service of this host
   bound inside 49152-65535 would be reachable through a relay;
   `verify-turn.sh` fails if one exists.
 
@@ -197,6 +218,13 @@ scp -r apps/relay/deploy/coturn root@<vps>:/root/mixdog-coturn
 ssh root@<vps> 'bash /root/mixdog-coturn/provision-coturn.sh <relay-domain> <public-ipv4> --user-quota=<N> --issue-limit=<N>'
 ```
 
+The egress service runs `/opt/mixdog-relay/mixdog-relay reserved-ports`, so the
+relay must be deployed first (the script stops if the binary is missing). A box
+provisioned before the switch keeps working until it is provisioned again: its
+egress unit runs the copy of `reserved-ports.mjs` in `/etc/mixdog-coturn` with
+the Node it was provisioned with. Re-provision after the first binary release
+to drop that dependency.
+
 The script masks and stops the package's stock `coturn.service` (and refuses to
 continue if it, or any other process, still holds the TURN ports) before it
 installs anything, and waits for the listening sockets before it reports success.
@@ -207,7 +235,7 @@ After the relay deploy (which restarts the relay with the new settings):
 
 ```bash
 ssh root@<vps> 'bash /opt/mixdog-relay/deploy/coturn/verify-turn.sh <public-ipv4>'
-node apps/relay/deploy/coturn/stun-probe.mjs <relay-domain>     # from outside the VPS
+mixdog-relay stun-probe <relay-domain>     # from outside the VPS: a workstation binary, or `cargo run --release -p mixdog-relay -- stun-probe <relay-domain>`
 ```
 
 `verify-turn.sh` checks the services, file modes, config, listeners, the egress
@@ -218,7 +246,7 @@ land, always addressed to the public address: a peer inside the relay range
 (must be delivered), a peer outside it (must not be, and the policy's drop
 counter must have moved), and a loopback peer (must not). The `turnutils_uclient` runs are bounded by the RFC 8489 §6.2.1 UDP
 transaction timeout (39.5 s), so the two refusals take that long each.
-`stun-probe.mjs` retransmits on the same RFC schedule (up to 39.5 s without a
+`mixdog-relay stun-probe` retransmits on the same RFC schedule (up to 39.5 s without a
 reply).
 
 ### Roll back
