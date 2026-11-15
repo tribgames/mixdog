@@ -578,3 +578,18 @@ fn a_file_that_is_not_a_pdf_is_the_readers_error() {
     assert!(matches!(error, WriteError::Pdf(_)), "{error}");
     assert!(matches!(load(b"", false), Err(WriteError::Pdf(PdfError::InvalidPdf(_)))));
 }
+
+#[test]
+fn an_entry_that_leads_to_another_object_rebuilds_the_table_and_reads_every_object() {
+    let mut document = PdfDocument::create_at(0);
+    let page = document.add_page(612.0, 792.0).unwrap();
+    let mut bytes = document.save(SaveOptions { use_object_streams: false });
+    // Row 4 (the page) of the table points at object 1.
+    let table = find(&bytes, b"xref\n0 5\n").expect("table") + b"xref\n0 5\n".len();
+    let first: Vec<u8> = bytes[table + 20..table + 30].to_vec();
+    bytes[table + 4 * 20..table + 4 * 20 + 10].copy_from_slice(&first);
+    let reread = load(&bytes, false).unwrap();
+    assert_eq!(reread.store().len(), document.store().len());
+    assert_eq!(reread.pages(), vec![page]);
+    assert_eq!(reread.media_box(page).unwrap().width, 612.0);
+}
