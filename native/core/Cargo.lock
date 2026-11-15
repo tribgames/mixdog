@@ -5380,12 +5380,18 @@ dependencies = [
 name = "mixdog-office-base"
 version = "1.5.0"
 dependencies = [
+ "base64 0.22.1",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
+ "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
@@ -5402,6 +5408,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-util",
+ "windows",
 ]
 
 [[package]]
@@ -6115,6 +6122,8 @@ dependencies = [
  "windows-core",
  "windows-future",
  "windows-numerics",
+ "windows-result",
+ "windows-strings",
  "windows-sys 0.60.2",
  "windows-sys 0.61.2",
  "winnow",

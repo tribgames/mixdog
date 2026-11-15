@@ -401,7 +401,7 @@ impl Platform for WindowsPlatform {
         let rights = PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0 | PROCESS_SYNCHRONIZE.0);
         match open_process(rights, process_id) {
             // SAFETY: the handle is open.
-            Ok(process) => unsafe { WaitForSingleObject(process.0, 0) } == WAIT_TIMEOUT,
+            Ok(process) => (unsafe { WaitForSingleObject(process.0, 0) }) == WAIT_TIMEOUT,
             Err(error) => error.code() == HRESULT::from_win32(ACCESS_DENIED),
         }
     }
@@ -409,7 +409,7 @@ impl Platform for WindowsPlatform {
     fn wait_for_exit(&self, process_id: i32, timeout_ms: u32) -> bool {
         match open_process(PROCESS_SYNCHRONIZE, process_id) {
             // SAFETY: the handle is open.
-            Ok(process) => unsafe { WaitForSingleObject(process.0, timeout_ms) } == WAIT_OBJECT_0,
+            Ok(process) => (unsafe { WaitForSingleObject(process.0, timeout_ms) }) == WAIT_OBJECT_0,
             Err(_) => true,
         }
     }

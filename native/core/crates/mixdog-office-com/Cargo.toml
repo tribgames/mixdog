@@ -18,6 +18,21 @@ tokio = { workspace = true, features = ["rt", "process", "io-util", "macros", "s
 tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[target."cfg(windows)".dependencies]
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Graphics",
+  "Win32_Graphics_GdiPlus",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_IO",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
 [dev-dependencies]
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
@@ -42,3 +57,23 @@ path = "tests/transport.rs"
 [[test]]
 name = "twin_detect"
 path = "tests/twin_detect.rs"
+
+[[test]]
+name = "dispatch"
+path = "tests/dispatch.rs"
+
+[[test]]
+name = "dispatch_live"
+path = "tests/dispatch_live.rs"
+
+[[test]]
+name = "platform"
+path = "tests/platform.rs"
+
+[[test]]
+name = "platform_live"
+path = "tests/platform_live.rs"
+
+[[test]]
+name = "transport_route"
+path = "tests/transport_route.rs"
