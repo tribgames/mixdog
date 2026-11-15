@@ -1,23 +1,6 @@
-# nr-office-ooxml-docx-operations: integration fragment
+# nr-office-ooxml-docx-operations.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-Two modules of the crate mixdog-ooxml (native/core/crates/mixdog-ooxml): docx_tracked_edits (the tracked paragraph rewrite,
-the phrase anchor and the tracked find-and-replace at run granularity) and docx_operations (the document-level operations of
-the portable Word backend: the table of contents refresh and its measured pages, notes, the document font, style definitions,
-page setup, table fitting, content controls, paragraph edits, table cells, tracked-change resolution). No protocol method,
-service, Cargo dependency or SERVICE_PENDING name belongs to this task: every crate they use (mixdog-js and
-mixdog-ooxml's own modules docx_parts, docx_runs, docx_revisions, docx_formatting, docx_styles, docx_xml, snapshot_docx,
-xlsx_audit_support, slide_shapes and xml) is already a dependency or a module of mixdog-ooxml.
-
-## native/core/crates/mixdog-ooxml/src/lib.rs
-
-After the line `pub mod docx_runs;` add:
-
-    pub mod docx_tracked_edits;
-    pub mod docx_operations;
-
-## native/core/fixtures/MANIFEST.json
-
-In the "sets" list, after the entry of office-docx-xml / office-docx-revisions (keep the list sorted by set name), add:
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-docx-operations.mjs --tree <tree>",
@@ -28,25 +11,3 @@ In the "sets" list, after the entry of office-docx-xml / office-docx-revisions (
       "set": "office-docx-operations",
       "totalBytes": 436925
     }
-
-(Recompute manifestSha256 and totalBytes from the committed office-docx-operations/MANIFEST.json and golden.json if the tool
-that keeps this file reorders or reformats them.)
-
-## For the task that ports portable-docx-edits.mjs and portable-docx.mjs (nr-office-ooxml-docx-edits)
-
-The entry points are the Node exports under their Rust names, all in mixdog_ooxml::docx_operations (operation arguments are the
-batch's serde_json::Value, results the result object, errors the message Node throws): refresh_docx_table_of_contents,
-write_docx_toc_pages, docx_heading_levels, docx_toc_entries, docx_toc_cache_runs, replace_tracked_paragraphs, add_docx_note,
-set_docx_document_font, define_docx_styles (its styles are read by mixdog_office_base::docx_style_defs::docx_style_definitions,
-the one capabilities validates a define_styles operation with), set_docx_page, fit_docx_table, fill_docx_content_control, edit_docx_paragraph (tracking: bool),
-style_or_merge_docx_table_cell, resolve_docx_revisions (parts: the document's story and comments part names). The tracked edits
-are mixdog_ooxml::docx_tracked_edits::{tracked_paragraph_rewrite, anchor_phrase_in_paragraph, tracked_paragraph_replace}.
-Not ported here because it belongs to the dispatcher of that task: the 'an inherited name is not a DOCX operation' test of
-portable-operation-names.test.mjs (applyDocx) and the docx comment deletion test of portable-review-fixes.test.mjs
-(deleteDocxComment).
-
-## Not compiled
-
-The two modules and tests/twin_docx_operations.rs were written without cargo (the wave is compiled by the lead): the first
-build, cargo test -p mixdog-ooxml, is the check (rustfmt parses all three files). The twin test replays
-native/core/fixtures/office-docx-operations and needs no Node; twin_live_docx_operations (ignored) re-records through Node.

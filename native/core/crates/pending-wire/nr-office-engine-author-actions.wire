@@ -1,94 +1,26 @@
-# nr-office-engine-author-actions: the author action of the office engine (module mixdog-office::author)
+# nr-office-engine-author-actions: reduced by the wire audit (t19). Already applied: the wires it needs (session, snapshot, inspect, render, pptx/xlsx build modules in mixdog-office-author) and the mixdog-office dependencies mixdog-fonts, mixdog-office-author, mixdog-pdf, mixdog-raster.
 
-Written without cargo: nothing below has been compiled (the lead compiles the wave). The module is a library the Office tool's
-dispatch (a later task of the office track: nr-office-engine-qa-finalize-dispatch) calls; this task registers no protocol method and
-no service, so nothing is removed from SERVICE_PENDING in compose_flip.rs.
-
-It needs these wires applied first (it calls what they add): nr-office-engine-open-create.wire (`pub mod create; mode; open;
-working_copy;` in session/mod.rs, `mixdog_ooxml::portable`), nr-office-engine-snapshot.wire (`pub mod snapshot;`),
-nr-office-engine-inspect.wire (`pub mod inline_audit; pub mod inspect;`), nr-office-engine-render.wire (`pub mod render;`),
-nr-office-author-xlsx-build.wire (`pub mod xlsx_build; pub mod xlsx_html_runner;` in mixdog-office-author/src/lib.rs; the Excel route
-calls `run_xlsx_html_authoring`), nr-office-author-pptx-build.wire (`pub mod pptx_build; pub mod pptx_html_runner;`, already in lib.rs
-of the tree).
-
-## native/core/crates/mixdog-office/src/lib.rs
-After `pub mod snapshot;` (after `pub mod session;` if that one is not applied yet) add, and extend the crate documentation by one line
-("[`author`] is the `author` action: a document written from HTML (or a pptxgenjs script), staged, gated, landed over its target and
-opened as a session."):
+## native/core/crates/mixdog-office/src/lib.rs (in-crate edit)
+After "pub mod snapshot;" add, and extend the crate doc by one line ("[author] is the author action: a document written from HTML (or a pptxgenjs script), staged, gated, landed over its target and opened as a session."):
 
     pub mod author;
 
-## native/core/crates/mixdog-office/Cargo.toml
-[dependencies], keeping the list sorted. Each line may already be there from the earlier fragments of the track (render adds
-mixdog-fonts, mixdog-office-author and tokio; open-create adds mixdog-pdf and mixdog-raster as dependencies): add each once. New with
-this task:
+(src/author/{mod,html_document,pdf,pptx,pptx_session,system}.rs exist and are not declared; tests/twin_author.rs uses them.)
 
+## native/core/crates/mixdog-office/Cargo.toml (in-crate edit), [dependencies]
     mixdog-core-api = { workspace = true }
-    mixdog-fonts = { workspace = true }
-    mixdog-office-author = { workspace = true }
-    mixdog-pdf = { workspace = true }
-    mixdog-raster = { workspace = true }
 
-(`mixdog-fonts` and `mixdog-pdf` are [dev-dependencies] lines in the snapshot fragment: make them [dependencies] lines and keep the
-dev-dependency lines only where they carry a feature. `mixdog-core-api` is the crate of `domain::ext::BrowserEndpoint`, which
-`SystemAuthor` holds; `mixdog-raster` is the crate of `SvgFonts` and of the comparison image. None of them depends on mixdog-office,
-so there is no cycle. All are [workspace.dependencies] entries and members already; no external crate enters the lock.)
-The test `tests/twin_author.rs` uses `mixdog-office-base` with `test-support`, `mixdog-rt`, `tempfile`, `tokio` (feature rt), `mixdog-fsio`,
-`mixdog-js` and `serde_json`, all in the manifest already.
+## native/core/Cargo.lock (lead hot file)
+Package mixdog-office gains the dependency mixdog-core-api (cargo update -w --offline).
 
-## native/core/Cargo.lock
-Package `mixdog-office`: add the dependencies mixdog-core-api, mixdog-fonts, mixdog-office-author, mixdog-pdf, mixdog-raster
-(`cargo update -w` offline).
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets"
 
-## native/core/crates/mixdog-workspace-hack/Cargo.toml
-Nothing by hand: no new external crate, no new feature. Run the hakari check after the manifest edit and take its output if it asks.
-
-## native/core/fixtures/MANIFEST.json (the index of the fixture sets)
-Add to `sets` (keep the list sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs):
-
-    { "command": "node benchmarks/rust-core/recorders/record-office-author.mjs --tree <tree>", "fileCount": 1,
-      "manifest": "office-author/MANIFEST.json", "manifestSha256": "63c0f47378e19e2817b8fbbfc83d509ef6bde07517a399bb54dbcda031bd02b8",
-      "recorder": "benchmarks/rust-core/recorders/record-office-author.mjs", "set": "office-author", "totalBytes": 31884 }
-
-(native/core/fixtures/office-author/{golden.json,MANIFEST.json} are in this task's commit, written at their paths and added with
-`git add --sparse`. The recording was made from `D:/mixdog-build/mig/ref/node` (the copy of the product at 0bf8fe045) with `--modules`
-naming a folder with node_modules, because that copy has none: the manifest's `product` is therefore only `{ tree, treeKind: export }`.
-Nothing is launched by the recorder: no browser, no Office, no LibreOffice. A re-recording changes nothing in what the test compares.)
-
-## Interface the tool layer calls (crate mixdog-office, `mixdog_office::author`)
-- `author(&H, args: &Value, &AuthorCall { cwd, signal }) -> Result<Value, AuthorError>` (async; `H: AuthorHost`) is `authorAction` of
-  `core/office-sessionless-actions.mjs` without its result wrapper: the write receipts of the document and of the sidecars
-  (`<doc>.mixdog-source.html`, `<doc>.mixdog-html.pdf`) go to `AuthorHost::note_write` first, then the route the extension names
-  (`.pdf`, `.docx`/`.xlsx`, anything else a deck). The answer is Node's object in Node's key order; its `_images` (pixels of the render) are
-  what the dispatch attaches to the tool result and deletes from the object, and `finalizeOfficeResult(authored, { action: 'author',
-  session: registry.get(authored.session), startedAt })` stays the dispatch's. `AuthorError::Abort` is Node's `AbortError`, `Failed` any
-  other thrown error (the tool result is `isError` with its message in both cases).
-- `AuthorHost: StageHost` is what the action asks of the machine: files (`exists`, `read_text`, `make_directory` = mkdir + mkdtemp,
-  `copy_file`, `remove_file`, `remove_dir_all`), the registry (`session_for_document`, `release_session`, `close_session`), the Office
-  host (`office_call`), session creation (`create_authored_session`, `register_html_pdf_session`, `release_overwritten_session`), the
-  readers (`snapshot_deck`, `snapshot_pdf_pages`), the runners (`run_pptx_script`, `run_pptx_html` with `frame` for a PDF's designed
-  pages, `run_docx_html`, `run_xlsx_html`, `print_pdf`), the review (`inline_audit`, `render`, `read_composition_receipt`,
-  `receipt_for_delivery`) and the comparison images (`write_html_comparisons`, `measure_html_drift`, `read_bytes`, `write_bytes`,
-  `compose_comparison`).
-- `SystemAuthor { env: SessionEnv, inspect: &InspectContext, render: &R: RenderEngine, closer: &C: SessionCloser, endpoint: &dyn
-  BrowserEndpoint, lanes: LaneTokens, fonts: Arc<Registry>, svg_fonts: &SvgFonts, note: Arc<dyn WriteNote>, deliveries }` is the
-  host of a process (`deliveries: Mutex::default()`). `closer` is the finalize stage's `closeSession` (nr-office-engine-qa-finalize-dispatch
-  implements `SessionCloser`); the render receipt's memory of what a session was last sent (`DeliveredReceipt`) lives in `deliveries`,
-  keyed by session id, and `release_session`'s caller (the close of a session) should `deliveries.lock().remove(id)`.
-- `author::pptx_session`: `staging_target`, `release_staging_target`, `land_staged_deck`, `swap_authored_document`,
-  `reusable_authored_session`, `release_existing_session`, `throw_if_authoring_cancelled`, `AuthorError`, `STAGING_PREFIX`;
-  `author::pptx`: `author_pptx`, `gate_staged_deck`, `plan_gate_result`, `facts_gate_result`, `geometry_gate_result`;
-  `author::pdf::author_pdf`; `author::html_document::{author_html_document, comparison_sheet}`.
-
-## The pptxgenjs script route (nr-office-author-script-runtime, wave 99)
-A source that does not open with `<` is a pptxgenjs script. `SystemAuthor::run_pptx_script` answers the reason once as the error of the call
-("the script runtime is not part of this build ... author the deck as HTML slides") until nr-office-author-script-runtime exists; that task
-replaces the body of that one method with its runtime (`run_pptx_authoring_script(script, output, cwd)`, answering Node's run object: `ok`,
-`output`, `bytes`, `logs`, `kit`, `elapsedMs`, or `ok: false` with `error`, `logs`, `elapsedMs`) and nothing else in this module changes. No
-other implementation of the route is kept.
-
-## What was not compiled or run
-Nothing was compiled or run in Rust. The first compile of `author/` (five modules and `system.rs`, which names many engine types: the
-lifetimes of `SessionEnv` in `SystemAuthor::session_env` and the `Prepare` closure of `run_pptx_html` are the places most likely to need a
-touch) and of `tests/twin_author.rs` is the lead's. `twin_live_author` (ignored) re-records through Node and was not run in Rust; the
-recorder itself was run once (Node only, no browser or Office) and produced the committed recording.
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-author.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-author/MANIFEST.json",
+      "manifestSha256": "63c0f47378e19e2817b8fbbfc83d509ef6bde07517a399bb54dbcda031bd02b8",
+      "recorder": "benchmarks/rust-core/recorders/record-office-author.mjs",
+      "set": "office-author",
+      "totalBytes": 31884
+    }

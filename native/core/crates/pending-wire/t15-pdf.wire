@@ -1,21 +1,7 @@
-# t15-pdf: what the lead applies for nr-office-pdf-ocr, nr-office-pdf-preview and nr-office-pdf-writer (hot files)
+# t15-pdf.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
+office-preview should be re-recorded once from the integration checkout (its product.commit is null) and the digest updated. office-writer: the fragment said to run verify-manifests.mjs --write-index; the entry below is what that writes.
 
-The in-crate parts (module lines, mixdog-office-pdf Cargo.toml edges, the worker's registration and its Cargo.toml) are applied and
-committed on branch t-t15-pdf. The three original fragments are deleted.
-
-## native/core/Cargo.lock (regenerate with `cargo update --workspace --offline`; no new package)
-
-mixdog-office-pdf: add dependencies flate2, mixdog-office-com, mixdog-office-crypto, reqwest, sha2, zip (dev: flate2, sha2, zip).
-mixdog-exthost-worker: add dependencies mixdog-fonts, mixdog-office-com, mixdog-office-pdf, mixdog-ooxml (mixdog-rt was already one; its
-dev-dependency `test-support` is now also reached through the worker's own `test-support` feature).
-No cycle: none of the four depends on mixdog-exthost-worker.
-
-## native/core/crates/mixdog-workspace-hack/Cargo.toml
-
-Run the repository's hakari check after the lock; take its output (tokio features `sync`/`macros`/`rt-multi-thread` on mixdog-office-pdf,
-flate2/reqwest/zip features).
-
-## native/core/fixtures/MANIFEST.json (index entries, in name order; the sets' own files are in the tree)
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-ocr.mjs --tree <tree>",
@@ -25,7 +11,7 @@ flate2/reqwest/zip features).
       "recorder": "benchmarks/rust-core/recorders/record-office-ocr.mjs",
       "set": "office-ocr",
       "totalBytes": 41599
-    }
+    },
     {
       "command": "node benchmarks/rust-core/recorders/record-office-preview.mjs --tree <tree>",
       "fileCount": 1,
@@ -34,48 +20,13 @@ flate2/reqwest/zip features).
       "recorder": "benchmarks/rust-core/recorders/record-office-preview.mjs",
       "set": "office-preview",
       "totalBytes": 489913
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-writer.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-writer/MANIFEST.json",
+      "manifestSha256": "e2764b96a781658eec7eebb8f809f7e50944099bfb907f513e237e83107233f1",
+      "recorder": "benchmarks/rust-core/recorders/record-office-writer.mjs",
+      "set": "office-writer",
+      "totalBytes": 225335
     }
-
-and the `office-writer` set with `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` (recorder
-record-office-writer.mjs, 1 file, golden.json). The office-preview golden should be re-recorded once from the integration checkout
-(the fragment's note: its product.commit is null) and the digest updated.
-
-## native/core/crates/mixdog-app-server-daemon/src/compose.rs, fn native_ext_methods
-
-The worker now registers the office PDF backend (the worker's `OfficeEngine` (methods/document_engine.rs)) for document.preview and
-document.previewPages, and `document.libreOfficeStatus` is answered as before. One thing is not in the worker: the Noto font provisioner
-(`prepare_fonts` after `document.installLibreOffice`) lives in the daemon's domain_seams/office_fonts.rs, which a worker cannot depend on;
-the worker's `prepare_fonts` is empty and says so. Therefore the route change that loses nothing keeps ONLY the install with the script
-worker until the provisioner is moved into a crate the worker links (then drop that term too):
-
-    /// The methods the Rust worker answers. The image methods stay with the script worker until the image corpus passes whole, and
-    /// `document.installLibreOffice` until the font provisioner it runs after an install is reachable from the worker.
-    pub fn native_ext_methods() -> Vec<&'static str> {
-        mixdog_exthost_worker::native_methods()
-            .into_iter()
-            .filter(|method| !method.starts_with("image.") && *method != "document.installLibreOffice")
-            .collect()
-    }
-
-(If the lead prefers the one-line change of the review note, drop `&& !method.starts_with("document.")` only; the install then runs in
-the worker without the font provisioning that Node's did after it.)
-
-## Process exit
-
-The worker registers `Registry::on_exit` (scratch removal of every preview and `Soffice::process().shutdown`). Registry has one exit hook
-slot: another task that sets one (office sessions) must call both.
-
-## Test commands that prove the worker answers the document methods as the Node worker did
-
-From native/core, with CARGO_TARGET_DIR and CARGO_NET_OFFLINE=true set:
-
-    pwsh -NoLogo -NoProfile -File D:\mixdog-build\tools\cargo-gate.ps1 nextest run -p mixdog-exthost-worker --features mixdog-exthost-worker/test-support
-    pwsh -NoLogo -NoProfile -File D:\mixdog-build\tools\cargo-gate.ps1 nextest run -p mixdog-office-pdf
-    pwsh -NoLogo -NoProfile -File D:\mixdog-build\tools\cargo-gate.ps1 nextest run -p mixdog-app-server-daemon
-
-The first runs, through the pool over `ext_worker_dev` (which registers the real engine), tests/document_twin.rs (the four methods are
-served; a PDF previews in place; the root, type, page, width and password guards; a PDF page is rasterised by the registered engine and
-answered as Node's previewPages: 401 x 567 PNG at maxWidth 400), the handler-layer tests of src/methods/document.rs (scripted engine:
-rasterised pages, the pin of an unlocked document) and src/methods/soffice.rs (status probe and install). The second is the engine itself
-against the recordings (twin_preview, preview_render, preview_password). A LibreOffice or Microsoft Office conversion of a real document
-needs the application and is not run by any test.

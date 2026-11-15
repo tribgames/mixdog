@@ -1,51 +1,6 @@
-# followup-image-parity (finished by t1-image-parity, uncompiled: cargo was not run by the task)
-# Lead: refresh Cargo.lock and mixdog-workspace-hack offline for resvg =0.45.1 (all its dependencies are in the
-# cargo registry cache) and mixdog-js on mixdog-exthost-worker. The image-codec corpus (fixtures/image-codec) cases
-# named "foreign avif ..." fail until an AVIF/HEIF decoder exists (none cached: needs dav1d or libavif or rav1d);
-# every other case, including the SVG ones, is expected to pass. SVG pixel colours differ from librsvg by up to 2
-# levels on blended alpha (tests/svg_reference.rs states it); sizes, acceptance, mime and alpha are exact.
+# followup-image-parity: reduced by the wire audit (t19). Already applied: resvg =0.45.1 in mixdog-imaging, mixdog-js in mixdog-exthost-worker, the lock entries, an AVIF decoder (rav1d =1.1.0).
 
-Dependencies (crate-local manifests already changed):
-- mixdog-exthost-worker -> mixdog-js (existing workspace dependency; no new external crate).
-- mixdog-imaging -> resvg =0.45.1, default-features=false, features text/system-fonts/raster-images.
-  This direct exact dependency avoids a hot workspace edit. resvg, usvg, tiny-skia and
-  the codec/font dependency families have compatible versions in the existing cache.
-  Complete offline resolution remains unverified because cargo was prohibited here.
-  Lead must refresh Cargo.lock/workspace-hack offline; never fetch dependencies.
-
-No CLI/compose/registry changes were made. Do not activate the native image routes yet:
-- AVIF and HEIF still have no decoder. Existing AVIF fixture records Node success for
-  probe/validate/resize even when called as PNG. ravif/rav1e in cache encode only;
-  no cached dav1d/dav1d-sys/libavif/libaom decoder was found.
-- SVG support now uses resvg; the original Node uses librsvg through sharp. The strict
-  corpus plus svg_reference.rs must pass before calling that subset ready. Text,
-  embedded images, gradients, filters and error sentences need broader parity evidence.
-- No failure carve-outs remain for SVG/AVIF/WebP. The full corpus is expected to FAIL
-  on AVIF until a decoder is supplied. A failure must not be waived as a removal.
-
-Minimal safe integration proposal (lead decision, not applied here): keep all image.*
-methods on the existing Node pool until native image decoding passes the strict corpus.
-Do not use sniffed-content fallback or an environment toggle; current pool routing is
-method-based. Keep native document methods independent. This is a temporary migration
-blocker, not permission to retain product Node as the final implementation.
-
-Known document parameter boundary:
-- Actual read caller in mixdog-tools/src/fs/read.rs emits nonnegative integer
-  maxOutputBytes. Whole JSON floating notation now preserves that limit too.
-- Generic handler maxOutputBytes null/negative/fractional/string and noninteger
-  maxPartBytes/maxContainerBytes remain different from JS arithmetic/Buffer.subarray.
-  The extraction crate's usize/u64 limit API cannot express negative-relative slicing
-  or preserve the original parameter spelling in the truncation suffix. This task did
-  not silently claim those values are covered or add a new refusal. Full untyped
-  parity needs a separate extraction-options change (mixdog-ooxml-text ownership).
-
-Validation for the lead (not executed by this task):
-1. cargo check -p mixdog-imaging -p mixdog-exthost-worker --offline
-2. cargo nextest run -p mixdog-imaging --offline
-3. cargo nextest run -p mixdog-exthost-worker --features test-support --offline
-4. cargo clippy for both crates/all-targets with worker test-support, offline.
-Node recording executed successfully against C:/Project/mixdog, read-only:
-node native/core/crates/mixdog-imaging/tests/record-svg-reference.mjs C:/Project/mixdog
-Output: tests/svg-reference.json. Original ext-host/image.mjs is absent there now;
-handler envelope reference was D:/mixdog-build/mig/int/src/ext-host/image.mjs, while
-read-image-resize.mjs and office-extract.mjs were read from the original tree.
+## Still open
+- Image routing: image.* stay with the script worker (compose.rs native_ext_methods filter) until the strict corpus passes; see t6-avif-encode.wire (the AVIF tests still fail). No sniffed-content fallback and no environment toggle. This is a temporary migration blocker, not permission to keep product Node as the final implementation.
+- Known document parameter boundary (in-crate, mixdog-ooxml-text extraction options; owner of that crate): the generic handler maxOutputBytes null / negative / fractional / string and non-integer maxPartBytes / maxContainerBytes differ from JS arithmetic and Buffer.subarray; the extraction crate's usize/u64 limit API cannot express negative-relative slicing or preserve the original parameter spelling in the truncation suffix. The real caller (mixdog-tools/src/fs/read.rs) emits a non-negative integer maxOutputBytes, so nothing in use is lost today; no new refusal may be added to close it.
+- SVG pixel colours differ from librsvg by up to 2 levels on blended alpha (tests/svg_reference.rs states it): the strict corpus must pass before the SVG subset is called ready (mixdog-raster::twin_svg and the svg tests are in t8-fails.txt).

@@ -1,20 +1,31 @@
-# t15-office-engine: hot-file parts of nr-office-engine-snapshot, nr-office-author-docx-build, nr-office-quality-design-review
-(In-crate edits are applied in the worktree. Below: what the lead applies.)
+# t15-office-engine.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-## native/core/Cargo.lock (regenerate offline: cargo update -w --offline)
-- mixdog-office: gains mixdog-office-com, mixdog-office-pdf, mixdog-office-quality, mixdog-ooxml and (dev) mixdog-fonts, mixdog-pdf.
-- mixdog-office-author: gains mixdog-office-pdf.
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
-## native/core/fixtures/MANIFEST.json, add to "sets" (sorted by "set"):
-    { "command": "node benchmarks/rust-core/recorders/record-office-snapshot.mjs --tree <tree>", "fileCount": 1,
-      "manifest": "office-snapshot/MANIFEST.json", "manifestSha256": "99fc79d4c05eb8dca62f25760de2a01063f87ae96d2356e9b13979f2e2f0be1a",
-      "recorder": "benchmarks/rust-core/recorders/record-office-snapshot.mjs", "set": "office-snapshot", "totalBytes": 420301 }
-    { "command": "node benchmarks/rust-core/recorders/record-office-docx-build.mjs --tree <tree>", "fileCount": 1,
-      "manifest": "office-docx-build/MANIFEST.json", "manifestSha256": "b8358e668d2abab507905d92a4ee71a2342e69b0fa1873815c6aafe87a5ab4cf",
-      "recorder": "benchmarks/rust-core/recorders/record-office-docx-build.mjs", "set": "office-docx-build", "totalBytes": 293092 }
-    { "command": "node benchmarks/rust-core/recorders/record-office-design-review.mjs --tree <tree>", "fileCount": 1,
-      "manifest": "office-design-review/MANIFEST.json", "manifestSha256": "a50df63cecd9ff1d99f249b2831da1fdb4738bc0f89b7228512bcb0bede2a7e5",
-      "recorder": "benchmarks/rust-core/recorders/record-office-design-review.mjs", "set": "office-design-review", "totalBytes": 3902223 }
-
-## mixdog-workspace-hack: nothing by hand; run the hakari check after the manifest edits.
-## SERVICE_PENDING: nothing to remove.
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-snapshot.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-snapshot/MANIFEST.json",
+      "manifestSha256": "99fc79d4c05eb8dca62f25760de2a01063f87ae96d2356e9b13979f2e2f0be1a",
+      "recorder": "benchmarks/rust-core/recorders/record-office-snapshot.mjs",
+      "set": "office-snapshot",
+      "totalBytes": 420301
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-docx-build.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-docx-build/MANIFEST.json",
+      "manifestSha256": "b8358e668d2abab507905d92a4ee71a2342e69b0fa1873815c6aafe87a5ab4cf",
+      "recorder": "benchmarks/rust-core/recorders/record-office-docx-build.mjs",
+      "set": "office-docx-build",
+      "totalBytes": 293092
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-design-review.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-design-review/MANIFEST.json",
+      "manifestSha256": "a50df63cecd9ff1d99f249b2831da1fdb4738bc0f89b7228512bcb0bede2a7e5",
+      "recorder": "benchmarks/rust-core/recorders/record-office-design-review.mjs",
+      "set": "office-design-review",
+      "totalBytes": 3902223
+    }
