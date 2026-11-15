@@ -1,5 +1,0 @@
-# t6-avif-encode: reduced by the wire audit (t19). Already applied: ravif =0.12.0 in mixdog-imaging/Cargo.toml and the lock entries (ravif, rav1d).
-
-## native/core/crates/mixdog-app-server-daemon/src/compose.rs, native_ext_methods (lead hot file), GATED
-When the whole image corpus passes with AVIF outputs really AVIF (mixdog-imaging node_twin, avif_reference, still_twin and mixdog-exthost-worker methods_twin), remove the filter .filter(|method| !method.starts_with("image.")) (compose.rs line 790) so the Rust worker answers image.probe, image.jpeg, image.validate, image.resize and image.still. It must stay until then: the last full run (results/t8-fails.txt) still fails mixdog-imaging::avif_reference (3 tests), mixdog-imaging avif::tests::a_file_the_container_parse_refuses_gets_libheifs_sentence_by_how_far_it_got and mixdog-exthost::it composer_resize.
-Then the workspace-hack hakari check (rav1e, avif-serialize and the rest of the ravif closure).

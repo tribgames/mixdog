@@ -280,12 +280,27 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
 #[test]
 #[ignore = "starts Microsoft PowerPoint and a headless browser; MIXDOG_TEST_LIVE_OFFICE=1"]
 fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck() {
-    let Some(live) = Live::start_with_browser() else { return };
+    let Some(live) = Live::start() else { return };
+    // A pptxgenjs script, as the Node test authors the deck: it runs on the script interpreter of the install.
+    let node = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|dir| dir.join("node.exe")).find(|path| path.is_file()).expect("node on PATH runs the authoring script");
+    mixdog_office::author::script_runtime::install(mixdog_office::author::script_runtime::ScriptRuntime {
+        program: node,
+        package_root: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.."),
+        electron: false,
+    });
     let path = live.path("reused.pptx");
     let deck = |titles: &[&str]| -> String {
-        let slides: String = titles.iter().map(|title| format!(r#"<section class="slide"><p class="t">{title}</p></section>"#)).collect();
         format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><style>body {{ margin: 0 }} .slide {{ position: relative; width: 1920px; height: 1080px; background: #F6F8F7; font-family: 'Noto Sans KR', sans-serif; overflow: hidden }} .t {{ position: absolute; left: 120px; top: 120px; width: 1500px; margin: 0; font-size: 64px; font-weight: 700; color: #1F2933 }}</style></head><body>{slides}</body></html>"
+            "
+const pptxgen = require('pptxgenjs');
+const pres = new pptxgen();
+pres.layout = 'LAYOUT_WIDE';
+for (const title of {}) {{
+  pres.addSlide().addText(title, {{ x: 0.8, y: 0.8, w: 11, h: 1.2, fontSize: 32, bold: true }});
+}}
+await pres.writeFile({{ fileName: OUTPUT }});
+",
+            serde_json::to_string(titles).expect("titles")
         )
     };
     let first = live.call(json!({ "action": "author", "path": path, "script": deck(&["First deck"]), "render": false }));
@@ -305,11 +320,11 @@ fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_n
     assert!(mentions(&reread["document"]["slides"][0], "Second deck"));
     assert_eq!(reread["appPid"], opened["appPid"], "the same PowerPoint process carries both decks");
 
-    let failed = live.call(json!({ "action": "author", "path": path, "script": "<!doctype html><html><body><p>no slide pages</p></body></html>", "overwrite": true, "render": false }));
+    let failed = live.call(json!({ "action": "author", "path": path, "script": "undefinedCall();", "overwrite": true, "render": false }));
     assert_eq!(failed["ok"], false);
-    assert_eq!(failed["reason"], "html_failed");
+    assert_eq!(failed["reason"], "script_failed");
     let survived = live.call(json!({ "action": "snapshot", "session": again["session"] }));
-    assert_eq!(items(&survived["document"]["slides"]).len(), 2, "a failed source leaves the open deck alone");
+    assert_eq!(items(&survived["document"]["slides"]).len(), 2, "a failed script leaves the open deck alone");
     let staged: Vec<String> = std::fs::read_dir(live.dir()).expect("the scratch folder").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).filter(|name| name.contains(".authoring.")).collect();
     assert!(staged.is_empty(), "no staging file is left beside the target: {staged:?}");
     live.close(&again["session"]);

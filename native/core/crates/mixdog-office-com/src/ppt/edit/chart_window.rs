@@ -44,24 +44,12 @@ pub(crate) fn ensure_chart_window(env: &Env<'_>, presentation: &Com, allow_ui_ac
         window.set_member("Top", i4(HIDDEN_POSITION))?;
         window.set_member("WindowState", i4(2))
     });
-    // PowerPoint has no window handle to give until the new window exists on its side ("member not found" before that): the
-    // script host reached this line later than a compiled one does, so the read is repeated for as long as the hiding below is.
-    let read = || {
-        let mut handle = handle_of(&window, "HWND");
-        if handle == 0 {
-            handle = handle_of(&app, "HWND");
-        }
-        if handle == 0 {
-            handle = handle_of(&app, "Hwnd");
-        }
-        handle
-    };
-    let mut handle = read();
-    let mut waits = 0;
-    while handle == 0 && waits < HIDE_ATTEMPTS {
-        env.platform.sleep(HIDE_PAUSE_MS);
-        handle = read();
-        waits += 1;
+    let mut handle = handle_of(&window, "HWND");
+    if handle == 0 {
+        handle = handle_of(&app, "HWND");
+    }
+    if handle == 0 {
+        handle = handle_of(&app, "Hwnd");
     }
     if handle == 0 {
         attempt(|| window.call_member("Close", &[]).map(|_| ()));
