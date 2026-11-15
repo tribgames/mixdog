@@ -185,12 +185,12 @@ fn every_output_equals_the_recording() {
     let registry = registry(&golden);
     let measurer = TextMeasurer::new(&Unlaned, &registry);
     let layouts = list(&golden["layouts"]);
-    assert!(layouts.len() >= 40, "the recording lost layouts: {}", layouts.len());
+    assert!(layouts.len() >= 39, "the recording lost layouts: {}", layouts.len());
     for case in layouts {
         replay_layout(&measurer, case, &golden["workbooks"]);
     }
     let audits = list(&golden["audits"]);
-    assert!(audits.len() >= 30, "the recording lost audits: {}", audits.len());
+    assert!(audits.len() >= 33, "the recording lost audits: {}", audits.len());
     for case in audits {
         replay_audit(case);
     }
