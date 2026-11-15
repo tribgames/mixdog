@@ -92,6 +92,11 @@ impl Block for CardLines {
 
 /// A component painted onto a grid `columns` wide, with the hint overprinted on its last row, as lines.
 fn render_block(block: &dyn Block, columns: usize, hint: Option<&RightHint>) -> Vec<Line> {
+    render_block_flagged(block, columns, hint).0
+}
+
+/// [`render_block`] with the rows that continue the row above because a text wrapped there.
+fn render_block_flagged(block: &dyn Block, columns: usize, hint: Option<&RightHint>) -> (Vec<Line>, Vec<bool>) {
     let rows = block.rows();
     let width = u16::try_from(columns).unwrap_or(u16::MAX);
     let mut grid = Grid::new(width, rows);
@@ -102,17 +107,26 @@ fn render_block(block: &dyn Block, columns: usize, hint: Option<&RightHint>) -> 
             hint.paint(&mut painter, 0, i32::from(rows) - 1, columns);
         }
     }
-    lines::grid_lines(&grid)
+    (lines::grid_lines(&grid), lines::grid_soft_wrap(&grid))
 }
 
 /// One transcript item (a store item object) as lines; the number of lines is its exact height.
 pub fn render_item(item: &Value, ctx: &ItemCtx) -> Vec<Line> {
+    render_item_flagged(item, ctx).0
+}
+
+/// [`render_item`] and, per line, whether it continues the line above because the text wrapped there (Ink marks these rows
+/// in `output.js`, and a selection copies them without a line break). The lines of a card are drawn already.
+pub fn render_item_flagged(item: &Value, ctx: &ItemCtx) -> (Vec<Line>, Vec<bool>) {
     let hint = if carries_hint(item) { None } else { RightHint::new(&ctx.right_message, &ctx.right_tone, ctx.right_message_width) };
     match draw_item(item, ctx) {
-        Drawn::Nothing => Vec::new(),
-        Drawn::Lines(lines) if hint.is_none() => lines,
-        Drawn::Lines(lines) => render_block(&CardLines(lines), ctx.columns, hint.as_ref()),
-        Drawn::Block(block) => render_block(block.as_ref(), ctx.columns, hint.as_ref()),
+        Drawn::Nothing => (Vec::new(), Vec::new()),
+        Drawn::Lines(lines) if hint.is_none() => {
+            let flags = vec![false; lines.len()];
+            (lines, flags)
+        }
+        Drawn::Lines(lines) => render_block_flagged(&CardLines(lines), ctx.columns, hint.as_ref()),
+        Drawn::Block(block) => render_block_flagged(block.as_ref(), ctx.columns, hint.as_ref()),
     }
 }
 

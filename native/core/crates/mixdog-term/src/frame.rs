@@ -183,19 +183,31 @@ impl Cell {
 }
 
 /// The screen as rows of cells, and the hyperlinks its cells point at.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct Grid {
     pub width: u16,
     pub height: u16,
     pub cells: Vec<Cell>,
     /// The hyperlink table: the url of link id `n + 1` is `links[n]`.
     pub links: Vec<String>,
+    /// `soft_wrap[y]`: row `y` continues the row above because a text wrapped there (Ink's `output.js` marks the same
+    /// rows); the selection joins such rows without a line break. A row past the end of the list is not one. It is a
+    /// note about how the cells came to be and is not part of what two grids compare on.
+    pub soft_wrap: Vec<bool>,
 }
+
+impl PartialEq for Grid {
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width && self.height == other.height && self.cells == other.cells && self.links == other.links
+    }
+}
+
+impl Eq for Grid {}
 
 impl Grid {
     /// A grid of blank cells.
     pub fn new(width: u16, height: u16) -> Self {
-        Self { width, height, cells: vec![Cell::blank(); usize::from(width) * usize::from(height)], links: Vec::new() }
+        Self { width, height, cells: vec![Cell::blank(); usize::from(width) * usize::from(height)], links: Vec::new(), soft_wrap: Vec::new() }
     }
 
     fn index(&self, x: u16, y: u16) -> Option<usize> {
@@ -226,6 +238,18 @@ impl Grid {
         let start = usize::from(y) * usize::from(self.width);
         let width = usize::from(self.width);
         &mut self.cells[start..start + width]
+    }
+
+    /// Notes that row `y` continues the row above because a text wrapped there.
+    pub fn mark_soft_wrap(&mut self, y: i32) {
+        let Ok(y) = usize::try_from(y) else { return };
+        if y >= usize::from(self.height) {
+            return;
+        }
+        if self.soft_wrap.len() <= y {
+            self.soft_wrap.resize(usize::from(self.height), false);
+        }
+        self.soft_wrap[y] = true;
     }
 
     /// The id of a hyperlink (the same url always gets the same id).

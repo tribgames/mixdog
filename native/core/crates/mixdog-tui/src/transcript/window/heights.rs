@@ -22,7 +22,7 @@ use mixdog_markdown_ansi::stream::streaming_layout_text;
 use mixdog_tui_style::get_theme_version;
 use mixdog_tui_widgets::Line;
 use mixdog_tui_widgets::transcript::tool_failures::should_suppress_fully_failed_tool_item;
-use mixdog_tui_widgets::transcript::{ItemCtx, render_item};
+use mixdog_tui_widgets::transcript::{ItemCtx, render_item, render_item_flagged};
 use serde_json::Value;
 
 /// Entries of the height cache (a key and a count each).
@@ -194,6 +194,8 @@ struct TailEstimate {
 pub struct ItemHeights {
     rows: Bounded<RowKey, usize>,
     lines: Bounded<LineKey, Arc<Vec<Line>>>,
+    /// Per cached line, whether a text wrapped into it (the selection joins such lines).
+    soft_wrap: Bounded<LineKey, Arc<Vec<bool>>>,
     high_water: HashMap<String, HighWater>,
     /// The latest estimate per stream id, oldest first.
     tail_estimates: Vec<(String, TailEstimate)>,
@@ -204,6 +206,7 @@ impl Default for ItemHeights {
         Self {
             rows: Bounded::new(ROW_CACHE_MAX_ENTRIES, |_| 1),
             lines: Bounded::new(LINE_CACHE_MAX_LINES, |lines| lines.len().max(1)),
+            soft_wrap: Bounded::new(LINE_CACHE_MAX_LINES, |flags| flags.len().max(1)),
             high_water: HashMap::new(),
             tail_estimates: Vec::new(),
         }
@@ -248,17 +251,34 @@ impl ItemHeights {
     /// The rendered lines of an item at the moment `now_ms`, kept for the next ask while nothing that shapes them changed.
     /// A streaming message and a pending tool card change with every flush or tick and are rendered each time.
     pub fn lines(&mut self, item: &Value, prev_kind: Option<&str>, params: &HeightParams, streaming_window_rows: usize, now_ms: f64) -> Arc<Vec<Line>> {
+        self.lines_flagged(item, prev_kind, params, streaming_window_rows, now_ms).0
+    }
+
+    /// [`ItemHeights::lines`] and, per line, whether it continues the line above because the text wrapped there.
+    pub fn lines_flagged(
+        &mut self,
+        item: &Value,
+        prev_kind: Option<&str>,
+        params: &HeightParams,
+        streaming_window_rows: usize,
+        now_ms: f64,
+    ) -> (Arc<Vec<Line>>, Arc<Vec<bool>>) {
         let ctx = ItemCtx { streaming_window_rows, ..item_ctx(params, prev_kind, now_ms) };
         if is_streaming_tail(item) || is_pending_tool(item) {
-            return Arc::new(render_item(item, &ctx));
+            let (lines, flags) = render_item_flagged(item, &ctx);
+            return (Arc::new(lines), Arc::new(flags));
         }
         let key = LineKey { row: row_key(item, prev_kind, params), theme_version: get_theme_version() };
-        if let Some(lines) = self.lines.get(&key) {
-            return Arc::clone(lines);
+        let cached_lines = self.lines.get(&key).cloned();
+        let cached_flags = self.soft_wrap.get(&key).cloned();
+        if let (Some(lines), Some(flags)) = (cached_lines, cached_flags) {
+            return (lines, flags);
         }
-        let lines = Arc::new(render_item(item, &ctx));
-        self.lines.insert(key, Arc::clone(&lines));
-        lines
+        let (lines, flags) = render_item_flagged(item, &ctx);
+        let (lines, flags) = (Arc::new(lines), Arc::new(flags));
+        self.lines.insert(key.clone(), Arc::clone(&lines));
+        self.soft_wrap.insert(key, Arc::clone(&flags));
+        (lines, flags)
     }
 
     /// `streamingEstimateRows`: the exact height of the trimmed live text, held at the highest this stream reached.

@@ -21,8 +21,10 @@ pub mod clock;
 pub mod ext_host;
 pub mod input;
 pub mod keys;
+pub mod live;
 pub mod model_host;
 pub mod panels_host;
+pub mod paste_jobs;
 pub mod picker;
 pub mod provider_host;
 pub mod render;
@@ -215,6 +217,22 @@ pub struct AppState {
     pub(crate) prev_total_rows: usize,
     /// The session the transcript window was laid out for.
     pub(crate) window_session: String,
+    /// The spinner row's progress while the row is mounted, when the next animation tick is due, and whether motion is reduced
+    /// (`MIXDOG_REDUCED_MOTION`, read once).
+    pub(crate) spinner_progress: Option<mixdog_tui_widgets::spinner::SpinnerProgress>,
+    pub(crate) spinner_tick_due: Option<u64>,
+    pub(crate) reduced_motion: bool,
+    /// The welcome prompt hint, the inputs its probes last ran for and the ones waiting to run.
+    pub(crate) welcome: crate::view::hint::WelcomePromptHint,
+    pub(crate) welcome_seen: Option<crate::view::hint::HintInputs>,
+    pub(crate) welcome_pending: Option<crate::view::hint::HintInputs>,
+    /// The inline editor of the text-entry prompt on screen.
+    pub(crate) text_entry: Option<live::TextEntry>,
+    /// The terminal mode writes and the restore of mouse tracking after a ctrl+wheel zoom.
+    pub(crate) terminal: Option<mixdog_term::guard::TerminalRestorer>,
+    pub(crate) zoom: Option<mixdog_term::modes::MouseTrackingRestore>,
+    /// The pastes waiting for a read that blocks.
+    pub(crate) paste: paste_jobs::PasteJobs,
 }
 
 impl AppState {
@@ -288,6 +306,16 @@ impl AppState {
             frame_requested: false,
             prev_total_rows: 0,
             window_session: String::new(),
+            spinner_progress: None,
+            spinner_tick_due: None,
+            reduced_motion: mixdog_tui_style::spinner_meta::is_reduced_motion(std::env::var("MIXDOG_REDUCED_MOTION").ok().as_deref()),
+            welcome: crate::view::hint::WelcomePromptHint::default(),
+            welcome_seen: None,
+            welcome_pending: None,
+            text_entry: None,
+            terminal: None,
+            zoom: None,
+            paste: paste_jobs::PasteJobs::default(),
         }
     }
 

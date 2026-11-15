@@ -48,6 +48,23 @@ pub struct Painter<'g> {
     clip: Rect,
 }
 
+/// Which of the `total` rows `wrap_text` made of `text` continue the row above because the text wrapped there, not because
+/// the text had a line break (the soft rows of Ink's `output.js`). Only the wrapping modes make them; a count that does not
+/// agree with the wrapped text marks nothing.
+fn soft_wrapped_rows(text: &str, max_width: usize, mode: TextWrap, total: usize) -> Vec<bool> {
+    if !matches!(mode, TextWrap::Wrap | TextWrap::Hard) {
+        return Vec::new();
+    }
+    let mut flags = Vec::with_capacity(total);
+    for line in text.split('\n') {
+        let rows = wrap_text(line, max_width, mode).split('\n').count();
+        for row in 0..rows {
+            flags.push(row > 0);
+        }
+    }
+    if flags.len() == total { flags } else { Vec::new() }
+}
+
 impl<'g> Painter<'g> {
     /// A painter over the whole grid.
     pub fn new(grid: &'g mut Grid) -> Self {
@@ -82,6 +99,13 @@ impl<'g> Painter<'g> {
         self.grid
     }
 
+    /// Notes that row `y` of the grid continues the row above because a text wrapped there (the row is inside the clip).
+    pub fn mark_soft_wrap(&mut self, y: i32) {
+        if (i32::from(self.clip.y)..i32::from(self.clip.y) + i32::from(self.clip.height)).contains(&y) {
+            self.grid.mark_soft_wrap(y);
+        }
+    }
+
     fn inside(&self, x: i32, y: i32) -> bool {
         x >= i32::from(self.clip.x)
             && y >= i32::from(self.clip.y)
@@ -102,9 +126,14 @@ impl<'g> Painter<'g> {
         // written as it is, a carriage return before a line break included.
         let fits = text.split('\n').map(display_width).max().unwrap_or(0) <= max_width;
         let fitted = if fits { text.to_owned() } else { wrap_text(text, max_width, mode) };
+        let soft = if fits { Vec::new() } else { soft_wrapped_rows(text, max_width, mode, fitted.split('\n').count()) };
+        let clip_rows = i32::from(self.clip.y)..i32::from(self.clip.y) + i32::from(self.clip.height);
         let mut rows = 0u16;
         for (offset, line) in fitted.split('\n').enumerate() {
             let at_y = y + offset as i32;
+            if soft.get(offset).copied().unwrap_or(false) && clip_rows.contains(&at_y) {
+                self.grid.mark_soft_wrap(at_y);
+            }
             match line.strip_suffix('\r').filter(|_| fits) {
                 // chalk closes its styles before a `\r\n` and opens them again after it, so the carriage return is drawn
                 // outside the text's own style (the box's background stays).

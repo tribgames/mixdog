@@ -74,6 +74,11 @@ pub(crate) fn grid_lines(grid: &Grid) -> Vec<Line> {
     (0..grid.height).map(|y| Line(row_line(grid, y))).collect()
 }
 
+/// Per row of the grid, whether a text wrapped into it (it continues the row above).
+pub(crate) fn grid_soft_wrap(grid: &Grid) -> Vec<bool> {
+    (0..usize::from(grid.height)).map(|y| grid.soft_wrap.get(y).copied().unwrap_or(false)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
