@@ -3,7 +3,7 @@
 //! object: the same call sequence and the same answer.
 //!
 //! The scripted model answers what the reader asks and records every access, so a test states both what the record says and
-//! in which order Word was asked. It is written from `office-com-host.ps1`; the recordings (`recorder/scenarios/word-read.json`,
+//! in which order Word was asked. It is written from `office-com-host.ps1`; the recordings (`tests/scenarios/word-read.json`,
 //! run on a PC with Microsoft Word) are the reference the same reader is held to once they exist.
 
 use std::any::Any;

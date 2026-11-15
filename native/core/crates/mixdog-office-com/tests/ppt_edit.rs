@@ -2,7 +2,7 @@
 //! must make the calls the script makes, in its order, and answer the record the script answers.
 //!
 //! The call logs below are written by hand from `office-com-host.ps1`. The logs recorded from the PowerShell host against
-//! PowerPoint and Excel (`recorder/scenarios/ppt-edit.json`, run on a PC with both) are replayed by
+//! PowerPoint and Excel (`tests/scenarios/ppt-edit.json`, run on a PC with both) are replayed by
 //! `recorded_scenarios_are_replayed` as soon as `tests/fixtures/ppt-edit/*.json` exist: the call log of each batch is cut at its
 //! operation markers and each operation is played back through the editor, with the answers of the process and window layer
 //! scripted on the fake platform from the window handles the log holds. A property the script reads where the editor reads it
