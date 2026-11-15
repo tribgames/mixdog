@@ -113,7 +113,7 @@ fn html_pages(images: &[RenderedImage]) -> Vec<Value> {
         .iter()
         .map(|image| match image {
             RenderedImage::Page(page) => json!({ "page": page.page, "path": page.path }),
-            RenderedImage::Sheet(sheet) => json!({ "page": sheet.pages[0], "path": sheet.path }),
+            RenderedImage::Sheet(sheet) => json!({ "page": sheet.pages.first(), "path": sheet.path }),
         })
         .collect()
 }
@@ -178,7 +178,7 @@ pub async fn run_docx_html_authoring(
     let measuring = DocxMeasureOptions { source_path: &source, print_path: &print, scratch: &scratch, timeout, cancel };
     let laid = measure_docx_html(endpoint, &lanes, &*note, html, measuring).await;
     let outcome = match laid {
-        Ok(laid) => Ok(finish(tokens, &lanes, registry, note, output, &print, &scratch, laid).await),
+        Ok(laid) => Ok(finish(tokens, &lanes, registry, note, output, &artifacts, &scratch, laid).await),
         Err(error) => Err(error),
     };
     lanes.remove_dir_all(&scratch).await;
@@ -187,7 +187,6 @@ pub async fn run_docx_html_authoring(
         Err(RunError::Failed(message)) => Ok(html_failure(&message, started_at, None)),
         Ok(Err(message)) => Ok(html_failure(&message, started_at, None)),
         Ok(Ok(mut result)) => {
-            result["htmlSource"] = json!(source.display().to_string());
             result["elapsedMs"] = json!((started_at.elapsed().as_secs_f64() * 1000.0).round() as u64);
             Ok(result)
         }
@@ -201,13 +200,13 @@ async fn finish(
     registry: Arc<Registry>,
     note: Arc<dyn WriteNote>,
     output: &Path,
-    print: &Path,
+    artifacts: &DocxHtmlArtifacts,
     scratch: &Path,
     laid: DocxLayout,
 ) -> Result<Value, String> {
     // The images of the print are the reference the review compares against; a print that cannot be drawn leaves the
     // document without them rather than failing it.
-    let printed = render_pdf_pages(tokens, registry, Arc::clone(&note), print, RenderPagesOptions { max_width: COMPARE_WIDTH, ..RenderPagesOptions::default() }).await.ok();
+    let printed = render_pdf_pages(tokens, Arc::clone(&registry), Arc::clone(&note), &artifacts.print(), RenderPagesOptions { max_width: COMPARE_WIDTH, ..RenderPagesOptions::default() }).await.ok();
     let mut inline = BTreeMap::new();
     for (index, picture) in inline_pictures(&laid.flow).into_iter().enumerate() {
         let path = scratch.join(format!("inline-{index}.{}", picture.extension));
@@ -218,7 +217,7 @@ async fn finish(
     let (flow, captures, title) = (laid.flow, laid.captures, laid.title);
     let built = tokens
         .interactive_io
-        .submit_wait(&CancellationToken::new(), move |lane| build_docx_from_flow(lane, &flow, &page, &captures, &inline, &title))
+        .submit_wait(&CancellationToken::new(), move |lane| build_docx_from_flow(lane, &registry, &flow, &page, &captures, &inline, &title))
         .await
         .map_err(|full| full.to_string())?
         .await
@@ -230,6 +229,7 @@ async fn finish(
         "output": output.display().to_string(),
         "bytes": built.bytes.len(),
         "kit": "html",
+        "htmlSource": artifacts.source().display().to_string(),
         "htmlPages": html_pages(&printed.map(|printed| printed.images).unwrap_or_default()),
         "logs": logs_of(&built.notes, &laid.chart_warnings),
     }))

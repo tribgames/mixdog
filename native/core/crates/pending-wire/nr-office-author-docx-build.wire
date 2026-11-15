@@ -5,13 +5,15 @@
 docx_build.rs makes the page, the document font, the styles and the running lines with ONE call:
 
     use mixdog_ooxml::docx::apply_docx;
-    apply_docx(&mut zip, &operations)?;      // zip: &mut mixdog_ooxml::zipio::Package, operations: &[serde_json::Value]
+    let measurer = TextMeasurer::new(proof, registry);
+    apply_docx(proof, &measurer, &mut zip, &operations)?;   // the signature of nr-office-ooxml-docx-edits' docx.rs:
+    // apply_docx<P: ReadProof>(&P, &TextMeasurer<'_, P>, &mut Package, &[Value]) -> Result<Vec<Value>, String>
 
 `apply_docx` is the port of `applyDocx(zip, operations)` of portable-docx.mjs (nr-office-ooxml-docx-edits owns it and
 `docx_edits.rs`, which holds `set_header_footer` and `add_page_numbers`; the plan names the module `docx.rs`). The operations
 this task sends are `set_page`, `set_document_font`, `define_styles`, `set_header_footer` and `add_page_numbers` (the
-`docx_operations` ones exist in the tree; the last two exist only after that task). If the dispatcher is named or shaped
-otherwise, change the one `use` line and the one call in `docx_build::build_docx_from_flow`; nothing else depends on it. This
+`docx_operations` ones exist in the tree; the last two exist only after that task). `build_docx_from_flow` therefore takes the
+font registry (`registry: &Registry`, after `proof`); the runner passes the registry it already holds. This
 task wrote no second implementation of the two running-line operations.
 Node's `applyPortableOoxmlBatch` also ran `refreshDocxTableOfContents` after the batch; the blank document this builds has no
 table of contents, so it is not called here (if the dispatcher exposes the whole batch as one function, that call may be used).
