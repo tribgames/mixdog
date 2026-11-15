@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use mixdog_js::JsRegex;
 use mixdog_office::capabilities::capabilities;
 use mixdog_office::contracts::assert_office_operation_contracts;
-use mixdog_rt::{CancellationToken, DurabilityIo, InLane};
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use serde_json::{Value, json};
 
 const BACKEND: &str = "microsoft-office-com";
