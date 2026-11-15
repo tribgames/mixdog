@@ -3,7 +3,11 @@
 //! each its own method. These are the methods the protocol table documents as "Today's session configure action" / "session read
 //! action" (`mixdog-app-protocol/src/methods.rs`; `tests/call_lanes.rs` holds every method of the table to Node's lane for the call it became), and the
 //! methods Node reached through an action the table names differently.
-const CONFIGURE_ACTIONS: [&str; 161] = [
+const CONFIGURE_ACTIONS: [&str; 165] = [
+    "thread/rememberPromptHistory",
+    "thread/restoreNewerTranscript",
+    "thread/restoreOlderTranscript",
+    "thread/setProgressHint",
     "thread/askSide",
     "thread/cancelSide",
     "thread/agentControl",
@@ -167,7 +171,8 @@ const CONFIGURE_ACTIONS: [&str; 161] = [
     "diagnostics/runDoctor",
 ];
 
-const READ_ACTIONS: [&str; 85] = [
+const READ_ACTIONS: [&str; 86] = [
+    "config/getSettingsSnapshot",
     "thread/contextStatus",
     "thread/getSessionUsage",
     "thread/getSessionWorktreeWork",
