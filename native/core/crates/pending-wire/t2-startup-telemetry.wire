@@ -1,0 +1,26 @@
+# t2-startup-telemetry: telemetry started once ready, and the stall lines' attribution
+
+[mixdog-app-server-daemon/src/lib.rs] (serve)
+Right after `core.start_heartbeat();` (the tasks started after the ready lines) add:
+    // Node's `emit('boot')` and `start()` of the daemon telemetry: the boot line, then the 30 s memory/work line, the lag probe and the lag sampler.
+    core.start_telemetry();
+and change the stall monitor line to pass what a stall line says about the core:
+    let _stall_monitor = serving.watch_stalls(executors.clone(), core.stall_description());
+
+[mixdog-app-server-daemon/src/serving.rs] (Serving::watch_stalls)
+Change the signature and the reporter:
+    pub fn watch_stalls(&self, executors: Arc<Executors>, description: crate::lifecycle::StallDescription) -> StallMonitor {
+        let work = executors.handle(TaskClass::Work);
+        let reporter = StallReporter::new(self.core_port.clone(), self.runtime_root.join(STALL_FILE)).watching_lanes(executors).describing(description);
+        StallMonitor::spawn(StallConfig::default(), tokio_post(work), self.lifecycle.clone(), reporter)
+    }
+and the doc line "It reports and never acts" becomes: "It reports; a runtime that answered nothing for `lifecycle::END_AFTER` ends the process through the lifecycle's stalled-core exit."
+(`StallReporter::new` ends a stall at END_AFTER by default; `.ending_after(None)` would turn that off.)
+
+[compose_flip.rs SERVICE_PENDING]
+No protocol method is added: nothing to remove.
+
+[queuedCalls]
+`WorkCounts.queued_calls` reads 0: the transport's lane counters (`mixdog-app-server/src/lanes.rs` `Counters`, `pub(crate)`) are not exposed to the daemon.
+To report the queue, make `Lanes::counters` reachable through a `pub fn queued_calls(&self) -> usize` on the server `Running`/`Server` and read it in
+`compose::work_counts` (an edit in the mixdog-app-server crate, which this task does not own).

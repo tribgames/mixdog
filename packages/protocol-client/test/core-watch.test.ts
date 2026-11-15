@@ -20,15 +20,15 @@ async function controlListener(answer: (() => { stalledMs: number } | null) | nu
   return { port: (server.address() as AddressInfo).port, close: () => { server.closeAllConnections(); server.close(); } };
 }
 
-test('pingCore: a core answering with no stall answers; a wedged runtime, a refusal and silence do not', async () => {
+test('pingCore: a core answering reports its stall; a refusal and silence are no answer', async () => {
   const live = await controlListener(() => ({ stalledMs: 0 }));
   const stalled = await controlListener(() => ({ stalledMs: 30_000 }));
   const silent = await controlListener(() => null);
   try {
-    assert.equal(await pingCore({ state: 'serving', rpcPort: 1, controlPort: live.port, token: 't0k' }, { timeoutMs: 500 }), true);
-    assert.equal(await pingCore({ state: 'serving', rpcPort: 1, controlPort: live.port, token: 'wrong' }, { timeoutMs: 500 }), false);
-    assert.equal(await pingCore({ state: 'serving', rpcPort: 1, controlPort: stalled.port, token: 't0k' }, { timeoutMs: 500 }), false);
-    assert.equal(await pingCore({ state: 'serving', rpcPort: 1, controlPort: silent.port, token: 't0k' }, { timeoutMs: 150 }), false);
+    assert.deepEqual(await pingCore({ state: 'serving', rpcPort: 1, controlPort: live.port, token: 't0k' }, { timeoutMs: 500 }), { answered: true, stalledMs: 0 });
+    assert.deepEqual(await pingCore({ state: 'serving', rpcPort: 1, controlPort: live.port, token: 'wrong' }, { timeoutMs: 500 }), { answered: false, stalledMs: 0 });
+    assert.deepEqual(await pingCore({ state: 'serving', rpcPort: 1, controlPort: stalled.port, token: 't0k' }, { timeoutMs: 500 }), { answered: true, stalledMs: 30_000 });
+    assert.deepEqual(await pingCore({ state: 'serving', rpcPort: 1, controlPort: silent.port, token: 't0k' }, { timeoutMs: 150 }), { answered: false, stalledMs: 0 });
   } finally {
     live.close();
     stalled.close();
@@ -36,28 +36,26 @@ test('pingCore: a core answering with no stall answers; a wedged runtime, a refu
   }
 });
 
-test('a wedged core is killed after the bounded number of unanswered asks and a replacement is started', async () => {
+type Found = { state: string; rpcPort: number | null; pid: number; controlPort: number; token: string };
+const serving = (pid = 100): Found => ({ state: 'serving', rpcPort: 4000, pid, controlPort: 4001, token: 't0k' });
+
+test('a core that answers nothing for the freeze limit is killed, not before, and a replacement is started', async () => {
   let clock = 0;
   let alive = new Set([100]);
-  let discovery: { state: string; rpcPort: number | null; pid: number; controlPort: number; token: string } | null = {
-    state: 'serving', rpcPort: 4000, pid: 100, controlPort: 4001, token: 't0k',
-  };
+  const discovery: Found | null = serving();
   const killed: number[] = [];
-  const asked: number[] = [];
+  const killedAt: number[] = [];
   let watcher!: ReturnType<typeof watchCore>;
   const replaced = new Promise<void>((resolve) => {
     watcher = watchCore({
-      readDiscovery: async () => {
-        if (!discovery) throw absent();
-        return discovery;
-      },
+      readDiscovery: async () => discovery ?? Promise.reject(absent()),
       ownedPid: () => 100,
-      ping: async (found) => (asked.push(clock), found.pid !== 100),
-      kill: (pid) => void (killed.push(pid), alive.delete(pid)),
+      ping: async () => ({ answered: false, stalledMs: 0 }),
+      kill: (pid) => void (killed.push(pid), killedAt.push(clock), alive.delete(pid)),
       onKilled: () => resolve(),
       sleep: async (ms) => void (clock += ms),
+      now: () => clock,
       intervalMs: 5_000,
-      missedLimit: 3,
       runs: (pid) => alive.has(pid),
     });
   });
@@ -65,8 +63,7 @@ test('a wedged core is killed after the bounded number of unanswered asks and a 
   watcher.stop();
   await watcher.done;
   assert.deepEqual(killed, [100]);
-  assert.equal(asked.length, 3, 'killed on the third unanswered ask, not before');
-  assert.ok(clock <= 3 * 5_000 + 5_000, `ended within the bound (${clock} ms)`);
+  assert.ok(killedAt[0]! >= 120_000 && killedAt[0]! <= 125_000, `killed at the limit (${killedAt[0]} ms)`);
 
   // The dead pid names no core: the next attach-or-start launches a replacement.
   let launches = 0;
@@ -82,43 +79,83 @@ test('a wedged core is killed after the bounded number of unanswered asks and a 
   assert.equal(served.pid, 200);
 });
 
-test('a core that answers again before the bound is not killed, and a core this launcher did not start is never touched', async () => {
+test('a runtime that reports a stall of the limit is ended at once, one reporting less is not', async () => {
   let clock = 0;
-  const answers = [false, false, true, false, false, true];
   const killed: number[] = [];
-  let owned: number | null = 100;
+  const stalledMs = [60_000, 119_999, 120_000];
   let step = 0;
   const watcher = watchCore({
-    readDiscovery: async () => ({ state: 'serving', rpcPort: 1, pid: 100, controlPort: 1, token: 't' }),
-    ownedPid: () => owned,
-    ping: async () => {
-      const ok = answers[step++] ?? false;
-      if (step === answers.length) watcher.stop();
-      return ok;
-    },
+    readDiscovery: async () => serving(),
+    ownedPid: () => 100,
+    ping: async () => ({ answered: true, stalledMs: stalledMs[step++] ?? 0 }),
     kill: (pid) => void killed.push(pid),
+    onKilled: () => watcher.stop(),
     sleep: async (ms) => void (clock += ms),
-    missedLimit: 3,
+    now: () => clock,
     runs: () => true,
   });
   await watcher.done;
-  assert.equal(killed.length, 0);
+  assert.equal(step, 3);
+  assert.deepEqual(killed, [100]);
+});
 
-  owned = 999;
+test('a core that answers again is not killed, a sleep does not count, and a core this launcher did not start is never touched', async () => {
+  let clock = 0;
+  const killed: number[] = [];
+  let step = 0;
+  // Unanswered for 100 s, answered, unanswered for 100 s again: never 120 s in a row.
+  const answers = [...Array(20).fill(false), true, ...Array(20).fill(false), true];
+  const watcher = watchCore({
+    readDiscovery: async () => serving(),
+    ownedPid: () => 100,
+    ping: async () => {
+      const answered = answers[step++] ?? true;
+      if (step >= answers.length) watcher.stop();
+      return { answered, stalledMs: 0 };
+    },
+    kill: (pid) => void killed.push(pid),
+    sleep: async (ms) => void (clock += ms),
+    now: () => clock,
+    runs: () => true,
+  });
+  await watcher.done;
+  assert.deepEqual(killed, []);
+  const killedLater: number[] = [];
+
+  // 100 s unanswered, a system sleep of an hour, 100 s unanswered: the sleep starts the count again.
+  clock = 0;
+  step = 0;
+  const looks = 41;
+  const slept = watchCore({
+    readDiscovery: async () => serving(),
+    ownedPid: () => 100,
+    ping: async () => {
+      if (++step >= looks) slept.stop();
+      return { answered: false, stalledMs: 0 };
+    },
+    kill: (pid) => void killedLater.push(pid),
+    sleep: async (ms) => void (clock += step === 20 ? 3_600_000 : ms),
+    now: () => clock,
+    runs: () => true,
+  });
+  await slept.done;
+  assert.deepEqual(killedLater, []);
+
+  const killedOther: number[] = [];
   let asked = 0;
   let rounds = 0;
   const other = watchCore({
-    readDiscovery: async () => ({ state: 'serving', rpcPort: 1, pid: 100, controlPort: 1, token: 't' }),
-    ownedPid: () => owned,
-    ping: async () => (asked++, false),
-    kill: (pid) => void killed.push(pid),
+    readDiscovery: async () => serving(),
+    ownedPid: () => 999,
+    ping: async () => (asked++, { answered: false, stalledMs: 0 }),
+    kill: (pid) => void killedOther.push(pid),
     sleep: async () => void (++rounds >= 5 && other.stop()),
-    missedLimit: 1,
+    unansweredLimitMs: 0,
     runs: () => true,
   });
   await other.done;
   assert.equal(asked, 0);
-  assert.deepEqual(killed, []);
+  assert.deepEqual(killedOther, []);
 });
 
 test('a live owner that never publishes is named when no candidate was spawned', async () => {
@@ -148,5 +185,20 @@ test('a live owner that never publishes is named when no candidate was spawned',
       readyTimeoutMs: 500,
     }),
     (error: Error) => error.message === 'core is not ready: no core published its endpoint'
+  );
+});
+
+test('a blocked core names its own reason and no owner is blamed beside it', async () => {
+  let clock = 0;
+  await assert.rejects(
+    ensureCore({
+      readDiscovery: async () => ({ state: 'blocked', rpcPort: null, pid: 4321, blocked: { kind: 'undecidable' } }),
+      launch: async () => ({}),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: 1_000,
+      runs: () => true,
+    }),
+    (error: Error) => error.message === 'core is not ready: the core is blocked ({"kind":"undecidable"})'
   );
 });
