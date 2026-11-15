@@ -187,7 +187,9 @@ export function createBrowserEngine(
   const volunteered: HostConnection = {
     ...served,
     notify: (method, params) => {
-      if (engaged) connection.notify(method, params);
+      if (!engaged) return;
+      connection.notify(method, params);
+      options.transcript?.record({ dir: 'push', method, params });
     },
   };
 

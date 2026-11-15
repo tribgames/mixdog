@@ -324,11 +324,31 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
         let Some(action) = args.get("action").and_then(serde_json::Value::as_str) else {
             return BrowserEngineTestRunResult { text: "Error: action is required".to_owned(), image: None, is_error: true, outcome: None };
         };
-        let input = match args.get("input") {
-            Some(input @ serde_json::Value::Object(_)) => input.clone(),
-            _ => serde_json::Value::Object(serde_json::Map::new()),
+        let mut input = match args.get("input") {
+            Some(serde_json::Value::Object(input)) => input.clone(),
+            _ => serde_json::Map::new(),
         };
-        match self.0.browser(&thread, action, input, &cancel).await {
+        // The request is validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
+        // field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields.
+        let turn = input.remove("turn_id");
+        let mut command = input;
+        command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
+        let (action, mut input) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
+            Ok(validated) => validated,
+            Err(message) => {
+                return BrowserEngineTestRunResult { text: format!("Error: {message}"), image: None, is_error: true, outcome: None };
+            }
+        };
+        if let Some(turn) = turn {
+            input.insert("turn_id".to_owned(), turn);
+        }
+        let (action, input) = (action.as_str(), serde_json::Value::Object(input));
+        // The corpus's refused address was recorded by a remote session (the old host ran with `remoteSession: true`: private networks
+        // blocked); `remoteSession: true` of the run puts the commands under that stance, a session of this core being the person's own.
+        let _remote = (args.get("remoteSession") == Some(&serde_json::Value::Bool(true)))
+            .then(|| mixdog_browser_engine::runner::runner::UrlPolicyOfRun::set(UrlPolicy::default()));
+        let ran = self.0.browser(&thread, action, input, &cancel).await;
+        match ran {
             Ok(value) => {
                 let rendered = mixdog_tools::desktop::host::browser_output(&value);
                 let image = value.get("image").and_then(|image| {
