@@ -26,13 +26,15 @@ fn at(row: &[u8], index: usize) -> u8 {
 }
 
 /// Removes the predictor from `data`. Without a predictor (`predictor <= 1`) the data is returned as it is. The output
-/// stops at `limit` bytes.
+/// exceeding `limit` returns `ResourceLimit`.
 pub fn decode(data: &[u8], params: &PredictorParams, limit: usize) -> Result<Vec<u8>, CodecError> {
+    crate::check_output(decode_prefix(data, params, limit.saturating_add(1))?, limit)
+}
+
+fn decode_prefix(data: &[u8], params: &PredictorParams, limit: usize) -> Result<Vec<u8>, CodecError> {
     let predictor = params.predictor;
     if predictor <= 1 {
-        let mut out = data.to_vec();
-        out.truncate(limit);
-        return Ok(out);
+        return Ok(data[..data.len().min(limit)].to_vec());
     }
     if predictor != 2 && !(10..=15).contains(&predictor) {
         return Err(CodecError::Format(format!("Unsupported predictor: {predictor}")));
@@ -208,7 +210,9 @@ fn png_row(raw: &[u8], n: usize, filter: u8, pix: usize, prev: &[u8]) -> Result<
                 row[i] = raw_at(i).map_or(0, |r| (base as u8).wrapping_add(r));
             }
         }
-        other => return Err(CodecError::Format(format!("Unsupported predictor: {other}"))),
+        other => {
+            return Err(CodecError::Format(format!("Unsupported predictor: {other}")));
+        }
     }
     Ok(row)
 }

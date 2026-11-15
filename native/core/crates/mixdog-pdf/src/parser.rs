@@ -170,7 +170,8 @@ impl<'x> Parser<'x> {
                     c.num,
                     c.generation,
                     bytes,
-                )))),
+                    self.xref,
+                )?))),
                 None => Ok(buf1.clone()),
             },
             _ => Ok(buf1.clone()),
@@ -330,12 +331,54 @@ impl<'x> Parser<'x> {
     /// and makes the stream object (`filter` and `makeFilter`, without the decoding).
     fn build_stream(&self, dict: Dict, raw: &ByteStream, cipher: Option<&Cipher>) -> Result<Obj> {
         let (chain, has_crypt) = self.filter_chain(&dict)?;
+        let embedded_file = if cipher.is_some_and(|c| c.decryptor.uses_embedded_filter()) {
+            self.dict_get2(&dict, "Type", "Type")?.as_name() == Some("EmbeddedFile")
+        } else {
+            false
+        };
+        if let Some(c) = cipher {
+            if !has_crypt {
+                c.decryptor
+                    .validate_stream(c.num, c.generation, None, embedded_file, self.xref)?;
+            } else if raw.length() != 0 {
+                for spec in chain.iter().filter(|spec| spec.name == "Crypt") {
+                    let name = spec
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get_raw("Name"))
+                        .and_then(Obj::as_name)
+                        .unwrap_or("Identity");
+                    if let Err(error) = c.decryptor.validate_stream(
+                        c.num,
+                        c.generation,
+                        Some(name),
+                        embedded_file,
+                        self.xref,
+                    ) {
+                        if error.is_fatal() {
+                            return Err(error);
+                        }
+                        tracing::warn!("Invalid stream: \"{error}\"");
+                        return Ok(Obj::Stream(Arc::new(PdfStream::new(
+                            Arc::new(dict),
+                            &ByteStream::from_vec(Vec::new()),
+                            Vec::new(),
+                            None,
+                            false,
+                            embedded_file,
+                        ))));
+                    }
+                }
+            }
+        }
+
         let stream = PdfStream::new(
             Arc::new(dict),
             raw,
             chain,
             cipher.cloned(),
             cipher.is_some() && !has_crypt,
+            embedded_file,
         );
         Ok(Obj::Stream(Arc::new(stream)))
     }

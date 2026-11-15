@@ -172,7 +172,7 @@ pub fn map_special_unicode_values(code: u32) -> u32 {
 pub fn get_unicode_range_for(value: u32, last_position: Option<usize>) -> Option<usize> {
     let in_range = |range: &[u32]| {
         range
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .any(|pair| value >= pair[0] && value <= pair[1])
     };
     if let Some(last) = last_position
@@ -567,7 +567,7 @@ fn strip_escape_sequences(text: &str) -> String {
 
 fn decode_utf16(bytes: &[u8], big_endian: bool) -> Option<String> {
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|pair| {
             if big_endian {
                 u16::from_be_bytes([pair[0], pair[1]])

@@ -6,8 +6,12 @@ fn is_white_space(c: u8) -> bool {
     matches!(c, 0x20 | 0x09 | 0x0d | 0x0a)
 }
 
-/// Decodes `input`; the output stops at `limit` bytes.
-pub fn decode(input: &[u8], limit: usize) -> Vec<u8> {
+/// Decodes `input`; output exceeding `limit` returns `ResourceLimit`.
+pub fn decode(input: &[u8], limit: usize) -> Result<Vec<u8>, crate::CodecError> {
+    crate::check_output(decode_prefix(input, limit.saturating_add(1)), limit)
+}
+
+fn decode_prefix(input: &[u8], limit: usize) -> Vec<u8> {
     const TILDE: u8 = 0x7e;
     const Z_LOWER: u8 = 0x7a;
     let mut out = Vec::new();
