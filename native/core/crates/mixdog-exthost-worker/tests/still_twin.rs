@@ -95,11 +95,6 @@ async fn image_still_answers_the_recorded_renditions() {
         let name = case["name"].as_str().unwrap();
         let params = json!({"data": STANDARD.encode(input("image-still", &case)), "variant": case["variant"]});
         let answer = ask(&pool, "image.still", params).await.unwrap_or_else(|error| panic!("{name}: {error:?}"));
-        if case["divergence"] == "avif-svg" {
-            // Owner decision: AVIF and SVG bytes are answered as not decoding.
-            assert_eq!(answer, json!({"ok": null}), "{name}");
-            continue;
-        }
         let expect = &case["expect"];
         if expect["class"] == "none" {
             seen_none = true;
@@ -118,19 +113,22 @@ async fn image_still_answers_the_recorded_renditions() {
 async fn image_resize_answers_the_recorded_envelopes() {
     let pool = pool();
     for corpus in ["image-codec", "image-still"] {
-        for case in cases(corpus, "resize") {
+        // A case recorded with a token budget is `resizeImageBuffer` called with `maxTokens`, which Node's `image.resize`
+        // never passes (the worker resizes with the default budget); `mixdog-imaging`'s node_twin replays those.
+        for case in cases(corpus, "resize").into_iter().filter(|case| case.get("maxTokens").is_none()) {
             let name = case["name"].as_str().unwrap();
             let params = json!({"data": STANDARD.encode(input(corpus, &case)), "ext": case["ext"], "profile": case["profile"]});
             let answer = ask(&pool, "image.resize", params).await.unwrap_or_else(|error| panic!("{name}: {error:?}"));
             let expect = &case["expect"];
-            if case["divergence"] == "avif-svg" {
-                assert_eq!(answer["error"], "invalid", "{name}: {answer}");
-                assert!(answer["message"].as_str().unwrap().contains("unsupported image format"), "{name}: {answer}");
-                continue;
-            }
             match expect["class"].as_str().unwrap() {
                 "none" => assert_eq!(answer, json!({"ok": null}), "{name}"),
-                "invalid" => assert_eq!(answer, json!({"error": "invalid", "message": expect["error"]["message"]}), "{name}"),
+                "invalid" => {
+                    // The sentence is libvips's first line (the twin's rule, `mixdog-imaging`'s node_twin): the lines after it
+                    // are libjpeg's own repeated warnings.
+                    assert_eq!(answer["error"], "invalid", "{name}: {answer}");
+                    let first_line = |text: &Value| text.as_str().unwrap_or_default().lines().next().unwrap_or_default().to_owned();
+                    assert_eq!(first_line(&answer["message"]), first_line(&expect["error"]["message"]), "{name}");
+                }
                 _ => {
                     let ok = &answer["ok"];
                     assert_eq!(ok["mimeType"], expect["mime"], "{name}: mime");
@@ -163,7 +161,7 @@ async fn the_codec_reads_the_same_rendition_shapes_from_the_worker() {
             .still_rendition(&thread, &input("image-still", &case), variant)
             .await
             .unwrap_or_else(|error| panic!("{name}: {error:?}"));
-        if case["divergence"] == "avif-svg" || case["expect"]["class"] == "none" {
+        if case["expect"]["class"] == "none" {
             assert_eq!(got, None, "{name}");
             continue;
         }

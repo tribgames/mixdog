@@ -346,7 +346,7 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
             frame.full_range = *full_range;
         }
     }
-    let mut data = rgb_of(&frame);
+    let data = rgb_of(&frame);
     let (width, height) = (frame.width, frame.height);
     let alpha = match &parsed.alpha_item {
         Some(alpha_item) => {
@@ -357,11 +357,6 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
         }
         None => None,
     };
-    for colour in &container.colours {
-        if let Colour::Icc(profile) = colour {
-            color::rgb_to_srgb(&mut data, false, profile);
-        }
-    }
     let (width, height) = (u32::try_from(width).map_err(|_| broken("too wide"))?, u32::try_from(height).map_err(|_| broken("too tall"))?);
     let mut raster = Raster { width, height, has_alpha: false, data };
     for transform in &container.transforms {
@@ -385,6 +380,13 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
             rgba.extend_from_slice(&[straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), a]);
         }
         raster = Raster { width: raster.width, height: raster.height, has_alpha: true, data: rgba };
+    }
+    // The profile is applied to the decoded (straight-alpha) picture, as libvips imports it after libheif's decode; a
+    // per-pixel conversion commutes with the transforms above.
+    for colour in &container.colours {
+        if let Colour::Icc(profile) = colour {
+            color::rgb_to_srgb(&mut raster.data, raster.has_alpha, profile);
+        }
     }
     Ok(AvifImage { width: raster.width, height: raster.height, raster })
 }
