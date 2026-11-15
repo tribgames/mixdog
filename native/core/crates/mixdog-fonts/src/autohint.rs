@@ -5,8 +5,11 @@
 //! mode), and every other point follows by interpolation. Nothing moves horizontally.
 //!
 //! This is the Latin module of the auto-hinter (`aflatin.c` and `afhints.c`) for the vertical dimension, in the same 26.6
-//! and 16.16 integer arithmetic, so the pixel rows come out where FreeType's do. Scripts with a module of their own
-//! (the ideographs) are not hinted here, and the other alphabets are hinted with the Latin blue zones of the face.
+//! and 16.16 integer arithmetic, so the pixel rows come out where FreeType's do. Hebrew goes through the same module with
+//! the blue strings FreeType has for it (`afblue.dat`); Hangul, kana and the ideographs go through the CJK module
+//! (`afcjk.c`): blue zones from its own strings, segments linked as in the Latin module, edges found with its width limit
+//! and the nearest edge, no x-height fitting, and of its edge fitting the blue stage only (see `hint_edges`). Other
+//! alphabets are hinted with the Latin blue zones.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -172,13 +175,30 @@ struct Blue {
     descender: i64,
 }
 
-/// What the auto-hinter learns about a face once: its blue zones and its standard stem widths, in font units.
+/// The blue zones and standard stem widths of one script's style of a face, in font units.
 #[derive(Debug)]
-pub struct Metrics {
-    upem: i64,
+struct Zones {
     blues: Vec<Blue>,
     widths: Vec<i64>,
     edge_distance_threshold: i64,
+}
+
+/// What the auto-hinter learns about a face once: its blue zones and its standard stem widths, per script module, in font
+/// units. The Hebrew and CJK ones are worked out the first time a glyph of that script is hinted.
+#[derive(Debug)]
+pub struct Metrics {
+    upem: i64,
+    latin: Zones,
+    hebrew: OnceLock<Zones>,
+    cjk: OnceLock<Zones>,
+}
+
+/// The script module that grid-fits a character.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Script {
+    Latin,
+    Hebrew,
+    Cjk,
 }
 
 struct BlueString {
@@ -187,7 +207,7 @@ struct BlueString {
     adjustment: bool,
 }
 
-const BLUE_STRINGS: [BlueString; 6] = [
+const LATIN_STRINGS: [BlueString; 6] = [
     BlueString { chars: "THEZOCQS", top: true, adjustment: false },
     BlueString { chars: "HEZLOCUS", top: false, adjustment: false },
     BlueString { chars: "fijkdbh", top: true, adjustment: false },
@@ -196,18 +216,138 @@ const BLUE_STRINGS: [BlueString; 6] = [
     BlueString { chars: "pqgjy", top: false, adjustment: false },
 ];
 
+/// `afblue.dat`, Hebrew: the tops of ascending letters, the bottoms of the letters on the baseline and the descenders.
+const HEBREW_STRINGS: [BlueString; 3] = [
+    BlueString { chars: "\u{5d1}\u{5d3}\u{5d4}\u{5d7}\u{5da}\u{5db}\u{5dd}\u{5e1}", top: true, adjustment: false },
+    BlueString { chars: "\u{5d1}\u{5d8}\u{5db}\u{5dd}\u{5e1}\u{5e6}", top: false, adjustment: false },
+    BlueString { chars: "\u{5e7}\u{5da}\u{5df}\u{5e3}\u{5e5}", top: false, adjustment: false },
+];
+
+/// `afblue.dat`, CJK (vertical zones): the characters whose top (or bottom) edge defines the zone. A `|` would start the
+/// characters that define the flat value, those before it define the filled one.
+const CJK_TOP: &str = "\u{4ed6}\u{4eec}\u{4f60}\u{4f86}\u{5011}\u{5230}\u{548c}\u{5730}\u{5979}\u{5c06}\u{5c07}\u{5c31}\u{5e74}\u{5f97}\u{60c5}\u{6700}\u{6837}\u{6a23}\u{7406}\u{80fd}\u{8aaa}\u{8fd9}\u{901a}";
+const CJK_BOTTOM: &str = "\u{4e2a}\u{4eec}\u{4f60}\u{4f86}\u{5011}\u{5230}\u{548c}\u{5730}\u{5979}\u{5c06}\u{5c07}\u{5c31}\u{5e74}\u{5f97}\u{60c5}\u{6700}\u{6837}\u{6a23}\u{7406}\u{80fd}\u{8aaa}\u{8fd9}\u{901a}";
+
+/// The module a character is hinted by (`af_get_char_index` picks the style from the script of the character).
+pub fn script_of(character: char) -> Script {
+    match character as u32 {
+        0x0590..=0x05FF | 0xFB1D..=0xFB4F => Script::Hebrew,
+        0x1100..=0x11FF
+        | 0x2E80..=0x2FDF
+        | 0x3000..=0x30FF
+        | 0x3100..=0x312F
+        | 0x3130..=0x318F
+        | 0x3190..=0x31FF
+        | 0x3200..=0x33FF
+        | 0x3400..=0x4DBF
+        | 0x4E00..=0x9FFF
+        | 0xA960..=0xA97F
+        | 0xAC00..=0xD7FF
+        | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F
+        | 0xFF00..=0xFFEF
+        | 0x20000..=0x2FFFF => Script::Cjk,
+        _ => Script::Latin,
+    }
+}
+
 impl Metrics {
     fn new(face: &ttf_parser::Face<'_>) -> Self {
         let upem = i64::from(face.units_per_em().max(1));
-        let mut metrics = Self { upem, blues: Vec::new(), widths: Vec::new(), edge_distance_threshold: 0 };
-        metrics.init_blues(face);
-        metrics.init_widths(face);
-        metrics
+        Self { upem, latin: Zones::latin(face, upem, &LATIN_STRINGS, 'o'), hebrew: OnceLock::new(), cjk: OnceLock::new() }
     }
 
-    fn init_blues(&mut self, face: &ttf_parser::Face<'_>) {
-        let flat_threshold = self.upem / 14;
-        for string in &BLUE_STRINGS {
+    fn zones(&self, face: &ttf_parser::Face<'_>, script: Script) -> &Zones {
+        match script {
+            Script::Latin => &self.latin,
+            Script::Hebrew => self.hebrew.get_or_init(|| Zones::latin(face, self.upem, &HEBREW_STRINGS, '\u{5dd}')),
+            Script::Cjk => self.cjk.get_or_init(|| Zones::cjk(face, self.upem)),
+        }
+    }
+}
+
+/// The reference and overshoot values of a zone from the extremum values found for its characters (the median of each).
+fn zone_of(rounds: &mut [i64], flats: &mut [i64], top: bool, adjustment: bool, ascender: i64, descender: i64) -> Option<Blue> {
+    if flats.is_empty() && rounds.is_empty() {
+        return None;
+    }
+    rounds.sort_unstable();
+    flats.sort_unstable();
+    let (mut reference, mut shoot) = if flats.is_empty() {
+        let value = rounds[rounds.len() / 2];
+        (value, value)
+    } else if rounds.is_empty() {
+        let value = flats[flats.len() / 2];
+        (value, value)
+    } else {
+        (flats[flats.len() / 2], rounds[rounds.len() / 2])
+    };
+    if shoot != reference {
+        let over_ref = shoot > reference;
+        if top ^ over_ref {
+            let middle = (shoot + reference) / 2;
+            reference = middle;
+            shoot = middle;
+        }
+    }
+    Some(Blue { ref_org: reference, shoot_org: shoot, top, adjustment, ascender, descender })
+}
+
+impl Zones {
+    fn latin(face: &ttf_parser::Face<'_>, upem: i64, strings: &[BlueString], standard: char) -> Self {
+        let blues = latin_blues(face, upem, strings);
+        let (widths, edge_distance_threshold) = widths_of(face, upem, standard);
+        Self { blues, widths, edge_distance_threshold }
+    }
+
+    /// `af_cjk_metrics_init_blues` (vertical) and `af_cjk_metrics_init_widths` (the standard character is U+7530).
+    fn cjk(face: &ttf_parser::Face<'_>, upem: i64) -> Self {
+        let mut blues = Vec::new();
+        for (string, top) in [(CJK_TOP, true), (CJK_BOTTOM, false)] {
+            let (mut fills, mut flats): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
+            let mut fill = true;
+            let (mut ascender, mut descender) = (i64::MIN, i64::MAX);
+            for character in string.chars() {
+                if character == '|' {
+                    fill = false;
+                    continue;
+                }
+                let Some(glyph) = face.glyph_index(character) else { continue };
+                let Some(contours) = raw_outline(face, glyph.0) else { continue };
+                if contours.iter().map(Vec::len).sum::<usize>() <= 2 {
+                    continue;
+                }
+                let mut best: Option<i64> = None;
+                for contour in contours.iter().filter(|contour| contour.len() > 1) {
+                    for point in contour {
+                        let y = i64::from(point.y);
+                        ascender = ascender.max(y);
+                        descender = descender.min(y);
+                        if best.is_none_or(|current| if top { y > current } else { y < current }) {
+                            best = Some(y);
+                        }
+                    }
+                }
+                let Some(best) = best else { continue };
+                if fill {
+                    fills.push(best);
+                } else {
+                    flats.push(best);
+                }
+            }
+            if let Some(blue) = zone_of(&mut fills, &mut flats, top, false, ascender, descender) {
+                blues.push(blue);
+            }
+        }
+        let (widths, edge_distance_threshold) = widths_of(face, upem, '\u{7530}');
+        Self { blues, widths, edge_distance_threshold }
+    }
+}
+
+fn latin_blues(face: &ttf_parser::Face<'_>, upem: i64, strings: &[BlueString]) -> Vec<Blue> {
+    let mut blues = Vec::new();
+    let flat_threshold = upem / 14;
+    for string in strings {
             let (mut rounds, mut flats): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
             let (mut ascender, mut descender) = (i64::MIN, i64::MAX);
             for character in string.chars.chars() {
@@ -291,69 +431,49 @@ impl Metrics {
                     flats.push(best_y);
                 }
             }
-            if flats.is_empty() && rounds.is_empty() {
-                continue;
-            }
-            rounds.sort_unstable();
-            flats.sort_unstable();
-            let (mut reference, mut shoot) = if flats.is_empty() {
-                let value = rounds[rounds.len() / 2];
-                (value, value)
-            } else if rounds.is_empty() {
-                let value = flats[flats.len() / 2];
-                (value, value)
-            } else {
-                (flats[flats.len() / 2], rounds[rounds.len() / 2])
-            };
-            if shoot != reference {
-                let over_ref = shoot > reference;
-                if string.top ^ over_ref {
-                    let middle = (shoot + reference) / 2;
-                    reference = middle;
-                    shoot = middle;
-                }
-            }
-            self.blues.push(Blue { ref_org: reference, shoot_org: shoot, top: string.top, adjustment: string.adjustment, ascender, descender });
-        }
+            let Some(blue) = zone_of(&mut rounds, &mut flats, string.top, string.adjustment, ascender, descender) else { continue };
+            blues.push(blue);
     }
+    blues
+}
 
-    fn init_widths(&mut self, face: &ttf_parser::Face<'_>) {
-        let mut stem_widths: Vec<i64> = Vec::new();
-        if let Some(glyph) = face.glyph_index('o') {
-            if let Some(contours) = raw_outline(face, glyph.0) {
-                let truetype = is_truetype_orientation(&contours);
-                let mut hints = Hints::load(&contours, self.upem, truetype);
-                hints.compute_segments();
-                hints.link_segments(0);
-                for (index, segment) in hints.segments.iter().enumerate() {
-                    if let Some(link) = segment.link {
-                        if hints.segments[link].link == Some(index) && link > index {
-                            stem_widths.push((segment.pos - hints.segments[link].pos).abs());
-                        }
+/// `af_latin_metrics_init_widths` (and its CJK twin): the stem widths of the standard character, almost identical ones
+/// merged, and the edge distance threshold taken from the narrowest.
+fn widths_of(face: &ttf_parser::Face<'_>, upem: i64, standard: char) -> (Vec<i64>, i64) {
+    let mut stem_widths: Vec<i64> = Vec::new();
+    if let Some(glyph) = face.glyph_index(standard) {
+        if let Some(contours) = raw_outline(face, glyph.0) {
+            let truetype = is_truetype_orientation(&contours);
+            let mut hints = Hints::load(&contours, upem, truetype);
+            hints.compute_segments();
+            hints.link_segments(0);
+            for (index, segment) in hints.segments.iter().enumerate() {
+                if let Some(link) = segment.link {
+                    if hints.segments[link].link == Some(index) && link > index {
+                        stem_widths.push((segment.pos - hints.segments[link].pos).abs());
                     }
                 }
             }
         }
-        stem_widths.sort_unstable();
-        // Almost identical widths become one (the mean of each cluster within a hundredth of the em).
-        let threshold = self.upem / 100;
-        let mut widths: Vec<i64> = Vec::new();
-        let mut at = 0;
-        while at < stem_widths.len() {
-            let first = stem_widths[at];
-            let mut sum = 0;
-            let mut count = 0;
-            while at < stem_widths.len() && stem_widths[at] - first <= threshold {
-                sum += stem_widths[at];
-                count += 1;
-                at += 1;
-            }
-            widths.push(sum / count);
-        }
-        let standard = widths.first().copied().unwrap_or(50 * self.upem / 2048);
-        self.edge_distance_threshold = standard / 5;
-        self.widths = widths;
     }
+    stem_widths.sort_unstable();
+    // Almost identical widths become one (the mean of each cluster within a hundredth of the em).
+    let threshold = upem / 100;
+    let mut widths: Vec<i64> = Vec::new();
+    let mut at = 0;
+    while at < stem_widths.len() {
+        let first = stem_widths[at];
+        let mut sum = 0;
+        let mut count = 0;
+        while at < stem_widths.len() && stem_widths[at] - first <= threshold {
+            sum += stem_widths[at];
+            count += 1;
+            at += 1;
+        }
+        widths.push(sum / count);
+    }
+    let standard_width = widths.first().copied().unwrap_or(50 * upem / 2048);
+    (widths, standard_width / 5)
 }
 
 // ---- one glyph -------------------------------------------------------------------------------------------------------
@@ -383,6 +503,9 @@ struct Segment {
     pos: i64,
     min_coord: i64,
     max_coord: i64,
+    /// Half the spread of the segment's heights (`segment->delta`) and its extent along the stem (`segment->height`).
+    delta: i64,
+    height: i64,
     link: Option<usize>,
     serif: Option<usize>,
     score: i64,
@@ -411,6 +534,8 @@ struct Hints {
     major_dir: i8,
     segments: Vec<Segment>,
     edges: Vec<Edge>,
+    /// The edges are found as the CJK module does (`af_cjk_hints_compute_edges`).
+    cjk: bool,
 }
 
 fn direction(dx: i64, dy: i64) -> i8 {
@@ -484,7 +609,7 @@ impl Hints {
         }
         // The lower edge of a stem is the major direction: it runs left for clockwise contours, right for the others.
         let major_dir = if truetype { DIR_LEFT } else { DIR_RIGHT };
-        Self { points, contours: ranges, upem, major_dir, segments: Vec::new(), edges: Vec::new() }
+        Self { points, contours: ranges, upem, major_dir, segments: Vec::new(), edges: Vec::new(), cjk: false }
     }
 
     fn next_of(&self, contour: usize, index: usize) -> usize {
@@ -555,6 +680,8 @@ impl Hints {
                                 let v_first = self.points[first].fx;
                                 segment.min_coord = v_last.min(v_first);
                                 segment.max_coord = v_last.max(v_first);
+                                segment.height = segment.max_coord - segment.min_coord;
+                                segment.delta = (max_pos - min_pos) >> 1;
                             }
                             on_edge = false;
                         }
@@ -585,6 +712,8 @@ impl Hints {
                             pos: u,
                             min_coord: self.points[point].fx,
                             max_coord: self.points[point].fx,
+                            delta: 0,
+                            height: 0,
                             link: None,
                             serif: None,
                             score: 32000,
@@ -668,13 +797,22 @@ impl Hints {
             threshold = 64 / 4;
         }
         let threshold = div_fix(threshold, scale);
+        // The CJK module leaves out the segments wider than a pixel (their spread is more than half a pixel either way) and
+        // puts a segment on the nearest edge instead of the first one in reach.
+        let width_threshold = div_fix(32, scale);
+        let cjk = self.cjk;
         let mut edges: Vec<Edge> = Vec::new();
         for index in 0..self.segments.len() {
             let segment = &self.segments[index];
-            if segment.dir == DIR_NONE {
+            if segment.dir == DIR_NONE || (cjk && segment.delta > width_threshold) {
                 continue;
             }
-            let found = edges.iter().position(|edge| (segment.pos - edge.fpos).abs() < threshold && edge.dir == segment.dir);
+            let reaches = |edge: &Edge| (segment.pos - edge.fpos).abs() < threshold && edge.dir == segment.dir;
+            let found = if cjk {
+                edges.iter().enumerate().filter(|(_, edge)| reaches(edge)).min_by_key(|(at, edge)| ((segment.pos - edge.fpos).abs(), *at)).map(|(at, _)| at)
+            } else {
+                edges.iter().position(reaches)
+            };
             match found {
                 Some(at) => edges[at].segments.push(index),
                 None => edges.push(Edge {
@@ -732,6 +870,11 @@ impl Hints {
                     }
                     if is_serif {
                         serif = other_edge;
+                        if cjk {
+                            if let Some(other) = other_edge {
+                                sorted[other].serif = Some(index);
+                            }
+                        }
                     } else {
                         link = other_edge;
                     }
@@ -820,6 +963,14 @@ impl Hints {
             if anchor.is_none() {
                 anchor = Some(index);
             }
+        }
+        // The CJK module stops here: an edge that is no blue edge and no stem of one keeps its own place (the point
+        // alignment that follows still moves what lies between the fitted edges). The recorded pixels show the stems of
+        // Hangul at their unhinted rows; placing them as the Latin module does (the stem and serif stages of
+        // `af_cjk_hint_edges`, which this file ports for Latin) moved them by up to 0.8 px and left the recorded line
+        // further from Skia's (largest 4x4 block 35.6 against 22.6 with the blue stage alone).
+        if self.cjk {
+            return;
         }
         for index in 0..count {
             if self.edges[index].done {
@@ -1109,15 +1260,15 @@ pub struct HintedGlyph {
 impl Metrics {
     /// The vertical scale (16.16) after the x-height has been fitted to the pixel grid, and the blue zones at it
     /// (`af_latin_metrics_scale_dim`).
-    fn scale_vertical(&self, ppem_y: i64) -> (i64, Vec<ScaledBlue>) {
+    fn scale_vertical(&self, zones: &Zones, ppem_y: i64) -> (i64, Vec<ScaledBlue>) {
         let mut scale = div_fix(ppem_y, self.upem);
-        if let Some(blue) = self.blues.iter().find(|blue| blue.adjustment) {
+        if let Some(blue) = zones.blues.iter().find(|blue| blue.adjustment) {
             let scaled = mul_fix(blue.shoot_org, scale);
             let fitted = (scaled + 40) & !63;
             if scaled != fitted {
                 let new_scale = mul_div(scale, fitted, scaled);
                 let mut max_height = self.upem;
-                for blue in &self.blues {
+                for blue in &zones.blues {
                     max_height = max_height.max(blue.ascender).max(-blue.descender);
                 }
                 let dist = mul_fix(max_height, new_scale - scale).abs() & !127;
@@ -1126,7 +1277,7 @@ impl Metrics {
                 }
             }
         }
-        let blues = self
+        let blues = zones
             .blues
             .iter()
             .map(|blue| {
@@ -1159,11 +1310,22 @@ impl Metrics {
 
     /// Hints a glyph at the given size (26.6 pixels per em, across and down). `None` when the glyph has no outline.
     pub fn hint(&self, face: &ttf_parser::Face<'_>, glyph: u16, ppem_x: i64, ppem_y: i64) -> Option<HintedGlyph> {
+        self.hint_script(face, glyph, ppem_x, ppem_y, Script::Latin)
+    }
+
+    /// Hints a glyph with the module of `script`.
+    pub fn hint_script(&self, face: &ttf_parser::Face<'_>, glyph: u16, ppem_x: i64, ppem_y: i64, script: Script) -> Option<HintedGlyph> {
+        // The style of a glyph comes from the character the font maps to it: the .notdef glyph (an unmapped character) is Latin.
+        let script = if glyph == 0 { Script::Latin } else { script };
+        // The style of a glyph comes from the character the font maps to it: .notdef (an unmapped character) is Latin.
+        let script = if glyph == 0 { Script::Latin } else { script };
+        let zones = self.zones(face, script);
         let contours = raw_outline(face, glyph)?;
         let truetype = is_truetype_orientation(&contours);
         let x_scale = div_fix(ppem_x, self.upem);
-        let (y_scale, blues) = self.scale_vertical(ppem_y);
+        let (y_scale, blues) = self.scale_vertical(zones, ppem_y);
         let mut hints = Hints::load(&contours, self.upem, truetype);
+        hints.cjk = script == Script::Cjk;
         for point in &mut hints.points {
             point.ox = mul_fix(point.fx, x_scale);
             point.oy = mul_fix(point.fy, y_scale);
@@ -1171,8 +1333,8 @@ impl Metrics {
             point.y = point.oy;
         }
         hints.compute_segments();
-        hints.link_segments(self.widths.last().copied().unwrap_or(0));
-        hints.compute_edges(self.edge_distance_threshold, y_scale);
+        hints.link_segments(if script == Script::Cjk { 0 } else { zones.widths.last().copied().unwrap_or(0) });
+        hints.compute_edges(zones.edge_distance_threshold, y_scale);
         hints.compute_blue_edges(&blues, self.upem, y_scale);
         hints.hint_edges(&blues);
         hints.align_points();
@@ -1277,11 +1439,4 @@ pub fn metrics_of(face: &Face) -> Option<Arc<Metrics>> {
     let metrics = Arc::new(Metrics::new(&parsed));
     cache().lock().ok()?.insert(key, Cached { _data: Arc::clone(data), metrics: Arc::clone(&metrics) });
     Some(metrics)
-}
-
-/// Whether the auto-hinter grid-fits this character with the Latin module: every script but the ideographs and Hangul, which
-/// have a module of their own that is not modelled (their glyphs stay as the font draws them).
-pub fn is_hinted(character: char) -> bool {
-    !matches!(character as u32,
-        0x1100..=0x11FF | 0x2E80..=0x2FDF | 0x3000..=0x303F | 0x3040..=0x30FF | 0x3130..=0x318F | 0x31F0..=0x31FF | 0x3200..=0x33FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xA960..=0xA97F | 0xAC00..=0xD7FF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x20000..=0x2FFFF)
 }
