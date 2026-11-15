@@ -1,2 +1,0 @@
-# The scripts are embedded byte for byte (include_bytes!) and written to disk for PowerShell: the same line endings in every checkout, as the Node tree has them.
-*.ps1 text eol=crlf

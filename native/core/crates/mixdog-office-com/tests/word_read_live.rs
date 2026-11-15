@@ -5,7 +5,7 @@
 //! A background document is created, read through the registered `docx` reader (snapshot, snapshot of one paragraph, issues,
 //! selection) and closed with no Office process left that was not there before. The comparison of these answers with the
 //! PowerShell host's, after normalising dates, process ids and window handles, is made from the recordings of
-//! `recorder/scenarios/word-read.json` (`tests/word_read.rs`), not here.
+//! `tests/scenarios/word-read.json` (`tests/word_read.rs`), not here.
 #![cfg(windows)]
 
 use std::path::PathBuf;

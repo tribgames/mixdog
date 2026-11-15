@@ -1,7 +1,6 @@
-//! A stand-in for the PowerShell hosts, started by the transport tests in place of `powershell.exe`. It is given the
-//! script path as its last argument and speaks the line protocol of the host that script names: the one-shot host
-//! (`office-com-host.ps1`) reads one JSON payload to EOF and answers on its last stdout line; the session host
-//! (`office-com-session-host.ps1`) answers one JSON line per request line, with the request's `requestId`, until EOF.
+//! A stand-in for the Rust host program, started by the transport tests where `<program> office-com-host` would be. It speaks
+//! the line protocol of the host: the one-shot host reads one JSON payload to EOF and answers on its last stdout line; the
+//! session host (`--session`) answers one JSON line per request line, with the request's `requestId`, until EOF.
 //!
 //! What it does besides answering is asked for by the `fake` object of a payload:
 //!
@@ -16,8 +15,8 @@
 //! - `exit_code` (one-shot): the exit code;
 //! - `print` (one-shot): this text is the whole stdout instead of the answer.
 //!
-//! The Rust host's command line (`office-com-host`, with `--session` for a session host) is served too, and the
-//! arguments it was started with are reported as `argv` in a one-shot answer and in an `open_session` answer.
+//! The arguments it was started with (`office-com-host`, with `--session` for a session host, then `--data-dir <dir>`) are
+//! reported as `argv` in a one-shot answer and in an `open_session` answer.
 
 use std::io::BufRead;
 use std::io::Read;
@@ -131,9 +130,8 @@ fn session() {
 }
 
 fn main() {
-    let script = std::env::args().next_back().unwrap_or_default();
-    // The Rust host's `--session` flag is followed by `--data-dir <dir>`, so it is looked for among the arguments.
-    if script.ends_with("office-com-session-host.ps1") || std::env::args().any(|arg| arg == "--session") {
+    // The `--session` flag is followed by `--data-dir <dir>`, so it is looked for among the arguments.
+    if std::env::args().any(|arg| arg == "--session") {
         session();
     } else {
         one_shot();
