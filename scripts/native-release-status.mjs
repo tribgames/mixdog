@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Native tools (patch, graph, spawn) ship as their own immutable GitHub
-// releases (`<kind>-v<version>`); the app pins one through
+// The graph tool ships as its own immutable GitHub
+// releases (`<kind>-v<version>`); patch and spawn are core libraries now.
+// Their published manifests/assets remain for older clients. The app pins graph through
 // src/runtime/agent/orchestrator/tools/<kind>-manifest.json and downloads that
 // release's assets. A fix committed under native/<tool>/ therefore reaches
 // users only when a new `<kind>-v*` release is published AND the manifest pin
@@ -26,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const TOOLS_DIR = 'src/runtime/agent/orchestrator/tools';
 
 export const NATIVE_RELEASE_TOOLS = Object.freeze(
-  ['patch', 'graph', 'spawn'].map((kind) =>
+  ['graph'].map((kind) =>
     Object.freeze({
       kind,
       dir: `native/mixdog-${kind}`,

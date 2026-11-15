@@ -127,10 +127,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/mobile/package-lock.json
 
-      - name: Install and check
+      # The typecheck and unit tests run once, on Linux, in the Android workflow
+      # and the Release Gate; a macOS minute costs ten times a Linux one.
+      # sync:ios below builds the web shell.
+      - name: Install and verify the native configuration
         run: |
           npm ci
-          npm run check
+          npm run verify:native
 
       - name: Sync Capacitor and install pods
         run: npm run sync:ios
