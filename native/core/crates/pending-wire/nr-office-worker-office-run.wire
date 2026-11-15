@@ -1,0 +1,107 @@
+# nr-office-worker-office-run: office.run served by the Rust ext-host worker on the Rust Office engine
+
+Written without cargo: nothing below has been compiled or run (the lead compiles the wave). The new files are
+crates/mixdog-exthost-worker/src/methods/office_run.rs (the handler, the exit hook and the platform the engine runs on),
+src/methods/office_browser.rs (BrowserEndpoint over the running call's NEED_BROWSER) and tests/office_run.rs, tests/office_turn_review.rs.
+Nothing in them is a switch: once the registration below is applied the worker serves `office.run` and `native_methods()` names it; the
+pool route (nr-exthost-pool-route) then sends the Office tool to the Rust worker.
+
+## native/core/crates/mixdog-exthost-worker/src/methods/mod.rs
+Module list, after `mod media_office;`:
+
+    mod office_browser;
+
+and, after `mod office_journal;`:
+
+    mod office_run;
+
+In `register_document_methods`, after `office_journal::register(registry);`:
+
+    office_run::register(registry);
+
+and in the doc comment of that function add `office.run` to the methods named (`ooxml.text`, `media.officeText`, `office.sweepJournals`, `office.run`, ...).
+
+## native/core/crates/mixdog-exthost-worker/src/main_entry.rs
+In the test `the_names_come_from_the_registry_and_an_extension_adds_to_them`, the expected list gets `"office.run"` before
+`"office.sweepJournals"` (sorted).
+
+## native/core/crates/mixdog-exthost-worker/src/registry.rs (cross-track request: the ext-host track's exit hook holds one hook)
+`Registry::on_exit` replaces the hook it had, and `document_engine::register_exit` already registers one (the preview scratch and the private
+LibreOffice profile), so the Office engine's shutdown (`closeOfficeSessions`: every COM session host gets its EOF cleanup and the worker
+waits for the drain grace) would replace it or be replaced by it. The hook must be a list that runs in registration order:
+
+    pub struct Registry { handlers: BTreeMap<String, Handler>, on_exit: Vec<ExitHook> }
+
+    pub fn on_exit<F, Fut>(&mut self, hook: F) ... {
+        self.on_exit.push(Box::new(move || -> BoxFuture<()> { Box::pin(hook()) }));
+    }
+
+    pub(crate) async fn run_exit_hook(&self) {
+        for hook in &self.on_exit {
+            hook().await;
+        }
+    }
+
+(`Default` still derives; the doc of `on_exit` says "Runs when the worker leaves ... the hooks run in the order they were added".)
+office_run.rs registers its hook with exactly `registry.on_exit(...)`; with the single-hook shape the later registration silently wins.
+
+## native/core/crates/mixdog-exthost-worker/Cargo.toml
+[dependencies], in name order, add:
+
+    async-trait = { workspace = true }
+    mixdog-core-api = { workspace = true }
+    mixdog-office = { workspace = true }
+    mixdog-office-author = { workspace = true }
+    mixdog-office-design = { workspace = true }
+    mixdog-office-quality = { workspace = true }
+    mixdog-raster = { workspace = true }
+
+and remove the `mixdog-core-api = { workspace = true }` line of [dev-dependencies] (it is a normal dependency now). The other crates the
+new files name are already there: mixdog-fonts, mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-office-com, mixdog-office-pdf,
+mixdog-ooxml, mixdog-pdf, mixdog-rt, serde_json, tokio (`sync`), dunce (tests).
+
+Test targets, after the `office_journal` entry:
+
+    [[test]]
+    name = "office_run"
+    path = "tests/office_run.rs"
+    required-features = ["test-support"]
+
+    [[test]]
+    name = "office_turn_review"
+    path = "tests/office_turn_review.rs"
+    required-features = ["test-support"]
+
+## native/core/Cargo.lock
+New edges of mixdog-exthost-worker: async-trait, mixdog-core-api (already a dev edge), mixdog-office, mixdog-office-author, mixdog-office-design,
+mixdog-office-quality, mixdog-raster. Every one is a workspace crate or a crate already in the lock (async-trait 0.1.x is used by
+mixdog-exthost); the lock is refreshed offline (`cargo metadata --offline`) before the --locked build. No crate-graph cycle: none of those
+crates depends on mixdog-exthost-worker or mixdog-exthost.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+Nothing new: no external crate is added to the graph.
+
+## compose_flip.rs SERVICE_PENDING
+Nothing: `office.run` is a worker method, not a protocol method.
+
+## Cross-track finding: the front end reads one chunk per side (native/core/crates/mixdog-tools/src/orch/office.rs, `side` and `receipts`)
+The worker sends a side's bytes as chunks of at most 64 KiB (`MAX_CHUNK_BYTES`, the same split Node's `emit` made), and the front end
+(`receipts`) takes exactly one chunk per `{bytes: n}` side. A document over 64 KiB (most of them) arrives as several chunks, so the first
+side takes a part of its bytes and every later side is shifted: the turn review would record wrong "before"/"after" bytes and Undo would
+write them. The reader must take `n` bytes from the concatenated stream (n is in the receipt: `{bytes: n}`):
+
+    fn side(spec: &Value, stream: &mut Cursor) -> WriteSide   // ... Some(n) = spec.get("bytes") => WriteSide::Bytes(stream.take(n))
+
+and `receipts(writes, chunks)` concatenates `chunks` first. The same change makes a zero-byte side safe (a file that was empty before an
+edit sends no chunk at all, because `emit` of nothing sends nothing; today `chunks.next().unwrap_or_default()` would consume the next side's
+chunk). tests/office_turn_review.rs reads the receipts by byte count, as that change does.
+
+## Results the lead should expect on the first run
+- A compile pass may touch: the `Send` bound of the handler future (Engine::execute is driven inside a tokio::spawn'd task), the closure
+  borrows in `office()` (`lost` is used twice), `OnceCell::const_new` for the static, and the `#[async_trait]` impl of `BrowserEndpoint`
+  (the traits's own twin tests write the expanded form; the macro form is what mixdog-exthost's `RenderBrowser` uses).
+- First Office call of a worker scans the system fonts (as `pdf.render` does) and loads every face into the SVG font set
+  (`SvgFonts::from_registry`, on the interactive I/O lane), once per process; later calls pay nothing.
+- The tests make documents by the portable route only; `MIXDOG_OOXML_VALIDATOR_DISABLED` cannot be set for the worker process the pool
+  starts (no env in ExtHostConfig, and no setting of the process environment from a test), so a validator lookup that wants the network
+  would be where a first run is slow or fails; create/batch/save do not look the validator up (qa and finalize do).
