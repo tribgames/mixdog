@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-writer.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 225335,
+      "path": "golden.json",
+      "sha256": "5733a14223a82cb6f1c524c1795c57d594fb415d1e803092adde7c3ba849d1e3"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "ff7473bec15bba3c4c711260f2e878360a93f96a",
+      "commitFilesMissingFromTree": 760,
+      "exact": false,
+      "filesDifferingFromCommit": 17862
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-writer.mjs",
+  "set": "office-writer",
+  "totalBytes": 225335
+}
