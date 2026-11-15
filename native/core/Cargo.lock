@@ -3292,8 +3292,6 @@ dependencies = [
 [[package]]
 name = "icu_collator"
 version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24cb0205c419b2036da3f9082964905d6849b3f2130dd4a517940c45899a544b"
 dependencies = [
  "icu_collator_data",
  "icu_collections",
@@ -5151,6 +5149,7 @@ version = "1.5.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "flate2",
  "iana-time-zone",
  "icu_collator",
  "icu_locale_core",
@@ -5161,7 +5160,6 @@ dependencies = [
  "regress",
  "serde_json",
  "sha2 0.10.9",
- "sys-locale",
 ]
 
 [[package]]
@@ -8420,15 +8418,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
-]
-
-[[package]]
-name = "sys-locale"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
-dependencies = [
- "libc",
 ]
 
 [[package]]

@@ -20,29 +20,9 @@ const MAX_TIME_MS: f64 = 8.64e15;
 // ---------------------------------------------------------------------------------------------------------------
 // JavaScript conversions
 
-fn two(number: u32) -> String {
-    format!("{number:02}")
-}
-
-/// `Date.prototype.toString` without the parenthesised zone name V8 appends (`Invalid Date` for an invalid date).
+/// `Date.prototype.toString` through the pinned ICU display-name implementation.
 fn date_to_string(time: f64) -> String {
-    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let Some(fields) = local_fields(time) else { return "Invalid Date".to_owned() };
-    let offset = mixdog_js::time::local_offset_ms(time) / 60_000;
-    let year = if fields.year < 0 { format!("-{:06}", -fields.year) } else { format!("{:04}", fields.year) };
-    format!(
-        "{} {} {} {year} {}:{}:{} GMT{}{:02}{:02}",
-        DAYS[fields.weekday as usize],
-        MONTHS[(fields.month - 1) as usize],
-        two(fields.day),
-        two(fields.hour),
-        two(fields.minute),
-        two(fields.second),
-        if offset < 0 { '-' } else { '+' },
-        offset.abs() / 60,
-        offset.abs() % 60,
-    )
+    mixdog_js::date_to_string(time)
 }
 
 /// `String(value)`: an array joins its elements with commas (`undefined` and `null` as empty), an error is

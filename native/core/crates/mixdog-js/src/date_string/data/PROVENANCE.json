@@ -1,0 +1,71 @@
+{
+  "archiveUrl": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2",
+  "archiveSha256": "488a0a666ba33dace736d0788a8973729c8d83f3f4966d0fed1be7ad162d4729",
+  "icu": "77.1",
+  "cldr": "47.0",
+  "tz": "2025b",
+  "zoneLocales": 526,
+  "numberLocales": 936,
+  "zones": 639,
+  "uncompressedBytes": 2299937,
+  "compressedBytes": 371010,
+  "dataSha256": "c4c8697b5b518aad8a52a74a487b92396cc02a00ba66d7720c583e4371422106",
+  "localeDataBytes": 57361,
+  "localeDataSha256": "0873cdb1db2a6e0ecd5b999c3328eea923248098d912e59549109a21a9a627d6",
+  "sourceContracts": [
+    {
+      "file": "numsys.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/numsys.cpp",
+      "sha256": "8b3314387d0118d345beadce16aa89461b0ab92a74abe5f69c3ae89a4d6d02d7"
+    },
+    {
+      "file": "olsontz.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/olsontz.cpp",
+      "sha256": "df312c3e2e755c413bba918f75764dcbc6cdbfe7c959c791190ada2246cd5eff"
+    },
+    {
+      "file": "putil.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/common/putil.cpp",
+      "sha256": "273b2d51249908744815a91004751ab81ac852eeadbdaee0de59c29cf14cb032"
+    },
+    {
+      "file": "simpletz.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/simpletz.cpp",
+      "sha256": "1e4c454ddf85692fdcd56c38310deec39e3ab516f406626dff5dd9d2e0bf4c1b"
+    },
+    {
+      "file": "timezone.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/timezone.cpp",
+      "sha256": "e6812800e9d6919f9ff03123dde1ac7ea6d6d23f8e617a8fde29d265dd575510"
+    },
+    {
+      "file": "tzfmt.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/tzfmt.cpp",
+      "sha256": "dbc543825425817f80b463961da460c3e73914f00284172be3b90941efdd1763"
+    },
+    {
+      "file": "tznames_impl.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/tznames_impl.cpp",
+      "sha256": "1470aaf5ba5318167af9f936bfbd99ff079e0cdef423e30d5f2fa216ff95deb9"
+    },
+    {
+      "file": "uloc.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/common/uloc.cpp",
+      "sha256": "e328baa18e585b0e6daaa0a69966cc7a6f342de858ba235a54c0d65997411206"
+    },
+    {
+      "file": "uloc_tag.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/common/uloc_tag.cpp",
+      "sha256": "3728199c43f842791609b4e1c6e2926e517b0a2c512cdb52193c68a074ad23df"
+    },
+    {
+      "file": "zonemeta.cpp",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/i18n/zonemeta.cpp",
+      "sha256": "f6a9195604c88ad1570f492c2425c376979e569a99894b74892683b90e37b55a"
+    }
+  ],
+  "licenses": {
+    "LICENSE.icu": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca",
+    "LICENSE.v8": "81680185f0cb339021e3b73714499264de72f33b17cfdb0c14f400de6d95cf0e"
+  }
+}

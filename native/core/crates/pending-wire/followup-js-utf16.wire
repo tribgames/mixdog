@@ -1,0 +1,80 @@
+# followup-js-utf16: root wiring
+
+## native/core/crates/mixdog-js/src/lib.rs
+
+Add beside the existing exports:
+
+    pub use regex::regex_is_match_utf16;
+    pub use locale_compare::locale_compare_utf16;
+
+The time module is already public; time::date_parse_utf16 needs no root re-export.
+Public signatures:
+- regex_is_match_utf16(pattern: &[u16], text: &[u16], flags: &str) -> Result<bool, String>
+- locale_compare_utf16(a: &[u16], b: &[u16]) -> std::cmp::Ordering
+- time::date_parse_utf16(text: &[u16]) -> f64
+
+## native/core/crates/mixdog-js/Cargo.toml
+
+Replace only the existing regress edge:
+
+    regress = { workspace = true, features = ["utf16"] }
+
+No new package: regress 0.10.5 is already cached. Other regress features remain.
+Non-u matching uses Ucs2Input and raw u16 pattern units; u/v matching uses Utf16Input
+and decoded scalar pairs while keeping lone units as u32. The raw bridge retains
+Annex-B invalid hex/Unicode identity escapes and prevents regress from incorrectly
+combining escaped surrogate halves in non-u mode. Sticky y starts at offset zero.
+
+## native/core/Cargo.toml
+
+Inside the EXISTING [patch.crates-io] table, append (do not replace fancy-regex):
+
+    icu_collator = { path = "vendor/icu_collator" }
+
+Also append "vendor/icu_collator" to the existing [workspace].exclude array,
+like vendor/fancy-regex. It remains a patched dependency, not a workspace member
+whose upstream dev-tests/bench dependencies should be resolved by --workspace.
+
+Root owns offline lock/hakari refresh. The cached ICU4X 2.4.0 package is vendored
+with its original manifest/license/data dependency versions. Only upstream
+src/elements.rs and src/comparison.rs changed; see vendor/icu_collator/MIXDOG.md
+and MIXDOG-PROVENANCE.json. No new registry package/download is needed.
+The root locale wrapper uses compare_raw_utf16, not the lossy compare_utf16.
+Do not activate it without the vendor patch and strict replay.
+
+## Error and representation contract
+
+regex_error.rs was extended under explicit root approval. Its old &str API is
+unchanged. Raw syntax validation receives original units via Parser::from_units.
+Compilation/matching never uses a repaired String or a PUA/lexical substitution.
+Result error String is the requested final boundary: unpaired surrogates that V8
+places in SyntaxError.message become U+FFFD only there. The golden retains both
+raw errorUnits and the final well-formed message; tests compare the latter solely
+because this API returns String, not raw units. No Failure redesign is included.
+
+The date reader receives the original Vec<u16>; the existing &str path retains
+its single input allocation and shares the same scanner/composer and TimeClip.
+DATEVALUE projections, ignored garbage/comments and stray units around month
+names are independently recorded along with direct Date.parse bits.
+
+## Data/version scope and tests
+
+Existing valid-string locale_compare behavior and data are unchanged. Cached
+icu_collator_data 2.4.0 declares CLDR 49.0.0 / Unicode 18.0.0, while Node's own
+ICU/CLDR/Unicode versions are retained in the fixture metadata. Dataset mismatches
+remain strict failures; do not normalize them away or assert universal equality.
+
+Recorder: benchmarks/rust-core/recorders/record-js-utf16-bridges.mjs
+Executed: node .../record-js-utf16-bridges.mjs --tree C:/Project/mixdog --write
+Without --write it emits JSON only. Index js-utf16-bridges/MANIFEST.json in the
+root fixture inventory; it carries current exact counts, source versions and hash.
+
+Root must run offline check/clippy and tests/utf16_bridges_v8.rs after wiring:
+- raw_pattern_and_subject_match_node_in_unit_and_unicode_modes
+- raw_date_reader_matches_node_and_datevalue_projection
+- raw_collation_matches_node_across_boundaries_contractions_and_french_secondary
+- valid_string_comparison_is_unchanged_and_no_surrogate_equals_a_replacement
+- raw_error_text_is_sanitized_only_at_the_final_string_boundary
+Also run the existing regex/time/locale_compare tests unchanged. No Rust build,
+Cargo command, tests, applications or commits were executed by this worker.
+Independent source review and root compiled replay remain acceptance gates.

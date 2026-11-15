@@ -14,9 +14,7 @@ use icu_locale_core::Locale;
 fn collator() -> &'static CollatorBorrowed<'static> {
     static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();
     COLLATOR.get_or_init(|| {
-        let locale = sys_locale::get_locale()
-            .and_then(|tag| tag.split('.').next().unwrap_or_default().replace('_', "-").parse::<Locale>().ok())
-            .unwrap_or(Locale::UNKNOWN);
+        let locale = crate::default_locale::default_locale_tag().parse::<Locale>().unwrap_or(Locale::UNKNOWN);
         CollatorBorrowed::try_new((&locale).into(), CollatorOptions::default()).expect("compiled collation data")
     })
 }
@@ -24,6 +22,13 @@ fn collator() -> &'static CollatorBorrowed<'static> {
 /// `a.localeCompare(b)`, as an `Ordering`.
 pub fn locale_compare(a: &str, b: &str) -> Ordering {
     collator().compare(a, b)
+}
+
+/// `a.localeCompare(b)` on raw JavaScript UTF-16. The vendored ICU extension
+/// assigns each unpaired surrogate its original implicit collation weight;
+/// existing valid-string locale_compare is intentionally unchanged.
+pub fn locale_compare_utf16(a: &[u16], b: &[u16]) -> Ordering {
+    collator().compare_raw_utf16(a, b)
 }
 
 /// `a.localeCompare(b, 'en')`: English collation at default (tertiary) strength.
@@ -102,12 +107,4 @@ mod tests {
         assert_eq!(locale_compare("alpha", "Zed"), Ordering::Less);
         assert_eq!(locale_compare("a", "A"), Ordering::Less);
     }
-}
-
-/// `Intl.DateTimeFormat().resolvedOptions().locale`: the process's default locale as a BCP 47 tag,
-/// `en-US` when the system names none.
-pub fn default_locale_tag() -> String {
-    sys_locale::get_locale()
-        .and_then(|tag| tag.split('.').next().unwrap_or_default().replace('_', "-").parse::<Locale>().ok())
-    .map_or_else(|| "en-US".to_owned(), |locale| locale.to_string())
 }
