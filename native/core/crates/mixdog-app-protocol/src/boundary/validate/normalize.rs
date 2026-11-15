@@ -84,6 +84,17 @@ pub fn new_task_draft(draft: &mut NewTaskDraft) {
 /// `create` (kept when false) only beside a branch. A value that is not an object is left as it is.
 pub fn new_task_worktree(worktree: &mut Value) {
     let Value::Object(record) = worktree else { return };
+    // The intent of a launch is kept as it came: its mode, and the name beside the worktree mode.
+    if let Some(mode) = record.get("mode").filter(|mode| mode.is_string()).cloned() {
+        let name = record.get("name").filter(|name| name.is_string()).cloned();
+        let mut kept = Map::new();
+        kept.insert("mode".to_owned(), mode);
+        if let Some(name) = name {
+            kept.insert("name".to_owned(), name);
+        }
+        *record = kept;
+        return;
+    }
     let mut kept = Map::new();
     for flag in ["confirmLarge", "fromDefault"] {
         if record.get(flag) == Some(&Value::Bool(true)) {

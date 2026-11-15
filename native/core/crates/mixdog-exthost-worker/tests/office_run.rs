@@ -184,14 +184,15 @@ async fn a_thread_that_owns_a_session_stays_on_its_worker_until_it_closes_it() {
     until(&pool, |s| s.len() == 2 && busy(s) == 0).await;
 
     let pid_of = |outcome: Result<Value, ExtError>| outcome.expect("answers");
-    let owner_pid = pid_of(finish(&pool, plain("owner", "pin", json!({"pin": false}))).await.1);
+    // An answer that is not pinned releases its thread, so the owner is not asked where it is while it holds the session: that
+    // its calls reach the worker with the session is what shows it. Another thread goes to the lowest idle worker, the first.
     let other_pid = pid_of(finish(&pool, plain("other", "pin", json!({"pin": false}))).await.1);
-    assert_ne!(owner_pid, other_pid, "the owner is on the worker that holds its session");
 
-    // The session is found on the next call of the same thread, which is on the same worker.
+    // The session is found on the next call of the same thread, which is on the same worker (the first worker never had it).
     let seen = finish(&pool, office("owner", &root, &data, json!({"action": "snapshot", "session": session}))).await.1.expect("the call succeeds");
     assert!(seen["result"]["isError"].is_null(), "the session is known to the worker: {seen}");
-    assert_eq!(pid_of(finish(&pool, plain("owner", "pin", json!({"pin": false}))).await.1), owner_pid);
+    let again = finish(&pool, office("owner", &root, &data, json!({"action": "snapshot", "session": session}))).await.1.expect("the call succeeds");
+    assert!(again["result"]["isError"].is_null(), "the thread is still on the worker of its session: {again}");
 
     // Closing the session releases the thread: the next call goes to the lowest idle worker.
     let closed = finish(&pool, office("owner", &root, &data, json!({"action": "close", "session": session}))).await.1.expect("the close succeeds");
