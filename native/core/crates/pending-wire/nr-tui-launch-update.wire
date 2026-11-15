@@ -1,35 +1,13 @@
-# nr-tui-launch-update: the native staged update of the `mixdog` binary in mixdog-launch (src/staged_update.rs, src/staged_update/*).
-# Nothing here could be compiled by the task (no cargo); the first thing the lead does is `cargo test --offline -p mixdog-launch --features fake-core`.
+# nr-tui-launch-update: reduced by the wire audit (t19). Already applied: the mixdog-launch dependencies (mixdog-ai, mixdog-core-domains, reqwest, sha2, tokio, zip) and their lock entries; the entry calls perform_pending_swap() and register_live_session() (mixdog-entry/src/dispatch.rs).
 
-## 1. native/core/Cargo.lock
-Regenerate (`cargo update --workspace --offline`): the package `mixdog-launch` gains the dependency lines (every crate is in the lock already):
-    mixdog-ai, mixdog-core-domains, reqwest, sha2, tokio, zip
-(the manifest edit is in the task's own crates/mixdog-launch/Cargo.toml: mixdog-ai, mixdog-core-domains, reqwest, sha2, zip and tokio with features rt, time, net as
-normal dependencies; zip is the workspace entry, deflate only). No tar, flate2 or self-replace is used: the release archive is a zip and the swap is two renames.
+## The entry (mixdog-entry dispatch.rs / main.rs: lead hot file). NOT applied, in this order as cli.mjs does:
+- first of all, when argv[1] == mixdog_launch::staged_update::STAGED_INSTALL_ARG ("--staged-install-worker"): std::process::exit(run_staged_install_worker(&argv[2])) (the worker spawn_staged_install starts; no console and no window).
+- when perform_pending_swap() returned SwapOutcome::Swapped(exe) and the process was not itself started by a swap: if let Some(code) = reexec_swapped(&exe, &original_args) { finish_process_lifecycle(..., "clean-shutdown" or, when a signal ended the child, "forced-cleanup", code); return code } (None: the run goes on in place). dispatch.rs today only tests the Swapped case and continues.
+- where the update check finds a newer version and auto-update is on (self-update.mjs STAGE path): spawn_staged_install(&latest). None of run_staged_install_worker, spawn_staged_install, reexec_swapped has a caller outside mixdog-launch.
+- The daemon's update_installer.rs stage half still runs npm and is retired by its own task; the two share the staging folder names, not a marker shape.
 
-## 2. native/core/crates/mixdog-workspace-hack/Cargo.toml
-`cargo hakari generate`: mixdog-launch now builds reqwest, sha2, zip and tokio (rt, time, net), so the feature unions are recomputed. Then run
-D:\mixdog-build\tools\unify-test-features.py for the crate (its tests also use the same crates; no test-only feature of a workspace crate is new).
+## Process steps
+cargo hakari generate (workspace-hack), then D:\mixdog-build\tools\unify-test-features.py for mixdog-launch.
 
-## 3. The entry (nr-tui-entry-argv / nr-tui-switch, the `mixdog` binary's main): calls, in this order, as cli.mjs does
-- first of all, when argv[1] == mixdog_launch::staged_update::STAGED_INSTALL_ARG ("--staged-install-worker"): `std::process::exit(run_staged_install_worker(&argv[2]))`
-  (the worker `spawn_staged_install` starts; it has no console and no window).
-- before anything is loaded, on a clean (non-headless-exec) start: `let swapped = perform_pending_swap();` then `let _session = register_live_session("<id>");`
-  held until the run ends. When `swapped` is `SwapOutcome::Swapped(exe)` and the process was not itself started by a swap:
-  `if let Some(code) = reexec_swapped(&exe, &original_args) { finish_process_lifecycle(..., "clean-shutdown" or, when a signal ended the child, "forced-cleanup", code); return code }`;
-  when it returns None the run goes on in place. `perform_pending_swap` itself exits with 1 after printing the stranded-backup notice when the swap could be neither
-  completed nor rolled back (the Node invariant).
-- where the update check finds a newer version and auto-update is on (self-update.mjs `STAGE` path): `spawn_staged_install(&latest)`.
-  (The daemon's update_installer.rs stage half still runs npm and is retired by its own task; the two share the staging folder names, not a marker shape:
-  this marker is `{version, binary, stagedAt}`, the npm one `{version, pkgDir, stagedAt}`, and a marker without `binary` names `bin/mixdog[.exe]`.)
-- `MIXDOG_DISABLE_STAGED_INSTALL`, `MIXDOG_DISABLE_STAGED_SWAP` and `MIXDOG_SWAP_REEXEC` are read by `Context::process()`; nothing else is needed.
-
-## 4. Release process (owner decision D6: the desktop release feed; packaging/CI task of the wave that publishes the CLI)
-The feed this reads is `staged_update::FEED_URL` = https://github.com/tribgames/mixdog/releases/latest/download/mixdog-cli-manifest.json, a release asset:
-    { "version": "<x.y.z>", "assets": { "win32-x64": { "url": "https://github.com/tribgames/mixdog/releases/download/<tag>/<file>.zip", "sha256": "<64 hex>", "size": <bytes> }, ... } }
-keys `<os>-<arch>` with os win32|darwin|linux and arch x64|arm64 (the shape of spawn-manifest.json), each asset a deflate zip holding the `mixdog` (`mixdog.exe`)
-binary (at its root or in one folder) that answers `mixdog --version` with a line containing the version. Integrity is the manifest's SHA-256 and size over TLS; no signature
-check is added (none was decided, and the owner direction forbids a new refusal): if the owner decides on a signature, it is checked in stage.rs `fetch`.
-
-## 5. compose_flip.rs SERVICE_PENDING
-Nothing: the crate registers no protocol method.
+## Owner decision (D6, the desktop release feed)
+staged_update::FEED_URL = https://github.com/tribgames/mixdog/releases/latest/download/mixdog-cli-manifest.json must exist as a release asset: { "version": "<x.y.z>", "assets": { "<os>-<arch>": { "url": "...zip", "sha256": "<64 hex>", "size": <bytes> } } } (os win32|darwin|linux, arch x64|arm64; each asset a deflate zip holding the mixdog (mixdog.exe) binary at its root or in one folder, answering mixdog --version with a line containing the version). Integrity is the manifest's SHA-256 and size over TLS; no signature check was added (none was decided; a new refusal is not allowed): if the owner decides on a signature it is checked in stage.rs fetch.

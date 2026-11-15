@@ -1,26 +1,6 @@
-# nr-relay-twin-services: the `services` twin suite of mixdog-relay (tests/twin/scenarios/services/*.json)
-Nothing here could be compiled or run against the Rust relay (no cargo in this task); every scenario was run against the
-Node relay (tests/twin/node/relay-host.mjs) through a throwaway runner to prove its steps and expectations hold there.
+# nr-relay-twin-services: reduced by the wire audit (t19). Already applied: the suite (tests/twin/scenarios/services) and its ledger; the suite is picked up by directory.
 
-## 1. Cargo.toml, Cargo.lock, mixdog-workspace-hack, compose_flip.rs SERVICE_PENDING
-No change. The suite is data read by the existing `twin` test target (`required-features = ["test-support"]`); no
-dependency, no protocol method, no SERVICE_PENDING name is added or removed.
-
-## 2. What the lead applies after the wave
-- Nothing to paste. `twin_harness_self_check`, `twin_scenarios` and `twin_crossover` pick the suite up by directory.
-- The suite is slow by design in three scenarios that wait out a 30 s relay timeout on both runtimes
-  (hook_forwarded_frame_and_agent_timeout, media_request_frame_and_head_timeout,
-  media_plaintext_era_request_is_forwarded_unmarked) and one that waits out a 10 s one (webpush_send_past_the_sender_timeout), plus the
-  121-request hook limit walk.
-
-## 3. Behaviours the harness cannot drive yet (owner: tests/twin/harness.rs and scenario.rs, nr-relay-twin-harness)
-Listed with their ledger rows in tests/ledger/nr-relay-twin-services.json (twin: null):
-1. A request left pending while another step acts: `http` blocks until the answer. Needed for a webhook or media
-   request that the agent or desktop then answers (head, chunk and end frames, the strict base64 refusal), for a leg that
-   closes under a pending request (502 agent disconnected, 503 half-written media) and for bodies still arriving (the
-   security.test.mjs cap, feedback's three-reads cap). Suggested step: `{"do":"http", "background": true, "label": "x"}`
-   starting the request and `{"do":"await_http","label":"x"}` recording its answer.
-2. ICE issuance and its rate limit: the answer carries `remainingMs`, `retryAfterMs` (clock-derived numbers of 8 digits)
-   and an HMAC credential of a username holding the expiry second; normalise.rs masks neither, so two relays never print
-   the same issued answer. A mask of those three fields (or a harness `now` knob) would let ice_issued_* be added.
+## Behaviours the harness cannot drive yet (in-crate: tests/twin/harness.rs and scenario.rs; none of await_http / background exists there). Ledger rows with twin: null in tests/ledger/nr-relay-twin-services.json:
+1. A request left pending while another step acts ("http" blocks until the answer). Needed for a webhook or media request that the agent or desktop then answers (head, chunk and end frames, the strict base64 refusal), for a leg that closes under a pending request (502 agent disconnected, 503 half-written media) and for bodies still arriving (the security.test.mjs cap, feedback's three-reads cap). Suggested step: {"do":"http", "background": true, "label": "x"} starting the request and {"do":"await_http","label":"x"} recording its answer.
+2. ICE issuance and its rate limit: the answer carries remainingMs, retryAfterMs (clock-derived 8-digit numbers) and an HMAC credential whose username holds the expiry second; normalise.rs masks neither, so two relays never print the same issued answer. A mask of those three fields (or a harness "now" knob) would let ice_issued_* be added.
 3. A registry file that must become unwritable after a registration (the unregister half of the Web Push store failure).

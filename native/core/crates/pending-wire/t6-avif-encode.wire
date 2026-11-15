@@ -1,21 +1,5 @@
-# t6-avif-encode: integration fragment
+# t6-avif-encode: reduced by the wire audit (t19). Already applied: ravif =0.12.0 in mixdog-imaging/Cargo.toml and the lock entries (ravif, rav1d).
 
-## native/core/Cargo.lock, native/core/crates/mixdog-workspace-hack/Cargo.toml (lead regenerates)
-
-mixdog-imaging gains one dependency: `ravif = { version = "=0.12.0", default-features = false }` (already written in
-crates/mixdog-imaging/Cargo.toml). It pulls in rav1e 0.8.1, avif-serialize 0.8.8, imgref, loop9, quick-error, v_frame,
-av1-grain, av-scenechange 0.14.1 and their dependencies, all of which are in the local cargo registry cache; the build
-needs `cargo ... --offline` without `--locked` once so the lock gains them, and the workspace-hack regenerates for the
-unified features. `asm` (nasm) and `threading` of ravif/rav1e are off: the encoder runs on one thread, as the encoder
-of libheif does for one picture.
-
-## native/core/crates/mixdog-app-server-daemon/src/compose.rs, native_ext_methods
-
-When the whole image corpus passes with AVIF outputs really AVIF (mixdog-imaging node_twin, avif_reference,
-still_twin and mixdog-exthost-worker methods_twin), the filter `.filter(|method| !method.starts_with("image."))` that
-keeps image.* on the script worker is removed, so the Rust worker answers image.probe, image.jpeg, image.validate,
-image.resize and image.still.
-
-## SERVICE_PENDING (compose_flip.rs)
-
-No protocol method is added or registered by this task: nothing to remove from SERVICE_PENDING.
+## native/core/crates/mixdog-app-server-daemon/src/compose.rs, native_ext_methods (lead hot file), GATED
+When the whole image corpus passes with AVIF outputs really AVIF (mixdog-imaging node_twin, avif_reference, still_twin and mixdog-exthost-worker methods_twin), remove the filter .filter(|method| !method.starts_with("image.")) (compose.rs line 790) so the Rust worker answers image.probe, image.jpeg, image.validate, image.resize and image.still. It must stay until then: the last full run (results/t8-fails.txt) still fails mixdog-imaging::avif_reference (3 tests), mixdog-imaging avif::tests::a_file_the_container_parse_refuses_gets_libheifs_sentence_by_how_far_it_got and mixdog-exthost::it composer_resize.
+Then the workspace-hack hakari check (rav1e, avif-serialize and the rest of the ravif closure).

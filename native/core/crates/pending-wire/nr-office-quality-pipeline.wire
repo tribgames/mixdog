@@ -1,37 +1,14 @@
-# nr-office-quality-pipeline: what the lead applies (all of it is in files this task does not own)
+# nr-office-quality-pipeline.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
+The fragment named the set and said to run verify-manifests.mjs --write-index; the entry below is what that writes.
 
-## 1. native/core/Cargo.toml
-[workspace] members: add, right after `"crates/mixdog-office-base",`:
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
-    "crates/mixdog-office-quality",
-
-[workspace.dependencies]: add, right after the `mixdog-office-base = { path = "crates/mixdog-office-base" }` line:
-
-    mixdog-office-quality = { path = "crates/mixdog-office-quality" }
-
-## 2. native/core/Cargo.lock
-Lead regenerates it offline (the build is --locked after that). The new package `mixdog-office-quality` has the
-dependencies `mixdog-js`, `mixdog-office-base`, `mixdog-workspace-hack` and `serde_json` (all already in the lock; no
-new crate enters it). Its dev-dependency is `mixdog-office-base` with the feature `test-support`, which the base crate
-already declares.
-
-## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml
-Nothing: the new crate's Cargo.toml carries the `mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }`
-dependency as every office crate does. If the hakari rule of the workspace wants more features unified, regenerate.
-
-## 4. native/core/fixtures/MANIFEST.json
-Run `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` once the wave is merged: it adds the row
-of the new set `office-pipeline` (recorder benchmarks/rust-core/recorders/record-office-pipeline.mjs, 1 file,
-golden.json). The set's own MANIFEST.json is already written (native/core/fixtures/office-pipeline/MANIFEST.json).
-
-## 5. Consumers (later tasks of the track, not this one)
-The office tools that review and finalize a document add `mixdog-office-quality = { workspace = true }` to their own
-crate and call: `pipeline::{normalize_office_review_issues, build_office_polish_plan,
-evaluate_office_submission_gate, resolve_office_render_output, is_advisory_office_issue}`,
-`score::score_office_release_quality`, `document_acceptance::{review_document_pages, assess_document_acceptance,
-is_automated_ready, review_status, document_visual_checks}`,
-`presentation_acceptance::assess_presentation_acceptance`, `checklist::evaluate_office_checklist` and
-`issue::{issue, issue_with}`. All of them take and answer `serde_json::Value`s with the key order Node writes.
-
-## 6. Nothing else
-No protocol row, no SERVICE_PENDING name, no desktop fragment, no environment variable.
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-pipeline.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-pipeline/MANIFEST.json",
+      "manifestSha256": "7727ba546c614b94245ef7fc0d697a34e0b54118a66934b9b017ac665b9a0b57",
+      "recorder": "benchmarks/rust-core/recorders/record-office-pipeline.mjs",
+      "set": "office-pipeline",
+      "totalBytes": 4454159
+    }

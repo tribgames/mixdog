@@ -1,7 +1,7 @@
-# t15-ooxml: hot-file parts of nr-office-ooxml-docx-edits and nr-office-ooxml-xlsx-operations
+# t15-ooxml.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
+The fragment says to re-record office-xlsx-operations once from the integration checkout and then update its digest (the entry below has the digest of the committed file).
 
-## native/core/fixtures/MANIFEST.json
-In "sets" add (sorted by set name):
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-docx-edits.mjs --tree <tree>",
@@ -11,7 +11,7 @@ In "sets" add (sorted by set name):
       "recorder": "benchmarks/rust-core/recorders/record-office-docx-edits.mjs",
       "set": "office-docx-edits",
       "totalBytes": 573954
-    }
+    },
     {
       "command": "node benchmarks/rust-core/recorders/record-office-xlsx-operations.mjs --tree <tree>",
       "fileCount": 1,
@@ -21,5 +21,3 @@ In "sets" add (sorted by set name):
       "set": "office-xlsx-operations",
       "totalBytes": 621578
     }
-(Re-record xlsx-operations once from the integration checkout, then update its digest.)
-No Cargo, lock, workspace-hack, compose or SERVICE_PENDING change.

@@ -1,31 +1,6 @@
-# nr-office-quality-structure: what the lead applies (all of it is in files this task does not own)
+# nr-office-quality-structure.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-## 1. native/core/crates/mixdog-office-quality/src/lib.rs
-After the line `pub mod score;` add:
-
-    pub mod structure;
-
-(The module is `structure/{mod,docx,pptx,xlsx}.rs`, already in the tree.)
-
-## 2. native/core/crates/mixdog-office-quality/Cargo.toml
-[dependencies]: add, after the `mixdog-ooxml = { workspace = true }` line:
-
-    mixdog-office-design = { workspace = true }
-
-The structure review reads the design crate's `discipline::{font_family_key, is_motif_shape, is_picture_shape}` and
-`templates::annotate_pptx_snapshot_roles`, and the ooxml crate's `xlsx_formula_audit::audit_xlsx_formulas` and
-`xlsx_audit_support::sheet_path` (already a dependency). mixdog-office-design and mixdog-ooxml do not depend on
-mixdog-office-quality, so the edge makes no cycle. No new external crate.
-
-## 3. native/core/Cargo.lock
-Lead regenerates it offline. The package `mixdog-office-quality` gains the dependency `mixdog-office-design` (a workspace
-crate already in the lock).
-
-## 4. native/core/fixtures/MANIFEST.json
-`node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` adds the row of the new set `office-structure`
-(recorder benchmarks/rust-core/recorders/record-office-structure.mjs, 1 file, golden.json). The set's own MANIFEST.json is
-already written (native/core/fixtures/office-structure/MANIFEST.json, sha256 32d488fb5127a16a5f9941593e5d864d15d61eedc684eba8d90c3ff20abfb269,
-golden.json 2476411 bytes). If the row is written by hand, in "sets" after "office-snapshot-docx" or wherever "office-structure" sorts:
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-structure.mjs --tree <tree>",
@@ -35,16 +10,4 @@ golden.json 2476411 bytes). If the row is written by hand, in "sets" after "offi
       "recorder": "benchmarks/rust-core/recorders/record-office-structure.mjs",
       "set": "office-structure",
       "totalBytes": 2476411
-    },
-
-## 5. Consumers (later tasks of the track, not this one)
-The office inspect and review actions (`office-actions-inspect.mjs`, the assurance benchmark) call
-`mixdog_office_quality::structure::review_office_structure(format: Option<&str>, document: &Value, audit_profile: &str) -> Vec<Value>`
-(`reviewOfficeStructure({ format, document, auditProfile })`; the format falls back to `document.format`; an unknown format
-answers no issues). The format reviews are also public: `structure::docx::review_docx_structure(&Value)`,
-`structure::pptx::review_pptx_structure(&Value, audit_profile)` and `structure::xlsx::review_xlsx_structure(&Value, audit_profile)`.
-The deck review annotates a clone of the snapshot (`annotatePptxSnapshotRoles` mutates the caller's document in Node); the
-caller's document is not changed.
-
-## 6. Nothing else
-No protocol row, no SERVICE_PENDING name, no desktop fragment, no environment variable.
+    }

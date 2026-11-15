@@ -1,21 +1,7 @@
-# nr-office-design-discipline: what the wiring applies for the new crate mixdog-office-design.
-# (No protocol rows, no daemon service, no SERVICE_PENDING change: the crate is pure and has no caller yet.)
+# nr-office-design-discipline.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-# 1. native/core/Cargo.toml, [workspace] members: add after the line `    "crates/mixdog-office-base",`
-    "crates/mixdog-office-design",
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
-# 2. native/core/Cargo.toml, [workspace.dependencies]: add after the line
-#    `mixdog-office-base = { path = "crates/mixdog-office-base" }`
-mixdog-office-design = { path = "crates/mixdog-office-design" }
-
-# 3. native/core/Cargo.lock: `cargo update --workspace --offline` adds the package `mixdog-office-design` with the
-#    dependencies mixdog-js, mixdog-office-base, mixdog-workspace-hack, serde_json (all already in the lock; no new
-#    external crate and no new feature of one).
-
-# 4. native/core/crates/mixdog-workspace-hack/Cargo.toml: `cargo hakari generate` (the new crate depends on the hack
-#    package through its own Cargo.toml; it adds no third-party dependency of its own).
-
-# 5. native/core/fixtures/MANIFEST.json, "sets" (keep the list sorted by set name; after "office-detect"):
     {
       "command": "node benchmarks/rust-core/recorders/record-office-discipline.mjs --tree <tree>",
       "fileCount": 1,
@@ -24,10 +10,4 @@ mixdog-office-design = { path = "crates/mixdog-office-design" }
       "recorder": "benchmarks/rust-core/recorders/record-office-discipline.mjs",
       "set": "office-discipline",
       "totalBytes": 1796840
-    },
-
-# 6. For the later tasks of the track (nr-office-design-composition, -docx, -xlsx, -library): the crate exports
-#    `tokens::resolve_office_design(format, &request, library: Option<&Value>, &CompositionContext)`. The composition
-#    context (purpose, expression_mode, recent_compositions) is the answer of `resolveOfficeCompositionContext`, which
-#    is composition-system.mjs (task nr-office-design-composition): that task adds `resolve_office_composition_context`
-#    and its callers pass the result in. Nothing here depends on that module.
+    }

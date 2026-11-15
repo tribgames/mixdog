@@ -1,23 +1,14 @@
-# t18-pdf-worker: what the lead applies (hot files)
+# t18-pdf-worker.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members). (The compose.rs installLibreOffice term is gone; the image. filter stays, see t6-avif-encode.wire.)
+Run the hakari check for mixdog-workspace-hack once (reqwest features on the worker, futures on fonts). The fragment named the set office-content-ops and said to run verify-manifests.mjs --write-index; the entry below is what that writes.
 
-## native/core/Cargo.lock (regenerate with `cargo update --workspace --offline`; no new package)
-mixdog-fonts: add dependencies futures, mixdog-rt, mixdog-statefile.
-mixdog-exthost-worker: add dependency reqwest (mixdog-fonts, mixdog-office-pdf were already edges).
-mixdog-app-server-daemon: add dependency mixdog-fonts.
-Then the hakari check for mixdog-workspace-hack (reqwest features on the worker, futures on fonts).
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
-## native/core/fixtures/MANIFEST.json
-Index the set `office-content-ops` (recorder benchmarks/rust-core/recorders/record-office-content-ops.mjs, 1 file, golden.json;
-its own MANIFEST.json is in the set) with `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index`.
-
-## compose.rs, fn native_ext_methods
-The worker's prepare_fonts now runs the Noto provisioner (mixdog_fonts::install, the one the daemon calls through
-domain_seams/office_fonts.rs), so drop the document.installLibreOffice term:
-
-    .filter(|method| !method.starts_with("image."))
-
-(and the doc comment line about installLibreOffice).
-
-## Test run the lead must do for the daemon (read-only edit here)
-nextest run -p mixdog-app-server-daemon: domain_seams::office_fonts tests (the table, verify and prepare match Node's) after the move
-to mixdog-fonts; the daemon file is now a host (asset fetcher + process manager) over mixdog_fonts::install.
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-content-ops.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-content-ops/MANIFEST.json",
+      "manifestSha256": "fdff975c2c9812ca77ef81fa20af9a33020848bcbf1a2008c2ad8b43b328fdc1",
+      "recorder": "benchmarks/rust-core/recorders/record-office-content-ops.mjs",
+      "set": "office-content-ops",
+      "totalBytes": 555515
+    }

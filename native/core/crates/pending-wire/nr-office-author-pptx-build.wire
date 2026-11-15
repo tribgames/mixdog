@@ -1,34 +1,6 @@
-# nr-office-author-pptx-build: the HTML deck builder and runner of crate mixdog-office-author. What the lead applies (all of it is
-# in files this task does not own). It was not compiled by this task (no cargo run).
+# nr-office-author-pptx-build.wire: reduced by the wire audit (t19). Everything else in this fragment is applied in the tree (module lines, crate manifests, lock edges, workspace members).
 
-## 0. The chart wiring of nr-office-author-pptx-charts must be applied first
-pptx_build.rs calls `Presentation::add_chart(index, kind, data, options)` and names `AxisStyle`, `ChartData`, `ChartKind`,
-`ChartLayout`, `ChartOptions` and `GridLine` from `crate::pptx_writer`. Those are items 2, 3 and 4 of
-`nr-office-author-pptx-charts.wire` (the `mod charts;` / `mod chart_workbook;` lines and the `pub use charts::{...}` line in
-pptx_writer/mod.rs, the `Slide` chart object and `Presentation::add_chart` in slide.rs and presentation.rs). In the tree
-this task was written against they are not applied yet (pptx_writer/mod.rs has no `mod charts;`), so the crate cannot compile
-before them.
-
-## 1. native/core/crates/mixdog-office-author/src/lib.rs
-Beside `pub mod pptx_writer;` add:
-
-    pub mod pptx_build;
-    pub mod pptx_html_runner;
-
-and extend the crate doc by one sentence: `pptx_build` is the HTML deck builder (`authoring/pptx-html-build.mjs`: the measure the
-browser read becomes native text boxes, shapes, lines, tables, charts and pictures on the pptx writer) and `pptx_html_runner` the
-HTML deck runner (`authoring/pptx-html-runner.mjs`: measure, build, normalise, keep `<deck>.mixdog-source.html` and the page
-images, the drift of the render against the HTML, the comparison images).
-
-## 2. native/core/crates/mixdog-office-author/Cargo.toml
-Nothing to add: every crate the two modules and the twin test use (base64, serde_json, url, mixdog-core-api, mixdog-fsio,
-mixdog-js, mixdog-office-base, mixdog-ooxml, mixdog-raster, mixdog-rt; dev: async-trait, tokio, mixdog-testkit, mixdog-rt with
-test-support) is in the manifest already. `serde_json` must keep `preserve_order` (the result JSON lists its keys in the order
-Node does; measure_deck's tests already rely on it). Cargo.lock and mixdog-workspace-hack: no change.
-
-## 3. native/core/fixtures/MANIFEST.json (the index of the fixture sets)
-Add this entry in its place in the list sorted by `set` (after `office-pptx-writer-text` if that set is listed, else where the
-sorted order puts `office-pptx-build`):
+## native/core/fixtures/MANIFEST.json (lead hot file): add to "sets", sorted by set name
 
     {
       "command": "node benchmarks/rust-core/recorders/record-office-pptx-build.mjs --tree <tree>",
@@ -38,29 +10,4 @@ sorted order puts `office-pptx-build`):
       "recorder": "benchmarks/rust-core/recorders/record-office-pptx-build.mjs",
       "set": "office-pptx-build",
       "totalBytes": 792526
-    },
-
-(Recorded from the product tree at C:/Project/mixdog, which is not an exact commit export, so the set's manifest has
-`product.commit` null like the other office sets. native/core/fixtures/office-pptx-build/ is in this task's commit, added with
-`git add --sparse`.)
-
-## 4. SERVICE_PENDING (compose_flip.rs)
-No name to remove: this task registers no service.
-
-## 5. What the later tasks take from this one
-- nr-office-engine-author-actions (the `author` action's HTML input):
-  `pptx_html_runner::run_pptx_html_authoring(endpoint, tokens, &SvgFonts, note, html, output, RunOptions::new(target))` answers
-  the run's result JSON (`ok`, `output`, `bytes`, `logs`, `kit: "html"`, `slideCount`, `normalizedParagraphs`, `htmlShots`,
-  `htmlText`, `htmlSource`, `geometry`, `elapsedMs`; or `{ ok: false, error: { message, line, excerpt }, logs, elapsedMs }`);
-  `RunOptions.prepare` names the canvas on the loaded page (the PDF's designed pages pass their sheet);
-  `pptx_html_runner::{html_artifacts, has_slide_sections, measure_html_drift, write_html_comparisons}` are the artifact
-  names, the page-contract check, the `html_render_drift` read and the comparison images; the brief of an HTML deck is
-  `brief::html_brief_script` (already in the crate). `SvgFonts` is built by the caller from the font registry
-  (`SvgFonts::from_registry(proof, registry)`), so an SVG drawing's text is set in the same faces as the rest of the product.
-- The PDF designed pages (the route that prints a measured sheet): `pptx_build::build_pptx_from_measure(canvas, slides, fonts, pictures)` takes
-  the measure's own sheet (`Canvas { inch_width, inch_height }`) and `pptx_build::local_pictures(slides)` names the `file:`
-  pictures to read first.
-- Two tests of `pptx-html-build.test.mjs` read other modules and are not ported here: the portable measure of a soft break
-  (`portable-pptx-core` / `text-metrics`) and the ornamental stripe (`quality/design-review-authored`); they belong to those
-  modules' tasks. The brief comment test is in pptx_html_runner's tests; the session half of `pptx-html-reauthor.slow.test.mjs`
-  (`batch`, `replacedEdits`, the refusal with no source) belongs to nr-office-engine-author-actions.
+    }
