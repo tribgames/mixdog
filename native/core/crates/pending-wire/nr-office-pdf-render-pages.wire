@@ -1,0 +1,75 @@
+# nr-office-pdf-render-pages: renderPdfPages in mixdog-office-pdf (src/render.rs, src/contact_sheets.rs)
+
+Not compiled: cargo was not run (the lead compiles the wave). The two modules are not part of the crate until the lines below are applied.
+
+## native/core/crates/mixdog-office-pdf/src/lib.rs
+
+After `pub mod analysis;` (keep the list sorted: `analysis`, `contact_sheets`, `document`, `limits`, `render`, `search`):
+
+    pub mod contact_sheets;
+
+and after `pub mod limits;`:
+
+    pub mod render;
+
+After the last `pub use` line add:
+
+    pub use render::{
+        ContactSheet, PageImage, RenderPagesOptions, RenderedImage, RenderedPages, SheetPage, VisualCoverage,
+        render_pdf_pages,
+    };
+
+(The doc comment at the top of lib.rs may name `pdf-render.mjs` among the ported files.)
+
+## native/core/crates/mixdog-office-pdf/Cargo.toml
+
+[dependencies], keeping the list sorted, add (all are workspace dependencies; none is a new crate, only new edges of
+mixdog-office-pdf: mixdog-fonts, mixdog-office-base (WriteNote), mixdog-rt, tracing):
+
+    mixdog-fonts = { workspace = true }
+    mixdog-office-base = { workspace = true }
+    mixdog-rt = { workspace = true }
+    tracing = { workspace = true }
+
+[dev-dependencies], add (the twin test runs lane jobs on the inline test backend and drives the async call):
+
+    mixdog-rt = { workspace = true, features = ["test-support"] }
+    tokio = { workspace = true, features = ["rt"] }
+
+`cargo update --workspace --offline` and `cargo hakari generate` only add these edges to the lock and to mixdog-workspace-hack's
+feature unification if hakari wants it. No external crate beyond the lock is used (base64, serde_json are already dependencies).
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" (keep the list sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-render-pages.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-render-pages/MANIFEST.json",
+      "manifestSha256": "9f477e94092be0ac8f82b27892529dc0bd2a90151997a8f9bed4a07a0e4a54c6",
+      "recorder": "benchmarks/rust-core/recorders/record-office-render-pages.mjs",
+      "set": "office-render-pages",
+      "totalBytes": 219087
+    }
+
+(The set's own MANIFEST.json records the product identity of the tree it was recorded against as "closest commit, not exact":
+the tree C:/Project/mixdog has uncommitted changes; the recording is deterministic and was made twice with the same bytes.)
+
+## What callers must know
+
+- Entry point: `render_pdf_pages(lanes: LaneTokens, registry: Arc<Registry>, note: Arc<dyn WriteNote>, path: &Path,
+  options: RenderPagesOptions) -> Result<RenderedPages, AnalysisError>` (async; the caller passes the process's lane tokens, the font
+  registry its canvases use, and the call's write ledger as the `WriteNote`). `RenderedPages::to_json()` is Node's result object.
+  The adapter task that replaces `renderPdfPages` callers (read-special-files, docx-html-runner, benchmark, office-actions-batch,
+  preview-stage, pdf-ocr) maps `maximumScale: 3` (chart pictures) to `RenderPagesOptions.maximum_scale` and `writeImages: false`
+  to `write_images`.
+- Text on the page itself: `render_page` is called with `fonts: None, drawing: None` because nothing in the tree implements
+  `mixdog_pdf::oplist::FontProvider` or `mixdog_pdf::render::FontDrawing` (see nr-office-pdf-render-core.wire, "What the rasteriser
+  needs from other tasks"). Until that font bridge exists the glyphs of a page are not drawn (the painter says so once); the page
+  numbers of the bottom band are repainted by this task from the text layer and do appear. When the bridge exists, `paint_page` in
+  render.rs passes its `FontProvider` and `FontDrawing` in the two `RenderOptions` fields.
+- A canvas with no registered font (an empty `Registry`) draws no page numbers and no sheet labels: the reason is reported once at
+  error level and the render goes on; the registry the caller passes should be the process's scanned system fonts.
+
+No service, protocol method or SERVICE_PENDING name comes from this task.
