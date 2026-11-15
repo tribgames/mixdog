@@ -1,0 +1,36 @@
+{
+  "id": "hook_leg_superseded",
+  "description": "a second hook leg for the same device closes the first with 4000 superseded and serves the webhooks",
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "a",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "ws_open",
+      "conn": "b",
+      "path": "/hookleg",
+      "role": "hook",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "a",
+      "close": true,
+      "close_code": 4000
+    }
+  ]
+}

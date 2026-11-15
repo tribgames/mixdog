@@ -1,0 +1,31 @@
+{
+  "id": "nativepush_capabilities_follow_the_service",
+  "description": "the capabilities frame announces native push and its platforms only when the relay can deliver",
+  "fakes": {
+    "nativePush": {
+      "platforms": [
+        "apns"
+      ],
+      "answers": []
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    }
+  ]
+}

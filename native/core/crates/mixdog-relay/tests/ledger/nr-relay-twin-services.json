@@ -1,0 +1,398 @@
+[
+  {
+    "node": "apps/relay/lib/relay-hook.test.mjs::webhook relay responses enforce strict base64 and byte limits",
+    "twin": null,
+    "note": "a unit of the response decoder: the invalid answer it rejects is produced by an agent that answers a pending webhook, and the twin harness drives a blocking request at a time",
+    "covered_by": [
+      "hook::webhook_relay_responses_enforce_strict_base64_and_byte_limits"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/relay-hook.test.mjs::hook HTTP answers 400/404/503 without a live agent",
+    "twin": "nr-relay-twin-services: hook_unknown_route, hook_agent_offline_every_method, hook_target_is_not_a_url, hook_leg_authentication, hook_leg_superseded, hook_forwarded_frame_and_agent_timeout"
+  },
+  {
+    "node": "apps/relay/lib/relay-hook.test.mjs::a dropped hook leg fails every pending HTTP response",
+    "twin": null,
+    "note": "needs a webhook request pending while the leg closes: the harness http step blocks until the answer, so no step can close the leg meanwhile",
+    "covered_by": [
+      "hook::a_dropped_hook_leg_fails_every_pending_http_response"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/relay-hook.test.mjs::hook rate limits destroy the request before a body is read",
+    "twin": "nr-relay-twin-services: hook_rate_limit_per_device_and_caller"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::the media route accepts the download variant and still refuses unknown ones",
+    "twin": "nr-relay-twin-services: media_refusals_before_the_desktop_is_asked, media_request_frame_and_head_timeout"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::malformed media paths answer 400 without consulting the store",
+    "twin": "nr-relay-twin-services: media_refusals_before_the_desktop_is_asked"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::encrypted media bytes reach the phone exactly as the desktop sent them",
+    "twin": "nr-relay-twin-services: media_request_frame_and_head_timeout",
+    "note": "the request frame the desktop receives is compared; the desktop answering with head and chunk frames needs a step that answers while the media request is pending, which the blocking http step cannot do"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::a plaintext-era request is forwarded without the scheme marker so the desktop can refuse it",
+    "twin": "nr-relay-twin-services: media_plaintext_era_request_is_forwarded_unmarked, media_refusals_before_the_desktop_is_asked"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::a malformed session label is refused before the desktop is asked",
+    "twin": "nr-relay-twin-services: media_refusals_before_the_desktop_is_asked"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::an older desktop that announced media:false is answered 503 without a request",
+    "twin": "nr-relay-twin-services: media_desktop_without_the_lane_is_503, media_health_follows_the_desktop_lane, media_desktop_offline_is_503"
+  },
+  {
+    "node": "apps/relay/lib/relay-media-proxy.test.mjs::a vanished desktop closes half-written media responses",
+    "twin": null,
+    "note": "needs a media response in flight when the desktop leg closes: the blocking http step cannot hold one open",
+    "covered_by": [
+      "media_proxy::a_vanished_desktop_closes_half_written_media_responses"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::accepts, persists before replying, and mails immediately once",
+    "twin": "nr-relay-twin-services: feedback_accepted_mailed_once_and_recorded"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::same id and payload is idempotent, different payload conflicts",
+    "twin": "nr-relay-twin-services: feedback_idempotent_and_conflicting_resubmissions"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::validation, method, size and rate limits",
+    "twin": "nr-relay-twin-services: feedback_validation_refusals, feedback_declared_size_over_the_cap, feedback_rate_limit_per_address"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::global rate limit applies across clients",
+    "twin": "nr-relay-twin-services: feedback_rate_limit_global"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::failed sends retry with bounded backoff and survive restart",
+    "twin": "nr-relay-twin-services: feedback_failed_send_retries_with_backoff, feedback_attachment_mail_retries_across_a_restart"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::never overlaps sends for one record and close waits for in-flight work",
+    "twin": null,
+    "note": "service internals driven by a manual clock and a sender the test holds open: not an exchange over the relay",
+    "covered_by": [
+      "feedback_service::one_send_runs_at_a_time_and_close_waits_for_it"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::capacity limits answer 503 and prune only delivered records",
+    "twin": "nr-relay-twin-services: feedback_pending_count_is_capped, feedback_record_cap_prunes_only_delivered_records, feedback_record_cap_without_a_delivered_record_is_busy"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::unconfigured mail answers 503 and stores nothing; env enables it",
+    "twin": "nr-relay-twin-services: feedback_unconfigured_mail_is_503_and_stores_nothing",
+    "note": "the SMTP settings half needs a real SMTP server: the smtp twin task owns it (tests/smtp_twin.rs)"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::blank replyTo is treated as absent",
+    "twin": "nr-relay-twin-services: feedback_blank_reply_address_is_absent"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::a record still persisting is not scheduled or sent, and close waits for its write",
+    "twin": null,
+    "note": "needs an injected slow write: a fault injection of the service unit tests",
+    "covered_by": [
+      "feedback_service::one_send_runs_at_a_time_and_close_waits_for_it"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::capacity prune waits for unlink and a failed unlink answers 503 without forgetting the record",
+    "twin": null,
+    "note": "needs an injected failing unlink: a fault injection of the service unit tests",
+    "covered_by": [
+      "feedback_service::a_failed_unlink_answers_503_and_the_record_is_not_forgotten"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::corrupt stored records fail closed with a generic diagnostic",
+    "twin": "nr-relay-twin-services: feedback_corrupt_records_fail_closed"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::failed initial persistence answers 503 and leaves nothing acknowledged",
+    "twin": null,
+    "note": "needs an injected failing write: a fault injection of the service unit tests",
+    "covered_by": [
+      "feedback_service::a_failed_first_write_answers_503_and_leaves_nothing_acknowledged",
+      "feedback_http::a_storage_that_cannot_hold_the_record_answers_503_unavailable"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::storage unavailable answers 503 without crashing the relay",
+    "twin": "nr-relay-twin-services: feedback_storage_unavailable_is_503"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::attachment validator rejects malformed, unsafe and oversized input and drops unknown fields",
+    "twin": "nr-relay-twin-services: feedback_invalid_attachments_are_400"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::attachments are persisted before acceptance, mailed as MIME attachments, then removed",
+    "twin": "nr-relay-twin-services: feedback_attachments_are_mailed_and_removed"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::attachment-free payloads keep their legacy hash and mail shape",
+    "twin": "nr-relay-twin-services: feedback_accepted_mailed_once_and_recorded, feedback_records_of_an_earlier_run_are_mailed_on_start"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::attachment content takes part in idempotency and conflicts",
+    "twin": "nr-relay-twin-services: feedback_attachments_are_mailed_and_removed"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::invalid attachments answer 400 and store nothing",
+    "twin": "nr-relay-twin-services: feedback_invalid_attachments_are_400"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::attachment mail retries across restart with identical bytes",
+    "twin": "nr-relay-twin-services: feedback_attachment_mail_retries_across_a_restart"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::legacy records without attachments still load and send; corrupt attachments fail closed",
+    "twin": "nr-relay-twin-services: feedback_records_of_an_earlier_run_are_mailed_on_start, feedback_corrupt_records_fail_closed"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::pending attachment storage is bounded and freed after delivery",
+    "twin": "nr-relay-twin-services: feedback_pending_attachment_bytes_are_capped"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::feedback body reads are capped; extra requests get 503 without being read",
+    "twin": null,
+    "note": "needs three request bodies still arriving while a fourth is sent: the blocking http step cannot hold bodies open",
+    "covered_by": [
+      "feedback_http::a_fourth_body_read_at_once_is_503_busy_without_being_read_and_places_are_freed"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::unconfigured mail answers 503 before the body is read",
+    "twin": "nr-relay-twin-services: feedback_unconfigured_mail_is_503_and_stores_nothing"
+  },
+  {
+    "node": "apps/relay/lib/feedback.test.mjs::feedback POST requires an application/json content type",
+    "twin": "nr-relay-twin-services: feedback_validation_refusals"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the relay mints its VAPID identity once, keeps it, and signs with it",
+    "twin": "nr-relay-twin-services: webpush_key_and_routes, webpush_register_send_unregister",
+    "note": "a placed identity is kept across a restart and signs the pushes; the first-start minting is shown masked in the data directory snapshot of every scenario that places none"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::an unreadable identity disables web push instead of being replaced",
+    "twin": "nr-relay-twin-services: webpush_without_an_identity_is_off"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::only endpoints on a known push service are accepted, in one canonical spelling",
+    "twin": "nr-relay-twin-services: webpush_register_refusals, webpush_endpoints_are_registered_in_one_canonical_spelling"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the sender re-checks the endpoint and never posts outside the push services",
+    "twin": "nr-relay-twin-services: webpush_registry_file_is_loaded_defensively",
+    "note": "a row outside the push services never reaches the registry; the sender own re-check is a unit of the sender (no registry state can reach it)"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::the web app reads the relay key, the same one after a restart",
+    "twin": "nr-relay-twin-services: webpush_key_and_routes"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::each PC delivers through its own association; unauthorized senders are refused",
+    "twin": "nr-relay-twin-services: webpush_register_send_unregister, webpush_register_refusals, webpush_gone_subscription_is_dropped_for_every_pc, webpush_send_validation"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::associations are persisted, and a retired subscription (410) is dropped for every PC",
+    "twin": "nr-relay-twin-services: webpush_gone_subscription_is_dropped_for_every_pc, webpush_registration_survives_a_restart, webpush_push_service_answers, webpush_send_past_the_sender_timeout"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::a browser registers only with PCs that deliver through the relay",
+    "twin": "nr-relay-twin-services: webpush_register_refusals, webpush_register_send_unregister"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::an unregister that cannot be stored is refused and kept, never resurrected",
+    "twin": "nr-relay-twin-services: webpush_store_failure_is_503, webpush_corrupt_registry_file_costs_a_gap_not_a_crash",
+    "note": "the register half of the store failure; blocking the registry after a registration needs a file step the scenario format has not"
+  },
+  {
+    "node": "apps/relay/lib/web-push.test.mjs::re-stating an unchanged registration writes and announces nothing, and mutations are rate limited",
+    "twin": "nr-relay-twin-services: webpush_register_send_unregister, webpush_mutations_are_rate_limited"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::no credentials: no platform is advertised and sends fail gracefully",
+    "twin": "nr-relay-twin-services: nativepush_without_credentials_advertises_nothing"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::APNs request shape: token auth, headers, mutable-content, and no action category from the relay",
+    "twin": null,
+    "note": "the twin host replaces the platform senders by the recording service (fakes.nativePush): the APNs and FCM requests are recorded by the unit tests of native_push.rs against a local HTTP/2 stand-in",
+    "covered_by": [
+      "native_push::apns_request_shape_token_auth_headers_mutable_content_and_no_action_category"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::APNs 410 reports the token invalid; other failures do not",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::apns_410_reports_the_token_invalid_other_failures_do_not"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::APNs sandbox tokens go to the sandbox host",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row (the sandbox flag a desktop sends is in nativepush_bind_send_unbind)",
+    "covered_by": [
+      "native_push::apns_sandbox_tokens_go_to_the_sandbox_host"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::APNs reuses one connection and provider JWT until the JWT expires or is refused",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::apns_reuses_the_provider_jwt_until_it_expires_or_is_refused"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::APNs close() closes its connections and a later send reconnects",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::apns_close_drops_the_connections_and_a_later_send_reconnects"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::FCM request shape: service-account JWT exchange, data-only high priority message",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::fcm_request_shape_service_account_jwt_exchange_data_only_high_priority_message"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::FCM access token is cached until near expiry or a 401",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::fcm_access_token_is_cached_until_near_expiry_or_a_401"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::FCM UNREGISTERED reports the token invalid",
+    "twin": null,
+    "note": "platform sender: see the APNs request shape row",
+    "covered_by": [
+      "native_push::fcm_unregistered_reports_the_token_invalid"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::capabilities advertise native push only when the relay can deliver",
+    "twin": "nr-relay-twin-services: nativepush_capabilities_follow_the_service, nativepush_without_credentials_advertises_nothing"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::only the desktop that bound a token to its own paired client can send to it",
+    "twin": "nr-relay-twin-services: nativepush_bind_send_unbind, nativepush_only_an_owned_client_binds, nativepush_a_desktop_sends_only_through_its_own_binding"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::one phone token paired with two desktops: both deliver, and revoking one leaves the other",
+    "twin": "nr-relay-twin-services: nativepush_a_desktop_sends_only_through_its_own_binding"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::a single-binding (legacy) entry is still honoured and upgraded on use",
+    "twin": null,
+    "note": "the older in-memory binding shape is not reachable over the wire",
+    "covered_by": [
+      "native_push::a_single_association_entry_is_still_honoured_and_upgraded_on_use"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::unpairing a client drops its bindings; a stale binding can be re-bound",
+    "twin": "nr-relay-twin-services: nativepush_revoked_client_drops_its_bindings"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::invalid tokens reported by the platform are dropped and the desktop is told",
+    "twin": "nr-relay-twin-services: nativepush_invalid_token_is_dropped"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::sends are validated and rate limited per device",
+    "twin": "nr-relay-twin-services: nativepush_send_validation, nativepush_sends_are_rate_limited_per_device"
+  },
+  {
+    "node": "apps/relay/lib/native-push.test.mjs::a relay without credentials ignores native push frames (old/unconfigured relay)",
+    "twin": "nr-relay-twin-services: nativepush_without_credentials_advertises_nothing"
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::an unpaired device is refused: no credential, only the public STUN URL",
+    "twin": "nr-relay-twin-services: ice_unpaired_device_is_refused"
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::a device with a paired phone gets a credential coturn would accept, until it expires",
+    "twin": null,
+    "note": "the issued answer carries a credential and a remaining time computed from the clock of that second: two runs of a relay never print the same one, and the normaliser has no mask for it (verified by the unit tests of push_ice_frames.rs)",
+    "covered_by": [
+      "push_ice_frames::a_device_with_a_paired_phone_gets_a_credential_coturn_would_accept_until_it_expires"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::credentials are per device; issuance is limited per device to the configured count, with the wait named",
+    "twin": null,
+    "note": "issuance and the rate-limited wait (retryAfterMs) are clock-derived: see the issued answer row",
+    "covered_by": [
+      "push_ice_frames::credentials_are_per_device_and_issuance_is_limited_per_device_with_the_wait_named"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::the limiter reports when a limited key is admitted again",
+    "twin": null,
+    "note": "a unit of the limiter (core_units)",
+    "covered_by": [
+      "core_units::hits_age_out_of_the_window_and_retry_after_names_when"
+    ]
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::a request id that is not a routing id is dropped, never truncated or echoed",
+    "twin": "nr-relay-twin-services: ice_request_id_that_is_not_a_routing_id_is_dropped"
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::a relay without TURN settings gets no answer",
+    "twin": "nr-relay-twin-services: ice_without_turn_settings_advertises_nothing"
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::over a real desktop leg: the relay advertises ice, refuses until a phone is paired, then issues",
+    "twin": "nr-relay-twin-services: ice_unpaired_device_is_refused",
+    "note": "advertising and the not-paired refusal; the issuing half is clock-derived: see the issued answer row"
+  },
+  {
+    "node": "apps/relay/lib/ice-legs.test.mjs::a relay without usable TURN settings advertises nothing and never answers",
+    "twin": "nr-relay-twin-services: ice_without_turn_settings_advertises_nothing, ice_with_an_unusable_secret_advertises_nothing, ice_without_an_issue_limit_advertises_nothing"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::webhook ingress caps bodies that are still arriving, not just landed ones",
+    "twin": "nr-relay-twin-services: hook_agent_busy_refused_before_the_body, hook_body_over_one_mebibyte",
+    "note": "the refusal at the cap and the body ceiling; slow bodies that are still arriving need several requests open at once, which the blocking http step cannot hold"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a proxied media answer is neutralized at the relay origin",
+    "twin": null,
+    "note": "needs the desktop to answer a pending media request (head frame with hostile headers): see the encrypted media bytes row",
+    "covered_by": [
+      "media_proxy::a_proxied_media_answer_is_neutralised_at_the_relay_origin"
+    ]
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a malformed media path answers 400 and leaves the relay serving",
+    "twin": "nr-relay-twin-services: media_refusals_before_the_desktop_is_asked"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::desktop media metadata cannot make the relay origin serve active content",
+    "twin": null,
+    "note": "needs the desktop to answer a pending media request: see the encrypted media bytes row",
+    "covered_by": [
+      "media_proxy::desktop_media_metadata_cannot_make_the_relay_origin_serve_active_content"
+    ]
+  }
+]

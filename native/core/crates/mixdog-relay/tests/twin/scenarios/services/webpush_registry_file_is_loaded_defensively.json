@@ -1,0 +1,132 @@
+{
+  "id": "webpush_registry_file_is_loaded_defensively",
+  "description": "a stored registry keeps what is valid (a canonical endpoint, sealed keys, a device that delivers through the relay) and drops rows outside the push services or with bad keys; a PC is told only the clients its store still knows",
+  "files": {
+    "data": {
+      "webpush-vapid.json": "{\n  \"version\": 1,\n  \"publicKey\": \"BPxBd1ahXCTe-q001mNPhEU8JcDwByuASgyDRlPeGD5Czy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY\",\n  \"privateKeyJwk\": {\n    \"kty\": \"EC\",\n    \"x\": \"_EF3VqFcJN76rTTWY0-ERTwlwPAHK4BKDINGU94YPkI\",\n    \"y\": \"zy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY\",\n    \"crv\": \"P-256\",\n    \"d\": \"2QZwDAiit22CA2-vF9GmfcwkMpQMfisVKdk_ujisRgc\"\n  }\n}",
+      "webpush-subscriptions.json": "{\"version\":1,\"devices\":[\"dddddddd-1111-4111-8111-000000000001\",\"not a device id!\"],\"subscriptions\":[{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/subscription-1\",\"associations\":[{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"createdAt\":4000000000000},{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-2222-4222-8222-000000000002\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"createdAt\":4000000000000},{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"bad-keys\",\"sealed\":{\"version\":1},\"createdAt\":4000000000000}]},{\"endpoint\":\"https://push.example.com/a\",\"associations\":[{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"sealed\":{\"version\":1,\"ephemeralPublicKey\":\"Baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nonce\":\"nnnnnnnnnnnnnnnn\",\"ciphertext\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}]},{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/no-associations\",\"associations\":[]},{\"endpoint\":\"https://fcm.googleapis.com/fcm/send/not-a-list\",\"associations\":5}]}"
+    }
+  },
+  "keys": {
+    "vapid_public": [
+      "BPxBd1ahXCTe-q001mNPhEU8JcDwByuASgyDRlPeGD5Czy9B3-OCgRyM8qqfFmm7DESpc87614NOR1pRVEVxEmY"
+    ]
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimId}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "token",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "readiness came from the file",
+      "method": "POST",
+      "path": "/webpush/status",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Authorization",
+          "Bearer ${token}"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{}",
+      "expect_status": 200,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "restart"
+    },
+    {
+      "do": "ws_open",
+      "conn": "d2",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d2",
+      "frames": 2
+    }
+  ]
+}
