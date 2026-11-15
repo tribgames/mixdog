@@ -253,8 +253,10 @@ struct Run {
     work: PathBuf,
 }
 
-fn inputs_of(area: &str) -> PathBuf {
-    crate_dir().join("tests").join("fixtures").join(area).join("inputs")
+/// The directory a scenario's `copy` is resolved against, as the recorder resolves it (`tests/fixtures/inputs`): the
+/// scenarios name their inputs from there (`../actions/inputs/zero-dpi.xlsx`, `../ppt-read/inputs/pixel.png`).
+fn inputs() -> PathBuf {
+    crate_dir().join("tests").join("fixtures").join("inputs")
 }
 
 fn is_excel_scenario(scenario: &Json) -> bool {
@@ -268,7 +270,7 @@ fn is_excel_scenario(scenario: &Json) -> bool {
     formats.len() == 1 && formats.contains("xlsx")
 }
 
-async fn run_scenario(office: &OfficeCom, area: &str, scenario: &Json, work: PathBuf, rules: &Rules) -> Run {
+async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf, rules: &Rules) -> Run {
     let work_text = work.to_string_lossy().into_owned();
     // Session ids opened through each of the scenario's session hosts, in the order they were opened.
     let mut hosts: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -283,7 +285,7 @@ async fn run_scenario(office: &OfficeCom, area: &str, scenario: &Json, work: Pat
         let started = Instant::now();
         let answer = if let Some(file) = step.get("copy").and_then(Json::as_str) {
             let name = step.get("as").and_then(Json::as_str).unwrap_or(file);
-            let bytes = mixdog_fsio::read(&mixdog_fsio::Unlaned, &inputs_of(area).join(file)).unwrap_or_else(|error| panic!("{file}: {error}"));
+            let bytes = mixdog_fsio::read(&mixdog_fsio::Unlaned, &inputs().join(file)).unwrap_or_else(|error| panic!("{file}: {error}"));
             mixdog_fsio::write(&mixdog_fsio::Unlaned, &work.join(name), &bytes).expect("the input is copied");
             None
         } else if let Some(request) = step.get("oneShot") {
@@ -352,7 +354,7 @@ async fn run_scenario(office: &OfficeCom, area: &str, scenario: &Json, work: Pat
 
 /// The names of the workbooks (`.xlsx`) directly in `dir`.
 fn workbooks_in(dir: &Path) -> Vec<String> {
-    std::fs::read_dir(dir)
+    mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, dir)
         .map(|entries| {
             entries
                 .filter_map(|entry| entry.ok())
@@ -388,9 +390,9 @@ fn every_excel_scenario_through_the_transport_equals_the_powershell_host_and_is_
         for scenario in file["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| is_excel_scenario(scenario)) {
             let id = scenario["id"].as_str().expect("an id");
             let label = format!("{area}/{id}");
-            let shell = runtime.block_on(run_scenario(&transport(data.join("shell"), false), area, scenario, scratch(&format!("{area}-{id}-powershell")), &rules));
+            let shell = runtime.block_on(run_scenario(&transport(data.join("shell"), false), scenario, scratch(&format!("{area}-{id}-powershell")), &rules));
             assert_eq!(wait_for_excel(&platform, &before), before, "{label}: the PowerShell host left an EXCEL process");
-            let rust = runtime.block_on(run_scenario(&transport(data.join("rust"), true), area, scenario, scratch(&format!("{area}-{id}-rust")), &rules));
+            let rust = runtime.block_on(run_scenario(&transport(data.join("rust"), true), scenario, scratch(&format!("{area}-{id}-rust")), &rules));
             assert_eq!(rust.answers, shell.answers, "{label}: the answers differ");
             // The collected files, and every workbook the Rust run left in its directory (a scenario that saves does so at its close).
             let mut names: BTreeSet<String> = scenario["collect"].as_array().into_iter().flatten().filter_map(Json::as_str).map(str::to_owned).collect();
@@ -411,7 +413,6 @@ fn every_excel_scenario_through_the_transport_equals_the_powershell_host_and_is_
     eprintln!("{ran} Excel scenarios: Rust host {rust_time:?}, PowerShell host {shell_time:?}");
     assert!(rust_time <= shell_time, "the Rust host's requests took {rust_time:?}, the PowerShell host's {shell_time:?}");
 }
-
 
 // ---------------------------------------------------------------------------------------------------------------------
 // A visible Excel of the test's own, started through the dispatch layer.
@@ -534,9 +535,14 @@ fn a_busy_excel_is_retried_and_then_answered_with_the_same_busy_text_by_both_hos
         busy.push(rules.normalise(&reply.value, &work_text, None));
     }
     assert_eq!(busy[1], busy[0], "the Rust host answers a busy Excel with the PowerShell host's text");
-    // The cell leaves edit mode, so the application can be closed.
+    // The cell leaves edit mode, so the application can be closed. Excel may refuse this call too while the cell is in edit
+    // mode: the test's own Excel is then ended by its process id.
+    let pid = users.pid;
     let _ = users.app.call("SendKeys", &[Com::from("{ESC}"), Com::Bool(true)]);
     users.quit();
+    if wait_for_excel(&platform, &before).contains(&pid) {
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
     assert_eq!(wait_for_excel(&platform, &before), before, "an EXCEL process was left that was not there before");
     remove(&work);
     remove(&data);
