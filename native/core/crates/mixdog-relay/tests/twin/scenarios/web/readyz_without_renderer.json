@@ -1,0 +1,39 @@
+{
+  "id": "readyz_without_renderer",
+  "description": "a relay without a renderer is not ready",
+  "steps": [
+    {
+      "do": "http",
+      "label": "GET /readyz",
+      "path": "/readyz",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "HEAD /readyz",
+      "method": "HEAD",
+      "path": "/readyz",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "with a query",
+      "path": "/readyz?probe=1",
+      "expect_status": 503
+    },
+    {
+      "do": "http",
+      "label": "POST /readyz",
+      "method": "POST",
+      "path": "/readyz",
+      "body": "x",
+      "expect_status": 405
+    },
+    {
+      "do": "http",
+      "label": "health",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}

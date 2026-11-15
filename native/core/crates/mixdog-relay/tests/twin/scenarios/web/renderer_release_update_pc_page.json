@@ -1,0 +1,237 @@
+{
+  "id": "renderer_release_update_pc_page",
+  "description": "the phone app gets the update-PC page instead of the legacy renderer, for the top-level document only; browsers, assets, supported PCs and non-document fetches keep the renderer",
+  "files": {
+    "releases": {
+      "index.json": "{\"schemaVersion\":1,\"releases\":[{\"id\":\"legacy\",\"desktopVersion\":\"\",\"shellVersion\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"addedAt\":1,\"legacy\":true},{\"id\":\"2.0.0-new\",\"desktopVersion\":\"2.0.0\",\"shellVersion\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"addedAt\":2,\"legacy\":false}]}",
+      "legacy/index.html": "<!doctype html><head><meta name=\"mixdog-shell-version\" content=\"1111111111111111111111111111111111111111111111111111111111111111\"><meta name=\"mixdog-shell-assets\" content=\"assets/main-12345678.js\"><script type=\"module\" src=\"./assets/main-12345678.js\"></script></head><body>legacy</body>",
+      "legacy/assets/main-12345678.js": "export const label = 'legacy';",
+      "legacy/boot.js": "void 0;",
+      "legacy/manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[{\"src\":\"./icon.svg\"}]}",
+      "legacy/icon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>legacy</title></svg>",
+      "legacy/sw.js": "// worker legacy",
+      "2.0.0-new/index.html": "<!doctype html><head><meta name=\"mixdog-shell-version\" content=\"2222222222222222222222222222222222222222222222222222222222222222\"><meta name=\"mixdog-shell-assets\" content=\"assets/main-12345678.js\"><script type=\"module\" src=\"./assets/main-12345678.js\"></script></head><body>new</body>",
+      "2.0.0-new/assets/main-12345678.js": "export const label = 'new';",
+      "2.0.0-new/boot.js": "void 0;",
+      "2.0.0-new/manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[{\"src\":\"./icon.svg\"}]}",
+      "2.0.0-new/icon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>new</title></svg>",
+      "2.0.0-new/sw.js": "// worker new"
+    },
+    "renderer": {
+      "index.html": "<!doctype html><head><meta name=\"mixdog-shell-version\" content=\"2222222222222222222222222222222222222222222222222222222222222222\"><meta name=\"mixdog-shell-assets\" content=\"assets/main-12345678.js\"><script type=\"module\" src=\"./assets/main-12345678.js\"></script></head><body>new</body>",
+      "assets/main-12345678.js": "export const label = 'new';",
+      "boot.js": "void 0;",
+      "manifest.webmanifest": "{\"start_url\":\"/\",\"icons\":[{\"src\":\"./icon.svg\"}]}",
+      "icon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>new</title></svg>",
+      "sw.js": "// worker new"
+    },
+    "data": {
+      "devices.json": "{\n  \"aaaaaaaa-0000-4000-8000-000000000001\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {},\n    \"appVersion\": \"2.0.0\",\n    \"versionSeenAt\": 1700000000000\n  },\n  \"aaaaaaaa-0000-4000-8000-000000000002\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {}\n  },\n  \"aaaaaaaa-0000-4000-8000-000000000003\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {},\n    \"appVersion\": \"1.0.0\",\n    \"versionSeenAt\": 1700000000000\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "http",
+      "label": "app, stale PC",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, stale PC, HEAD",
+      "method": "HEAD",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, stale PC, index.html",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/index.html",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, PC that never reported",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000002/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, deep link",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/some/deep/link",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "browser, deep link",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/some/deep/link",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) Safari/605.1.15"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, fetch destination empty",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ],
+        [
+          "Sec-Fetch-Dest",
+          "empty"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, fetch destination iframe",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ],
+        [
+          "Sec-Fetch-Dest",
+          "iframe"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, fetch destination document",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ],
+        [
+          "Sec-Fetch-Dest",
+          "document"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, supported PC",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000001/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "browser, stale PC",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) Safari/605.1.15"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "no user agent, stale PC",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, asset",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/icon.svg",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, hashed asset",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003/assets/main-12345678.js",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "label": "app, route without the slash redirects",
+      "path": "/d/aaaaaaaa-0000-4000-8000-000000000003",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ]
+      ],
+      "expect_status": 301
+    },
+    {
+      "do": "http",
+      "label": "app, root with the stale device cookie keeps the renderer",
+      "path": "/",
+      "headers": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (iPhone) MixdogApp/1.4.0"
+        ],
+        [
+          "Cookie",
+          "mixdog_device=aaaaaaaa-0000-4000-8000-000000000003"
+        ]
+      ],
+      "expect_status": 200
+    }
+  ]
+}
