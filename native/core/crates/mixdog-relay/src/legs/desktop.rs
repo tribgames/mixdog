@@ -586,8 +586,12 @@ pub async fn run_desktop_leg(hub: Arc<Hub>, device_id: String, ws: WebSocket, mu
             }
             // No frame is ready: what the frames read so far deferred starts now, in the order it was deferred.
             () = std::future::ready(()), if !later.is_empty() => {
-                for work in later.drain(..) {
-                    mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);
+                for mut work in later.drain(..) {
+                    // Each runs here to its first wait, in order (a promise's synchronous part: an answer that needs no
+                    // I/O is written before the next one starts), and the rest of it on a task of its own.
+                    if futures::poll!(work.as_mut()).is_pending() {
+                        mixdog_rt::spawn("relay-deferred", TaskClass::Work, work);
+                    }
                 }
             }
         }

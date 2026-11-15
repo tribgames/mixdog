@@ -18,7 +18,16 @@ use serde_json::Value;
 fn load() -> Vec<(String, Scenario)> {
     let all = scenario::load_all().unwrap_or_else(|e| panic!("scenarios: {e}"));
     assert!(!all.is_empty(), "no scenario under {}", scenario::scenarios_dir().display());
-    all
+    // `MIXDOG_RELAY_TWIN_ONLY=<text>` runs the scenarios whose id holds the text: one scenario answers in seconds, the whole
+    // suite in ten minutes. A run that proves the port sets nothing.
+    match std::env::var("MIXDOG_RELAY_TWIN_ONLY") {
+        Ok(only) if !only.is_empty() => {
+            let chosen: Vec<(String, Scenario)> = all.into_iter().filter(|(_, scenario)| scenario.id.contains(&only)).collect();
+            assert!(!chosen.is_empty(), "no scenario id holds {only:?}");
+            chosen
+        }
+        _ => all,
+    }
 }
 
 fn normalised(scenario: &Scenario, start: Runtime, mode: Crossover) -> Vec<Value> {
