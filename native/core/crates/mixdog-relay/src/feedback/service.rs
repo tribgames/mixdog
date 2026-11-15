@@ -308,7 +308,7 @@ impl Inner {
                     }
                     Err(failure) => {
                         record.attempts += 1.0;
-                        let doubling = 2f64.powi((record.attempts - 1.0).min(30.0) as i32);
+                        let doubling = 2f64.powf((record.attempts - 1.0).min(30.0));
                         record.next_attempt_at = now + self.options.max_delay_ms.min(self.options.base_delay_ms * doubling);
                         failed = Some(failure.code.filter(|code| !code.is_empty()).unwrap_or_else(|| "error".to_owned()));
                     }
