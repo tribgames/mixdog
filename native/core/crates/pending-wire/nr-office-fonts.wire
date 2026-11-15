@@ -42,7 +42,7 @@ No name to remove: this task registers no service.
 ## Consumers (later tasks)
 
 The tasks that depend on this crate (the text-metrics port, the PDF font and embed tasks, the raster canvas) read these entry points:
-  mixdog_fonts::css_font::parse(&str) -> ParsedFont           the ctx.font shorthand
+  mixdog_fonts::css_font::parse(&str) -> Result<ParsedFont, FontError>           the ctx.font shorthand
   mixdog_fonts::measure::{measure_text, measure_parsed, faces_of}   measureText; the proof argument is a lane ReadProof
   mixdog_fonts::registry::Registry                            families(), family(name), register_file(proof, path, alias), register_dir(proof, dir)
   mixdog_fonts::discovery::{Catalog, scan, HostEnv}           the machine's fonts, scanned lazily once; Catalog::scan(proof, env) -> Arc<Scan>
@@ -61,3 +61,30 @@ only the download, the OS registration and the install steps; the table, its dig
 native/core/fixtures/MANIFEST.json already carries the `office-measure` entry (this task edited it); the set lives in
 native/core/fixtures/office-measure/ (golden.json, MANIFEST.json, faces/: three OFL Noto Sans faces and Miriam Libre, 245 KB). They are
 not checked out in a sparse worktree: stage them with `git add --sparse`.
+
+## Corrective batch 1: immutable snapshots and collection registration
+
+register_bytes(path, Vec<u8>, family) -> Result<Vec<FaceId>, FontError> registers every member in index order,
+sharing one Arc byte snapshot. Parsing is atomic before registry mutation. register_file/register_described keep
+Result<FaceId, FontError> and return the first id after registering all members. register_dir returns newly added
+face count, excluding duplicate registrations. Existing path/family/index registrations keep their original snapshot.
+Pinned provisioning transfers verified bytes into register_bytes; it never reopens that file for shaping.
+No workspace or consumer changes are included in this batch.
+
+Phase 2 remains with the font implementation owner: variable coordinates in shaping and outlines, bidi and cluster
+fallback, glyph offsets, synthetic styles and raster/hinting-compatible metrics, fontconfig and legacy cache contracts.
+Phase 3 remains with the independent oracle/test owner: actual resolved-face evidence, all TextMetrics at task tolerance,
+and deterministic isolated fixtures. Existing relaxed tests have NOT been tightened or claimed as parity evidence here.
+The original @napi-rs/canvas/index.js guards automatic system/user loading with
+`if (!process.env.DISABLE_SYSTEM_FONTS_LOAD)`. Set DISABLE_SYSTEM_FONTS_LOAD=1 BEFORE importing/requiring canvas in a
+fresh recorder process, and remove the recorder's explicit installed-Noto/user-directory probing for an isolated oracle.
+Only explicitly supplied fixture paths may be registered. This does not itself establish face-selection correctness.
+Root compilation and independent review are still required; no build/test execution occurred in this batch.
+
+## Verified provisioning collision correction
+
+Private provision::register_verified verifies the incoming pinned buffer, then checks exact retained bytes for the
+same registered family/path before any mutation. A different retained snapshot returns Provisioned::Rejected;
+identical repeated verification is accepted. Old snapshots are preserved. General Registry APIs are unchanged.
+Provision unit regressions exercise A-preloaded/B-verified collision and identical repeats with existing pinned
+regular/bold fixture files only; registration_snapshot integration tests remain unchanged. No build or tests run.
