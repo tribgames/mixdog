@@ -77,7 +77,7 @@ impl SvgFonts {
         Self { database: Arc::new(fontdb::Database::new()), default_family: None }
     }
 
-    /// Every face of `registry` that can be read, under the family name it is registered under (an alias included). A face that cannot
+    /// Every face of `registry` that can be read, under the family name it is registered under (a registry alias is not a name here). A face that cannot
     /// be read or parsed is not part of the set.
     pub fn from_registry<P: ReadProof>(proof: &P, registry: &Registry) -> Self {
         let mut database = fontdb::Database::new();
