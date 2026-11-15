@@ -37,8 +37,9 @@ fn word_like(segment: &str) -> bool {
     WORD.get_or_init(|| JsRegex::new_static(r"[\p{L}\p{N}\p{M}\p{Pc}]", "u")).is_match(segment)
 }
 
+/// `Math.max(1, Math.floor(Number(width) || 80))`: a width of 0 (not measured yet) counts as 80 columns.
 fn safe_width(width: usize) -> usize {
-    width.max(1)
+    if width == 0 { 80 } else { width }
 }
 
 /// The length of `text` in UTF-16 units.
@@ -230,8 +231,7 @@ pub(super) struct Step {
 /// whole to the next row; one that fills the last column starts a new row only when more rendered content follows
 /// (`more_follows`).
 pub(super) fn advance(row: usize, col: usize, segment: &str, width: usize, more_follows: bool) -> Step {
-    if segment == "
-" {
+    if segment == "\n" {
         return Step { drawn_row: row, row: row + 1, col: 0 };
     }
     let segment_width = display_width(segment);

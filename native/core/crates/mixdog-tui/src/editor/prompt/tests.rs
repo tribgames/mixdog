@@ -2,8 +2,8 @@
 //! loop feeds them. Ports of `draft-override.test.mjs` and `skill-mention-caret.test.mjs` plus the dispatch rules of
 //! `key-handler.mjs`.
 
+use std::cell::Cell;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use mixdog_js::JsRegex;
@@ -11,10 +11,13 @@ use mixdog_term::{Decoder, InputEvent};
 
 use super::*;
 
-static NOW: AtomicU64 = AtomicU64::new(1_000_000);
+// One clock per test thread: the tests run in parallel and each moves its own time.
+thread_local! {
+    static NOW: Cell<u64> = const { Cell::new(1_000_000) };
+}
 
 fn test_clock() -> u64 {
-    NOW.load(Ordering::SeqCst)
+    NOW.with(Cell::get)
 }
 
 #[derive(Default)]
@@ -123,7 +126,7 @@ struct Harness {
 
 impl Harness {
     fn new(initial: &str) -> Self {
-        NOW.store(1_000_000, Ordering::SeqCst);
+        NOW.with(|now| now.set(1_000_000));
         let mut harness = Self {
             editor: PromptEditor::with_clock(initial, test_clock),
             rec: Recorder::default(),
@@ -158,7 +161,7 @@ impl Harness {
     }
 
     fn advance(&mut self, ms: u64) {
-        NOW.fetch_add(ms, Ordering::SeqCst);
+        NOW.with(|now| now.set(now.get() + ms));
     }
 
     fn value(&self) -> &str {
@@ -627,7 +630,7 @@ fn mouse_drag_selection_coalesces_extend_commits() {
     h.editor.mouse_extend_to(Some(7), false, &mut h.rec);
     assert_eq!(h.cursor(), 5);
     let due = h.editor.mouse_deadline();
-    assert_eq!(due, Some(NOW.load(Ordering::SeqCst) + 19));
+    assert_eq!(due, Some(test_clock() + 19));
     h.editor.flush_mouse_due(&mut h.rec);
     assert_eq!(h.cursor(), 5, "not due yet");
     h.advance(19);
