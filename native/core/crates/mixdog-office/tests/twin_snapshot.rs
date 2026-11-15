@@ -64,6 +64,8 @@ impl ComHost for ScriptedHost {
         if let Some(copy) = answer.get("copy").and_then(Value::as_str) {
             let output = payload["output"].as_str().expect("the output of a save_copy request");
             mixdog_fsio::copy(&Unlaned, self.directory.join(copy), output).expect("write the saved copy");
+        }
+        if payload["action"] == "save_copy" {
             request["output"] = json!("<copy>");
         }
         self.seen.borrow_mut().push(request);
@@ -201,7 +203,11 @@ fn replay_scenario(scenario: &Value, directory: &Path) {
         seen: RefCell::new(Vec::new()),
         directory: directory.to_path_buf(),
     };
-    let registry = Registry::new();
+    // Node measured in the recording machine's fonts: a worksheet's digit width needs some face to measure in, and no recorded value
+    // depends on which (the recorded workbooks carry no drawing to place).
+    let mut registry = Registry::new();
+    let face = twin::repo_root().join("native/core/fixtures/office-measure/faces/MiriamLibre-Regular.otf");
+    registry.register_file(&Unlaned, &face, Some("Twin Miriam")).expect("register the face the measurer falls back to");
     let measurer = TextMeasurer::new(&Unlaned, &registry);
     let cx = SnapshotContext { proof: &Unlaned, measurer: &measurer, forms: &NoForms, com: &host };
     let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");

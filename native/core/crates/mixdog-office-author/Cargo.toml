@@ -20,6 +20,7 @@ mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-office-base = { workspace = true }
 mixdog-office-design = { workspace = true }
+mixdog-office-pdf = { workspace = true }
 mixdog-office-quality = { workspace = true }
 mixdog-raster = { workspace = true }
 mixdog-rt = { workspace = true }

@@ -1152,7 +1152,8 @@ pub fn add_docx_page_numbers(zip: &mut Package, op: &Value) -> Result<Value, Str
     };
     let include_total = page_numbers_include_total(op);
     let separator = if include_total {
-        let mark = js_trim(&text_or_empty(op.get("separator")));
+        let separator_text = text_or_empty(op.get("separator"));
+        let mark = js_trim(&separator_text);
         format!(
             "<w:r>{size}<w:t xml:space=\"preserve\"> {} </w:t></w:r><w:fldSimple w:instr=\" NUMPAGES \"><w:r>{size}<w:t>1</w:t></w:r></w:fldSimple>",
             xml_encode(if mark.is_empty() { "/" } else { mark })
