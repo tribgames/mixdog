@@ -130,8 +130,8 @@ for (const cap of ['0', '1', '3', 'abc']) {
   fn(`wrap-cap-${cap}-shell`, 'wrapExpandedResultLines', [['a', 'b', 'c', 'd', 'e'], 160, { isShell: true }], { MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES: cap });
   fn(`wrap-cap-${cap}`, 'wrapExpandedResultLines', [['a', 'b', 'c', 'd', 'e'], 160, { isShell: false }], { MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES: cap });
 }
-fn('wrap-legacy-cap', 'wrapExpandedResultLines', [['a', 'b', 'c'], 160, { isShell: false }], { MIXDOG_TUI_EXPANDED_MAX_ROWS: '2' });
-fn('wrap-legacy-ignored', 'wrapExpandedResultLines', [['a', 'b', 'c'], 160, { isShell: false }], { MIXDOG_TUI_EXPANDED_MAX_ROWS: '2', MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES: '0' });
+fn('wrap-fallback-cap', 'wrapExpandedResultLines', [['a', 'b', 'c'], 160, { isShell: false }], { MIXDOG_TUI_EXPANDED_MAX_ROWS: '2' });
+fn('wrap-fallback-ignored', 'wrapExpandedResultLines', [['a', 'b', 'c'], 160, { isShell: false }], { MIXDOG_TUI_EXPANDED_MAX_ROWS: '2', MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES: '0' });
 fn('wrap-empty', 'wrapExpandedResultLines', [[], 160, { isShell: false }]);
 
 process.stdout.write(`${JSON.stringify(cases, null, 1)}\n`);

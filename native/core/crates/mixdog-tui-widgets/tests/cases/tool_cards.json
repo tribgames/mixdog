@@ -3376,7 +3376,7 @@
   }
  },
  {
-  "id": "wrap-legacy-cap",
+  "id": "wrap-fallback-cap",
   "kind": "fn",
   "name": "wrapExpandedResultLines",
   "args": [
@@ -3395,7 +3395,7 @@
   }
  },
  {
-  "id": "wrap-legacy-ignored",
+  "id": "wrap-fallback-ignored",
   "kind": "fn",
   "name": "wrapExpandedResultLines",
   "args": [
