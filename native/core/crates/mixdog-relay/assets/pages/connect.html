@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<title>Mixdog</title>
+<style>
+@@PAGE_BASE_CSS@@
+@@PAIRING_CSS@@
+</style>
+</head>
+<body>
+<div class="mxp-screen mxp-code-step">
+<div class="mxp-col">
+<main class="mxp-main">
+<div class="mxp-block">
+<div class="mxp-vis"><img class="mxp-logo" src="@@LOGO_SRC@@" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading"></h1><p class="mxp-sub" id="note"></p>
+<div class="mxp-extra">
+<div class="mxp-otp" id="otp"><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><input class="mxp-code" id="code" inputmode="numeric" autocomplete="one-time-code" aria-labelledby="heading" /></div>
+<p class="mxp-error" id="status" role="alert"></p>
+</div>
+</div>
+</main>
+<footer class="mxp-actions"><button class="mxp-btn" id="go" type="button" disabled></button><p class="mxp-fine" id="fine"></p></footer>
+</div>
+</div>
+<script>
+(function () {
+  var ko = (navigator.language || '').toLowerCase().indexOf('ko') === 0;
+  var T = ko
+    ? { heading: 'PC에 연결', note: 'PC의 Mixdog에서 설정 > 연결 > 웹으로 이동해 코드를 확인하세요.', go: '연결', busy: '연결 중…', fine: 'iPhone에서는 아직 알림을 받을 수 없습니다.', bad: '코드가 올바르지 않거나 만료되었습니다.', wait: function (s) { return '시도가 너무 많습니다. ' + s + '초 뒤에 다시 시도하세요.'; }, net: '연결하지 못했습니다. 인터넷 연결을 확인하세요.' }
+    : { heading: 'Connect to PC', note: 'On your PC, go to Mixdog Settings > Connection > Web to get the code.', go: 'Connect', busy: 'Connecting…', fine: 'Notifications aren’t available on iPhone yet.', bad: 'The code is wrong or has expired.', wait: function (s) { return 'Too many attempts. Try again in ' + s + ' seconds.'; }, net: 'Could not connect. Check your internet connection.' };
+  document.documentElement.lang = ko ? 'ko' : 'en';
+  var $ = function (id) { return document.getElementById(id); };
+  $('heading').textContent = T.heading;
+  $('note').textContent = T.note;
+  $('go').textContent = T.go;
+  var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  $('fine').textContent = ios ? T.fine : '';
+  var input = $('code');
+  var digits = function () { return input.value.replace(/\D/g, '').slice(0, 6); };
+  var boxes = document.querySelectorAll('#otp .mxp-digit');
+  var last = 0;
+  var submit = null;
+  var paint = function () {
+    var d = digits();
+    for (var i = 0; i < 6; i++) {
+      boxes[i].textContent = d.charAt(i);
+      boxes[i].className = 'mxp-digit' + (document.activeElement === input && i === Math.min(d.length, 5) ? ' on' : '');
+    }
+  };
+  input.addEventListener('input', function () {
+    var d = digits();
+    input.value = d;
+    paint();
+    $('go').disabled = d.length !== 6;
+    var filled = d.length === 6 && last < 6;
+    last = d.length;
+    if (filled && submit) submit();
+  });
+  input.addEventListener('focus', paint);
+  input.addEventListener('blur', paint);
+  var say = function (text) { $('status').textContent = text; };
+  // Screenshot switch: ?mxPairingPreview=<state> renders a state with no
+  // network, only when localStorage mixdog.debug.pairingPreview is "1".
+  var preview = null;
+  try {
+    if (localStorage.getItem('mixdog.debug.pairingPreview') === '1') {
+      preview = new URLSearchParams(location.search).get('mxPairingPreview');
+    }
+  } catch (e) { /* storage unavailable */ }
+  if (preview === 'code-error') say(T.bad);
+  else if (preview === 'code-ratelimited') say(T.wait(42));
+  else if (preview === 'network-error') say(T.net);
+  if (preview) return;
+  // One redemption at a time: auto-submit, Enter and the button share this flag.
+  var busy = false;
+  var settle = function () {
+    busy = false;
+    input.disabled = false;
+    $('go').textContent = T.go;
+    $('go').disabled = digits().length !== 6;
+    input.focus();
+    paint();
+  };
+  submit = function () {
+    var d = digits();
+    if (d.length !== 6 || busy) return;
+    busy = true;
+    input.disabled = true;
+    $('go').disabled = true;
+    $('go').textContent = T.busy;
+    say('');
+    var abort = new AbortController();
+    var timer = setTimeout(function () { abort.abort(); }, 10000);
+    fetch('/pair-code/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: d }), signal: abort.signal })
+      .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+      .then(function (r) {
+        if (r.status === 200 && r.body.deviceId && r.body.ticket) {
+          location.href = '/d/' + encodeURIComponent(r.body.deviceId) + '/#pair=' + encodeURIComponent(r.body.ticket) + (r.body.name ? '&host=' + encodeURIComponent(r.body.name) : '');
+          return;
+        }
+        say(r.status === 429 ? T.wait(r.body.retryAfter || 60) : T.bad);
+        settle();
+      })
+      .catch(function () { say(T.net); settle(); })
+      .then(function () { clearTimeout(timer); });
+  };
+  $('go').addEventListener('click', submit);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  input.focus();
+  paint();
+  var vv = window.visualViewport;
+  if (vv) {
+    var inset = function () { document.querySelector('.mxp-screen').style.setProperty('--mxp-kb', Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) + 'px'); };
+    vv.addEventListener('resize', inset);
+    vv.addEventListener('scroll', inset);
+    inset();
+  }
+})();
+</script>
+</body>
+</html>
