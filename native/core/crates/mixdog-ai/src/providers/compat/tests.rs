@@ -1524,6 +1524,14 @@ mod liveness {
                     stack.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs") && path.file_name().is_some_and(|n| n != "tests.rs") {
                     let text = std::fs::read_to_string(&path).unwrap();
+                    // The rule is for what ships: a module's inline test module (`#[cfg(test)] mod x {`, trailing) may drive the
+                    // idle watchdog under a paused clock. A `#[cfg(test)] mod x;` declaration (mod.rs) does not end the scanned part.
+                    let cut = text
+                        .match_indices("\n#[cfg(test)]\nmod ")
+                        .map(|(at, _)| at)
+                        .find(|&at| text[at..].lines().nth(2).is_some_and(|line| line.trim_end().ends_with('{')))
+                        .unwrap_or(text.len());
+                    let text = &text[..cut];
                     for pattern in &banned {
                         assert!(!text.contains(pattern.as_str()), "{} uses {pattern}", path.display());
                     }

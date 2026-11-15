@@ -1452,6 +1452,14 @@ fn no_timer_exists_in_the_provider_sources() {
         concat!("Instant::", "now"),
     ];
     for (name, source) in sources {
+        // The rule is for what ships: a module's inline test module (`#[cfg(test)] mod x {`, trailing) may drive the idle
+        // watchdog under a paused clock. A `#[cfg(test)] mod x;` declaration does not end the scanned part.
+        let cut = source
+            .match_indices("\n#[cfg(test)]\nmod ")
+            .map(|(at, _)| at)
+            .find(|&at| source[at..].lines().nth(2).is_some_and(|line| line.trim_end().ends_with('{')))
+            .unwrap_or(source.len());
+        let source = &source[..cut];
         for needle in forbidden {
             assert!(!source.contains(needle), "{name} uses {needle}");
         }
