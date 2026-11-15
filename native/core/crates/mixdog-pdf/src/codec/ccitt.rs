@@ -54,7 +54,8 @@ pub fn decode(data: &[u8], width: i32, height: i32, params: &CcittParams) -> Res
     }
     let pitch8 = pitch8 as usize;
     let mut decoder = FaxDecoder::new(data, actual_width as usize, params);
-    for row in 0..height as usize {
+    // a negative height (with a negative pitch, so the size is not negative) decodes no row
+    for row in 0..height.max(0) as usize {
         let Some(line) = decoder.next_line() else { break };
         let n = pitch8.min(line.len());
         out[row * pitch8..row * pitch8 + n].copy_from_slice(&line[..n]);
@@ -735,6 +736,8 @@ mod tests {
             Err(CodecError::Unknown)
         );
         assert_eq!(decode(&[0x80], 0, 5, &params(0)).unwrap(), Vec::<u8>::new());
+        // a negative width and height multiply to a positive size: no row is decoded into it
+        assert_eq!(decode(&[0xc0, 0x00, 0x10, 0x01], -16, -2, &params(-1)).unwrap(), [0; 4]);
     }
 
     #[test]
