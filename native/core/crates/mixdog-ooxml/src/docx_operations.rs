@@ -10,7 +10,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
-use mixdog_js::{js_object_keys, js_to_lowercase, js_trim, json_number, locale_compare_en, number_to_string, string_to_number, to_number, value_to_string};
+use mixdog_js::{js_to_lowercase, js_trim, json_number, locale_compare_en, number_to_string, string_to_number, to_number, value_to_string};
+use mixdog_office_base::docx_style_defs::docx_style_definitions;
 use serde_json::{Map, Value, json};
 
 use crate::docx_formatting::{patch_paragraph_format, patch_word_style};
@@ -561,7 +562,7 @@ pub fn set_docx_document_font(zip: &mut Package, op: &Value) -> Result<Value, St
     } else if styles.contains("<w:docDefaults>") {
         styles = replace_text(&styles, "<w:docDefaults>", &format!("<w:docDefaults>{default_run}"));
     } else {
-        styles = replace_first_with(&compiled(r"<w:styles[^>]*>", ""), &styles, |open| {
+        styles = replace_first_with(&compiled(r"<w:styles\b[^>]*>", ""), &styles, |open| {
             format!("{}<w:docDefaults>{default_run}</w:docDefaults>", open.get(0).unwrap_or(""))
         });
     }
@@ -590,77 +591,29 @@ pub fn set_docx_document_font(zip: &mut Package, op: &Value) -> Result<Value, St
     Ok(Value::Object(result))
 }
 
-/// The fields one style takes in define_styles: its face, size, weight, ink, and its paragraph's flow.
-const DOCX_STYLE_FIELDS: [&str; 13] = [
-    "name",
-    "nameEastAsia",
-    "size",
-    "bold",
-    "italic",
-    "color",
-    "alignment",
-    "spacingBefore",
-    "spacingAfter",
-    "lineSpacing",
-    "lineSpacingRule",
-    "keepWithNext",
-    "keepTogether",
-];
-
-/// `docxStyleDefinitions(op)`: the fields of every style asked for, checked before anything is written; one message lists every
-/// fault.
-pub fn docx_style_definitions(op: &Value) -> Result<Vec<(String, Value)>, String> {
-    let fields_list = DOCX_STYLE_FIELDS.join(", ");
-    let styles = match op.get("styles") {
-        Some(Value::Object(styles)) if !styles.is_empty() => styles,
-        _ => {
-            return Err(format!(
-                "define_styles needs styles: {{ \"<style name>\": {{ {fields_list} }} }}, e.g. {{ \"Heading 1\": {{ size: 15, bold: true }} }}"
-            ));
-        }
-    };
-    let mut faults: Vec<String> = Vec::new();
-    let mut definitions = Vec::new();
-    for style in js_object_keys(styles) {
-        let fields = &styles[style];
-        let Some(object) = fields.as_object() else {
-            faults.push(format!("{style}: needs an object of fields"));
-            continue;
-        };
-        let unknown: Vec<&String> = js_object_keys(object).into_iter().filter(|field| !DOCX_STYLE_FIELDS.contains(&field.as_str())).collect();
-        if !unknown.is_empty() {
-            faults.push(format!("{style}: unknown fields {}", unknown.iter().map(|field| field.as_str()).collect::<Vec<_>>().join(", ")));
-        }
-        definitions.push((style.clone(), fields.clone()));
-    }
-    if !faults.is_empty() {
-        return Err(format!("define_styles: {}. Fields: {fields_list}.", faults.join("; ")));
-    }
-    Ok(definitions)
-}
-
 /// `defineDocxStyles(zip, op)`: Word's own styles defined once (the title, headings, body, caption a report is set in) so every
 /// paragraph that names the style takes them, and a paragraph the reader adds in Word under that style matches the rest. Set
 /// paragraph by paragraph instead, a heading added later came out in Word's blue Calibri.
 pub fn define_docx_styles(zip: &mut Package, op: &Value) -> Result<Value, String> {
-    let definitions = docx_style_definitions(op)?;
+    let no_fields = Map::new();
+    let definitions = docx_style_definitions(op.as_object().unwrap_or(&no_fields))?;
     let mut defined: Vec<String> = Vec::new();
     let mut not_found: Vec<String> = Vec::new();
-    for (requested, fields) in &definitions {
+    for &(requested, fields) in &definitions {
         let resolved = document_style_id(zip, requested, "paragraph");
         if !resolved.found {
-            not_found.push(requested.clone());
+            not_found.push(requested.to_owned());
             continue;
         }
         let styles = zip.text(STYLES_PART);
         let pattern = compiled(&format!(r#"<w:style\b(?=[^>]*\bw:styleId="{}")[^>]*>[\s\S]*?<\/w:style>"#, tag_pattern(&resolved.id)), "");
         let Some(style) = pattern.find(&styles).map(|range| styles[range].to_owned()) else {
-            not_found.push(requested.clone());
+            not_found.push(requested.to_owned());
             continue;
         };
         let patched = patch_word_style(&style, fields)?;
         zip.set(STYLES_PART, replace_text(&styles, &style, &patched));
-        defined.push(requested.clone());
+        defined.push(requested.to_owned());
     }
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(!defined.is_empty()));
@@ -1188,7 +1141,7 @@ fn merged_docx_table(table: &Matched, rows: &[Matched], row: &Matched, cells: &[
     let first = (number_of(op.get("col")) - 1.0) as usize;
     // By position: two cells of one row can read the same (empty, equally wide), and replacing by text took the first.
     let merge_row = |row_xml: &str, row_cells: &[Matched], spans: &str| -> String {
-        let joined = &row_cells[first.min(row_cells.len())..(first + col_span).min(row_cells.len())];
+        let joined = &row_cells[first.min(row_cells.len())..first.saturating_add(col_span).min(row_cells.len())];
         let last = joined.last().expect("the named cell exists");
         let end = last.index + last.xml.len();
         let merged = merged_cell_xml(&joined.iter().map(|entry| entry.xml.as_str()).collect::<Vec<_>>(), spans);
