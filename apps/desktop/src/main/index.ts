@@ -1097,6 +1097,12 @@ const hostRole = createLocalHostRole({
   },
   onClaimFailed: (error) =>
     diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
+  onHostFault: (where, error) =>
+    diagnostics?.write('host-handler-failed', {
+      where,
+      errorName: error instanceof Error ? error.name : 'Error',
+      message: String((error as Error)?.message ?? error).slice(0, 300),
+    }),
 });
 hostRoleReady = true;
 /** Shows a connection's window (`local` is the main window), on `sessionId` when one is named. */

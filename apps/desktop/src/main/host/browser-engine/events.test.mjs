@@ -182,3 +182,49 @@ test('the host records its own internal console entries and refusals for the obs
   assert.equal(state.nextSeq(guest), 1);
   assert.equal(state.nextSeq(guest), 2);
 });
+
+test('what is queued for a page that closed is dropped at the flush: no seq is taken, nothing is sent, nothing is thrown', () => {
+  const sent = [];
+  const scheduled = [];
+  const gone = new Set();
+  const seqs = new Map();
+  const events = createEngineEvents(
+    { notify: (method, params) => sent.push({ method, params }) },
+    {
+      // The lane's `nextSeq` (index.ts): a page that is gone has no next number.
+      nextSeq: (pageId) => {
+        if (gone.has(pageId)) throw new Error(`page ${pageId} is gone`);
+        const next = (seqs.get(pageId) ?? 0) + 1;
+        seqs.set(pageId, next);
+        return next;
+      },
+      redact: (_pageId, text) => text,
+      facts: (pageId) => ({ pageId }),
+      schedule: (run) => {
+        scheduled.push(run);
+        return () => scheduled.splice(scheduled.indexOf(run), 1);
+      },
+      now: () => 5,
+    }
+  );
+  // The page closes, and the host's own entry about it is queued afterwards (the debugger that could not come up).
+  gone.add('p1');
+  const text = 'x'.repeat(30_000);
+  for (let n = 0; n < 20; n += 1) events.push('p1', { method: 'Mixdog.internalConsole', params: { level: 'error', text } });
+  events.push('p2', { method: 'Log.entryAdded', params: { n: 1 } });
+  // The scheduled flush is a timer callback: a throw from it is an uncaught exception of the process.
+  assert.doesNotThrow(() => {
+    while (scheduled.length) scheduled.shift()();
+  });
+  assert.doesNotThrow(() => events.flush('p1'));
+  assert.deepEqual(
+    sent.map((m) => [m.params.pageId, m.params.seq]),
+    [['p2', 1]],
+    'the open page is served, the closed one sends nothing however many batches it had'
+  );
+  assert.equal(seqs.has('p1'), false);
+  // Nothing of the closed page is kept for a later flush.
+  gone.delete('p1');
+  events.flush('p1');
+  assert.equal(sent.length, 1);
+});
