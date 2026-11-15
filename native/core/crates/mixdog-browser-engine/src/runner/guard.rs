@@ -43,6 +43,9 @@ pub struct Prepared {
     pub command: Value,
     /// A hidden offscreen page rather than the visible tab. An `open` is never in the background unless it says so.
     pub background: bool,
+    /// What the host is told of it: `None` when the command did not say (a tab named without `background` stays the hidden page it
+    /// is, where `background: false` reveals it), `Some(false)` for an `open` that did not ask for the background.
+    pub background_asked: Option<bool>,
     /// The tab the command names; empty when none.
     pub tab: String,
     pub expected: Option<Postcondition>,
@@ -72,12 +75,13 @@ pub fn prepare(action: &str, input: &Map<String, Value>, session_id: &str, turn_
         return Err(format!("expect is not supported for browser action \"{}\"", parsed.name()));
     }
     let background = input.get("background") == Some(&Value::Bool(true));
+    let background_asked = if parsed == Action::Open && !background { Some(false) } else { input.get("background").and_then(Value::as_bool) };
     let tab = input.get("tab").and_then(Value::as_str).map(|tab| mixdog_js::js_trim(tab).to_owned()).unwrap_or_default();
     let mut command = input.clone();
     command.insert("action".to_owned(), Value::String(parsed.name().to_owned()));
     command.insert("session_id".to_owned(), Value::String(session_id.to_owned()));
     command.insert("turn_id".to_owned(), Value::from(turn_id));
-    Ok(Prepared { action: parsed, command: Value::Object(command), background, tab, expected, has_screenshot_options })
+    Ok(Prepared { action: parsed, command: Value::Object(command), background, background_asked, tab, expected, has_screenshot_options })
 }
 
 #[cfg(test)]
@@ -135,6 +139,16 @@ mod tests {
         assert_eq!(error, "expect is not supported for browser action \"read\"");
         let prepared = prepare("click", &input(json!({"expect": {"text": "Done"}})), "s1", 1).unwrap();
         assert!(prepared.expected.is_some());
+    }
+
+    #[test]
+    fn the_host_is_told_of_the_background_only_as_the_command_said_it() {
+        let asked = |action: &str, value: Value| prepare(action, &input(value), "s1", 1).unwrap().background_asked;
+        assert_eq!(asked("snapshot", json!({"tab": "alpha"})), None, "a named tab stays the hidden page it is");
+        assert_eq!(asked("snapshot", json!({"tab": "alpha", "background": false})), Some(false));
+        assert_eq!(asked("navigate", json!({"url": "https://a.test/", "background": true})), Some(true));
+        assert_eq!(asked("open", json!({})), Some(false));
+        assert_eq!(asked("open", json!({"background": true})), Some(true));
     }
 
     #[test]

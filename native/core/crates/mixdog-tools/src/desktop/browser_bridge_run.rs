@@ -305,6 +305,17 @@ fn input_fields(def: &'static str) -> Map<String, Value> {
     spec_from_def(def, false, &[]).input_schema["properties"]["input"]["properties"].as_object().cloned().unwrap_or_default()
 }
 
+/// A command's input as the bridge validates it before it runs (`action` beside the tool's fields, no `turn_id`): the action and its
+/// fields, or the bridge's own sentence for a request it refuses. The one validation `test/browserEngine/run` applies too.
+pub fn validated_command(input: Map<String, Value>) -> Result<(String, Map<String, Value>), String> {
+    static SCHEMAS: std::sync::OnceLock<(Map<String, Value>, Map<String, Value>)> = std::sync::OnceLock::new();
+    let (browser, devtools) = SCHEMAS.get_or_init(|| (input_fields(include_str!("defs/browser.json")), input_fields(include_str!("defs/browser_devtools.json"))));
+    let action = input.get("action").and_then(Value::as_str).unwrap_or_default();
+    let schema = if DEVTOOLS_ACTIONS.contains(&js_trim(action)) { devtools } else { browser };
+    let validated = validate("", &Value::Object(input), schema)?;
+    Ok((validated.action, validated.input))
+}
+
 /// `browserSessionId`: the session a command runs in.
 fn browser_session_id(value: Option<&Value>) -> Result<String, String> {
     let text = match value {

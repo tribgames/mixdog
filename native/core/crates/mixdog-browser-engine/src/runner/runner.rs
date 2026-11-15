@@ -221,6 +221,13 @@ pub struct EnginePorts {
 }
 
 fn wall_clock_ms() -> i64 {
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        let replayed = crate::fake::REPLAY_NOW_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if replayed != 0 {
+            return replayed;
+        }
+    }
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
 
@@ -590,14 +597,22 @@ struct SlotState {
     refs: Option<RefSet>,
     grounding: Option<VisualGrounding>,
     reply: PageReplyState,
-    reports: DownloadReports,
     /// Where the page was scrolled when `refs` was observed.
     scroll_y: Option<f64>,
 }
 
-#[derive(Default)]
 struct PageSlot {
     state: Mutex<SlotState>,
+}
+
+impl PageSlot {
+    /// A page the engine first meets: it has heard of no download yet, and downloads of before it was met are not news to it
+    /// (`downloadsReportedAt: Date.now()` of the guest's state, made when the page is first used).
+    fn new() -> Self {
+        let mut reply = PageReplyState::default();
+        reply.downloads_reported_at = wall_clock_ms();
+        Self { state: Mutex::new(SlotState { reply, ..SlotState::default() }) }
+    }
 }
 
 struct Inner {
@@ -606,6 +621,9 @@ struct Inner {
     store: Arc<FactsStore>,
     queue: CommandQueue,
     slots: Mutex<HashMap<String, Arc<PageSlot>>>,
+    /// The state each download was last reported in, by any page: downloads belong to the session (their ids are the host's, never
+    /// repeated), each page keeps its own cursor.
+    download_reports: Mutex<DownloadReports>,
     directory: Mutex<Directory>,
     tasks: Mutex<TaskPages>,
     commands: AtomicU64,
@@ -796,6 +814,30 @@ impl Drop for LeaseGuard {
     }
 }
 
+/// The URL policy a test run names for the commands it runs (the corpus's refused address was recorded by a remote session, which a
+/// session of this core is not); only a test build has it, and one run at a time sets it.
+#[cfg(feature = "test-support")]
+static URL_POLICY_OF_RUN: Mutex<Option<mixdog_browser_policy::url_policy::UrlPolicy>> = Mutex::new(None);
+
+/// Navigations are decided under the policy it was made with, instead of the engine's own, until it is dropped (test builds only).
+#[cfg(feature = "test-support")]
+pub struct UrlPolicyOfRun(());
+
+#[cfg(feature = "test-support")]
+impl UrlPolicyOfRun {
+    pub fn set(policy: mixdog_browser_policy::url_policy::UrlPolicy) -> Self {
+        *locked(&URL_POLICY_OF_RUN) = Some(policy);
+        Self(())
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl Drop for UrlPolicyOfRun {
+    fn drop(&mut self) {
+        *locked(&URL_POLICY_OF_RUN) = None;
+    }
+}
+
 impl BrowserEngine {
     /// An engine over the host lane `host`, with the services of the core around it.
     pub fn new(host: Arc<dyn BrowserHost>, ports: EnginePorts) -> Self {
@@ -814,6 +856,7 @@ impl BrowserEngine {
                 commands: AtomicU64::new(0),
                 in_flight: Mutex::new(HashMap::new()),
                 download_files: OnceLock::new(),
+                download_reports: Mutex::default(),
             }),
         }
     }
@@ -985,7 +1028,7 @@ impl Inner {
     }
 
     fn slot(&self, page_id: &str) -> Arc<PageSlot> {
-        locked(&self.slots).entry(page_id.to_owned()).or_default().clone()
+        locked(&self.slots).entry(page_id.to_owned()).or_insert_with(|| Arc::new(PageSlot::new())).clone()
     }
 
     fn drop_page(&self, page_id: &str) {
@@ -1053,7 +1096,7 @@ impl Inner {
     }
 
     async fn execute_resolved(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
-        let Prepared { action, mut command, background, tab, expected, has_screenshot_options } = prepared;
+        let Prepared { action, mut command, background, background_asked, tab, expected, has_screenshot_options } = prepared;
         let session = thread.as_str();
         if action.is_tabless() {
             // A tab-less step is asked about like any other, against the session itself.
@@ -1061,7 +1104,7 @@ impl Inner {
             return self.tabless(action, &command, session, &tab, ctx).await;
         }
         locked(&self.tasks).begin(session, turn).map_err(RunError::Failed)?;
-        let (descriptor, placement, _lease) = self.resolve_page(session, action, background, &tab, &ctx.cancel).await?;
+        let (descriptor, placement, _lease) = self.resolve_page(session, action, background, background_asked, &tab, &ctx.cancel).await?;
         let page_id = descriptor.page_id.clone();
         {
             // A page this command made (none was open) or a hidden helper of the agent is the turn's to reclaim, as the host says
@@ -1128,6 +1171,7 @@ impl Inner {
         session: &str,
         action: Action,
         background: bool,
+        background_asked: Option<bool>,
         tab: &str,
         cancel: &CancelView,
     ) -> Result<(PageDescriptor, Option<BrowserPlacement>, Option<LeaseGuard>), RunError> {
@@ -1139,7 +1183,7 @@ impl Inner {
         };
         let params = HostBrowserPagesResolveParams {
             session_id: session.to_owned(),
-            background: Some(background),
+            background: background_asked,
             tab: (!tab.is_empty()).then(|| BrowserTabSelector { index: None, page_id: Some(tab.to_owned()) }),
             open,
             adopt: None,
@@ -1463,11 +1507,21 @@ impl PageCtx {
         Precondition { document_id: self.page_facts().document_id, origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: None }
     }
 
+    /// The URL policy a navigation is decided under: the engine's own, or (a test build only) the one a test run names for the
+    /// command (`UrlPolicyOfRun`).
+    fn urls(&self) -> mixdog_browser_policy::url_policy::UrlPolicy {
+        #[cfg(feature = "test-support")]
+        if let Some(named) = locked(&URL_POLICY_OF_RUN).clone() {
+            return named;
+        }
+        self.inner.ports.urls.clone()
+    }
+
     /// One move, decided against the document the page holds now.
     async fn move_once(&self, action: Action, command: &Value) -> Result<NavigateOutcome, observe::ActionError> {
         let precondition = self.navigation_precondition();
         let call = NavigateCall { host: self.host(), page_id: &self.page_id, expect: &precondition, cancel: &self.cancel };
-        if action == Action::Back { navigation::back(&call).await } else { navigation::navigate(&call, command, &self.inner.ports.urls, wall_clock_ms()).await }
+        if action == Action::Back { navigation::back(&call).await } else { navigation::navigate(&call, command, &self.urls(), wall_clock_ms()).await }
     }
 
     /// The move, sent once more when the host refused the document it named. The refusal sent nothing and told the page's present
@@ -1627,8 +1681,9 @@ impl PageCtx {
         let redact = |text: &str| self.redact(text);
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
         let mut state = self.state_lock();
-        let SlotState { reply, reports, .. } = &mut *state;
-        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: reports, now_ms: wall_clock_ms() };
+        let SlotState { reply, .. } = &mut *state;
+        let mut reports = locked(&self.inner.download_reports);
+        let mut page = ReplyPage { facts: &facts, state: reply, downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
         self.with_ledgers(|ledgers| page_report_text(&ctx, &mut page, ledgers))
     }
 
@@ -1759,8 +1814,9 @@ impl PageCtx {
         let capture = SnapshotCapture { payload: &result.payload, observation: result.observation.as_deref() };
         let mut reply = {
             let mut state = self.state_lock();
-            let SlotState { reply, reports, .. } = &mut *state;
-            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: reports, now_ms: wall_clock_ms() };
+            let SlotState { reply, .. } = &mut *state;
+            let mut reports = locked(&self.inner.download_reports);
+            let mut page = ReplyPage { facts: &facts, state: reply, downloads: &downloads, download_reports: &mut reports, now_ms: wall_clock_ms() };
             self.with_ledgers(|ledgers| finish_now(build_reply(&ctx, &request, &mut page, ledgers, Some(capture), None)))?
         };
         if command.get("includeScreenshot") == Some(&Value::Bool(true)) {
@@ -2075,7 +2131,8 @@ impl PageCtx {
             let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
             let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, facts, approved, self.token()).await?;
             self.invalidate();
-            let output = ActionOutput { lead: format!("{}\n\n", outcome.summary()), decorate_recovery: true, input: Vec::new() };
+            let summary = outcome.summary();
+            let output = ActionOutput { lead: if summary.is_empty() { String::new() } else { format!("{summary}\n\n") }, decorate_recovery: true, input: Vec::new() };
             self.gesture_reply(output, command, recovery, &options(true, baseline)).await
         })
     }

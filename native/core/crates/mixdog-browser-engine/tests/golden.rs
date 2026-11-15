@@ -186,11 +186,25 @@ fn shorten(text: &str) -> String {
     text.chars().take(400).collect()
 }
 
+/// Where two texts first differ, with what surrounds it in each (the cut-off of `shorten` hides a difference past 400 characters).
+fn first_difference(wanted: &str, got: &str) -> String {
+    let at = wanted.chars().zip(got.chars()).take_while(|(a, b)| a == b).count();
+    if at == wanted.chars().count() && at == got.chars().count() {
+        return String::new();
+    }
+    let around = |text: &str| text.chars().skip(at.saturating_sub(60)).take(200).collect::<String>();
+    format!("\n  first difference at character {at}:\n    corpus: {:?}\n    engine: {:?}", around(wanted), around(got))
+}
+
 #[tokio::test]
 async fn golden_texts_match_recorded_host() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-golden.json")).expect("browser-golden.json is JSON");
-    let transcript = mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-engine-transcript.jsonl");
     let steps = golden["steps"].as_array().expect("the corpus has steps");
+    // The upload fixture was a file of the recording run's profile folder; the corpus request names the path of its own recorder's run,
+    // and that is the path the engine sends the host here.
+    let upload_path = steps.iter().find(|step| step["request"]["action"] == "upload").and_then(|step| step["request"]["paths"][0].as_str()).expect("the corpus has an upload");
+    let transcript = mixdog_testkit::fixture!("../../fixtures/desktop-host/browser-engine-transcript.jsonl").replace("<UPLOAD>", serde_json::to_string(upload_path).expect("a path is JSON").trim_matches('"'));
+    let transcript = transcript.as_str();
     let origin = recorded_origin(transcript);
 
     let host = Arc::new(FakeHost::from_transcript_str(transcript).expect("the transcript is readable"));
@@ -228,18 +242,22 @@ async fn golden_texts_match_recorded_host() {
             succeeded.insert(action.to_owned());
         }
 
-        let mut input: Map<String, Value> = serde_json::from_str(&Value::Object(request.clone()).to_string().replace("<ORIGIN>", &origin)).expect("a request is JSON");
-        input.remove("action");
-        let answer = engine.run(&thread, action, &input, &CancellationToken::new()).await;
-        let (got_ok, got, image_mime, has_timing) = match &answer {
-            Ok(reply) => (true, reply.text.clone(), reply.image.as_ref().map(|image| image.mime_type.clone()), reply.timing.is_some()),
-            Err(failure) => (false, failure.error.message_for_model.clone(), None, failure.timing.is_some()),
+        let command: Map<String, Value> = serde_json::from_str(&Value::Object(request.clone()).to_string().replace("<ORIGIN>", &origin)).expect("a request is JSON");
+        // The corpus is what the bridge answered: a request the bridge refuses (an unknown action, a field the action does not take, no
+        // target) never reaches the engine, and is answered with the bridge's own sentence.
+        let (got_ok, got, image_mime, has_timing) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
+            Err(message) => (false, message, None, false),
+            Ok((action, input)) => match engine.run(&thread, &action, &input, &CancellationToken::new()).await {
+                Ok(reply) => (true, reply.text.clone(), reply.image.as_ref().map(|image| image.mime_type.clone()), reply.timing.is_some()),
+                Err(failure) => (false, failure.error.message_for_model.clone(), None, failure.timing.is_some()),
+            },
         };
 
         let wanted = corpus.text(wanted);
-        let got = engine_run.text(&got);
-        // A trace's durations are wall-clock: it is held to the full text apart from them.
+        // A trace's durations are wall-clock: it is held to the full text apart from them, and its structure is read from the text as the
+        // engine wrote it (the normalised text has no durations left to read).
         let shape = if ok && got_ok && wanted.starts_with(TRACE_STOPPED) { trace_shape(&got).err() } else { None };
+        let got = engine_run.text(&got);
         // A failure carries the timing of the command that ran, as the product attached it to the error's data.
         let same = got_ok == ok
             && got == wanted
@@ -251,7 +269,7 @@ async fn golden_texts_match_recorded_host() {
                 "{name}\n  corpus: {:?}\n  engine: {:?}{}",
                 (ok, shorten(&wanted)),
                 (got_ok, shorten(&got), image_mime, has_timing),
-                shape.map(|shape| format!("\n  {shape}")).unwrap_or_default()
+                shape.map(|shape| format!("\n  {shape}")).unwrap_or_default() + &first_difference(&wanted, &got)
             ));
         }
     }

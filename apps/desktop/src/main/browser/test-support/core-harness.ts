@@ -13,6 +13,7 @@ import { app, BrowserWindow, type WebContents, webContents } from 'electron';
 import { HOST_CAPABILITIES } from '../../host/connection';
 import { createComputerPresence } from '../../computer/presence/mirror';
 import { createDesktopHost } from '../../host';
+import { createTranscriptTap } from '../../host/browser-engine/transcript';
 import { createProtocolConnection, type ProtocolConnection } from '../../protocol/connection';
 import { readLocalDiscovery } from '../../protocol/discovery';
 import { createHostConnection } from '../../protocol/host-connection';
@@ -107,6 +108,8 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
       connection: createHostConnection(protocol),
       hostId: HARNESS_HOST_ID,
       browser: () => created.hostRole(),
+      // The engine lane's development transcript, as the app records it (index.ts): MIXDOG_BROWSER_TRANSCRIPT names the directory.
+      browserEngineTranscript: createTranscriptTap({ dir: process.env.MIXDOG_BROWSER_TRANSCRIPT, devBuild: !app.isPackaged }),
       visualize: () => {
         throw new Error('The browser harness has no visualize service.');
       },
