@@ -401,6 +401,9 @@ fn a_declared_capacity_is_read_the_way_number_reads_it() {
     assert_eq!(policy::js_number(&json!(true)), Some(1.0));
     assert_eq!(policy::js_number(&json!([])), Some(0.0));
     assert_eq!(policy::js_number(&json!(["7"])), Some(7.0));
+    // `Number([true])` reads the string "true": NaN, not 1.
+    assert_eq!(policy::js_number(&json!([true])), None);
+    assert_eq!(policy::js_number(&json!([[]])), Some(0.0));
     assert_eq!(policy::js_number(&json!([1, 2])), None);
     assert_eq!(policy::js_number(&json!({})), None);
 }
@@ -508,7 +511,7 @@ fn the_refusal_is_sent_once_and_the_sender_keeps_its_leg() {
 
 #[test]
 fn a_binary_refusal_is_named_by_the_decoder_that_routes_it() {
-    let binary = envelope::encode_frame(ID, &vec![1u8; 8192], false, false).unwrap();
+    let binary = envelope::encode_frame(ID, &[1u8; 8192], false, false).unwrap();
     assert_eq!(notice_of(&binary, true)["clientId"], ID);
     // Only the head is read: the id is settled however large the frame is.
     assert_eq!(notice_of(&binary[..policy::OVERSIZE_ID_SCAN_BYTES], true)["clientId"], ID);
@@ -601,7 +604,7 @@ fn only_a_whole_json_object_with_a_routing_id_string_is_attributed() {
     // A frame with whitespace around the object is still the router's frame.
     assert_eq!(policy::routed_client_id(format!(" \n{{\"clientId\":\"{ID}\"}}\t").as_bytes()).as_deref(), Some(ID));
     // Escaped characters inside the id spell the same id.
-    assert_eq!(policy::routed_client_id(br#"{"clientId":"abcdefgh"}"#).as_deref(), Some("abcdefgh"));
+    assert_eq!(policy::routed_client_id(br#"{"clientId":"abc\u0064efgh"}"#).as_deref(), Some("abcdefgh"));
 }
 
 #[test]
