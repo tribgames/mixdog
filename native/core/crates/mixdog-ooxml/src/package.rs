@@ -63,7 +63,8 @@ fn without_library_aside(reason: &str) -> String {
         let lower = text.to_ascii_lowercase();
         let Some(at) = ["see http://", "see https://"].iter().filter_map(|marker| lower.find(marker)).min() else { break };
         let start = text[..at].trim_end().len();
-        let end = text[at..].find(char::is_whitespace).map_or(text.len(), |n| at + n);
+        let link = at + "see ".len();
+        let end = text[link..].find(char::is_whitespace).map_or(text.len(), |n| link + n);
         text.replace_range(start..end, "");
     }
     text.trim().trim_end_matches(|c: char| c.is_whitespace() || c == ':').to_owned()
@@ -164,6 +165,15 @@ mod tests {
 
     use super::*;
     use crate::legacy::OLE_COMPOUND_MAGIC;
+
+    #[test]
+    fn the_library_aside_and_its_links_do_not_travel_with_the_reason() {
+        assert_eq!(
+            without_library_aside("Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"),
+            "Can't find end of central directory"
+        );
+        assert_eq!(without_library_aside("Bad entry, see https://example.org/a and retry: "), "Bad entry, and retry");
+    }
 
     struct Ledger(Mutex<Vec<String>>);
 

@@ -518,10 +518,11 @@ fn view_box(text: &str) -> Option<(f64, f64)> {
     }
 }
 
-/// Whether a `viewBox` is four numbers of which the width or the height is not above zero: librsvg draws nothing for it.
+/// Whether a `viewBox` is four numbers with a width or height of zero (and neither negative): librsvg draws nothing for it.
+/// A negative side makes librsvg refuse the attribute, and the page is drawn as if it had none.
 fn view_box_without_area(text: &str) -> bool {
     let numbers: Option<Vec<f64>> = text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect();
-    matches!(numbers.as_deref(), Some([_, _, width, height]) if !(*width > 0.0 && *height > 0.0))
+    matches!(numbers.as_deref(), Some([_, _, width, height]) if *width >= 0.0 && *height >= 0.0 && (*width == 0.0 || *height == 0.0))
 }
 
 /// librsvg's rule for the size of a page, from the root element's `width`, `height` and `viewBox`.
