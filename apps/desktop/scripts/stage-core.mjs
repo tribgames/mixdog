@@ -2,6 +2,7 @@
 // Stages the `mixdogd` binaries a desktop build ships (electron-builder.yml
 // extraResources):
 //   .runtime/core/mixdogd[.exe]        the core this app starts, for its own platform
+//   .runtime/core/assets/templates/    the packaged Office templates the engine reads beside the executable
 //   .runtime/core/mixdog-askpass[.exe] the ssh askpass helper, beside mixdogd (not in the server bundles: it runs
 //                                      on the machine the app runs on)
 //   .runtime/server-cores/<os>-<arch>/bundle.tgz + servers.json
@@ -25,7 +26,7 @@ import {
   SERVER_PLATFORM_TARGETS,
 } from '../src/main/ssh/server-manifest.mjs';
 
-import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, verifyRemotePayload } from './core-layout.mjs';
+import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, stageOfficeTemplates, verifyRemotePayload } from './core-layout.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
 const BUNDLE_FILE = 'bundle.tgz';
@@ -102,6 +103,7 @@ export async function stageHostCore({
   await copyFile(binary, join(coreDir, binaryName(host.platform)));
   await copyFile(askpass, join(coreDir, askpassName(host.platform)));
   await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
+  await stageOfficeTemplates(coreDir);
 }
 
 /**

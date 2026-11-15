@@ -4,7 +4,15 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { CLOSURE_RECORD, CORE_READS, desktopJsRuntimeManifest, ortBinaryDir, remoteJsRuntimeManifest } from './core-layout.mjs';
+import {
+  CLOSURE_RECORD,
+  CORE_READS,
+  desktopJsRuntimeManifest,
+  OFFICE_TEMPLATE_FILES,
+  OFFICE_TEMPLATES_DIR,
+  ortBinaryDir,
+  remoteJsRuntimeManifest,
+} from './core-layout.mjs';
 
 export const put = (file, text = 'x') => {
   mkdirSync(dirname(file), { recursive: true });
@@ -44,6 +52,7 @@ export function install(kind, platform, arch, top = makeTempDirSync(`core-layout
   const dir = kind === 'desktop' ? join(root, 'core') : root;
   put(join(dir, 'js-runtime.json'), JSON.stringify(manifest));
   put(join(dir, manifest.program));
+  for (const file of OFFICE_TEMPLATE_FILES) put(join(dir, OFFICE_TEMPLATES_DIR, file));
   const modules = kind === 'desktop' ? join(root, 'runtime.asar.unpacked/node_modules') : join(root, 'js/pkg/node_modules');
   modulesTree(modules, platform, arch);
   return { root, dir, modules, top };

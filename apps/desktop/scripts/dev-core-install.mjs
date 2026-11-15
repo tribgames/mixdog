@@ -14,7 +14,7 @@ import { access, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { CORE_READS, devJsRuntimeManifest, JS_RUNTIME_MANIFEST } from './core-layout.mjs';
+import { CORE_READS, devJsRuntimeManifest, JS_RUNTIME_MANIFEST, stageOfficeTemplates } from './core-layout.mjs';
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -34,6 +34,7 @@ export async function writeDevInstall({ exe, ortLibrary, packageRoot = checkoutR
   const manifest = devJsRuntimeManifest({ program: paths.program, packageRoot: paths.packageRoot, ortLibrary: paths.ortLibrary });
   const file = join(dirname(paths.exe), JS_RUNTIME_MANIFEST);
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  await stageOfficeTemplates(dirname(paths.exe));
   return { file, manifest };
 }
 
