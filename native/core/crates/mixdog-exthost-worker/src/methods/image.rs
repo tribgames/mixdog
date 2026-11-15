@@ -138,9 +138,10 @@ fn resize(ctx: CallCtx) -> HandlerResult {
 /// EXIF-rotated. `ok` is `{extension, data}`, or null for a source that does not decode. The variant is judged before the
 /// data, as Node judges it.
 fn still(ctx: CallCtx) -> HandlerResult {
-    let variant = ctx.params.get("variant");
-    let Some(spec) = variant.and_then(Value::as_str).and_then(mixdog_imaging::still::rendition_spec) else {
-        return Err(invalid_params(format!("unknown rendition variant: {}", js_string(variant))));
+    // `renditionSpec` looks up `String(variant || '')`: any value that prints as a variant's name names it.
+    let variant = js_string(ctx.params.get("variant"));
+    let Some(spec) = mixdog_imaging::still::rendition_spec(&variant) else {
+        return Err(invalid_params(format!("unknown rendition variant: {variant}")));
     };
     let bytes = node_base64(base64_param(&ctx.params)?);
     not_cancelled(&ctx)?;

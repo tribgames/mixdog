@@ -189,5 +189,7 @@ async fn the_still_and_resize_calls_refuse_what_the_node_handlers_refuse() {
     // An empty buffer gives no image.
     assert_eq!(ask(&pool, "image.resize", json!({"data": "", "ext": "png"})).await.unwrap(), json!({"ok": null}));
     assert_eq!(ask(&pool, "image.still", json!({"data": "", "variant": "thumb"})).await.unwrap(), json!({"ok": null}));
+    // A variant that prints as a variant's name names it, as `String(variant || '')` does in Node.
+    assert_eq!(ask(&pool, "image.still", json!({"data": "", "variant": ["thumb"]})).await.unwrap(), json!({"ok": null}));
     pool.close().await;
 }
