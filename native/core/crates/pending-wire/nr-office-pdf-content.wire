@@ -1,0 +1,56 @@
+# nr-office-pdf-content: operator-list pass (module oplist), annotations and links (module annotations), outline, destinations and page index (module outline_read) of crate mixdog-pdf, their twin test and fixture set office-oplist. Written; the three modules are not declared yet. Nothing was compiled (no cargo run, by the task rules).
+
+## 1. native/core/crates/mixdog-pdf/src/lib.rs: declare the modules
+Add three lines to the `pub mod` list, each in alphabetical place:
+    pub mod annotations;    (first, before `pub mod codec;`)
+    pub mod oplist;         (after `pub mod object;`)
+    pub mod outline_read;   (after `pub mod oplist;`)
+Add `annotations`, `oplist`, `outline_read` to the parenthesised module list of the crate doc comment if it is kept in step. Nothing is
+re-exported: callers use `mixdog_pdf::oplist::{get_operator_list, Op, OperatorList, FontProvider, FontObject, Glyph}`,
+`mixdog_pdf::annotations::get_annotations` and `mixdog_pdf::outline_read::{get_outline, get_destination, get_page_index, parse_dest_dictionary}`.
+
+## 2. native/core/crates/mixdog-pdf/Cargo.toml
+[dependencies], one new edge (WHATWG URL parsing and serialisation of `createValidAbsoluteUrl`: pdf.js gives `url`/`unsafeUrl` of a link as `new URL(...).href`,
+with the trailing slash, the percent-encoding and the base-URL resolution of the URL standard; `url = "2"` is in [workspace.dependencies] and locked at 2.5.8):
+    url = { workspace = true }
+No dev-dependency is new (mixdog-office-base with test-support, mixdog-testkit and serde_json are there already for twin_colour).
+
+## 3. native/core/Cargo.lock
+Only the package entry of mixdog-pdf changes: add `"url",` to its dependency list in alphabetical place (after "tracing"). No new package is resolved.
+
+## 4. native/core/fixtures/MANIFEST.json, "sets": add the entry (set order of the recorders)
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-oplist.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-oplist/MANIFEST.json",
+      "manifestSha256": "<sha256sum native/core/fixtures/office-oplist/MANIFEST.json of the merged tree>",
+      "recorder": "benchmarks/rust-core/recorders/record-office-oplist.mjs",
+      "set": "office-oplist",
+      "totalBytes": <totalBytes of office-oplist/MANIFEST.json>
+    },
+(benchmarks/rust-core/recorders/verify-manifests.mjs recomputes both; the recording written by this task has manifestSha256
+81798941b5ee6c6701b2ca75927bac2a79e0cb57f9ed5e489c1570f389b3cdf7 and the golden.json is 185227 bytes.)
+
+## 5. No SERVICE_PENDING names, no protocol rows, no hot file beyond the three above: the modules register no service.
+
+## 6. Seams for the tasks that use this layer (nothing else to wire now)
+- `oplist::get_operator_list(&Document, &Page, Option<&dyn FontProvider>) -> Result<OperatorList>` is `page.getOperatorList()` of the display layer
+  (the `oplist` intent: pdf.js builds that list without its queue optimizer, so repeated images and `q cm path Q` runs are NOT folded; this was
+  recorded from pdf.js 6.4 and is what pdf-analysis.mjs reads). `OperatorList::with_transforms()` is the analysis's `applyGraphicsOp` walk
+  (the transform in force at every operator); `PathData::subpaths()` is its `pathSubpaths`.
+- FONT OBJECT SEAM (owner: nr-exthost-pdf-font-object, whose files are still placeholders in this tree): the evaluator takes the font object through
+  `oplist::FontProvider::translate_font(&Arc<Dict>, &Xref) -> Result<Arc<dyn FontObject>>` and `FontObject::{is_type3, chars_to_glyphs, bbox}`.
+  The font-object task implements both traits over its `Font` and passes the provider to `get_operator_list`. Without a provider every font reads as
+  unavailable (pdf.js `ErrorFont`: a shown string has no glyphs) and the pass reports that once at error level. The Type3 glyph procedures
+  (`loadType3Data`: one operator list per CharProcs entry, colour operators of `d1` glyphs removed, glyph boxes joined) are read by this task
+  once the provider says a font is Type3 (`LoadedFont::type3`).
+- `outline_read::get_page_index(&Document, Ref)` is `Catalog.getPageIndex`; `get_destination(&Document, &str)` is `Catalog.getDestination`;
+  `get_outline(&Document)` is `Catalog.documentOutline`; `parse_dest_dictionary` is `Catalog.parseDestDictionary` (the outline items and the link
+  annotations share it). The links of `annotations::get_annotations` are in page order, widgets then popups last, as pdf.js sorts them.
+
+## 7. Verify (after 1 to 3)
+cargo nextest run -p mixdog-pdf --offline
+cargo clippy -p mixdog-pdf --all-targets --offline -- -D warnings
+The ignored `twin_live_oplist` re-records with Node (`node benchmarks/rust-core/recorders/record-office-oplist.mjs --tree <tree>`).
+The replay test `operator_lists_annotations_and_outline_equal_pdfjs` compares exactly (every number as a double) and prints the first differences per
+document: a difference there is a port defect to fix in the module it names (ops: oplist; annots: annotations; outline/dests: outline_read).
