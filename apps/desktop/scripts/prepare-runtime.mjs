@@ -17,21 +17,23 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { listPackage, statFile } from '@electron/asar';
-import { createAsarPackage } from './asar-pack.mjs';
-import { embeddingRuntimeTarget, pruneEmbeddingRuntime } from '../../../scripts/prune-embedding-runtime.mjs';
+import { embeddingRuntimeTarget, WINDOWS_DML_PRUNABLE_FILES } from '../../../scripts/prune-embedding-runtime.mjs';
 import { pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
-import {
-  downloadNativeTool,
-  NATIVE_TOOL_KINDS,
-  nativeToolInstalledName,
-} from '../../../scripts/native-tool-download.mjs';
+import { downloadNativeTool, nativeToolInstalledName } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
 import { optionValue } from './cli-args.mjs';
-import { CORE_READS, mirrorCoreRuntime, PACKAGE_DIR, WINDOWS_ONNX_VC_RUNTIME_DLLS } from './core-layout.mjs';
+import {
+  desktopExtraRoots,
+  mirrorCoreRuntime,
+  onnxRuntimeSupported,
+  ORT_PACKAGE,
+  ortBinaryDir,
+  PACKAGE_DIR,
+  WINDOWS_ONNX_VC_RUNTIME_DLLS,
+} from './core-layout.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
-import { copyPptxgenjsData, launcherRuntimeFiles } from './stage-js-bundle.mjs';
+import { copyPptxgenjsData, installProductionModules, launcherRuntimeFiles } from './stage-js-bundle.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,31 +42,17 @@ const rootDir = resolve(desktopDir, '../..');
 const runtimeDir = join(desktopDir, '.runtime');
 const stagingDir = join(runtimeDir, 'staging');
 const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
-const runtimeArchive = join(runtimeDir, 'runtime.asar');
-const runtimeSidecar = `${runtimeArchive}.unpacked`;
+// Every file the app ships of the root package is a real file (the Rust core and the script interpreter read
+// them with plain fs; built-in skills hand their directory to the model, which runs their bundled scripts with
+// plain Node): electron-builder maps this tree to resources/runtime.asar.unpacked/node_modules, and no
+// archive of it exists. Its name is the path the core's js-runtime.json and MIXDOG_ROOT already name.
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
-// Built-in skills hand their directory to the model, which runs their bundled
-// scripts with plain Node; Node cannot read inside runtime.asar, so every
-// shipped skill file is unpacked beside the archive (asar matches unpackDir
-// against OS-native relative paths).
-const builtinSkillsPackageRoot = 'src/defaults/skills/';
-const builtinSkillsUnpackDir = join('node_modules', 'mixdog', ...builtinSkillsPackageRoot.split('/').filter(Boolean));
 // The skill launcher (src/skill-script-entry.mjs, src/runtime/shared/skill-script-runtime.mjs) is
 // checked as part of CORE_READS / the core closure. K1 retired the Node skill scripts (validate-skill,
 // the pptx scripts) with their Node consumers, so no script is bundled or run here.
-
-/** Archive paths of every shipped built-in skill file, from the npm pack manifest. */
-function builtinSkillArchivePaths(manifest) {
-  return manifest.files
-    .map((entry) => String(entry.path).replaceAll('\\', '/'))
-    .filter((path) => path.startsWith(builtinSkillsPackageRoot))
-    .map((path) => `node_modules/mixdog/${path}`);
-}
-
-/** Archive paths that must exist as real files in runtime.asar.unpacked. */
-function unpackedArchivePaths(manifest) {
-  return builtinSkillArchivePaths(manifest);
-}
+// The tools the app executes (native_tools.rs resolves only these): the patch engine and the process
+// manager are libraries of the core now, so their standalone binaries are neither downloaded nor packaged.
+const DESKTOP_NATIVE_TOOL_KINDS = Object.freeze(['graph']);
 
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
 const configuredBrowserImportNativeSourceDir = String(process.env.MIXDOG_BROWSER_IMPORT_NATIVE_DIR ?? '').trim();
@@ -97,7 +85,7 @@ const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
 // does not ship; without the VC++ Redistributable the addon fails to load.
 // WINDOWS_ONNX_VC_RUNTIME_DLLS (core-layout.mjs) are deployed app-local beside onnxruntime.dll.
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
-const preparedRuntimeSchema = 2;
+const preparedRuntimeSchema = 3;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
 const npmCacheDir = configuredNpmCacheDir ? resolve(configuredNpmCacheDir) : join(runtimeDir, 'npm-cache');
 const ownsNpmCache = !configuredNpmCacheDir;
@@ -106,20 +94,10 @@ if (!ownsNpmCache && (npmCacheDir === runtimeDir || npmCacheDir.startsWith(`${ru
 }
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('prepare-runtime must be run from npm.');
-const fastFullMode = optionValue('mode') === 'fast-full';
-const fastRuntimeDependencyHash = optionValue('dependency-hash');
-const fastRuntimeHash = optionValue('runtime-hash');
 const embeddingTarget = embeddingRuntimeTarget({
   platform: optionValue('platform') || undefined,
   arch: optionValue('arch') || undefined,
 });
-const configuredDependencyCacheDir = String(process.env.MIXDOG_RUNTIME_DEPENDENCY_CACHE ?? '').trim();
-const dependencyCacheDir = configuredDependencyCacheDir
-  ? resolve(configuredDependencyCacheDir)
-  : join(desktopDir, '.cache', 'runtime-dependencies', embeddingTarget.key);
-if (dependencyCacheDir === runtimeDir || dependencyCacheDir.startsWith(`${runtimeDir}${sep}`)) {
-  throw new Error('MIXDOG_RUNTIME_DEPENDENCY_CACHE must point outside the disposable .runtime directory.');
-}
 const dependencyCacheIdentity = await runtimeDependencyCacheIdentity(rootDir, embeddingTarget);
 let browserImportInputIdentity = null;
 
@@ -224,6 +202,8 @@ const mainNativeSourceRoots = [
   join('native', 'mixdog-main-native'),
   join('native', 'core', 'crates', 'mixdog-browser-rules'),
   join('native', 'core', 'crates', 'mixdog-js'),
+  // [patch.crates-io] of native/mixdog-main-native/Cargo.toml: the collator the module links is this vendored copy.
+  join('native', 'core', 'vendor', 'icu_collator'),
 ];
 // The workspace manifest those crates inherit their versions, features and lints from.
 const mainNativeSourceFiles = [join('native', 'core', 'Cargo.toml')];
@@ -500,10 +480,19 @@ async function runtimeInputFingerprint(manifest) {
       sha256: sha256(await readFile(source)),
     });
   }
-  const [preparationSource, desktopPruneSource, desktopLockfile] = await Promise.all([
+  // Every script that decides what the prepared runtime holds: this one and the modules it imports.
+  const helperScripts = [
+    'cli-args.mjs',
+    'core-layout.mjs',
+    'remote-js-roots.mjs',
+    'runtime-package-payload.mjs',
+    'stage-js-bundle.mjs',
+  ];
+  const [preparationSource, desktopPruneSource, desktopLockfile, helperSources] = await Promise.all([
     readFile(fileURLToPath(import.meta.url)),
     readFile(join(rootDir, 'scripts', 'prune-desktop-runtime.mjs')),
     readFile(join(desktopDir, 'package-lock.json')),
+    Promise.all(helperScripts.map((name) => readFile(join(desktopDir, 'scripts', name)))),
   ]);
   return sha256(
     JSON.stringify({
@@ -513,6 +502,7 @@ async function runtimeInputFingerprint(manifest) {
       preparationSha256: sha256(preparationSource),
       desktopPruneSha256: sha256(desktopPruneSource),
       desktopLockfileSha256: sha256(desktopLockfile),
+      helperScripts: helperSources.map((source) => sha256(source)),
       browserImport: browserImportInputIdentity,
       secureDesktop: secureDesktopInputIdentity,
       windowLibrary: windowLibraryInputIdentity,
@@ -523,7 +513,7 @@ async function runtimeInputFingerprint(manifest) {
   );
 }
 
-async function canReusePreparedRuntime(fingerprint, packageManifest) {
+async function canReusePreparedRuntime(fingerprint) {
   try {
     const manifest = JSON.parse(await readFile(runtimeManifestPath, 'utf8'));
     if (
@@ -533,16 +523,9 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
     ) {
       return false;
     }
-    const archive = await stat(runtimeArchive);
-    if (!archive.isFile() || archive.size !== manifest.runtimeArchiveBytes) return false;
     await Promise.all([
-      access(runtimeSidecar),
-      access(builderNativeModulesDir),
-      ...unpackedArchivePaths(packageManifest).flatMap((path) => [
-        access(join(runtimeSidecar, ...path.split('/'))),
-        access(join(builderNativeModulesDir, ...path.split('/').slice(1))),
-      ]),
-      ...NATIVE_TOOL_KINDS.map((kind) =>
+      access(join(builderNativeModulesDir, PACKAGE_DIR, 'package.json')),
+      ...DESKTOP_NATIVE_TOOL_KINDS.map((kind) =>
         access(join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)))
       ),
       ...(browserImportInputIdentity
@@ -577,7 +560,7 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
  */
 async function prepareDesktopNativeTools() {
   const downloadDataDir = join(runtimeDir, 'native-downloads');
-  // Linux packaging may supply graph/patch built against an older glibc
+  // Linux packaging may supply graph built against an older glibc
   // baseline (see linux-build-native-old-glibc.sh); a tool present in that
   // directory replaces the pinned release download for this build.
   const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
@@ -590,7 +573,7 @@ async function prepareDesktopNativeTools() {
       .filter(Boolean)
   );
   const sources = await Promise.all(
-    NATIVE_TOOL_KINDS.map(async (kind) => {
+    DESKTOP_NATIVE_TOOL_KINDS.map(async (kind) => {
       if (overrideDir && embeddingTarget.platform === 'linux') {
         const override = join(resolve(overrideDir), nativeToolInstalledName(kind, embeddingTarget));
         if (
@@ -609,7 +592,7 @@ async function prepareDesktopNativeTools() {
   );
   await rm(desktopNativeToolsDir, { recursive: true, force: true });
   await mkdir(desktopNativeToolsDir, { recursive: true });
-  for (const [index, kind] of NATIVE_TOOL_KINDS.entries()) {
+  for (const [index, kind] of DESKTOP_NATIVE_TOOL_KINDS.entries()) {
     const destination = join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget));
     await cp(sources[index], destination);
     await assertTargetArchitecture(destination, `Native tool ${kind}`);
@@ -657,47 +640,6 @@ async function prepareDesktopNativeTools() {
   await rm(downloadDataDir, { recursive: true, force: true });
 }
 
-async function restoreRuntimeDependencies() {
-  if (!dependencyCacheIdentity) return false;
-  try {
-    const manifest = JSON.parse(await readFile(join(dependencyCacheDir, 'manifest.json'), 'utf8'));
-    if (
-      manifest.schemaVersion !== dependencyCacheIdentity.schemaVersion ||
-      manifest.target !== dependencyCacheIdentity.target ||
-      manifest.host !== dependencyCacheIdentity.host ||
-      manifest.nodeAbi !== dependencyCacheIdentity.nodeAbi ||
-      manifest.fingerprint !== dependencyCacheIdentity.fingerprint
-    ) {
-      return false;
-    }
-    const cachedNodeModules = join(dependencyCacheDir, 'node_modules');
-    await access(cachedNodeModules);
-    await cp(cachedNodeModules, join(stagingDir, 'node_modules'), { recursive: true });
-    return true;
-  } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      console.warn(`Ignoring unusable runtime dependency cache: ${error?.message || error}`);
-    }
-    return false;
-  }
-}
-
-async function storeRuntimeDependencies() {
-  if (!dependencyCacheIdentity) return;
-  const temporaryCacheDir = `${dependencyCacheDir}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    await rm(temporaryCacheDir, { recursive: true, force: true });
-    await mkdir(temporaryCacheDir, { recursive: true });
-    await cp(join(stagingDir, 'node_modules'), join(temporaryCacheDir, 'node_modules'), { recursive: true });
-    await writeFile(join(temporaryCacheDir, 'manifest.json'), `${JSON.stringify(dependencyCacheIdentity, null, 2)}\n`);
-    await rm(dependencyCacheDir, { recursive: true, force: true });
-    await rename(temporaryCacheDir, dependencyCacheDir);
-  } catch (error) {
-    await rm(temporaryCacheDir, { recursive: true, force: true });
-    console.warn(`Unable to update runtime dependency cache: ${error?.message || error}`);
-  }
-}
-
 function runNpm(args, options = {}) {
   const { env, useRuntimeCache = true, ...execOptions } = options;
   const mergedEnv = { ...process.env, ...env };
@@ -720,62 +662,38 @@ async function prepareRuntime(manifest, fingerprint) {
   await rm(runtimeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   await mkdir(runtimeDir, { recursive: true });
   let prepared = false;
+  const previousNpmCache = process.env.npm_config_cache;
 
   try {
     await timed('native-tools', () => prepareDesktopNativeTools());
-    // The staging install only needs the production dependency tree. The repo's
-    // postinstall (embedding prune) is driven explicitly by this script.
-    // Stripping scripts leaves the lockfile tree unchanged.
+    // What the app ships of the root package is exactly what the Rust core and its script interpreter load
+    // as real files (core-layout.mjs): the package, the packages the pptxgenjs authoring script and the
+    // skill launchers reach (and what those need), and the ONNX Runtime library of the target. The same
+    // trimmed lockfile install the server bundles use (stage-js-bundle.mjs installProductionModules):
+    // a dependency of the root package that no entry point imports is not installed, and the install runs
+    // no package script, so the onnxruntime-node postinstall never downloads provider libraries the core
+    // does not register.
     await mkdir(stagingDir, { recursive: true });
-    const stagingPackage = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'));
-    delete stagingPackage.scripts;
-    await writeFile(join(stagingDir, 'package.json'), `${JSON.stringify(stagingPackage, null, 2)}\n`);
-    await cp(join(rootDir, 'package-lock.json'), join(stagingDir, 'package-lock.json'));
-    await mkdir(join(stagingDir, 'scripts'), { recursive: true });
-    await cp(
-      join(rootDir, 'scripts', 'prune-embedding-runtime.mjs'),
-      join(stagingDir, 'scripts', 'prune-embedding-runtime.mjs')
+    // Local preparation keeps tarballs/logs in a disposable cache (see runNpm); CI supplies its restored cache.
+    process.env.npm_config_cache = npmCacheDir;
+    await timed('npm-ci', () =>
+      installProductionModules(stagingDir, embeddingTarget.key, { extraRoots: desktopExtraRoots(embeddingTarget.platform) })
     );
-
-    let restoredDependencies = await timed('dependency-cache-restore', () => restoreRuntimeDependencies());
-    let prunedEmbedding;
-    if (restoredDependencies) {
-      try {
-        // A restored tree must still pass the same completeness checks and
-        // idempotent platform pruning as a fresh npm install.
-        prunedEmbedding = await timed('cached-dependency-validation', () =>
-          pruneEmbeddingRuntime(stagingDir, embeddingTarget)
-        );
-        console.log(`Reused cached ${embeddingTarget.key} runtime dependencies.`);
-      } catch (error) {
-        console.warn(`Cached runtime dependencies failed validation: ${error?.message || error}`);
-        await rm(join(stagingDir, 'node_modules'), {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 250,
-        });
-        restoredDependencies = false;
-      }
+    const onnx = onnxRuntimeSupported(embeddingTarget.platform, embeddingTarget.arch);
+    const ortBinarySource = onnx
+      ? join(stagingDir, 'node_modules', ORT_PACKAGE, ortBinaryDir(embeddingTarget.platform, embeddingTarget.arch))
+      : null;
+    if (onnx && !(await stat(join(ortBinarySource, 'onnxruntime_binding.node')).then((entry) => entry.isFile(), () => false))) {
+      throw new Error(`Embedding runtime is incomplete: missing ${embeddingTarget.key} ONNX binding in ${ortBinarySource}`);
     }
-    if (!restoredDependencies) {
-      await timed('npm-ci', () =>
-        runNpm(['ci', '--omit=dev', '--no-audit', '--no-fund'], {
-          cwd: stagingDir,
-          env: {
-            MIXDOG_EMBED_TARGET_PLATFORM: embeddingTarget.platform,
-            MIXDOG_EMBED_TARGET_ARCH: embeddingTarget.arch,
-          },
-        })
-      );
-      prunedEmbedding = await timed('dependency-prune', () => pruneEmbeddingRuntime(stagingDir, embeddingTarget));
-      await timed('dependency-cache-store', () => storeRuntimeDependencies());
-    }
-    if (prunedEmbedding.onnx && embeddingTarget.platform === 'win32') {
+    if (onnx && embeddingTarget.platform === 'win32') {
       await timed('vc-runtime-copy', async () => {
+        // The fixed production embedding profile uses CPU inference. DirectML.dll stays for explicit device
+        // overrides; the optional DXC shader compiler payload was verified unnecessary by packaged-runtime warmup.
+        for (const name of WINDOWS_DML_PRUNABLE_FILES) await rm(join(ortBinarySource, name), { force: true, maxRetries: 10, retryDelay: 250 });
         const crtDir = await windowsVcRuntimeDir(embeddingTarget.arch);
         for (const name of WINDOWS_ONNX_VC_RUNTIME_DLLS) {
-          await cp(join(crtDir, name), join(prunedEmbedding.targetBinaryDir, name));
+          await cp(join(crtDir, name), join(ortBinarySource, name));
         }
       });
     }
@@ -788,215 +706,69 @@ async function prepareRuntime(manifest, fingerprint) {
       })
     );
 
-    const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
-    runtimePackage.private = true;
-    runtimePackage.name = '@mixdog/desktop-runtime';
-    delete runtimePackage.scripts;
-    delete runtimePackage.devDependencies;
-    await writeFile(join(stagingDir, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
     const desktopPrune = await timed('production-payload-prune', () =>
       pruneDesktopRuntime(stagingDir, embeddingTarget)
     );
     console.log(
       `Removed ${desktopPrune.removedSourceFiles} source-only runtime files` +
-        `${desktopPrune.removedSharpWasm ? ' and the Sharp WASM fallback' : ''}` +
-        `; optimized ${((desktopPrune.removedTesseractBytes + desktopPrune.removedPdfBytes) / 1024 ** 2).toFixed(1)} MiB` +
-        ' of unused OCR and PDF variants.'
+        `${desktopPrune.removedSharpWasm ? ' and the Sharp WASM fallback' : ''}.`
     );
 
-    if (fastFullMode) {
-      if (!fastRuntimeDependencyHash || !fastRuntimeHash) {
-        throw new Error('Fast runtime dependency and source hashes are required.');
-      }
-      const fastRuntimeDir = join(runtimeDir, 'fast-runtime');
-      await rm(fastRuntimeDir, { recursive: true, force: true });
-      await rename(stagingDir, fastRuntimeDir);
-      await writeFile(
-        join(fastRuntimeDir, '.mixdog-fast-runtime.json'),
-        `${JSON.stringify(
-          {
-            schemaVersion: 1,
-            dependencyHash: fastRuntimeDependencyHash,
-            runtimeHash: fastRuntimeHash,
-          },
-          null,
-          2
-        )}\n`
-      );
-      prepared = true;
-      console.log(
-        `Prepared ${embeddingTarget.key} unpacked FastDirect runtime with ` +
-          `${manifest.files.length} Mixdog package files.`
-      );
-      return;
-    }
-
-    // NSIS is very slow when it has to create the production dependency tree one
-    // file at a time. Electron reads ASARs directly, so install one archive and
-    // unpack only native addons and scripts that external processes must access
-    // as real files.
-    // @electron/asar crawls the staging tree first and only then lstats every
-    // entry it collected. On Windows a real-time AV scan can hold a freshly
-    // installed dependency file across that gap, so the lstat reports ENOENT for
-    // a path that exists before and after the pack — two consecutive runs died
-    // on different random files (hono/dist/types.js and
-    // other dependency map files). Bounded retries absorb the same race the
-    // embedding prune already retries around, and only for transient
-    // filesystem codes: a missing input the crawl never saw still fails loudly.
-    // Each attempt discards the partial archive and sidecar so a retry never
-    // packs on top of half-written output.
-    await timed('asar-create', async () => {
-      for (let attempt = 1; ; attempt += 1) {
-        try {
-          await createAsarPackage(stagingDir, runtimeArchive, {
-            dot: true,
-            // @electron/asar matches this against absolute Windows paths with
-            // matchBase enabled. A basename glob is therefore portable; **/*.node is
-            // not, because minimatch treats Windows separators differently.
-            unpack: '*.{node,dll,dylib,so,so.*,ps1,pptx,mixdog.json}',
-            unpackDir: builtinSkillsUnpackDir,
-          });
-          return;
-        } catch (error) {
-          const transient = ['ENOENT', 'EPERM', 'EBUSY', 'ENOTEMPTY', 'UNKNOWN'].includes(error?.code);
-          if (!transient || attempt >= 5) throw error;
-          console.warn(
-            `ASAR pack attempt ${attempt} failed with ${error.code} at ` +
-              `${error.path || 'an unreported path'}; retrying from a clean archive.`
-          );
-          await rm(runtimeArchive, { force: true, maxRetries: 10, retryDelay: 250 });
-          await rm(runtimeSidecar, {
-            recursive: true,
-            force: true,
-            maxRetries: 10,
-            retryDelay: 250,
-          });
-          await new Promise((done) => {
-            setTimeout(done, 500 * attempt);
-          });
-        }
-      }
-    });
-
-    const archiveEntries = new Set(
-      listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/'))
-    );
-    const unpackedArchiveEntries = unpackedArchivePaths(manifest).map((path) => `/${path}`);
-    const ortArchiveRoot = relative(stagingDir, prunedEmbedding.ortRoot).replaceAll(sep, '/');
-    const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v6`;
-    const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
-    const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v6/${embeddingTarget.platform}/${embeddingTarget.arch}`;
-    for (const required of [
-      '/package.json',
-      // What the Rust core reads from the package root (core-layout.mjs); the real-file copy is the
-      // core-runtime-mirror below, which verifyCoreTree checks against the same list.
-      ...CORE_READS.files.map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
-      // The skill launcher: its entry and the files it imports, nothing from the npm closure.
-      ...launcherRuntimeFiles(rootDir).map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
-      ...unpackedArchiveEntries,
-      '/node_modules/@huggingface/transformers/package.json',
-      '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
-      '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
-      `/${ortArchiveRoot}/package.json`,
-      ...(prunedEmbedding.onnx ? [`${embeddingBinaryRoot}/onnxruntime_binding.node`] : []),
-      ...(prunedEmbedding.onnx && embeddingTarget.platform === 'win32'
-        ? WINDOWS_ONNX_VC_RUNTIME_DLLS.map((name) => `${embeddingBinaryRoot}/${name}`)
-        : []),
-    ]) {
-      if (!archiveEntries.has(required)) {
-        throw new Error(`Runtime archive is incomplete: missing ${required}`);
-      }
-    }
-    if (!prunedEmbedding.onnx) {
-      const onnxBinding = [...archiveEntries].find((entry) => entry.endsWith('/onnxruntime_binding.node'));
-      if (onnxBinding) {
-        throw new Error(`Runtime archive contains an onnxruntime binding on ${embeddingTarget.key}: ${onnxBinding}`);
-      }
-    }
-    const foreignEmbeddingBinary = [...archiveEntries].find(
-      (entry) =>
-        prunedEmbedding.onnx &&
-        entry.startsWith(`${embeddingNapiRoot}/`) &&
-        entry !== embeddingPlatformRoot &&
-        entry !== embeddingBinaryRoot &&
-        !entry.startsWith(`${embeddingBinaryRoot}/`)
-    );
-    if (foreignEmbeddingBinary) {
-      throw new Error(`Runtime archive contains a foreign embedding binary: ${foreignEmbeddingBinary}`);
-    }
-    if ([...archiveEntries].some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry))) {
-      throw new Error('Runtime archive contains unused onnxruntime-web payloads.');
-    }
-
-    const nativeBinaryEntries = [...archiveEntries].filter((entry) => NATIVE_BINARY_NAME.test(entry));
-    const unpackedRuntimeEntries = [...new Set([...nativeBinaryEntries, ...unpackedArchiveEntries])];
-    await timed('unpacked-runtime-mirror', async () => {
-      for (const entry of unpackedRuntimeEntries) {
-        const archivePath = entry.replace(/^\/+/, '');
-        const metadata = statFile(runtimeArchive, archivePath.replaceAll('/', sep));
-        if (!metadata.unpacked) {
-          throw new Error(`Runtime file is not marked unpacked in runtime.asar: ${entry}`);
-        }
-
-        const pathParts = archivePath.split('/');
-        const source = join(runtimeSidecar, ...pathParts);
-        await access(source);
-        if (NATIVE_BINARY_NAME.test(entry)) {
-          await assertTargetArchitecture(source, `Runtime addon ${entry}`);
-        }
-
-        // electron-builder filters paths containing a source node_modules
-        // directory. Stage its contents under a neutral name, then map that neutral
-        // root back to the exact runtime.asar.unpacked/node_modules destination.
-        if (pathParts.shift() !== 'node_modules') {
-          throw new Error(`Unpacked runtime file is outside the supported node_modules layout: ${entry}`);
-        }
-        const destination = join(builderNativeModulesDir, ...pathParts);
-        await mkdir(dirname(destination), { recursive: true });
-        await cp(source, destination);
-      }
-    });
-    // `mixdogd` reads the package root with plain fs and runs the extension host and the skill launchers
-    // from it, none of which can use runtime.asar: the package and the dependency closure its entry points
-    // reach are mirrored as real files beside the native files above (core-layout.mjs), then checked.
+    // electron-builder ships the real files below (extraResources .runtime/native-modules to
+    // runtime.asar.unpacked/node_modules): nothing in the app opens an archive of them. The core runs the
+    // extension host and the skill launchers from this tree, which no archive can serve.
     await timed('core-runtime-mirror', async () => {
+      // Fill the data payload before mirrorCoreRuntime verifies the complete tree.
+      await copyPptxgenjsData({
+        modulesDir: join(stagingDir, 'node_modules'),
+        packageDir: runtimePackageDir,
+      });
       await mirrorCoreRuntime({
         modulesDir: join(stagingDir, 'node_modules'),
         destination: builderNativeModulesDir,
         platform: embeddingTarget.platform,
         arch: embeddingTarget.arch,
-        ortBinarySource: prunedEmbedding.onnx ? prunedEmbedding.targetBinaryDir : null,
-      });
-      // The pptxgenjs files model-written authoring scripts are served from, as data beside the package.
-      await copyPptxgenjsData({
-        modulesDir: join(stagingDir, 'node_modules'),
-        packageDir: join(builderNativeModulesDir, PACKAGE_DIR),
+        ortBinarySource,
       });
     });
 
-    const archive = await stat(runtimeArchive);
+    // The skill launcher: its entry and the files it imports, nothing from the npm closure.
+    for (const file of launcherRuntimeFiles(rootDir)) {
+      await access(join(builderNativeModulesDir, PACKAGE_DIR, file)).catch(() => {
+        throw new Error(`Runtime is incomplete: the skill launcher file ${file} is missing`);
+      });
+    }
+
+    // A binary of another architecture inside the app packages and publishes without a warning and only fails
+    // on the user's machine: every native file the app ships is read back for the target's architecture.
+    const nativeBinaries = await timed('native-architecture-check', async () => {
+      const found = [];
+      for (const entry of await readdir(builderNativeModulesDir, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile() || !NATIVE_BINARY_NAME.test(entry.name)) continue;
+        const source = join(entry.parentPath, entry.name);
+        await assertTargetArchitecture(source, `Runtime addon ${relative(builderNativeModulesDir, source).replaceAll(sep, '/')}`);
+        found.push(source);
+      }
+      return found;
+    });
+    if (!onnx && nativeBinaries.some((file) => file.endsWith('onnxruntime_binding.node'))) {
+      throw new Error(`Runtime contains an onnxruntime binding on ${embeddingTarget.key}`);
+    }
+
     await writeFile(
       runtimeManifestPath,
-      `${JSON.stringify(
-        {
-          schemaVersion: preparedRuntimeSchema,
-          target: embeddingTarget.key,
-          fingerprint,
-          runtimeArchiveBytes: archive.size,
-        },
-        null,
-        2
-      )}\n`
+      `${JSON.stringify({ schemaVersion: preparedRuntimeSchema, target: embeddingTarget.key, fingerprint }, null, 2)}\n`
     );
     prepared = true;
     console.log(
-      `Prepared ${embeddingTarget.key} runtime.asar with ${archiveEntries.size} entries, including ` +
-        `${manifest.files.length} Mixdog package files and ${unpackedRuntimeEntries.length} unpacked runtime file(s).`
+      `Prepared ${embeddingTarget.key} runtime: ${manifest.files.length} Mixdog package files and the ` +
+        `core's dependency closure as real files (${nativeBinaries.length} native file(s)).`
     );
   } finally {
-    // `npm ci`, ASAR creation, or native mirroring can all fail after creating
-    // hundreds of MiB. Always remove transient state; on failure also discard
-    // the partial archive/sidecar so the next build starts from a clean slate.
+    if (previousNpmCache === undefined) delete process.env.npm_config_cache;
+    else process.env.npm_config_cache = previousNpmCache;
+    // npm ci or the mirror can fail after creating hundreds of MiB. Always remove transient state; on
+    // failure also discard the partial runtime so the next build starts from a clean slate.
     await timed('cleanup', async () => {
       const cleanup = [rm(stagingDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 })];
       if (ownsNpmCache) {
@@ -1019,7 +791,7 @@ async function prepareRuntime(manifest, fingerprint) {
 
 // Preparation is exclusive per checkout. Every run starts by deleting and
 // rebuilding .runtime, so two overlapping deployments destroyed each other: the
-// second wiped the staging tree the first was packing into runtime.asar, which
+// second wiped the staging tree the first was mirroring into native-modules, which
 // surfaced as ENOENT on a different random dependency file every attempt and,
 // once the deletion won the race outright, as an archive missing /package.json.
 // A later run now waits for the holder instead, and then normally takes the
@@ -1113,8 +885,8 @@ try {
   ));
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed('input-fingerprint', () => runtimeInputFingerprint(manifest));
-  if (!fastFullMode && (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint, manifest)))) {
-    console.log(`Reused prepared ${embeddingTarget.key} runtime.asar.`);
+  if (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint))) {
+    console.log(`Reused prepared ${embeddingTarget.key} runtime.`);
   } else {
     await prepareRuntime(manifest, fingerprint);
   }

@@ -309,3 +309,37 @@ test('release graph with the pre-fix conditions: publish would have proceeded wi
   assert.equal(broken.results.publish, 'success');
   assert.equal(broken.inner['linux-verify-full'].results['update-path'], 'skipped');
 });
+
+
+test('a release builds server bundles once and verifies its actual Linux packages', () => {
+  assert.equal(release.jobs['server-cores'].uses, './.github/workflows/server-cores-build.yml');
+  assert.ok(needsOf(release.jobs['server-cores']).includes('mixdogd'));
+  assert.ok(needsOf(release.jobs.publish).includes('server-cores'));
+  for (const name of ['desktop-windows', 'desktop-darwin-arm64', 'desktop-darwin-x64', 'desktop-linux-x64', 'desktop-linux-arm64']) {
+    assert.ok(!needsOf(release.jobs[name]).includes('mixdogd'), `${name} should prepare while cores build`);
+  }
+  assert.equal(release.jobs['linux-verify-full'].with.server_cores_prebuilt, true);
+  assert.equal(release.jobs['linux-verify-full'].with.packages_prebuilt, true);
+  const called = asCalledByRelease();
+  assert.equal(called['server-cores'], 'skipped');
+  assert.equal(standalone()['server-cores'], 'success');
+  const failed = standalone(verify, { outcomes: { 'server-cores': 'failure' } });
+  for (const name of ['verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(failed[name], 'skipped');
+});
+
+test('Linux verification never destroys adopted bundles by calling the restaging package script', () => {
+  for (const name of ['verify', 'build-next']) {
+    const steps = verify.jobs[name].steps;
+    assert.ok(steps.some((step) => String(step.run || '').includes('stage-core.mjs --server-cores=server-cores-in')));
+    assert.ok(steps.some((step) => String(step.run || '').includes('electron-builder --linux')));
+    assert.ok(!steps.some((step) => /npm run build:linux/.test(step.run || '')));
+  }
+  const steps = verify.jobs.verify.steps;
+  const packageStep = steps.find((step) => step.name === 'Build Linux package');
+  assert.equal(packageStep.if, '${{ !inputs.packages_prebuilt }}');
+  const download = steps.find((step) => step.name === 'Download the release packages under verification');
+  assert.equal(download.if, '${{ inputs.packages_prebuilt }}');
+  assert.equal(download.with.name, 'mixdog-linux-packages-${{ matrix.arch }}');
+  const upload = steps.find((step) => step.name === 'Upload AppImage, .deb and update feed');
+  assert.equal(upload.if, '${{ always() && !inputs.packages_prebuilt }}');
+});

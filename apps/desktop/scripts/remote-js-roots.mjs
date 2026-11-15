@@ -166,7 +166,7 @@ export const NOT_FOR_REMOTE = Object.freeze({
  *  lacks `libc` for the musl variants, so after the install the package.json fields decide too. */
 export const fitsTarget = (name, entry, target) =>
   !target ||
-  (!(name in NOT_FOR_REMOTE) &&
+  ((!(name in NOT_FOR_REMOTE) || target.keep?.has(name) === true) &&
     allowed(entry.os, target.os) &&
     allowed(entry.cpu, target.cpu) &&
     (!target.libc || allowed(entry.libc, target.libc)));

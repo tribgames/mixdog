@@ -40,7 +40,6 @@
     "test:computer-host:repeats": "node scripts/run-computer-host-scenario-repeats.mjs",
     "merge:computer-host:scenarios": "node scripts/merge-computer-host-scenarios.mjs",
     "test:spec-advisory": "node --max-old-space-size=1024 --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs ../../scripts/test-direct.mjs src/renderer/product-spec.test.mjs src/renderer/agent-activity.test.mjs src/renderer/queue-actions.test.mjs src/renderer/turn-review.test.mjs",
-    "verify:packaged-runtime": "node scripts/verify-packaged-runtime.mjs",
     "verify:update-metadata": "node scripts/verify-update-metadata.mjs",
     "e2e:direct": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/direct-e2e-windows.ps1",
     "e2e:direct:source": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/direct-e2e-windows.ps1 -SourceMode",

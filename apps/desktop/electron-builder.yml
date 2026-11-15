@@ -8,8 +8,8 @@ asarUnpack:
   # Keep the Win32 FFI loader and its platform-native binding on disk.
   - node_modules/koffi/**
   - node_modules/@koromix/koffi-*/**
-# Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
-# by prepare-runtime.mjs; never rebuild them against Electron headers here.
+# Native modules ship as prebuilt binaries under runtime.asar.unpacked/node_modules
+# (prepare-runtime.mjs); never rebuild them against Electron headers here.
 npmRebuild: false
 nodeGypRebuild: false
 # Notarizes and staples a signed macOS app before its dmg and zip are made.
@@ -39,17 +39,14 @@ extraResources:
   # Linux tray icon: Electron reads ICO only on Windows.
   - from: build/mixdog.png
     to: mixdog.png
-  # Electron resolves modules directly from this archive. NSIS therefore
-  # installs one runtime file instead of expanding thousands of dependencies.
-  - from: .runtime/runtime.asar
-    to: runtime.asar
-  # electron-builder filters a source path containing node_modules. The
-  # preparation step mirrors native binaries and external-process scripts under
-  # this neutral root; restore Electron's exact ASAR-unpacked layout at the destination.
-  # This is also the Rust core's unpacked resource root (scripts/core-layout.mjs):
-  # the mixdog package (src/rules, output-styles, agents, defaults, ...) the core
-  # reads with plain fs, the dependency closure of the extension host and the skill
+  # The Rust core's resource root (scripts/core-layout.mjs): the mixdog package
+  # (src/rules, output-styles, agents, defaults, ...) the core reads with plain
+  # fs, the dependency closure of the pptxgenjs authoring script and the skill
   # launchers, and the ONNX Runtime library with its siblings, as real files.
+  # No archive of it ships: nothing in the app opens one and the core refuses an
+  # archive package root. electron-builder filters a source path containing
+  # node_modules, so the preparation step stages the tree under this neutral
+  # root and it is mapped back to the path js-runtime.json and MIXDOG_ROOT name.
   # scripts/verify-staged-package.mjs checks the built resources for all of it.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules

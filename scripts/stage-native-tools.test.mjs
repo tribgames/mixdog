@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { STAGED_NATIVE_TOOL_KINDS, stageNativeTools } from './stage-native-tools.mjs';
+import { stageNativeTools } from './stage-native-tools.mjs';
 
 const fakeDownload = async (kind, target, cacheDir) => {
   const file = join(cacheDir, `${kind}-${target.platform}-${target.arch}`);
@@ -13,14 +13,14 @@ const fakeDownload = async (kind, target, cacheDir) => {
   return file;
 };
 
-test('graph, patch and spawn are staged under native-tools with the installed names', async () => {
+test('only the external graph program is staged; patch and spawn are core libraries', async () => {
   const root = await mkdtemp(join(tmpdir(), 'stage-native-tools-'));
   const staged = await stageNativeTools({ root, platform: 'linux', arch: 'arm64', download: fakeDownload });
   assert.deepEqual(
     staged.map((file) => file.slice(root.length + 1).replaceAll('\\', '/')),
-    STAGED_NATIVE_TOOL_KINDS.map((kind) => `native-tools/mixdog-${kind}`),
+    ['native-tools/mixdog-graph'],
   );
-  assert.equal(await readFile(staged[1], 'utf8'), 'patch for linux-arm64');
+  assert.equal(await readFile(staged[0], 'utf8'), 'graph for linux-arm64');
   if (process.platform !== 'win32') assert.equal((await stat(staged[0])).mode & 0o777, 0o755);
 });
 

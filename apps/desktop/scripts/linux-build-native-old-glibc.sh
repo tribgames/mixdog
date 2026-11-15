@@ -14,7 +14,7 @@ mkdir -p /w/native-out
 # MIXDOG_NATIVE_TOOLS (space separated) limits the build to the tools whose
 # cache missed; the tools are independent crates, each with its own target dir,
 # so they build concurrently and every PID is waited on.
-tools=${MIXDOG_NATIVE_TOOLS:-computer graph patch main-native}
+tools=${MIXDOG_NATIVE_TOOLS:-computer graph main-native}
 pids=()
 for tool in $tools; do
 	(

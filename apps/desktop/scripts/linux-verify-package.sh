@@ -2,7 +2,7 @@
 # Verifies the BUILT Linux packages, not the build directory:
 #   linux-verify-package.sh <distDir> <nativeOutDir> <x64|arm64> <maxGlibc> [workDir]
 # 1. extracts the payload of the .deb (dpkg-deb -x) and of the AppImage (--appimage-extract),
-# 2. proves mixdog-computer/-graph/-patch and mixdog_main_native.node inside BOTH are byte-identical to the
+# 2. proves mixdog-computer/-graph and mixdog_main_native.node inside BOTH are byte-identical to the
 #    manylinux_2_28 build outputs in <nativeOutDir> (so the pinned-release
 #    download path was not used) and that both packages carry the same tools,
 # 3. records the glibc floor of every ELF in both payloads (fail closed, see
@@ -34,7 +34,7 @@ ai_root="$work/appimage/squashfs-root"
 echo "deb payload: $deb_root"
 echo "AppImage payload: $ai_root"
 for root in "$deb_root" "$ai_root"; do
-	for t in computer graph patch; do
+	for t in computer graph; do
 		want=$(sha256sum "$native/mixdog-$t" | cut -d' ' -f1)
 		got=$(sha256sum "$root/resources/native-tools/mixdog-$t" | cut -d' ' -f1)
 		echo "mixdog-$t  build=$want  packaged=$got  ($root)"
@@ -53,7 +53,7 @@ for root in "$deb_root" "$ai_root"; do
 done
 diff -r "$deb_root/resources/native-tools" "$ai_root/resources/native-tools"
 sha256sum "$deb_root"/resources/native-tools/*
-required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/native-tools/mixdog_main_native.node,resources/core/mixdogd,resources/core/mixdog-askpass"
+required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog_main_native.node,resources/core/mixdogd,resources/core/mixdog-askpass"
 for root in "$deb_root" "$ai_root"; do
 	echo "== glibc floor: $root"
 	node "$here/linux-glibc-floor.mjs" "$root" "$max" --arch "$arch" --require "$required"

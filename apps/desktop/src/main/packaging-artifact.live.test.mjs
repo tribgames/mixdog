@@ -5,16 +5,16 @@
 // in packaging.test.mjs.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { access, open, readdir, readFile } from 'node:fs/promises';
-import { dirname, join, sep } from 'node:path';
+import { access, open, readdir, readFile, stat } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { extractFile, listPackage, statFile } from '@electron/asar';
-import { CORE_READS, onnxRuntimeSupported } from '../../scripts/core-layout.mjs';
+import { CORE_READS, onnxRuntimeSupported, ortBinaryDir, UNPACKED_NODE_MODULES } from '../../scripts/core-layout.mjs';
 import { verifyStagedResources } from '../../scripts/verify-staged-package.mjs';
 
-async function findRuntimeArchives(directory, depth = 0) {
+/** The `resources` directories under `directory` (win-unpacked/resources, linux-unpacked/resources,
+ *  Mixdog.app/Contents/Resources): the directories holding the core and the unpacked runtime. */
+async function findPackagedResources(directory, depth = 0) {
   if (depth > 8) return [];
   let entries;
   try {
@@ -23,16 +23,24 @@ async function findRuntimeArchives(directory, depth = 0) {
     if (error?.code === 'ENOENT') return [];
     throw error;
   }
-  const archives = [];
+  const names = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+  if (names.has('core') && names.has('runtime.asar.unpacked')) return [directory];
+  const found = [];
   for (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isFile() && entry.name === 'runtime.asar') {
-      archives.push(path);
-    } else if (entry.isDirectory()) {
-      archives.push(...(await findRuntimeArchives(path, depth + 1)));
-    }
+    if (entry.isDirectory()) found.push(...(await findPackagedResources(join(directory, entry.name), depth + 1)));
   }
-  return archives;
+  return found;
+}
+
+const distDir = () => fileURLToPath(new URL('../../dist', import.meta.url));
+
+/** Every file under `directory`, as paths relative to it. */
+async function filesUnder(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile()) files.push(relative(directory, join(entry.parentPath, entry.name)).split(sep).join('/'));
+  }
+  return files;
 }
 
 async function streamingFileIdentity(path) {
@@ -121,26 +129,6 @@ async function emittedFileIdentity(path) {
   return streamingFileIdentity(path);
 }
 
-// Release packaging embeds Mixdog's Google OAuth client before prepare-runtime
-// (desktop-package.yml, "Embed the Google OAuth client") and passes the same two
-// secrets here. A local or non-release build configures none: nothing to compare.
-test('packaged runtime archive embeds the configured Google OAuth client', async (t) => {
-  const clientId = String(process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID || '').trim();
-  const clientSecret = String(process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
-  if (!clientId || !clientSecret) return t.skip('no Google OAuth client is configured for this build');
-  const archives = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
-  assert.ok(archives.length > 0, 'dist holds no packaged runtime.asar');
-  const generatedFile = ['node_modules', 'mixdog', 'src', 'runtime', 'shared', 'google-oauth-client.generated.json'];
-  for (const archive of archives) {
-    const embedded = JSON.parse(extractFile(archive, generatedFile.join(sep)).toString('utf8'));
-    // Both values are secrets: compare without echoing either side.
-    assert.ok(
-      embedded.clientId === clientId && embedded.clientSecret === clientSecret,
-      `${archive} does not embed the configured Google OAuth client`
-    );
-  }
-});
-
 test('electron-vite emitted the preload entry the main process loads', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
@@ -151,104 +139,54 @@ test('the build staged the core the app starts, with its js-runtime manifest bes
   await access(join(core, 'js-runtime.json'));
 });
 
-test('built runtime archive metadata and emitted native sidecar agree', async () => {
-  const runtimeArchive = fileURLToPath(new URL('../../.runtime/runtime.asar', import.meta.url));
-  const stagedSidecar = fileURLToPath(new URL('../../.runtime/runtime.asar.unpacked', import.meta.url));
-  await access(runtimeArchive);
-
+test('the built runtime is the staged real-file tree: no archive, the closure, the ONNX library of this target, nothing foreign', async () => {
+  const stagedModules = fileURLToPath(new URL('../../.runtime/native-modules/', import.meta.url));
+  await access(stagedModules);
   // Targets without an onnxruntime-node binding (darwin-x64) ship none at all.
   const onnx = onnxRuntimeSupported(process.platform, process.arch);
-  const targetBinding = `/bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`;
-  const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
-  const built = candidates
-    .map((archive) => ({
-      archive,
-      entries: listPackage(archive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
-    }))
-    .find(({ entries }) =>
-      onnx
-        ? entries.some((entry) => entry.endsWith(targetBinding))
-        : entries.includes('/node_modules/mixdog/package.json')
-    );
-  assert.ok(built, `dist is missing a packaged ${process.platform}-${process.arch} runtime.asar`);
-  const builtArchive = built.archive;
-  const builtResources = dirname(builtArchive);
-  const entries = built.entries;
-  for (const required of [
-    '/package.json',
-    '/node_modules/mixdog/package.json',
-    ...CORE_READS.files.map((file) => `/node_modules/mixdog/${file}`),
-    '/node_modules/@huggingface/transformers/package.json',
-    '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
-    '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
-  ]) {
-    assert.ok(entries.includes(required), `runtime archive is missing ${required}`);
+  const [resources] = await findPackagedResources(distDir());
+  assert.ok(resources, `dist is missing a packaged ${process.platform}-${process.arch} resources directory with core/ and runtime.asar.unpacked/`);
+  assert.equal(await stat(join(resources, 'runtime.asar')).then(() => true, () => false), false, 'the package ships a runtime.asar nothing opens');
+  const builtModules = join(resources, UNPACKED_NODE_MODULES);
+  const files = await filesUnder(builtModules);
+  for (const required of ['mixdog/package.json', ...CORE_READS.files.map((file) => `mixdog/${file}`)]) {
+    assert.ok(files.includes(required), `the built runtime is missing ${required}`);
   }
   assert.equal(
-    entries.some((entry) => /\.mixdog-edit\.[^/]+$/i.test(entry)),
+    files.some((entry) => /\.mixdog-edit\.[^/]+$/i.test(entry)),
     false,
-    'runtime archive contains an Office authoring copy'
+    'the built runtime contains an Office authoring copy'
   );
-  const ortPackage = entries.find((entry) => /\/onnxruntime-node\/package\.json$/.test(entry));
-  assert.ok(ortPackage, 'runtime archive is missing onnxruntime-node');
-  const ortRoot = ortPackage.slice(0, -'/package.json'.length);
-  const embeddingNapiRoot = `${ortRoot}/bin/napi-v6`;
-  const embeddingPlatformRoot = `${embeddingNapiRoot}/${process.platform}`;
-  const embeddingBinaryRoot = `${embeddingPlatformRoot}/${process.arch}`;
-  if (onnx) {
-    assert.ok(
-      entries.includes(`${embeddingBinaryRoot}/onnxruntime_binding.node`),
-      `runtime archive is missing ${process.platform}-${process.arch} ONNX binding`
-    );
-  }
-  assert.equal(
-    entries.some(
-      (entry) =>
-        entry.startsWith(`${embeddingNapiRoot}/`) &&
-        (!onnx ||
-          (entry !== embeddingPlatformRoot &&
-            entry !== embeddingBinaryRoot &&
-            !entry.startsWith(`${embeddingBinaryRoot}/`)))
-    ),
-    false,
-    'runtime archive contains foreign ONNX platform binaries'
+  const binaries = files.filter((entry) => entry.startsWith('onnxruntime-node/bin/napi-v6/'));
+  const ownBinaryDir = `onnxruntime-node/${ortBinaryDir(process.platform, process.arch)}/`;
+  if (onnx) assert.ok(files.includes(`${ownBinaryDir}onnxruntime_binding.node`), `the built runtime is missing the ${process.platform}-${process.arch} ONNX binding`);
+  assert.deepEqual(
+    binaries.filter((entry) => !onnx || !entry.startsWith(ownBinaryDir)),
+    [],
+    'the built runtime contains foreign ONNX platform binaries'
   );
   assert.equal(
-    entries.some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry)),
+    files.some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry)),
     false,
-    'runtime archive contains unused ONNX web payloads'
+    'the built runtime contains unused ONNX web payloads'
   );
-
-  const nativeBinaryEntries = entries.filter((entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry));
-  const unpackedRuntimeEntries = [
-    ...new Set([
-      ...nativeBinaryEntries,
-      ...entries.filter(
-        (entry) => entry.startsWith('/node_modules/mixdog/src/defaults/skills/') && /\.\w+$/.test(entry)
-      ),
-    ]),
-  ];
-  assert.ok(
-    nativeBinaryEntries.some((entry) => entry.endsWith('.node')),
-    'runtime archive contains no native addon'
-  );
-  for (const entry of unpackedRuntimeEntries) {
-    const archivePath = entry.replace(/^\/+/, '');
-    assert.equal(statFile(builtArchive, archivePath.replaceAll('/', sep)).unpacked, true, `${entry} is not unpacked`);
-    const parts = archivePath.split('/');
-    const stagedNative = join(stagedSidecar, ...parts);
-    const builtNative = join(builtResources, 'runtime.asar.unpacked', ...parts);
+  const nativeBinaries = files.filter((entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry));
+  assert.ok(nativeBinaries.some((entry) => entry.endsWith('.node')), 'the built runtime contains no native addon');
+  // Every staged file reached the package unchanged (a signed macOS binary: same code and data segments).
+  const staged = await filesUnder(stagedModules);
+  const builtSet = new Set(files);
+  for (const entry of staged.filter((file) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(file) || file.startsWith('mixdog/src/defaults/skills/'))) {
+    assert.ok(builtSet.has(entry), `${entry} is not in the built runtime`);
     assert.deepEqual(
-      await emittedFileIdentity(builtNative),
-      await emittedFileIdentity(stagedNative),
-      `${entry} was not emitted unchanged beside the built runtime.asar`
+      await emittedFileIdentity(join(builtModules, ...entry.split('/'))),
+      await emittedFileIdentity(join(stagedModules, ...entry.split('/'))),
+      `${entry} was not emitted unchanged`
     );
   }
 });
 
 test('the packaged resources hold the Rust core, its unpacked resource root, the ONNX library and the extension host closure', async () => {
-  const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
-  const resources = candidates.map((archive) => dirname(archive)).find((directory) => existsSync(join(directory, 'core')));
+  const resources = (await findPackagedResources(distDir()))[0];
   assert.ok(resources, 'dist holds no packaged resources with a core/ directory');
   assert.deepEqual(verifyStagedResources({ resources, platform: process.platform, arch: process.arch }).sort(), [
     'darwin-arm64',

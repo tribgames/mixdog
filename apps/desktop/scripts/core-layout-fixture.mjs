@@ -36,8 +36,11 @@ export function modulesTree(modules, platform, arch) {
   for (const dir of CORE_READS.dirs) put(join(mixdog, dir, 'file.md'));
   put(join(modules, 'alpha/package.json'), JSON.stringify({ name: 'alpha', dependencies: { beta: '1' } }));
   put(join(modules, 'beta/package.json'), JSON.stringify({ name: 'beta' }));
+  // The desktop on Linux routes sharp to its WebAssembly build by name (desktopExtraRoots).
+  if (platform === 'linux') put(join(modules, '@img/sharp-wasm32/package.json'), JSON.stringify({ name: '@img/sharp-wasm32' }));
   put(join(modules, CLOSURE_RECORD), JSON.stringify({ skippedOptional: [] }));
   if (platform === 'darwin' && arch === 'x64') return;
+  put(join(modules, 'onnxruntime-node', 'package.json'), JSON.stringify({ name: 'onnxruntime-node', version: '1.23.0' }));
   const binary = join(modules, 'onnxruntime-node', ortBinaryDir(platform, arch));
   put(join(binary, LIBRARY[platform]));
   for (const sibling of SIBLINGS[platform]) put(join(binary, sibling));

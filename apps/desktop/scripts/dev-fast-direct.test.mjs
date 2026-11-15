@@ -14,7 +14,8 @@ import {
   decidePlan,
   extractStagedShell,
   fastDirectAsarOptions,
-  fastDirectRuntimeArchive,
+  fastDirectRuntimeIdentityFiles,
+  hashInstalledRuntime,
   coreInputs,
   hashBrowserImportNativeTools,
   koffiBindingPath,
@@ -39,7 +40,7 @@ const groups = Object.fromEntries(
   ])
 );
 const previous = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   groups: Object.fromEntries(Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }])),
 };
 
@@ -49,11 +50,24 @@ test('ASAR API paths always use native separators', () => {
   assert.equal(asarPath('out/main/index.js'), expected);
 });
 
-test('FastDirect shell integrity keeps the installed production runtime fallback', () => {
-  assert.equal(
-    fastDirectRuntimeArchive(join('C:', 'Mixdog', 'resources')),
-    join('C:', 'Mixdog', 'resources', 'runtime.asar')
-  );
+test('FastDirect identifies the installed runtime by its real files: the package ships no runtime archive', () => {
+  const modules = join('C:', 'Mixdog', 'resources', 'runtime.asar.unpacked', 'node_modules');
+  assert.deepEqual(fastDirectRuntimeIdentityFiles(join('C:', 'Mixdog', 'resources')), [
+    join(modules, 'mixdog', 'package.json'),
+    join(modules, 'mixdog-core-closure.json'),
+  ]);
+});
+
+test('FastDirect notices changed dependency bytes even when both runtime manifests are unchanged', async (t) => {
+  const resources = await mkdtemp(join(tmpdir(), 'mixdog-fast-runtime-hash-'));
+  t.after(() => rm(resources, { recursive: true, force: true }));
+  const modules = join(resources, 'runtime.asar.unpacked', 'node_modules');
+  await mkdir(join(modules, 'dependency'), { recursive: true });
+  const file = join(modules, 'dependency', 'index.js');
+  await writeFile(file, 'original');
+  const before = await hashInstalledRuntime(resources);
+  await writeFile(file, 'changed');
+  assert.notEqual(await hashInstalledRuntime(resources), before);
 });
 
 test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {

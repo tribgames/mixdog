@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-// Stages the pinned graph, patch and spawn tools of this machine into `<repo>/native-tools/`, where the core and the
+// Stages the pinned graph tool of this machine into `<repo>/native-tools/`, where the core and the
 // Node tests look for the package's own tools (mixdog-core run_host/native_tools.rs, `Step::Package`). An install used
 // to do this in `postinstall`, which now only prunes the embedding runtime, so a CI job that runs against the checkout
 // calls this after `npm ci`. The download is the pinned one of `scripts/native-tool-download.mjs`: its manifest, its URL
-// rule and its sha256 check.
+// rule and its sha256 check. Patch and spawn now run as core libraries; their
+// historical manifests and download API remain available to older clients.
 import { chmod, copyFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { downloadNativeTool, NATIVE_TOOL_PLATFORM_KEYS, nativeToolInstalledName } from './native-tool-download.mjs';
 
-export const STAGED_NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn']);
+export const STAGED_NATIVE_TOOL_KINDS = Object.freeze(['graph']);
 
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 

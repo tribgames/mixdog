@@ -403,6 +403,14 @@ jobs:
   # the same on a debug build). The x86_64 macOS core cannot run on the Apple-silicon runner. A clean runner has no
   # node_modules (scripts/rust-core/lib/core-session.mjs imports `ws`) and no tree helper (every child of the smoke is
   # started through it).
+  server-cores:
+    needs: [identity, mixdogd]
+    uses: ./.github/workflows/server-cores-build.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+
   core-smoke:
     name: boot-shipped-mixdogd-${{ matrix.target }}
     needs: [identity, mixdogd]
@@ -535,7 +543,7 @@ jobs:
   # actions: read lets each packager poll this run for the desktop-out
   # artifact and the build-desktop-once result.
   desktop-windows:
-    needs: [prepare-github-release, mixdogd]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -555,7 +563,7 @@ jobs:
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
-    needs: [prepare-github-release, mixdogd]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -577,7 +585,7 @@ jobs:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
   desktop-darwin-x64:
-    needs: [prepare-github-release, mixdogd]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -613,7 +621,7 @@ jobs:
       ref: ${{ inputs.ref }}
 
   desktop-linux-x64:
-    needs: [prepare-github-release, linux-native-tools, mixdogd]
+    needs: [prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -629,7 +637,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [prepare-github-release, linux-native-tools, mixdogd]
+    needs: [prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -647,7 +655,7 @@ jobs:
   # Full Linux verification (update proof, sandbox .deb, distro containers,
   # native-tool exec matrix) gates publication.
   linux-verify-full:
-    needs: [identity, linux-native-tools, mixdogd]
+    needs: [identity, linux-native-tools, mixdogd, server-cores, desktop-linux-x64, desktop-linux-arm64]
     uses: ./.github/workflows/linux-desktop-verify.yml
     permissions:
       contents: read
@@ -655,6 +663,8 @@ jobs:
       full: true
       native_tools_prebuilt: true
       mixdogd_prebuilt: true
+      server_cores_prebuilt: true
+      packages_prebuilt: true
       # Every checkout inside the called workflow uses this exact commit
       # (and asserts HEAD == ref), not the caller's default-branch sha.
       ref: ${{ inputs.ref }}
@@ -676,7 +686,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, rust-lanes, desktop-build, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [validate, rust-lanes, desktop-build, server-cores, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:

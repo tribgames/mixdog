@@ -62,7 +62,6 @@
     "typecheck:packages": "npm run typecheck --prefix packages/protocol-client && node packages/protocol-client/node_modules/typescript/bin/tsc -p packages/protocol",
     "test:bench-tools": "node scripts/test-direct.mjs --test-force-exit benchmarks/rust-core/recorders/lib/scripted-pty.test.mjs benchmarks/rust-core/recorders/lib/spawned-provenance.test.mjs benchmarks/rust-core/recorders/lib/tmp-mark.test.mjs benchmarks/rust-core/recorders/lib/tool-failure-rows.test.mjs benchmarks/rust-core/recorders/lib/core-stop.test.mjs benchmarks/rust-core/recorders/lib/job-run.test.mjs benchmarks/rust-core/recorders/lib/process-job.test.mjs benchmarks/rust-core/run-slow-replays.test.mjs benchmarks/terminal-bench-2.1/harness/anthropic_oauth_preflight_rust.test.mjs benchmarks/terminal-bench-2.1/harness/prebake-rust.test.mjs",
     "gate:local": "node scripts/gate-local.mjs",
-    "build:spawn:test": "cargo build --locked --manifest-path native/mixdog-spawn/Cargo.toml",
     "test:release-assets": "node scripts/test-direct.mjs scripts/check-release-version.test.mjs scripts/generate-voice-runtime-manifest.test.mjs",
     "test:release-critical": "npm run test:release-assets",
     "test:spec-advisory": "node scripts/run-advisory-spec.mjs && npm run test:spec-advisory --prefix apps/desktop",

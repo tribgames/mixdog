@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { extractFile, listPackage, statFile } from '@electron/asar';
 import { createAsarPackage } from './asar-pack.mjs';
+import { treeDigest } from './stage-js-bundle.mjs';
 
 const require = createRequire(import.meta.url);
 const { readAsarHeader } = require('app-builder-lib/out/asar/asar.js');
@@ -14,8 +15,9 @@ const { NtExecutable, NtExecutableResource, Resource } = require('resedit');
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
 // 3: the Node daemon group and the installed `fast-runtime` tree are gone; the core is `resources/core/mixdogd`.
-// A state written by an older schema never matches, so the first deploy over a Node-core install is a complete one.
-const schemaVersion = 3;
+// 4: the package ships no runtime.asar (the installed runtime is the real-file tree under runtime.asar.unpacked).
+// A state written by an older schema never matches, so the first deploy over an older install is a complete one.
+const schemaVersion = 4;
 const desktopPackageManifest = join(desktopDir, 'package.json');
 
 export function asarPath(path) {
@@ -34,8 +36,17 @@ export function fastDirectAsarOptions() {
   };
 }
 
-export function fastDirectRuntimeArchive(installedResources) {
-  return join(installedResources, 'runtime.asar');
+/** The files whose bytes identify the installed runtime: the real-file package and the record of the closure
+ *  the install skipped (the package ships no archive of it). */
+export function fastDirectRuntimeIdentityFiles(installedResources) {
+  const modules = join(installedResources, 'runtime.asar.unpacked', 'node_modules');
+  return [join(modules, 'mixdog', 'package.json'), join(modules, 'mixdog-core-closure.json')];
+}
+
+/** Replaces the old archive-byte hash: cover every real payload file, not just two
+ * manifests whose contents stay unchanged when an installed dependency is damaged. */
+export async function hashInstalledRuntime(installedResources) {
+  return treeDigest(join(installedResources, 'runtime.asar.unpacked', 'node_modules'));
 }
 
 export function changedPlanGroups(planned = {}, current = {}) {
@@ -349,6 +360,12 @@ async function hashFile(path) {
   return hash.digest('hex');
 }
 
+async function hashFiles(paths) {
+  const hash = createHash('sha256');
+  for (const path of paths) hash.update(await contentsForFile(path));
+  return hash.digest('hex');
+}
+
 export async function hashBrowserImportNativeTools(nativeToolsDir) {
   const hash = createHash('sha256');
   for (const fileName of browserImportNativeFileNames) {
@@ -517,10 +534,9 @@ async function hashCoreExe(path) {
 async function installedHashes(installDir) {
   const resources = join(installDir, 'resources');
   const appAsar = join(resources, 'app.asar');
-  const runtimeAsar = join(resources, 'runtime.asar');
   return {
     appAsar: await hashFile(appAsar),
-    runtimeAsar: await hashFile(runtimeAsar),
+    runtime: await hashInstalledRuntime(resources),
     coreExe: await hashCoreExe(join(resources, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')),
     browserImportNativeTools: await hashBrowserImportNativeTools(join(resources, 'native-tools')),
   };
@@ -544,7 +560,7 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     previous &&
       previous.installDir === resolve(installDir) &&
       previous.installed?.appAsar === hashes.appAsar &&
-      previous.installed?.runtimeAsar === hashes.runtimeAsar &&
+      previous.installed?.runtime === hashes.runtime &&
       previous.installed?.coreExe === hashes.coreExe &&
       previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools
   );
@@ -769,12 +785,9 @@ async function stageShell({ installDir, artifactDir }) {
   await assertPackagedProductionDependencyClosure(artifactArchive);
   const artifactExe = join(artifactDir, 'Mixdog.exe');
   await cp(join(installDir, 'Mixdog.exe'), artifactExe);
-  // An incremental deploy never replaces runtime.asar, so the shell's
-  // integrity entry names the installed archive.
-  const runtimeArchive = fastDirectRuntimeArchive(installedResources);
+  // app.asar is the only archive the package carries.
   await replaceWinAsarIntegrity(artifactExe, {
     'resources/app.asar': await hashAsarHeader(artifactArchive),
-    'resources/runtime.asar': await hashAsarHeader(runtimeArchive),
   });
   process.stdout.write(
     `[fastdirect] staged app shell in ${((performance.now() - startedAt) / 1000).toFixed(2)}s` +

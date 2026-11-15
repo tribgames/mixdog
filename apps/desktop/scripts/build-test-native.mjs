@@ -17,6 +17,8 @@ const sourceRoots = [
   crate,
   join(root, 'native', 'core', 'crates', 'mixdog-browser-rules'),
   join(root, 'native', 'core', 'crates', 'mixdog-js'),
+  // [patch.crates-io] of the crate's Cargo.toml: the collator it links is this vendored copy.
+  join(root, 'native', 'core', 'vendor', 'icu_collator'),
 ];
 const sourceFiles = [join(root, 'native', 'core', 'Cargo.toml')];
 const libraryFile = { win32: 'mixdog_main_native.dll', darwin: 'libmixdog_main_native.dylib' }[process.platform] ?? 'libmixdog_main_native.so';
