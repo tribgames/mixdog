@@ -2,8 +2,8 @@
 //! written by `benchmarks/rust-core/recorders/record-office-measure.mjs`) against this crate. The same font files are
 //! registered, then for EVERY recorded case (the fixture faces and the provisioned Noto faces, which must be installed
 //! with the recorded sha256: a missing face fails the test, it is not skipped) all ten metric fields must equal the
-//! recording exactly (f64 equality, no field and no case exempt) but for one thing: an integer ink bound (`actualBoundingBox*`) that is a whole number on both
-//! sides and exactly one pixel apart is Skia's rounding of the ink box and is tolerated (`ink_pixel`; the count is printed); and the face that sets each character
+//! recording exactly (f64 equality, no field and no case exempt) but for one thing: an ink bound (`actualBoundingBox*`) exactly one pixel apart
+//! is Skia's rounding of the ink box after its grid fitting and is tolerated (`ink_pixel`; the count is printed); and the face that sets each character
 //! must equal the recorded one. The face list is the one thing the canvas does not report: the recorder derives it from
 //! the cmap coverage of the fonts with fontkit, so that comparison is against that model and not against Skia.
 //!
@@ -157,16 +157,14 @@ fn scripts_of(text: &str) -> Vec<String> {
     names
 }
 
-/// The integer ink bounds the canvas reports (`actualBoundingBoxAscent`, `Descent`, `Left` and `Right`): Skia rounds the glyph's ink box
-/// out to whole pixels after its own hinting and rasterisation (a 6 px face has an ink box of 4 or 5 pixels), and this crate rounds the
-/// outline it fills unhinted. A bound that is a whole number on both sides and is one pixel apart is that rounding and nothing else; a
-/// bound two pixels or more apart, or a fractional one, is a real difference and is reported. Every advance (`width`) and every font
-/// metric stays exactly equal.
+/// The ink bounds the canvas reports (`actualBoundingBoxAscent`, `Descent`, `Left` and `Right`): Skia rounds the control box of the
+/// glyph it draws out to whole pixels after FreeType's grid fitting, and this crate fits the outline with its model of the auto-hinter
+/// (`mixdog_fonts::autohint`), in which a blue zone of a face at a size can land on the other side of a pixel boundary. A bound that is
+/// exactly one pixel apart (the right bound is the pen position, which has a fraction, plus the rounded ink, so it is one whole pixel
+/// apart with the same fraction) is that and nothing else; a bound apart by anything else is a real difference and is reported. Every
+/// advance (`width`) and every font metric stays exactly equal.
 fn ink_pixel(field: &str, value: f64, recorded: f64) -> bool {
-    matches!(field, "actualBoundingBoxAscent" | "actualBoundingBoxDescent" | "actualBoundingBoxLeft" | "actualBoundingBoxRight")
-        && value.fract() == 0.0
-        && recorded.fract() == 0.0
-        && (value - recorded).abs() <= 1.0
+    matches!(field, "actualBoundingBoxAscent" | "actualBoundingBoxDescent" | "actualBoundingBoxLeft" | "actualBoundingBoxRight") && (value - recorded).abs() == 1.0
 }
 
 fn family_of(font: &str) -> String {

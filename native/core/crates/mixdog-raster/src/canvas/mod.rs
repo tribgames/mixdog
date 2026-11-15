@@ -19,7 +19,7 @@
 //! The pixmap, the clip mask and the tiny-skia types are public (`skia` re-exports them), so the PDF renderer can use
 //! masks and shaders directly on the same pixels.
 //!
-//! Not modelled: shadows, filters, `Path2D` hit testing, a second text direction and synthesised bold or italic.
+//! Not modelled: shadows, filters, `Path2D` hit testing and a second text direction.
 
 use std::sync::Arc;
 
@@ -48,6 +48,7 @@ use tiny_skia::Stroke;
 use tiny_skia::StrokeDash;
 use tiny_skia::Transform;
 
+mod glyph;
 pub mod image_data;
 pub mod paint;
 pub mod path;
@@ -203,6 +204,69 @@ fn fill_user(pixmap: &mut Pixmap, state: &State, ink: Ink, path: &Path, rule: Fi
     let Some(paint) = build_paint(state, style) else { return };
     let Some(mask) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
     pixmap.fill_path(path, &paint, rule, state.transform, mask.get());
+}
+
+/// Paints text: the outlines of the glyphs on the device. The coverage is the area FreeType's rasteriser leaves for the glyphs
+/// it renders and Skia's own anti-aliased path fill for the others, corrected the way Skia corrects the coverage of a glyph
+/// mask for the colour of the text (`glyph::correcting_table`), cut by the clip and used as the mask of one fill of the
+/// paint over the bounds.
+fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::DevicePaths) {
+    let style = style_of(state, ink);
+    let Some(mut paint) = build_paint(state, style) else { return };
+    paint.shader.transform(state.transform);
+    let Some(draw) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
+    let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
+    let Some(mut coverage) = Mask::new(width as u32, height as u32) else { return };
+    let table = glyph::correcting_table(glyph::canonical_luminance(style.luminance_color()));
+    // The pixels touched, as left, top, right, bottom.
+    let mut touched: Option<(usize, usize, usize, usize)> = None;
+    let mut include = |left: usize, top: usize, right: usize, bottom: usize| {
+        touched = Some(touched.map_or((left, top, right, bottom), |(l, t, r, b)| (l.min(left), t.min(top), r.max(right), b.max(bottom))));
+    };
+    if let Some(path) = paths.sampled.as_ref() {
+        let bounds = path.bounds();
+        let left = (bounds.left().floor().max(0.0) as usize).min(width);
+        let right = (bounds.right().ceil().max(0.0) as usize).min(width);
+        let top = (bounds.top().floor().max(0.0) as usize).min(height);
+        let bottom = (bounds.bottom().ceil().max(0.0) as usize).min(height);
+        if right > left && bottom > top {
+            coverage.fill_path(path, FillRule::Winding, true, Transform::identity());
+            for row in top..bottom {
+                for value in &mut coverage.data_mut()[row * width + left..row * width + right] {
+                    *value = table[usize::from(*value)];
+                }
+            }
+            include(left, top, right, bottom);
+        }
+    }
+    if let Some(raster) = paths.exact.as_ref().and_then(|path| glyph::rasterize(path, width, height)) {
+        for row in 0..raster.height {
+            for column in 0..raster.width {
+                let at = (raster.top + row) * width + raster.left + column;
+                let corrected = table[usize::from(raster.data[row * raster.width + column])];
+                coverage.data_mut()[at] = coverage.data()[at].max(corrected);
+            }
+        }
+        include(raster.left, raster.top, raster.left + raster.width, raster.top + raster.height);
+    }
+    let Some((left, top, right, bottom)) = touched else { return };
+    if let Some(cut) = draw.get() {
+        for row in top..bottom {
+            for column in left..right {
+                let at = row * width + column;
+                coverage.data_mut()[at] = multiply(coverage.data()[at], cut.data()[at]);
+            }
+        }
+    }
+    if let Some(area) = Rect::from_ltrb(left as f32, top as f32, right as f32, bottom as f32) {
+        pixmap.fill_rect(area, &paint, Transform::identity(), Some(&coverage));
+    }
+}
+
+/// `a * b / 255`, rounded (the product of two coverages).
+fn multiply(a: u8, b: u8) -> u8 {
+    let product = u32::from(a) * u32::from(b) + 128;
+    ((product + (product >> 8)) >> 8) as u8
 }
 
 /// Fills `path` given in device space (the current path, which holds device points).
@@ -784,9 +848,10 @@ impl Canvas {
         }
     }
 
-    /// The outlines of `text` placed for a draw at `(x, y)`: aligned, on the chosen baseline and squeezed to
-    /// `max_width`. `None` when there is nothing to draw (an empty ink, or a maximum width that is not above zero).
-    fn text_outline<P: ReadProof>(&self, proof: &P, registry: &Registry, text: &str, x: f32, y: f32, max_width: Option<f32>) -> Result<Option<Path>, RasterError> {
+    /// The line of `text` laid out for a draw at `(x, y)`, and the matrix from its own space (the pen at the origin of the
+    /// baseline) to user space: aligned, on the chosen baseline and squeezed to `max_width`. `None` when there is nothing
+    /// to draw (a maximum width that is not above zero, or a position that is not finite).
+    fn text_layout<P: ReadProof>(&self, proof: &P, registry: &Registry, text: &str, x: f32, y: f32, max_width: Option<f32>) -> Result<Option<(text::Laid, Transform)>, RasterError> {
         if !finite(&[x, y]) || max_width.is_some_and(|limit| limit.is_nan() || limit <= 0.0) {
             return Ok(None);
         }
@@ -797,21 +862,29 @@ impl Canvas {
         };
         let left = x + self.state.align.shift(laid.width * squeeze);
         let baseline = y + self.state.baseline.shift(laid.ascent, laid.descent);
-        Ok(laid.path.and_then(|path| path.transform(Transform::from_row(squeeze, 0.0, 0.0, 1.0, left, baseline))))
+        Ok(Some((laid, Transform::from_row(squeeze, 0.0, 0.0, 1.0, left, baseline))))
     }
 
     /// `fillText(text, x, y, maxWidth)`.
     pub fn fill_text<P: ReadProof>(&mut self, proof: &P, registry: &Registry, text: &str, x: f32, y: f32, max_width: Option<f32>) -> Result<(), RasterError> {
-        if let Some(path) = self.text_outline(proof, registry, text, x, y, max_width)? {
-            self.draw_with(|pixmap, state| fill_user(pixmap, state, Ink::Fill, &path, FillRule::Winding));
+        if let Some((laid, local)) = self.text_layout(proof, registry, text, x, y, max_width)? {
+            let device = self.state.transform.pre_concat(local);
+            let paths = text::device_path(registry, &laid, device, text::Mode::Filled);
+            self.draw_with(|pixmap, state| fill_glyphs(pixmap, state, Ink::Fill, &paths));
         }
         Ok(())
     }
 
     /// `strokeText(text, x, y, maxWidth)`.
     pub fn stroke_text<P: ReadProof>(&mut self, proof: &P, registry: &Registry, text: &str, x: f32, y: f32, max_width: Option<f32>) -> Result<(), RasterError> {
-        if let Some(path) = self.text_outline(proof, registry, text, x, y, max_width)? {
-            self.draw_with(|pixmap, state| stroke_user(pixmap, state, &path));
+        if let Some((laid, local)) = self.text_layout(proof, registry, text, x, y, max_width)? {
+            if let Some(path) = text::device_path(registry, &laid, local, text::Mode::Stroked).sampled {
+                // The outline is stroked in user space (the width is in user units) and then moved to the device.
+                if let Some(outline) = path.stroke(&make_stroke(&self.state), 1.0).and_then(|stroked| stroked.transform(self.state.transform)) {
+                    let paths = text::DevicePaths { exact: None, sampled: Some(outline) };
+                    self.draw_with(|pixmap, state| fill_glyphs(pixmap, state, Ink::Stroke, &paths));
+                }
+            }
         }
         Ok(())
     }
