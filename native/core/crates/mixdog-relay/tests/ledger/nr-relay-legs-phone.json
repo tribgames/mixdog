@@ -1,0 +1,26 @@
+[
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::a leg that never answers its ping is terminated on the next sweep",
+    "rust": "legs_phone::a_leg_that_never_answers_its_ping_is_terminated_on_the_next_sweep"
+  },
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::a leg draining a queue, or paused by backpressure, gets extra windows before it is cut",
+    "rust": "legs_phone::a_leg_draining_a_queue_or_paused_by_backpressure_gets_extra_windows_before_it_is_cut"
+  },
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::answering a ping restores the full grace for the next stall",
+    "rust": "legs_phone::answering_a_ping_restores_the_full_grace_for_the_next_stall"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::PC-offline answers are rate-limited and their closing sockets are bounded",
+    "rust": "legs_phone::pc_offline_answers_are_rate_limited_and_bounded"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a malformed frame on an answered-and-closing socket cannot crash the relay, and frees its slot",
+    "rust": "legs_phone::a_malformed_frame_on_an_answered_closing_socket_cannot_crash_and_frees_its_slot"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::one phone cannot shrink the path of the phone beside it",
+    "rust": "legs_phone::one_phone_cannot_shrink_the_path_of_the_phone_beside_it"
+  }
+]
