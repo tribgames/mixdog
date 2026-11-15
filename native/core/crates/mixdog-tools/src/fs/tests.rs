@@ -1186,7 +1186,7 @@ async fn read_tells_a_document_by_its_name_as_node_does() {
 }
 
 /// `countTextStatsStreaming`, `streamHeadWindow`, the tail window and the summary scan: a glance mode over a text file past the
-/// buffered range size decodes the invalid UTF-8 bytes as U+FFFD, while a small one still reports the invalid encoding.
+/// buffered range size decodes the invalid UTF-8 bytes as U+FFFD, while a small one still reports the invalid encoding. The calls name `path`: a `file_path` call always carries a window, which beats `head` (Node `executeReadTool`) and decodes lossily.
 #[tokio::test]
 async fn count_of_a_streaming_size_file_with_invalid_utf8_decodes_it_lossily() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-count-lossy").join("ws")).unwrap();
@@ -1195,14 +1195,14 @@ async fn count_of_a_streaming_size_file_with_invalid_utf8_decodes_it_lossily() {
     let seeds = vec![("big.txt".to_owned(), big.clone()), ("small.txt".to_owned(), b"alpha \xff beta\n".to_vec())];
     let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
     let read = ReadTool::new(None, None);
-    let counted = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "count" })).await).1;
+    let counted = text_of(read.call(&ctx, serde_json::json!({ "path": "big.txt", "mode": "count" })).await).1;
     assert_eq!(counted, format!("lines\t2\twords\t4\tbytes\t{}", big.len()));
-    let head = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "head" })).await).1;
+    let head = text_of(read.call(&ctx, serde_json::json!({ "path": "big.txt", "mode": "head" })).await).1;
     assert!(head.contains("alpha \u{fffd} beta"), "{head}");
-    let tail = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "tail", "n": 1 })).await).1;
+    let tail = text_of(read.call(&ctx, serde_json::json!({ "path": "big.txt", "mode": "tail", "n": 1 })).await).1;
     assert!(!tail.starts_with("Error:"), "{tail}");
     for mode in ["count", "head"] {
-        let small = text_of(read.call(&ctx, serde_json::json!({ "file_path": "small.txt", "mode": mode })).await).1;
+        let small = text_of(read.call(&ctx, serde_json::json!({ "path": "small.txt", "mode": mode })).await).1;
         assert!(small.starts_with("Error: invalid UTF-8 in text file"), "{mode}: {small}");
     }
 }
