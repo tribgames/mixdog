@@ -16,6 +16,8 @@ import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
 
 const [bin, harness, outFile] = process.argv.slice(2);
+// The version this client announces is the tree's own: a core refuses an older client.
+const CLIENT_VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
 const lib = (name) => join(harness, 'lib', name);
 const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
@@ -137,7 +139,7 @@ async function step(name, action, settled = () => true) {
 
 let out;
 try {
-  await call('initialize', { clientInfo: { name: 'ph2-chat-live', title: 'PH-2 live roster', version: '1.4.5', kind: 'tui' }, capabilities: {} });
+  await call('initialize', { clientInfo: { name: 'ph2-chat-live', title: 'PH-2 live roster', version: CLIENT_VERSION, kind: 'tui' }, capabilities: {} });
   socket.send(JSON.stringify({ method: 'initialized' }));
   await call('app/subscribe', {});
   // The roster's threads, made the way Node's host makes them (remote-protocol-chat-roster.record.mjs): a thread with a route in its draft
