@@ -1,14 +1,17 @@
 //! Twin test `rendered`: the recording of Node's rendered-page review (`native/core/fixtures/office-rendered/golden.json`,
 //! written by `benchmarks/rust-core/recorders/record-office-rendered.mjs`) against this crate. Every recorded set of page
 //! PNGs (decks, documents, worksheets, blank-ish and soft-edged pages, a page past the sampling step) is run through
-//! the review, the aesthetic review, the air map and the visual diff. Counts, page numbers, the issue lists (code, path,
-//! severity, message, in order) and the key order are exact; a measured share must agree within 1e-6 (the metrics are
-//! rounded to four digits, so a value on a rounding edge that flips shows as a 1e-4 difference and is reported, never
-//! tolerated). The diff images are compared by the sha256 of their decoded pixels, not their bytes. Re-recording is
-//! `twin_live_rendered` (ignored: it runs Node).
+//! the review, the aesthetic review, the air map and the visual diff. Counts, page numbers, sizes, the issue lists (code, path,
+//! severity, message, in order), every verdict and the key order are exact. A number that is a function of the rendered pixels
+//! (the aesthetics score and its four dimensions, the page metrics such as `inkContrast`, `luminanceMean` and `colorfulness`, the
+//! ink shares of a page, the rhythm's spreads, the air and the changed share of a diff: the list is
+//! `mixdog_office_base::twin::pixels::is_pixel_measure`) agrees within 0.02 absolute, because the page is resized before it is
+//! read and the Rust resize anti-aliases an edge differently from libvips (owner decision 2026-11-16). The diff images are
+//! compared by the sha256 of their decoded pixels, not their bytes. Re-recording is `twin_live_rendered` (ignored: it runs Node).
 
 use mixdog_fsio::Unlaned;
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels;
 use mixdog_office_base::values::sha256;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_office_quality::aesthetics::review_rendered_office_aesthetics;
@@ -19,53 +22,12 @@ use mixdog_raster::Image;
 use mixdog_raster::canvas::{Bitmap, Canvas};
 use serde_json::{Value, json};
 
-/// The agreement of a measured share.
-const EPSILON: f64 = 1e-6;
-
 fn golden() -> Value {
     twin::load_golden("office-rendered")
 }
 
 fn section<'a>(golden: &'a Value, name: &str) -> &'a [Value] {
     golden[name].as_array().unwrap_or_else(|| panic!("section {name}"))
-}
-
-/// Where `expected` and `actual` differ, as lines (at most the first few of each case are shown).
-fn differences(path: &str, expected: &Value, actual: &Value, found: &mut Vec<String>) {
-    match (expected, actual) {
-        (Value::Number(want), Value::Number(got)) => {
-            let (want, got) = (want.as_f64().unwrap_or(f64::NAN), got.as_f64().unwrap_or(f64::NAN));
-            let exact = want.fract() == 0.0 && got.fract() == 0.0;
-            if (exact && want != got) || (want - got).abs() > EPSILON {
-                found.push(format!("{path}: recorded {want} produced {got}"));
-            }
-        }
-        (Value::Array(want), Value::Array(got)) => {
-            if want.len() != got.len() {
-                found.push(format!("{path}: recorded {} entries produced {}", want.len(), got.len()));
-                return;
-            }
-            for (index, (want, got)) in want.iter().zip(got).enumerate() {
-                differences(&format!("{path}[{index}]"), want, got, found);
-            }
-        }
-        (Value::Object(want), Value::Object(got)) => {
-            let (want_keys, got_keys): (Vec<_>, Vec<_>) = (want.keys().collect(), got.keys().collect());
-            if want_keys != got_keys {
-                found.push(format!("{path}: recorded keys {want_keys:?} produced {got_keys:?}"));
-                return;
-            }
-            for (key, want) in want {
-                differences(&format!("{path}.{key}"), want, &got[key], found);
-            }
-        }
-        _ => {
-            if expected != actual {
-                let cut = |value: &Value| value.to_string().chars().take(160).collect::<String>();
-                found.push(format!("{path}: recorded {} produced {}", cut(expected), cut(actual)));
-            }
-        }
-    }
 }
 
 /// Replays one section: `run` answers the recorded input, `Err` where Node rejected. The failures of all cases are
@@ -80,7 +42,7 @@ fn replay(golden: &Value, name: &str, run: impl Fn(&Value) -> Result<Value, Stri
             (Some(_), Err(_)) => {}
             (Some(error), Ok(_)) => found.push(format!("Node rejected ({error}), Rust answered")),
             (None, Err(message)) => found.push(format!("Rust failed: {message}")),
-            (None, Ok(value)) => differences("", &case["output"], &value, &mut found),
+            (None, Ok(value)) => pixels::measure_differences("", &case["output"], &value, &mut found),
         }
         if !found.is_empty() {
             failures.push(format!("{name} case {index}:\n    {}", found.iter().take(6).cloned().collect::<Vec<_>>().join("\n    ")));

@@ -1,7 +1,8 @@
 //! Twin test `e2e`: the Office tool end to end. `native/core/fixtures/office-e2e/scenarios.json` lists ordered call sequences (the cases
 //! of the Office suites that need neither a live model nor Microsoft Office); `benchmarks/rust-core/recorders/record-office-e2e.mjs`
 //! ran them through Node's `executeOfficeTool` inside the write ledger and wrote `golden.json`; this test runs the same calls through
-//! `mixdog_office::engine::Engine::execute` and compares, per call, (1) the text of the answer (exactly, so key order is compared too),
+//! `mixdog_office::engine::Engine::execute` and compares, per call, (1) the text of the answer (exactly, so key order is compared too; but the
+//! numbers the aesthetic review of a rendered page computes from its pixels, inside the `"aesthetics"` object, agree within 0.02),
 //! whether it is an error and how many image blocks it carries (a refused call's error text is the text), (2) the receipts: the
 //! workspace files the call's write routes changed with their state before and after, and per scenario (3) the files it names and
 //! (4) with `data` the journal JSON of the data folder.
@@ -15,7 +16,9 @@
 //! - `.mixdog-backup-<uuid>` and the uuid of a transaction checkpoint name;
 //! - in a zip the `dcterms:created` and `dcterms:modified` values of `docProps/core.xml` and `docProps/app.xml`; a zip is compared by its
 //!   entry names (in order) and the sha256 of each entry's uncompressed bytes, never by its compressed bytes; an entry that is itself a
-//!   zip is its own entries; a PDF is what a reader finds in it and a PNG its size and decoded pixels (`tests/support/file_view.rs`);
+//!   zip is its own entries; a PDF is what a reader finds in it and a PNG its size and decoded pixels (`tests/support/file_view.rs`), the pixels of a rendered page
+//!   being compared as a picture, not by their hash: the same picture by the shared rule of `twin::pixels` (equal sizes, a mean difference per
+//!   channel of at most 1 of 255, no channel of any 4x4 block average more than 24 away; owner decision 2026-11-16);
 //! - in a data-folder JSON file, ISO timestamps and the numbers under keys that end in `At`, `Ms` or `Time`.
 //!
 //! The wall time of every scenario is recorded by Node. A release build of this test fails when the total here is longer than Node's
@@ -329,6 +332,80 @@ impl Scrub {
     }
 }
 
+/// The PNG descriptions that carry their PNG (`{"png": {"width", "height", "sha256", "data"}}`) in `recorded` and `produced`, compared as a
+/// picture by the shared rule: a PNG that is not the same picture is pushed to `found` under its path; both descriptions are then
+/// settled (`sha256` and `data` replaced by a note) so that what is left compares exactly. The recorded `data` must itself decode to the
+/// pixels its `sha256` names: the recording keeps what Node drew, not something else.
+fn settle_pictures(at: &str, recorded: &mut Value, produced: &mut Value, found: &mut Vec<String>) {
+    match (recorded, produced) {
+        (Value::Object(want), Value::Object(got)) => {
+            if let (Some(Value::Object(want_png)), Some(Value::Object(got_png))) = (want.get_mut("png"), got.get_mut("png"))
+                && let (Some(Value::String(want_data)), Some(Value::String(got_data))) = (want_png.get("data"), got_png.get("data"))
+            {
+                let decode = |data: &str| mixdog_raster::image::Image::decode(&twin::base64_decode(data));
+                let (theirs, ours) = (decode(want_data), decode(got_data));
+                match (theirs, ours) {
+                    (Ok(theirs), Ok(ours)) => {
+                        let digest: String = Sha256::digest(theirs.rgba()).iter().map(|byte| format!("{byte:02x}")).collect();
+                        if want_png.get("sha256").and_then(Value::as_str) != Some(digest.as_str()) {
+                            found.push(format!("{at}: the recorded PNG does not decode to the pixels its sha256 names"));
+                        }
+                        let comparison = twin::pixels::compare(
+                            twin::pixels::Picture::new(ours.width(), ours.height(), ours.rgba()),
+                            twin::pixels::Picture::new(theirs.width(), theirs.height(), theirs.rgba()),
+                        );
+                        eprintln!("{at}: png {}", comparison.summary());
+                        if let Err(why) = comparison.verdict() {
+                            let mut grey = Vec::with_capacity(ours.rgba().len());
+                            if (ours.width(), ours.height()) == (theirs.width(), theirs.height()) {
+                                for (a, b) in ours.rgba().chunks_exact(4).zip(theirs.rgba().chunks_exact(4)) {
+                                    let d = (0..3).map(|i| a[i].abs_diff(b[i])).max().unwrap_or(0);
+                                    grey.extend_from_slice(&[d, d, d, 255]);
+                                }
+                            }
+                            let name: String = at.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+                            let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("e2e-diff").join(format!("{name}.png"));
+                            if !grey.is_empty()
+                                && let Ok(png) = mixdog_raster::image::Image::from_raw(ours.width(), ours.height(), 4, &grey).and_then(|image| image.to_png())
+                            {
+                                mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, path.parent().expect("folder")).expect("diff folder");
+                                mixdog_fsio::write(&mixdog_fsio::Unlaned, &path, png).expect("diff image");
+                            }
+                            found.push(format!("{at}: the PNG is not the recorded picture: {why}; diff image {}", path.display()));
+                        }
+                    }
+                    (Err(error), _) => found.push(format!("{at}: the recorded PNG does not decode: {error}")),
+                    (_, Err(error)) => found.push(format!("{at}: our PNG does not decode: {error}")),
+                }
+                for png in [want_png, got_png] {
+                    png.insert("sha256".to_owned(), Value::from("<compared as a picture>"));
+                    png.insert("data".to_owned(), Value::from("<compared as a picture>"));
+                }
+            }
+            for (key, want_value) in want.iter_mut() {
+                if let Some(got_value) = got.get_mut(key) {
+                    settle_pictures(&format!("{at}/{key}"), want_value, got_value, found);
+                }
+            }
+        }
+        (Value::Array(want), Value::Array(got)) => {
+            for (index, (want_value, got_value)) in want.iter_mut().zip(got.iter_mut()).enumerate() {
+                settle_pictures(&format!("{at}/{index}"), want_value, got_value, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `twin::differences` of two descriptions after their PNGs are compared as pictures: the lines of every difference.
+fn description_differences(at: &str, recorded: &Value, produced: &Value) -> Vec<String> {
+    let (mut recorded, mut produced) = (recorded.clone(), produced.clone());
+    let mut found = Vec::new();
+    settle_pictures(at, &mut recorded, &mut produced, &mut found);
+    found.extend(twin::differences(&recorded, &produced));
+    found
+}
+
 fn first_difference(expected: &str, produced: &str) -> String {
     let at = expected.chars().zip(produced.chars()).position(|(a, b)| a != b).unwrap_or_else(|| expected.chars().count().min(produced.chars().count()));
     let around = |text: &str| text.chars().skip(at.saturating_sub(80)).take(200).collect::<String>();
@@ -343,7 +420,7 @@ fn describe_bytes(bytes: &[u8], scrub: &Scrub) -> Value {
         return file_view::pdf_fingerprint(bytes, true);
     }
     if file_view::is_png(bytes) {
-        return file_view::png_fingerprint(bytes);
+        return file_view::png_fingerprint_with_pixels(bytes);
     }
     if bytes.starts_with(b"PK\x03\x04") {
         let package = match Package::load(bytes) {
@@ -554,7 +631,10 @@ fn replay_scenario(scenario: &Value, recorded: &Value) -> (Vec<String>, Duration
         let want = &recorded_calls[number];
         let want_text = text(&want["text"]);
         if scrubbed != want_text {
-            found.push(format!("{at}: the answer differs from the recording {}", first_difference(want_text, &scrubbed)));
+            // Only the numbers the aesthetic review reads from the rendered pixels may differ, within 0.02.
+            if let Err(why) = twin::pixels::measures_match_in_text(want_text, &scrubbed) {
+                found.push(format!("{at}: the answer differs from the recording {} ({why})", first_difference(want_text, &scrubbed)));
+            }
         }
         let is_error = result.get("isError") == Some(&Value::Bool(true));
         if is_error != (want["isError"] == json!(true)) {
@@ -563,7 +643,7 @@ fn replay_scenario(scenario: &Value, recorded: &Value) -> (Vec<String>, Duration
         if content.len() - 1 != want["images"].as_u64().expect("images") as usize {
             found.push(format!("{at}: {} image blocks, recorded {}", content.len() - 1, want["images"]));
         }
-        let receipt_differences = twin::differences(&want["receipts"], &produced_receipts);
+        let receipt_differences = description_differences(&format!("{at}: receipts"), &want["receipts"], &produced_receipts);
         if !receipt_differences.is_empty() {
             found.push(format!("{at}: the receipts differ: {}", receipt_differences.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
         }
@@ -585,7 +665,7 @@ fn replay_scenario(scenario: &Value, recorded: &Value) -> (Vec<String>, Duration
         }
         (Value::Object(files), with_data.then(|| data_files(&data_after, &scrub_after, lane)))
     });
-    let file_differences = twin::differences(&recorded["files"], &produced_files);
+    let file_differences = description_differences(&format!("{name}: files"), &recorded["files"], &produced_files);
     if !file_differences.is_empty() {
         found.push(format!("{name}: the written files differ: {}", file_differences.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
     }

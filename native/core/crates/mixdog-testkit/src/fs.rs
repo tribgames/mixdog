@@ -109,3 +109,23 @@ pub fn symlink_file(original: impl AsRef<Path>, link: impl AsRef<Path>) {
 pub fn symlink_file(original: impl AsRef<Path>, link: impl AsRef<Path>) {
     std::os::windows::fs::symlink_file(original.as_ref(), link.as_ref()).expect("symlink");
 }
+
+/// Copies `src` to `dest` (its folder made) unless `dest` already holds a file of the same length. The copy is written beside
+/// `dest` and moved onto it, so a test binary that starts while another is staging the same file never reads half of it.
+pub fn stage_copy(src: impl AsRef<Path>, dest: impl AsRef<Path>) {
+    let (src, dest) = (src.as_ref(), dest.as_ref());
+    let length = std::fs::metadata(src).unwrap_or_else(|e| panic!("stat {}: {e}", src.display())).len();
+    if std::fs::metadata(dest).is_ok_and(|have| have.len() == length) {
+        return;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).unwrap_or_else(|e| panic!("create_dir_all {}: {e}", parent.display()));
+    }
+    let beside = dest.with_extension(format!("{}.staging", std::process::id()));
+    std::fs::copy(src, &beside).unwrap_or_else(|e| panic!("copy {} to {}: {e}", src.display(), beside.display()));
+    if let Err(error) = std::fs::rename(&beside, dest) {
+        let _ = std::fs::remove_file(&beside);
+        // Another process staged the same file first and holds it open: that copy stands.
+        assert!(std::fs::metadata(dest).is_ok_and(|have| have.len() == length), "rename {} to {}: {error}", beside.display(), dest.display());
+    }
+}
