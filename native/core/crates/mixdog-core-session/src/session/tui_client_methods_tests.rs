@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_core_agents::setup::DomainCalls;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -72,12 +73,11 @@ struct Reads {
     calls: Mutex<Vec<&'static str>>,
     failing: Vec<&'static str>,
     empty: Vec<&'static str>,
-    route: Option<Value>,
 }
 
 #[async_trait]
-impl SettingsReads for Reads {
-    async fn read(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+impl DomainCalls for Reads {
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
         self.calls.lock().unwrap().push(method);
         if self.failing.contains(&method) {
             return Err(CoreError::InvalidParams { path: "params".into(), expected: "a failing read".into() });
@@ -87,15 +87,16 @@ impl SettingsReads for Reads {
         }
         Ok(json!({ "method": method, "params": params }))
     }
+}
 
-    fn web_search_route(&self) -> Result<Value, CoreError> {
-        self.route.clone().ok_or_else(|| CoreError::InvalidParams { path: "route".into(), expected: "a route".into() })
-    }
+/// The snapshot's reads over `domains`, with `route` the stored web-search route (none is a failing read).
+fn settings_reads(domains: &Arc<Reads>, route: Option<Value>) -> SettingsReads {
+    SettingsReads::new(domains.clone(), move || route.clone().ok_or_else(|| CoreError::InvalidParams { path: "route".into(), expected: "a route".into() }))
 }
 
 #[tokio::test]
 async fn the_snapshot_holds_every_row_of_the_settings_picker() {
-    let reads = Reads { route: Some(json!({ "provider": "default" })), ..Reads::default() };
+    let reads = settings_reads(&Arc::new(Reads::default()), Some(json!({ "provider": "default" })));
     let snapshot = settings_snapshot(&reads, &json!({ "threadId": "t1" })).await;
     let mut got: Vec<&str> = snapshot.as_object().unwrap().keys().map(String::as_str).collect();
     got.sort_unstable();
@@ -114,23 +115,23 @@ async fn the_snapshot_holds_every_row_of_the_settings_picker() {
 #[tokio::test]
 async fn a_light_snapshot_leaves_out_the_status_of_mcp_plugins_and_skills() {
     for params in [json!({ "options": { "heavy": false } }), json!({ "options": { "heavy": null } }), json!({ "options": { "heavy": 0 } })] {
-        let reads = Reads::default();
-        let snapshot = settings_snapshot(&reads, &params).await;
+        let domains = Arc::new(Reads::default());
+        let snapshot = settings_snapshot(&settings_reads(&domains, None), &params).await;
         for key in ["mcp", "plugins", "skills"] {
             assert!(snapshot.get(key).is_none(), "{params}: {key}");
         }
-        assert!(!reads.calls.lock().unwrap().contains(&"mcp/mcpStatus"));
+        assert!(!domains.calls.lock().unwrap().contains(&"mcp/mcpStatus"));
     }
     for params in [json!({}), json!({ "options": null }), json!({ "options": {} })] {
-        let snapshot = settings_snapshot(&Reads::default(), &params).await;
+        let snapshot = settings_snapshot(&settings_reads(&Arc::new(Reads::default()), None), &params).await;
         assert!(snapshot.get("mcp").is_some(), "{params}: heavy is on unless stated");
     }
 }
 
 #[tokio::test]
 async fn a_failing_read_is_null_in_its_place_and_the_others_stand() {
-    let reads = Reads { failing: vec!["config/getRecapSettings", "skills/skillsStatus"], ..Reads::default() };
-    let snapshot = settings_snapshot(&reads, &json!({})).await;
+    let domains = Arc::new(Reads { failing: vec!["config/getRecapSettings", "skills/skillsStatus"], ..Reads::default() });
+    let snapshot = settings_snapshot(&settings_reads(&domains, None), &json!({})).await;
     assert_eq!(snapshot["recap"], Value::Null);
     assert_eq!(snapshot["skills"], Value::Null);
     assert_eq!(snapshot["webSearchRoute"], Value::Null, "no route is null too");
@@ -139,13 +140,13 @@ async fn a_failing_read_is_null_in_its_place_and_the_others_stand() {
 
 #[tokio::test]
 async fn the_output_style_falls_back_to_the_list_when_there_is_none() {
-    let reads = Reads { empty: vec!["config/getOutputStyle"], ..Reads::default() };
-    let snapshot = settings_snapshot(&reads, &json!({})).await;
+    let domains = Arc::new(Reads { empty: vec!["config/getOutputStyle"], ..Reads::default() });
+    let snapshot = settings_snapshot(&settings_reads(&domains, None), &json!({})).await;
     assert_eq!(snapshot["outputStyle"]["method"], "config/listOutputStyles");
-    let reads = Reads::default();
-    let snapshot = settings_snapshot(&reads, &json!({})).await;
+    let domains = Arc::new(Reads::default());
+    let snapshot = settings_snapshot(&settings_reads(&domains, None), &json!({})).await;
     assert_eq!(snapshot["outputStyle"]["method"], "config/getOutputStyle");
-    assert!(!reads.calls.lock().unwrap().contains(&"config/listOutputStyles"), "the list is read only when the style is empty");
+    assert!(!domains.calls.lock().unwrap().contains(&"config/listOutputStyles"), "the list is read only when the style is empty");
 }
 
 #[derive(Default)]
@@ -181,7 +182,7 @@ fn request(method: &'static str, params: Value) -> CoreRequest {
 
 fn service() -> (Arc<TuiClientService>, Arc<Sections>) {
     let sections = Arc::new(Sections::default());
-    (TuiClientService::new(Arc::new(Reads::default()), sections.clone()), sections)
+    (TuiClientService::new(settings_reads(&Arc::new(Reads::default()), None), sections.clone()), sections)
 }
 
 async fn value(service: &TuiClientService, method: &'static str, params: Value) -> Result<Value, CoreError> {

@@ -18,15 +18,13 @@
 //! any path, registered or not); the audit only lacked its name.
 
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use async_trait::async_trait;
+use mixdog_core_agents::setup::DomainCalls;
 use mixdog_core_api::CoreError;
-use mixdog_core_api::CoreHandle;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
-use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
@@ -64,50 +62,16 @@ const MCP: &str = "mcp/mcpStatus";
 const PLUGINS: &str = "plugins/pluginsStatus";
 const SKILLS: &str = "skills/skillsStatus";
 
-/// Where the snapshot's values come from: the protocol reads of the other services, and the web-search route (a pushed
-/// section whose value the workflow config owns).
-#[async_trait]
-pub trait SettingsReads: Send + Sync {
-    /// The answer of the read `method` with `params`.
-    async fn read(&self, method: &'static str, params: Value) -> Result<Value, CoreError>;
-
-    /// `getWebSearchRoute()`: the stored route, the follow-Main marker when there is none.
-    fn web_search_route(&self) -> Result<Value, CoreError>;
-}
-
-/// The reads of a running core: each is the call a client of the core would make, served by the domain service that claims the
-/// method. The core handle is bound once the core is built (the service is composed before it exists); a read before that fails,
-/// and the snapshot shows `null` for it.
-pub struct HandleReads {
-    handle: OnceLock<Arc<dyn CoreHandle>>,
+/// Where the snapshot's values come from: the protocol reads of the other services (the core's domain table as internal calls,
+/// the seam the setup status readers use), and the web-search route (a pushed section whose value the workflow config owns).
+pub struct SettingsReads {
+    domains: Arc<dyn DomainCalls>,
     web_search_route: Box<dyn Fn() -> Result<Value, CoreError> + Send + Sync>,
 }
 
-impl HandleReads {
-    pub fn new(web_search_route: impl Fn() -> Result<Value, CoreError> + Send + Sync + 'static) -> Arc<Self> {
-        Arc::new(Self { handle: OnceLock::new(), web_search_route: Box::new(web_search_route) })
-    }
-
-    /// The core the reads go to; the first binding stays.
-    pub fn bind(&self, handle: Arc<dyn CoreHandle>) {
-        let _ = self.handle.set(handle);
-    }
-}
-
-#[async_trait]
-impl SettingsReads for HandleReads {
-    async fn read(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        let handle = self.handle.get().ok_or_else(|| failed("session", "the core is not up yet"))?;
-        let service = handle.domain_for(method).ok_or_else(|| failed("session", format!("{method} is not served")))?;
-        let req = CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("settings-snapshot") };
-        match service.call(req).await? {
-            Reply::Value(value) => Ok(value),
-            Reply::Subscribe(_) => Ok(Value::Null),
-        }
-    }
-
-    fn web_search_route(&self) -> Result<Value, CoreError> {
-        (self.web_search_route)()
+impl SettingsReads {
+    pub fn new(domains: Arc<dyn DomainCalls>, web_search_route: impl Fn() -> Result<Value, CoreError> + Send + Sync + 'static) -> Self {
+        Self { domains, web_search_route: Box::new(web_search_route) }
     }
 }
 
@@ -134,7 +98,7 @@ fn heavy(params: &Value) -> bool {
 }
 
 /// `getSettingsSnapshot`: every row of the settings picker, each read on its own (a failing one is `null`).
-pub async fn settings_snapshot(reads: &dyn SettingsReads, params: &Value) -> Value {
+pub async fn settings_snapshot(reads: &SettingsReads, params: &Value) -> Value {
     let scoped = |extra: Value| {
         let mut map = match extra {
             Value::Object(map) => map,
@@ -147,7 +111,7 @@ pub async fn settings_snapshot(reads: &dyn SettingsReads, params: &Value) -> Val
     };
     let read = |method: &'static str, extra: Value| {
         let params = scoped(extra);
-        async move { reads.read(method, params).await.unwrap_or(Value::Null) }
+        async move { reads.domains.call(method, params).await.unwrap_or(Value::Null) }
     };
     let mut snapshot = Map::new();
     snapshot.insert("autoClear".into(), read(AUTO_CLEAR, json!({})).await);
@@ -157,7 +121,7 @@ pub async fn settings_snapshot(reads: &dyn SettingsReads, params: &Value) -> Val
     snapshot.insert("toolModules".into(), read(TOOL_MODULES, json!({})).await);
     snapshot.insert("channels".into(), read(CHANNELS, json!({ "options": { "includeStatus": false } })).await);
     snapshot.insert("systemShell".into(), read(SYSTEM_SHELL, json!({})).await);
-    snapshot.insert("webSearchRoute".into(), reads.web_search_route().unwrap_or(Value::Null));
+    snapshot.insert("webSearchRoute".into(), (reads.web_search_route)().unwrap_or(Value::Null));
     let style = read(OUTPUT_STYLE, json!({})).await;
     snapshot.insert("outputStyle".into(), if truthy(&style) { style } else { read(OUTPUT_STYLES, json!({})).await });
     snapshot.insert("channelWorker".into(), read(CHANNEL_WORKER, json!({})).await);
@@ -233,12 +197,12 @@ const METHODS: &[&str] = &[GET_SETTINGS_SNAPSHOT, SET_PROGRESS_HINT, RESTORE_OLD
 /// The terminal client's own methods served by a domain, as `TurnActionsService` serves the other session actions that need no
 /// actor state. `thread/rememberPromptHistory` is the thread actor's (it owns the prompt writer).
 pub struct TuiClientService {
-    reads: Arc<dyn SettingsReads>,
+    reads: SettingsReads,
     threads: Arc<dyn ThreadState>,
 }
 
 impl TuiClientService {
-    pub fn new(reads: Arc<dyn SettingsReads>, threads: Arc<dyn ThreadState>) -> Arc<Self> {
+    pub fn new(reads: SettingsReads, threads: Arc<dyn ThreadState>) -> Arc<Self> {
         Arc::new(Self { reads, threads })
     }
 
@@ -266,7 +230,7 @@ impl DomainService for TuiClientService {
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
-            GET_SETTINGS_SNAPSHOT => Ok(Reply::Value(settings_snapshot(self.reads.as_ref(), &req.params).await)),
+            GET_SETTINGS_SNAPSHOT => Ok(Reply::Value(settings_snapshot(&self.reads, &req.params).await)),
             SET_PROGRESS_HINT => self.set_progress_hint(&req.params).await.map(Reply::Value),
             RESTORE_OLDER_TRANSCRIPT | RESTORE_NEWER_TRANSCRIPT => {
                 Self::thread(&req.params)?;
