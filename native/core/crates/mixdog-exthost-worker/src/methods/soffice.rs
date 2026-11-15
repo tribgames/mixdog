@@ -154,6 +154,11 @@ async fn run_child(file: &str, args: &[String], timeout: Duration) -> RunOutput 
         }
         Err(error) => return RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
     };
+    // execFile's error message names the whole command line: `Command failed: <file> <args...>`.
+    let failed = || {
+        let line: Vec<&str> = std::iter::once(file).chain(args.iter().map(String::as_str)).collect();
+        format!("Command failed: {}", line.join(" "))
+    };
     // A child that outlives its budget is killed when the wait is dropped (`kill_on_drop`).
     match mixdog_rt::time::timeout(timeout, child.wait_with_output()).await {
         Ok(Ok(output)) => {
@@ -164,12 +169,12 @@ async fn run_child(file: &str, args: &[String], timeout: Duration) -> RunOutput 
                 code => RunOutput {
                     code: code.unwrap_or(1),
                     stdout,
-                    stderr: if stderr.is_empty() { format!("Command failed: {file}") } else { stderr },
+                    stderr: if stderr.is_empty() { failed() } else { stderr },
                 },
             }
         }
         Ok(Err(error)) => RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
-        Err(_) => RunOutput { code: 1, stdout: String::new(), stderr: format!("Command failed: {file}: timed out") },
+        Err(_) => RunOutput { code: 1, stdout: String::new(), stderr: failed() },
     }
 }
 
