@@ -14,6 +14,8 @@
 #[path = "twin/proc.rs"]
 mod proc;
 
+// The crate root resolves `mod load;` beside itself (tests/load.rs): the load lives in tests/twin_perf/.
+#[path = "twin_perf/load.rs"]
 mod load;
 
 use std::path::{Path, PathBuf};
