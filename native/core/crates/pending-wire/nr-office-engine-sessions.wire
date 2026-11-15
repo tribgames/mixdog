@@ -1,0 +1,91 @@
+# nr-office-engine-sessions: the session record, the registry and the design binding of sessions (crate mixdog-office,
+# module `session`).
+
+The code is in native/core/crates/mixdog-office/src/session/{mod,registry,design}.rs and its twin test is
+native/core/crates/mixdog-office/tests/twin_sessions.rs (fixture set native/core/fixtures/office-sessions/, recorder
+benchmarks/rust-core/recorders/record-office-sessions.mjs). It was not compiled by this task (no cargo run): the edits below
+to files this task does not own are needed before it can be.
+
+## native/core/crates/mixdog-office/src/lib.rs
+
+After `pub mod digest;` add (and one line to the crate doc: `session` is the open document, the registry of open ones and
+the design a session is bound to):
+
+    /// The session record, the registry of open sessions and the design a session is bound to.
+    pub mod session;
+
+## native/core/crates/mixdog-office/Cargo.toml
+
+[dependencies]: add (both are already [workspace.dependencies] and workspace members; `mixdog-fsio` is already there):
+
+    mixdog-rt = { workspace = true }
+    mixdog-statefile = { workspace = true }
+
+[dev-dependencies]: add (the test runs its file work on the inline durability lane as the design crate's twin tests do):
+
+    mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+    tokio = { workspace = true, features = ["rt"] }
+
+(`mixdog-rt` appears in both tables; the second is the test-only feature set, as mixdog-office-base's manifest writes it.
+The tests also use `mixdog-fsio`, `mixdog-js`, `mixdog-office-base` (test-support), `mixdog-office-design` and `tempfile`,
+which the crate has.)
+
+## native/core/Cargo.lock
+
+Package `mixdog-office`: its `dependencies` gain `mixdog-rt`, `mixdog-statefile` and `tokio` (all packages of the lock
+already; nothing is fetched): `cargo update -w` offline.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Nothing by hand: no new external crate. `tokio` with `rt` is already unified; run the hakari check after the manifest edit
+and take what it asks for.
+
+## native/core/fixtures/MANIFEST.json (the index of the fixture sets)
+
+Add this entry in the list's order by `set` (after the last `office-*` set that sorts below "office-sessions", before
+"office-shared" / "office-stats"):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-sessions.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-sessions/MANIFEST.json",
+      "manifestSha256": "94eca3256bd14f7d97387f92b69976adaa18359e406200461f692c9a13d3de24",
+      "recorder": "benchmarks/rust-core/recorders/record-office-sessions.mjs",
+      "set": "office-sessions",
+      "totalBytes": 497296
+    },
+
+(The set was recorded from the product tree at C:/Project/mixdog, which is not an exact commit export, so its manifest
+`product.commit` is null, as the other office sets'. A re-record changes the manifest and the sha256 here.)
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service.
+
+## What the later engine tasks and the worker method use
+
+    mixdog_office::session::Registry                       one per engine; clones share the tables
+      register(&cx, Session) -> SessionHandle              registerOfficeSession (persists the design binding, then publishes)
+      register_handle(&cx, &SessionHandle)                 the same for a session that is already shared
+      index / release / for_document / get / remove        indexOfficeSession, releaseOfficeSession, officeSessionForDocument,
+                                                           sessions.get, sessions.delete
+      ids() -> Vec<String>, documents()                    sessions.keys(), the document index
+    mixdog_office::session::ThreadPins                     methods.mjs's sessionsByThread: `let known = ThreadPins::known(&registry)`
+                                                           before the call, `pins.finish_call(thread, &known, &registry)` after it
+                                                           (answers the `pin` the call returns), `is_pinned(thread)`
+    mixdog_office::session::{Session, SessionInit}         the record; `Session::new` is buildOfficeSessionRecord's field part
+    mixdog_office::session::{ensure_office_session_design, resolve_office_design_context, merge_office_design_request, EnsureOptions}
+                                                           take `&mixdog_office_design::library::Context` (lane, env, fetch,
+                                                           template indexer) and the data dir
+
+The template indexer of `Context` is `nr-office-design-templates`'s; until that module is wired the engine passes the one the
+wiring provides.
+
+## Left to the tasks that own the neighbouring code
+
+- `args.__signal` is not passed to `resolve_office_design_library` (the library port takes no cancellation); the engine
+  checks the call's cancellation around it.
+- `buildOfficeSessionRecord`, `pptxReviewDesignState` and `portableCreateDesignState` (office-sessions.mjs) belong to
+  nr-office-engine-open-create; they use `Session::new`, `DesignState::empty` and `Session::apply_design_context`.
+- The failure of persisting a binding (the warning text carries the operating system's message) is not in the twin; the
+  warning path is `design::persist_session_binding`.
