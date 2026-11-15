@@ -3,7 +3,7 @@
 //! with a `JBIG2Globals` stream decoded first. The page has the size of the PDF image; the output is that image with
 //! 0 = black, `(width + 7) / 8` bytes per row.
 //!
-//! This module reads the segments and carries out them: the page information, symbol dictionary, text region, pattern
+//! This module reads the segments and carries them out: the page information, symbol dictionary, text region, pattern
 //! dictionary, halftone region, generic region, generic refinement region and table segments and the end-of-page,
 //! end-of-file and end-of-stripe segments. A segment that is not understood is skipped; a segment that fails fails the
 //! whole stream, which the caller sees as [`CodecError::Unknown`].

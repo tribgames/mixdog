@@ -998,15 +998,21 @@ mkdirSync(finalDir, { recursive: true });
 const text = `${kept.map(([c, res]) => renderCase(c, res)).join('\n\n')}\n`;
 writeFileSync(join(finalDir, 'cases.txt'), text);
 const outcomes = { ok: kept.filter(([, res]) => res.ok).length, failed: kept.filter(([, res]) => !res.ok).length };
-const manifest = {
+// the manifest every fixture set has (product identity, provenance, file count and bytes), as verify-manifests.mjs reads it
+const { productIdentity, resolveTree, writeSetManifest } = await import(pathToFileURL(join(recorders, 'lib', 'common.mjs')).href);
+const { recorderProvenance } = await import(pathToFileURL(join(recorders, 'lib', 'provenance.mjs')).href);
+resolveTree(new Map([['tree', tree]]));
+writeSetManifest(finalDir, {
   set: SET,
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <Node product tree with node_modules>`,
-  cases: kept.length,
-  droppedTraps: dropped,
-  outcomes,
-  reference: { pdfjsDist: reference.version, module: 'wasm/jbig2.wasm', sha256: reference.wasmSha256 },
-  files: [{ path: 'cases.txt', bytes: Buffer.byteLength(text), sha256: createHash('sha256').update(text).digest('hex') }],
-};
-writeFileSync(join(finalDir, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  extra: {
+    cases: kept.length,
+    droppedTraps: dropped,
+    outcomes,
+    reference: { pdfjsDist: reference.version, module: 'wasm/jbig2.wasm', sha256: reference.wasmSha256 },
+    ...recorderProvenance(import.meta.url),
+  },
+  identity: productIdentity(tree),
+});
 console.log(`recorded ${SET}: ${kept.length} cases (${outcomes.ok} decoded, ${outcomes.failed} failed, ${dropped} traps dropped), cases.txt`);
