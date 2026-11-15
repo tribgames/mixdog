@@ -1,0 +1,48 @@
+# nr-tui-footer: the footer text of mixdog-tui (native/core/crates/mixdog-tui): src/footer.rs, src/footer/{io,host,files,render,schedule,text}.rs,
+# tests/footer_twin.rs, tests/recorders/record-footer.mjs, tests/goldens/footer.json
+# Nothing here could be compiled (no cargo in this task).
+
+## 1. Cargo.lock (hot file)
+The package `mixdog-tui` gains three dependencies (its Cargo.toml lists them: mixdog-core-session, mixdog-core-config, mixdog-statefile; all
+three are workspace crates already in native/core/Cargo.toml [workspace.dependencies]). In native/core/Cargo.lock, package `mixdog-tui`, the
+`dependencies` list becomes (alphabetical):
+ "mixdog-core-config",
+ "mixdog-core-session",
+ "mixdog-fsio",
+ "mixdog-js",
+ "mixdog-launch",
+ "mixdog-markdown-ansi",
+ "mixdog-session-view",
+ "mixdog-statefile",
+ "mixdog-term",
+ "mixdog-termtext",
+ "mixdog-tui-style",
+ "mixdog-tui-widgets",
+ "mixdog-view-model",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+mixdog-workspace-hack/Cargo.toml and the workspace Cargo.toml: no change. compose_flip.rs SERVICE_PENDING: no change (no protocol method).
+
+## 2. What nr-tui-app (the task that builds the application state and the run loop) must apply
+- Build one `footer::StatuslineRenderer::new(RendererDeps { .. })` per process and one `footer::StatuslineText` per footer (`StatuslineText::new(renderer.clone(), &inputs, saved_line)`).
+  - `host`: an `impl footer::StatusHost`: `catalog_meta(model, provider)` = `CatalogService::sync_meta`, `cached_models(provider)` = `CatalogService::cached_models`,
+    `cached_oauth_usage(route, allow_stale)` = the OAuth usage cache read of the route's account (`OAuthUsage::read_cached` with `RouteInfo { provider, model, account_id }`
+    resolved from the roster as `currentProviderAccountId`; it never measures), `agent_runtimes()` = the live sub-session runtimes as `RuntimeEntry` rows,
+    `hidden_agent_names()` = the registry's hidden agents, `env(name)`.
+  - `io`: `Arc::new(footer::DiskIo::new(<an InLane<InteractiveIo> proof>))`; `paths`: `StatusPaths { data_dir: <MIXDOG_DATA_DIR, else <mixdog home>/data>, config_dir: <MIXDOG_CONFIG_DIR, else ~/.mixdog> }`.
+  - `background`: a `BackgroundRun` that submits the job to a lane (Node's `setImmediate`); `clock`: `Date.now()` as epoch ms; `style`: `StatusStyle::new(Styler::process())`;
+    `process_started_at_ms`: now minus the process uptime.
+- The run loop calls `StatuslineText::update(&inputs)` on every render of the footer, `refresh_tick(&inputs)` every `refresh_ms()`, and `poll()` at `next_wake()`; `line()` is the text the
+  `mixdog_tui_widgets::statusline::paint_statusline_band` paints. `FooterInputs.theme_epoch` is bumped on `/theme`, `resize_epoch` on a terminal resize, `agent_revision` when the agent list changes.
+
+## 3. Found while porting (not mine to change)
+- mixdog-app-server-daemon/src/statusline_port.rs reads `settings.json` and `cc-statusline-last.json` from `CLAUDE_CONFIG_DIR`/`~/.claude`. The Node code reads both from
+  `MIXDOG_CONFIG_DIR` (default `~/.mixdog`; `claudeConfigDir()` of vendor/statusline/bin/statusline-route.mjs and gateway/claude-current.mjs). The footer here follows Node
+  (`StatusPaths.config_dir`). The daemon's `StatuslineService::claude_config_dir` should be checked against the same.
+- The file reads of `footer/files.rs` (config, routes, quota cache, Claude status files, usage log through `UsageView`) repeat the ones of statusline_port.rs. A shared
+  `StatusFiles` in mixdog-core-session (both would call it) would remove the repetition; neither file belongs to this task.
+- The L2 spinner table of `footer/render.rs` repeats the private one of mixdog-tui-widgets/src/statusline.rs (`l2_spinner_frame`); making that one `pub` would remove it.
