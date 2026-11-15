@@ -1,0 +1,4857 @@
+{
+  "area": "actions",
+  "description": "The actions between the request loop and the application code of office-com-host.ps1 and office-com-session-host.ps1: detect, the read-only preview open, validate, checkpoint, batch (live and background, success and failure, with the workbook and deck checkpoints), rollback, save, render (a second PowerPoint render in one session), post_save_validate, reload_document, replace_presentation_from_source and the DPI repair. The scenarios use the smallest operation of each format so the flows are exercised without the application code; they are recorded again, and the replays extended, once the application tasks land. Not covered: the password-protected legacy files (no, right and wrong password) of the preview, which need documents saved by Office with a password.",
+  "scenarios": [
+    {
+      "id": "detect-without-path",
+      "description": "detect with no path: which applications are installed and running.",
+      "steps": [
+        {
+          "oneShot": {
+            "action": "detect",
+            "format": "docx"
+          },
+          "label": "detect",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "detect-with-path",
+      "description": "detect with the path of a document an application of its own holds open: documentOpen is true for that format only.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "detect",
+            "format": "docx",
+            "path": "${work}\\held.docx"
+          },
+          "label": "detect",
+          "expect": {
+            "contains": "\"documentOpen\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-preview-docx",
+      "description": "A read-only render of a plain docx document (the file preview): nothing is written back.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "output": "${work}\\p.pdf",
+            "readOnly": true
+          },
+          "label": "preview",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-validate-docx",
+      "description": "validate of a docx document in a second hidden application.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "validate",
+            "format": "docx",
+            "path": "${work}\\d.docx"
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-checkpoint-docx",
+      "description": "checkpoint of a docx document: the fingerprint for Word, a copy for the others.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "checkpoint",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "output": "${work}\\cp.docx"
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-batch-background-docx",
+      "description": "A background batch of the smallest docx operation: applied and saved.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-background-failure-docx",
+      "description": "A background batch of docx that fails on its second operation: the answer is the failure.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "actions"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-live-docx",
+      "description": "A live batch of docx on a document an application of the user holds: not saved unless asked, undoUnits reported.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-batch-live-failure-docx",
+      "description": "A live batch of docx that fails on its second operation: taken back, answered as a failure.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "actions"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-live-docx",
+      "description": "A live docx batch and its rollback.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "docx",
+          "files": [
+            "held.docx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "operations": [
+              {
+                "op": "append_text",
+                "text": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "mode": "live",
+            "format": "docx",
+            "path": "${work}\\held.docx",
+            "checkpoint": "${work}\\cp.xlsx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-background-docx",
+      "description": "rollback of a background docx document is refused.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "Office COM rollback is available for live documents only"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-save-docx",
+      "description": "save of a background docx document.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "save",
+            "format": "docx",
+            "path": "${work}\\d.docx"
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "oneshot-render-docx",
+      "description": "render of a background docx document to PDF.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-docx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "docx",
+            "path": "${work}\\d.docx",
+            "output": "${work}\\r.pdf"
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-checkpoint-docx",
+      "description": "checkpoint and save_copy in a docx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.docx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-batch-docx",
+      "description": "A batch in a background docx session: applied and saved.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "batch",
+              "requireChanges": true,
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "session-batch-failure-docx",
+      "description": "A batch in a background docx session that fails on its second operation: the document is as it was.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "actions"
+                },
+                {
+                  "op": "no_such_operation"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "session-batch-live-docx",
+      "description": "A batch in a visible docx session: not saved unless asked, undoUnits reported; then rolled back.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.xlsx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-rollback-background-docx",
+      "description": "rollback in a background docx session (Excel reopens from the checkpoint).",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.docx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "append_text",
+                  "text": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.docx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"ok\":"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-save-docx",
+      "description": "save in a docx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.docx"
+      ]
+    },
+    {
+      "id": "session-render-docx",
+      "description": "render in a docx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "render",
+              "output": "${work}\\r1.pdf"
+            }
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-post-save-validate-docx",
+      "description": "post_save_validate in a docx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "post_save_validate"
+            }
+          },
+          "label": "post_save_validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-validate-docx",
+      "description": "validate in a docx session, with and without the issue inspection.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-docx",
+              "format": "docx",
+              "path": "${work}\\d.docx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "validate"
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "validate",
+              "inspectIssues": false
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-docx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-preview-xlsx",
+      "description": "A read-only render of a plain xlsx document (the file preview): nothing is written back.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "output": "${work}\\p.pdf",
+            "readOnly": true
+          },
+          "label": "preview",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-validate-xlsx",
+      "description": "validate of a xlsx document in a second hidden application.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "validate",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx"
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-checkpoint-xlsx",
+      "description": "checkpoint of a xlsx document: the fingerprint for Word, a copy for the others.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "checkpoint",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "output": "${work}\\cp.xlsx"
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "cp.xlsx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-background-xlsx",
+      "description": "A background batch of the smallest xlsx operation: applied and saved.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A1",
+                "value": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-background-failure-xlsx",
+      "description": "A background batch of xlsx that fails on its second operation: the answer is the failure.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A1",
+                "value": "actions"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-live-xlsx",
+      "description": "A live batch of xlsx on a document an application of the user holds: not saved unless asked, undoUnits reported.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "xlsx",
+          "files": [
+            "held.xlsx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "xlsx",
+            "path": "${work}\\held.xlsx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A1",
+                "value": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-batch-live-failure-xlsx",
+      "description": "A live batch of xlsx that fails on its second operation: taken back, answered as a failure.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "xlsx",
+          "files": [
+            "held.xlsx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "xlsx",
+            "path": "${work}\\held.xlsx",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A1",
+                "value": "actions"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-live-xlsx",
+      "description": "A live xlsx batch and its rollback.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "xlsx",
+          "files": [
+            "held.xlsx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "checkpoint",
+            "mode": "live",
+            "format": "xlsx",
+            "path": "${work}\\held.xlsx",
+            "output": "${work}\\cp.xlsx"
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "xlsx",
+            "path": "${work}\\held.xlsx",
+            "operations": [
+              {
+                "op": "set_cell",
+                "cell": "A1",
+                "value": "actions"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "mode": "live",
+            "format": "xlsx",
+            "path": "${work}\\held.xlsx",
+            "checkpoint": "${work}\\cp.xlsx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-background-xlsx",
+      "description": "rollback of a background xlsx document is refused.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "Office COM rollback is available for live documents only"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-save-xlsx",
+      "description": "save of a background xlsx document.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "save",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx"
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "oneshot-render-xlsx",
+      "description": "render of a background xlsx document to PDF.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-xlsx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "xlsx",
+            "path": "${work}\\d.xlsx",
+            "output": "${work}\\r.pdf"
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-checkpoint-xlsx",
+      "description": "checkpoint and save_copy in a xlsx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.xlsx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "save_copy",
+              "output": "${work}\\copy.xlsx"
+            }
+          },
+          "label": "save_copy",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "cp.xlsx",
+        "copy.xlsx"
+      ]
+    },
+    {
+      "id": "session-batch-xlsx",
+      "description": "A batch in a background xlsx session: applied and saved.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "batch",
+              "requireChanges": true,
+              "operations": [
+                {
+                  "op": "set_cell",
+                  "cell": "A1",
+                  "value": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "session-batch-failure-xlsx",
+      "description": "A batch in a background xlsx session that fails on its second operation: the document is as it was.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_cell",
+                  "cell": "A1",
+                  "value": "actions"
+                },
+                {
+                  "op": "no_such_operation"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "session-batch-live-xlsx",
+      "description": "A batch in a visible xlsx session: not saved unless asked, undoUnits reported; then rolled back.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.xlsx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_cell",
+                  "cell": "A1",
+                  "value": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.xlsx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-rollback-background-xlsx",
+      "description": "rollback in a background xlsx session (Excel reopens from the checkpoint).",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.xlsx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "set_cell",
+                  "cell": "A1",
+                  "value": "actions"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.xlsx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-save-xlsx",
+      "description": "save in a xlsx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    },
+    {
+      "id": "session-render-xlsx",
+      "description": "render in a xlsx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "render",
+              "output": "${work}\\r1.pdf"
+            }
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-post-save-validate-xlsx",
+      "description": "post_save_validate in a xlsx session, with and without the snapshot.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "post_save_validate"
+            }
+          },
+          "label": "post_save_validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "post_save_validate",
+              "includeSnapshot": false
+            }
+          },
+          "label": "post_save_validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-validate-xlsx",
+      "description": "validate in a xlsx session, with and without the issue inspection.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "validate"
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "validate",
+              "inspectIssues": false
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-preview-pptx",
+      "description": "A read-only render of a plain pptx document (the file preview): nothing is written back.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "output": "${work}\\p.pdf",
+            "readOnly": true
+          },
+          "label": "preview",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-validate-pptx",
+      "description": "validate of a pptx document in a second hidden application.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "validate",
+            "format": "pptx",
+            "path": "${work}\\d.pptx"
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-checkpoint-pptx",
+      "description": "checkpoint of a pptx document: the fingerprint for Word, a copy for the others.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "checkpoint",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "output": "${work}\\cp.pptx"
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "cp.pptx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-background-pptx",
+      "description": "A background batch of the smallest pptx operation: applied and saved.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "add_slide"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-background-failure-pptx",
+      "description": "A background batch of pptx that fails on its second operation: the answer is the failure.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "operations": [
+              {
+                "op": "add_slide"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "oneshot-batch-live-pptx",
+      "description": "A live batch of pptx on a document an application of the user holds: not saved unless asked, undoUnits reported.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "pptx",
+          "files": [
+            "held.pptx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "pptx",
+            "path": "${work}\\held.pptx",
+            "requireChanges": true,
+            "operations": [
+              {
+                "op": "add_slide"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-batch-live-failure-pptx",
+      "description": "A live batch of pptx that fails on its second operation: taken back, answered as a failure.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "pptx",
+          "files": [
+            "held.pptx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "pptx",
+            "path": "${work}\\held.pptx",
+            "operations": [
+              {
+                "op": "add_slide"
+              },
+              {
+                "op": "no_such_operation"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-live-pptx",
+      "description": "A live pptx batch and its rollback.",
+      "steps": [
+        {
+          "hostApp": "user",
+          "format": "pptx",
+          "files": [
+            "held.pptx"
+          ],
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "batch",
+            "mode": "live",
+            "format": "pptx",
+            "path": "${work}\\held.pptx",
+            "operations": [
+              {
+                "op": "add_slide"
+              }
+            ]
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "mode": "live",
+            "format": "pptx",
+            "path": "${work}\\held.pptx",
+            "checkpoint": "${work}\\cp.xlsx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-rollback-background-pptx",
+      "description": "rollback of a background pptx document is refused.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "rollback",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "undoUnits": 1
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "Office COM rollback is available for live documents only"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-save-pptx",
+      "description": "save of a background pptx document.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "save",
+            "format": "pptx",
+            "path": "${work}\\d.pptx"
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "oneshot-render-pptx",
+      "description": "render of a background pptx document to PDF.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "pptx",
+            "path": "${work}\\d.pptx",
+            "output": "${work}\\r.pdf"
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-checkpoint-pptx",
+      "description": "checkpoint and save_copy in a pptx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.pptx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "save_copy",
+              "output": "${work}\\copy.pptx"
+            }
+          },
+          "label": "save_copy",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "cp.pptx",
+        "copy.pptx"
+      ]
+    },
+    {
+      "id": "session-batch-pptx",
+      "description": "A batch in a background pptx session: applied and saved.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "batch",
+              "requireChanges": true,
+              "operations": [
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "session-batch-failure-pptx",
+      "description": "A batch in a background pptx session that fails on its second operation: the document is as it was.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "no_such_operation"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "session-batch-live-pptx",
+      "description": "A batch in a visible pptx session: not saved unless asked, undoUnits reported; then rolled back.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "visible",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.xlsx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"rolledBack\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-rollback-background-pptx",
+      "description": "rollback in a background pptx session (Excel reopens from the checkpoint).",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "checkpoint",
+              "output": "${work}\\cp.pptx"
+            }
+          },
+          "label": "checkpoint",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "label": "batch",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "rollback",
+              "checkpoint": "${work}\\cp.pptx",
+              "undoUnits": 1
+            }
+          },
+          "label": "rollback",
+          "expect": {
+            "contains": "\"ok\":"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-save-pptx",
+      "description": "save in a pptx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "save"
+            }
+          },
+          "label": "save",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "session-render-pptx",
+      "description": "render in a pptx session, twice: the second export needs a reopen.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "render",
+              "output": "${work}\\r1.pdf"
+            }
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "render",
+              "output": "${work}\\r2.pdf"
+            }
+          },
+          "label": "render",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-post-save-validate-pptx",
+      "description": "post_save_validate in a pptx session.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "post_save_validate"
+            }
+          },
+          "label": "post_save_validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-validate-pptx",
+      "description": "validate in a pptx session, with and without the issue inspection.",
+      "steps": [
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "validate"
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "validate",
+              "inspectIssues": false
+            }
+          },
+          "label": "validate",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "oneshot-preview-encrypted",
+      "description": "A read-only preview of an encrypted package (an OLE container under an OOXML name) is refused before any application starts.",
+      "steps": [
+        {
+          "copy": "../actions/inputs/ole-header.docx",
+          "as": "encrypted.docx"
+        },
+        {
+          "oneShot": {
+            "action": "render",
+            "format": "docx",
+            "path": "${work}\\encrypted.docx",
+            "output": "${work}\\p.pdf",
+            "readOnly": true
+          },
+          "label": "preview",
+          "expect": {
+            "contains": "OFFICE_PREVIEW_PASSWORD_PROTECTED"
+          }
+        }
+      ],
+      "collect": []
+    },
+    {
+      "id": "session-reload-document",
+      "description": "reload_document in a background pptx session: the file re-authored elsewhere is moved onto the session path and opened in place.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-pptx",
+              "format": "pptx",
+              "path": "${work}\\d.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "reload_document",
+              "source": "${work}\\src.pptx"
+            }
+          },
+          "label": "reload",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "reload_document"
+            }
+          },
+          "label": "reload",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.pptx"
+      ]
+    },
+    {
+      "id": "session-replace-identity",
+      "description": "replace_presentation_from_source with every slide in order.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "fill",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "open_session",
+              "session": "fill-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background"
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "session": "fill-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "close_session",
+              "session": "fill-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "fill",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "t-pptx",
+              "format": "pptx",
+              "path": "${work}\\t.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "replace_presentation_from_source",
+              "source": "${work}\\src.pptx",
+              "checkpoint": "${work}\\ck.pptx"
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "t.pptx"
+      ]
+    },
+    {
+      "id": "session-replace-subset",
+      "description": "replace_presentation_from_source with a subset in a new order.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "fill",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "open_session",
+              "session": "fill-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background"
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "session": "fill-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "close_session",
+              "session": "fill-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "fill",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "t-pptx",
+              "format": "pptx",
+              "path": "${work}\\t.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "replace_presentation_from_source",
+              "source": "${work}\\src.pptx",
+              "checkpoint": "${work}\\ck.pptx",
+              "slides": [
+                3,
+                1
+              ]
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "t.pptx"
+      ]
+    },
+    {
+      "id": "session-replace-repeated",
+      "description": "replace_presentation_from_source with a slide selected twice.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "fill",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "open_session",
+              "session": "fill-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background"
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "session": "fill-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "close_session",
+              "session": "fill-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "fill",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "t-pptx",
+              "format": "pptx",
+              "path": "${work}\\t.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "replace_presentation_from_source",
+              "source": "${work}\\src.pptx",
+              "checkpoint": "${work}\\ck.pptx",
+              "slides": [
+                2,
+                2,
+                1
+              ]
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "t.pptx"
+      ]
+    },
+    {
+      "id": "session-replace-out-of-range",
+      "description": "replace_presentation_from_source with a slide beyond the source deck: refused and the deck restored from the checkpoint.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "fill",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "open_session",
+              "session": "fill-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background"
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "session": "fill-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "close_session",
+              "session": "fill-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "fill",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "t-pptx",
+              "format": "pptx",
+              "path": "${work}\\t.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "replace_presentation_from_source",
+              "source": "${work}\\src.pptx",
+              "checkpoint": "${work}\\ck.pptx",
+              "slides": [
+                9
+              ]
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "t.pptx"
+      ]
+    },
+    {
+      "id": "session-replace-failure",
+      "description": "replace_presentation_from_source with a source that is not a deck: failed and restored.",
+      "steps": [
+        {
+          "session": "make",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "open_session",
+              "session": "mk-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "make",
+            "request": {
+              "action": "close_session",
+              "session": "mk-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "make",
+          "prepare": true
+        },
+        {
+          "session": "fill",
+          "start": true,
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "open_session",
+              "session": "fill-pptx",
+              "format": "pptx",
+              "path": "${work}\\src.pptx",
+              "mode": "background"
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "session": "fill-pptx",
+              "action": "batch",
+              "operations": [
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                },
+                {
+                  "op": "add_slide"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "send": {
+            "session": "fill",
+            "request": {
+              "action": "close_session",
+              "session": "fill-pptx",
+              "save": true
+            }
+          },
+          "expect": {
+            "contains": "\"ok\":true"
+          },
+          "prepare": true
+        },
+        {
+          "eof": "fill",
+          "prepare": true
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "t-pptx",
+              "format": "pptx",
+              "path": "${work}\\t.pptx",
+              "mode": "background",
+              "create": true
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "replace_presentation_from_source",
+              "source": "${work}\\missing.pptx",
+              "checkpoint": "${work}\\ck.pptx"
+            }
+          },
+          "label": "replace",
+          "expect": {
+            "contains": "\"ok\":false"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "t-pptx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "t.pptx"
+      ]
+    },
+    {
+      "id": "session-excel-dpi-repair",
+      "description": "A background workbook whose sheet says horizontalDpi=\"0\": the reopen of post_save_validate repairs it and counts the repair.",
+      "steps": [
+        {
+          "copy": "../actions/inputs/zero-dpi.xlsx",
+          "as": "d.xlsx"
+        },
+        {
+          "session": "a",
+          "start": true
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "action": "open_session",
+              "session": "s-xlsx",
+              "format": "xlsx",
+              "path": "${work}\\d.xlsx",
+              "mode": "background"
+            }
+          },
+          "label": "open",
+          "expect": {
+            "contains": "\"ok\":true"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "post_save_validate"
+            }
+          },
+          "label": "post_save_validate",
+          "expect": {
+            "contains": "\"excelDpiRepairs\":1"
+          }
+        },
+        {
+          "send": {
+            "session": "a",
+            "request": {
+              "session": "s-xlsx",
+              "action": "close_session"
+            }
+          },
+          "label": "close",
+          "expect": {
+            "contains": "\"closed\":true"
+          }
+        },
+        {
+          "eof": "a"
+        }
+      ],
+      "collect": [
+        "d.xlsx"
+      ]
+    }
+  ]
+}
