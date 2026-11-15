@@ -18,6 +18,7 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
+use serde_json::Map;
 use serde_json::Value;
 
 use super::computer_recovery::format_tool_error;
@@ -37,11 +38,22 @@ pub fn request(args: &Value) -> Result<ComputerRequest, String> {
         let known: Vec<&str> = ComputerAction::ALL.iter().map(|a| a.wire_name()).collect();
         format!("unknown computer action \"{name}\"; use one of {}", known.join(", "))
     })?;
-    let input = match object.get("input") {
-        None | Some(Value::Null) => Value::Object(Default::default()),
-        Some(v @ Value::Object(_)) => v.clone(),
+    // The provider transports that reach the tool: `input` as a JSON-object string, and the input's fields on the argument root
+    // beside `action`. Root fields fill in what a nested `input` does not name.
+    let nested = match object.get("input") {
+        None | Some(Value::Null) => Map::new(),
+        Some(Value::Object(o)) => o.clone(),
+        Some(Value::String(s)) if s.js_trim_start().starts_with('{') => match serde_json::from_str::<Value>(s.js_trim()) {
+            Ok(Value::Object(o)) => o,
+            _ => return Err(format!("computer action \"{name}\" input must be an object")),
+        },
         Some(_) => return Err(format!("computer action \"{name}\" input must be an object")),
     };
+    let mut input = nested;
+    for (key, value) in object.iter().filter(|(key, _)| !matches!(key.as_str(), "action" | "input")) {
+        input.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+    let input = Value::Object(input);
     Ok(ComputerRequest { action, input })
 }
 
@@ -93,7 +105,9 @@ impl Tool for ComputerTool {
         let request = request(&args).map_err(|m| invalid("action", m))?;
         // The calling session's own helper state, as Node sends the session id with the request.
         let backend = self.sessions.backend(ctx.thread_id.as_str());
-        let parts = backend.run(request, ctx.cancel.clone()).await.map_err(|error| map_error(error, &args))?;
+        // The recovery names its target from the resolved input, whichever shape the call arrived in.
+        let resolved = serde_json::json!({ "action": request.action.wire_name(), "input": request.input.clone() });
+        let parts = backend.run(request, ctx.cancel.clone()).await.map_err(|error| map_error(error, &resolved))?;
         Ok(ToolOutput { parts, ..ToolOutput::default() })
     }
 }
@@ -111,6 +125,22 @@ mod tests {
         assert_eq!((r.action, r.input), (ComputerAction::Capture, json!({})));
         assert!(request(&json!({"action":"zap"})).unwrap_err().starts_with("unknown computer action \"zap\""));
         assert!(request(&json!({"action":"act","input":[]})).is_err());
+    }
+
+    #[test]
+    fn input_sent_as_a_json_object_string_is_read_as_the_object() {
+        let r = request(&json!({"action":"act","input":"{\"window_id\":\"w1\",\"steps\":[]}"})).unwrap();
+        assert_eq!(r.input, json!({"window_id":"w1","steps":[]}));
+        assert!(request(&json!({"action":"act","input":"{broken"})).is_err());
+        assert!(request(&json!({"action":"act","input":"text"})).is_err());
+    }
+
+    #[test]
+    fn input_fields_flattened_onto_the_root_are_the_input() {
+        let r = request(&json!({"action":"capture","window_id":"w1","mode":"som"})).unwrap();
+        assert_eq!((r.action, r.input), (ComputerAction::Capture, json!({"window_id":"w1","mode":"som"})));
+        let beside = request(&json!({"action":"capture","input":{"mode":"vision"},"mode":"som","window_id":"w1"})).unwrap();
+        assert_eq!(beside.input, json!({"mode":"vision","window_id":"w1"}));
     }
 
     /// The registered union is the one for exactly the schema the tool advertises, byte for byte

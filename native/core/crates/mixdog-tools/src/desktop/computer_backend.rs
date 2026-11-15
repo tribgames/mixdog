@@ -109,6 +109,7 @@ use super::computer_pixels::ComputerBlobs;
 use super::computer_pixels::DisplayOcr;
 use super::computer_pointer::PointerHold;
 use super::computer_policy;
+use super::computer_recovery;
 use super::computer_recovery::lead_code as error_code;
 use super::computer_reply;
 use super::computer_screen::Screen;
@@ -1426,6 +1427,48 @@ impl ComputerSecretHost for ProcessComputerBackend {
 #[async_trait]
 impl ComputerBackend for ProcessComputerBackend {
     async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let outcome = self.run_admitted(request.clone(), cancel.clone()).await;
+        // A stale target or frame refused an input action on a window: the exact window is captured again (after the command's
+        // admission slot and lane are given back) and returned with the refusal, so the next call acts on fresh refs.
+        let Err(ComputerError::Failed { message, .. }) = &outcome else { return outcome };
+        let Some(window) = computer_recovery::recapture_window(request.action.wire_name(), &request.input, message) else { return outcome };
+        let capture = ComputerRequest { action: ComputerAction::Capture, input: json!({ "window_id": window }) };
+        match self.run_admitted(capture, cancel).await {
+            Ok(parts) => Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: computer_recovery::refusal_with_capture(message, &window, &parts) }),
+            Err(_) => outcome,
+        }
+    }
+
+    fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
+        computer_policy::admit_screen_input(self.observe_only())?;
+        self.screen.inject(input)
+    }
+
+    fn release_input(&self) -> Result<u32, ComputerError> {
+        self.screen.release()
+    }
+
+    fn input_desktop(&self) -> Option<DesktopIdentity> {
+        self.screen.input_desktop()
+    }
+
+    fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+        self.screen.displays()
+    }
+
+    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+        self.screen.source(display)
+    }
+
+    fn status(&self) -> ComputerStatus {
+        let active = locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst));
+        ComputerStatus { active, observe_only: self.observe_only(), controller: None }
+    }
+}
+
+impl ProcessComputerBackend {
+    /// One command from its admission to the helper's reply; `run` adds the recapture a stale refusal calls for.
+    async fn run_admitted(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         // Node's client reads the bridge's discovery file before it validates, probes or dispatches anything; the calls that
         // end at the desktop's computer host (a capture of a screen, the Linux diagnose with its displays) are refused first here too.
         let reads_desktop = match request.action {
@@ -1472,34 +1515,6 @@ impl ComputerBackend for ProcessComputerBackend {
         outcome
     }
 
-    fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
-        computer_policy::admit_screen_input(self.observe_only())?;
-        self.screen.inject(input)
-    }
-
-    fn release_input(&self) -> Result<u32, ComputerError> {
-        self.screen.release()
-    }
-
-    fn input_desktop(&self) -> Option<DesktopIdentity> {
-        self.screen.input_desktop()
-    }
-
-    fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
-        self.screen.displays()
-    }
-
-    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
-        self.screen.source(display)
-    }
-
-    fn status(&self) -> ComputerStatus {
-        let active = locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst));
-        ComputerStatus { active, observe_only: self.observe_only(), controller: None }
-    }
-}
-
-impl ProcessComputerBackend {
     /// The command from the person's session through the lane to the reply: the part of `run` whose outcome is logged.
     async fn run_command(&self, mut command: Map<String, Value>, asked_mode: &str, note: Option<&'static str>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
@@ -1723,6 +1738,27 @@ mod tests {
         value.as_object().cloned().unwrap_or_default()
     }
 
+    /// A stale target refused an input action on a window: the exact window is captured again before the call ends (the refusal
+    /// stays the call's error when that capture cannot be made); a refusal that is not stale, or a read, captures nothing.
+    #[tokio::test]
+    async fn a_stale_refusal_of_an_input_on_a_window_asks_for_a_capture_of_that_window() {
+        let window = |operation: &str| ComputerRequest { action: ComputerAction::Window, input: json!({"operation": operation, "window_id": "w1"}) };
+        let captures = |manager: &Answering| locked(&manager.lines).iter().filter(|line| !matches!(line["action"].as_str(), Some("focus_window" | "move_window")) && line["window_id"] == "w1").count();
+
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap_err();
+        assert!(matches!(&refused, ComputerError::Failed { message, .. } if message.contains("stale_target")), "{refused:?}");
+        assert!(captures(&manager) > 0, "{:?}", locked(&manager.lines));
+
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let moved = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "move", "window_id": "w1", "x": 1}) };
+        backend.run(moved, CancellationToken::new()).await.unwrap_err();
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "move_window"), "{:?}", locked(&manager.lines));
+        assert_eq!(captures(&manager), 0, "{:?}", locked(&manager.lines));
+    }
+
     #[test]
     fn error_codes_and_replies() {
         assert_eq!(error_code("Error: Stale_Target: gone"), "stale_target");
@@ -1916,6 +1952,8 @@ mod tests {
             match request["action"].as_str() {
                 _ if self.silent.load(Ordering::SeqCst) => {}
                 Some("hang") => {}
+                Some("focus_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "stale_target: window w1 is gone"}))),
+                Some("move_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_not_movable: w1"}))),
                 Some("die") => self.emit(handle, |seq| Self::exit(seq, None)),
                 Some("stuck") => self.say(
                     handle,
