@@ -1,0 +1,41 @@
+# nr-office-comrs-word-edit: the Word editor of mixdog-office-com (src/word/edit/{mod,author,formatting,lists,append,text,styles,review,structure,
+# template,tables}.rs), tests/word_edit.rs, tests/word_edit_live.rs, recorder/scenarios/word-edit.json and tests/fixtures/word-edit/inputs/pixel.png.
+# Nothing was compiled (the lead builds the wave); every file was checked to parse with rustfmt only.
+# No protocol row, no service, no SERVICE_PENDING name and no Cargo.lock change belong to this task (it uses `regex`, already a dependency of the crate).
+# Depends on nr-office-comrs-word-read being applied first (src/lib.rs `pub mod word;` and the readers table of src/drivers.rs, see its fragment).
+
+## 1. native/core/crates/mixdog-office-com/src/word/mod.rs (owned by nr-office-comrs-word-read)
+After the line `pub(crate) mod edit;` add the public path the drivers table and the tests use:
+
+    pub use edit::Editor;
+
+## 2. native/core/crates/mixdog-office-com/src/drivers.rs (not owned by this task)
+Fill the editors table:
+
+    static EDITORS: &[(&str, &dyn FormatEditor)] = &[("docx", &crate::word::Editor)];
+
+(`operation_names()` of the editor answers the 41 names of the docx list of tests/fixtures/registry/operations.json; the other two formats add their own
+line when their tasks are applied.)
+
+## 3. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Test targets, after `[[test]] name = "word_read_live"`:
+
+    [[test]]
+    name = "word_edit"
+    path = "tests/word_edit.rs"
+
+    [[test]]
+    name = "word_edit_live"
+    path = "tests/word_edit_live.rs"
+
+## 4. What the lead should know
+- tests/word_edit.rs runs against a scripted Word object model written from the PowerShell source and states the call order of the author wrapper, the
+  appended-run rule, replace_text, resolve_revisions, fill_template, the table lookups and the refusal texts. tests/fixtures/word-edit/ holds only the input
+  the scenarios copy (inputs/pixel.png) because no recording could be made here (no Word): run `node recorder/record-office-com.mjs --area word-edit` on the
+  migration PC, then the call logs cut at the operation markers are to be replayed against `Editor` (the test file has the manifest check for them; the replay
+  itself is not written, since the recorded steps' format has no sample in the tree yet). The scenario file is checked to name every one of the 41 operations.
+- One order differs from the PowerShell host by necessity: `fill_template` visits the token variants of a story in order of their first appearance in its text; the
+  PowerShell host visited them in .NET hashtable key order, which cannot be reproduced. Nothing but the order of the keys of `filled` can show it.
+- The arithmetic of the natural column widths of add_table (the unsized-table branch) is done in single and double precision as the script's operand types decide
+  (page width minus margins in single, the sum of the columns in double); the replay of the recorded `Width` puts will show a difference if PowerShell used double
+  throughout.
