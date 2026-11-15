@@ -232,16 +232,10 @@ pub(crate) fn read(bytes: &[u8]) -> Container {
 pub(crate) enum Shape {
     /// Nothing follows the `ftyp` box (or it is cut short).
     TooSmall,
-    /// A `meta` box starts but does not end inside the file.
+    /// A `meta` box starts but does not end inside the file (libheif reads the whole box before any of its children).
     MetaIncomplete,
     /// Every top-level box that starts ends.
     Whole,
-}
-
-/// libheif reads a cut-short `meta` box as far as it goes and fails later, in the item data, once the boxes that
-/// say where the items are (`pitm`, `iinf`, `iloc`) are whole.
-fn has_required_children(meta_body: &[u8]) -> bool {
-    [b"pitm", b"iinf", b"iloc"].into_iter().all(|kind| find(meta_body, kind).is_some())
 }
 
 /// Where `bytes` stops being a HEIF file.
@@ -254,7 +248,7 @@ pub(crate) fn shape(bytes: &[u8]) -> Shape {
         if size > rest.len() {
             return if seen == 0 {
                 Shape::TooSmall
-            } else if &rest[4..8] == b"meta" && !has_required_children(&rest[12.min(rest.len())..]) {
+            } else if &rest[4..8] == b"meta" {
                 Shape::MetaIncomplete
             } else {
                 Shape::Whole
@@ -343,8 +337,11 @@ mod tests {
         assert_eq!(shape(&whole_file[..ftyp]), Shape::TooSmall);
         assert_eq!(shape(&whole_file[..12]), Shape::TooSmall);
         assert_eq!(shape(&whole_file[..ftyp + 20]), Shape::MetaIncomplete);
-        // The three boxes that place the items are whole: the rest of the file is missing, not the meta box.
-        assert_eq!(shape(&whole_file[..whole_file.len() - 6]), Shape::Whole);
+        // Only the end of the meta box (its property boxes) is missing: still incomplete, as sharp recorded.
+        assert_eq!(shape(&whole_file[..whole_file.len() - 6]), Shape::MetaIncomplete);
+        // The meta box is whole and the item data after it is cut.
+        let with_data = [whole_file, whole(b"mdat", &[0; 16])].concat();
+        assert_eq!(shape(&with_data[..with_data.len() - 6]), Shape::Whole);
     }
 
     #[test]

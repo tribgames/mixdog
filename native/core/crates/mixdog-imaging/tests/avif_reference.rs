@@ -151,6 +151,11 @@ fn a_probe_and_a_decode_fail_where_sharp_fails_with_its_libheif_sentence() {
             if !equal {
                 failures.push(format!("{name}: the sentence is {got:?}, sharp's {want:?}"));
             }
+            // libvips says "corrupt header" when libheif stops before the image is opened, and only then.
+            let header = |text: &str| text.starts_with("Input buffer has corrupt header: ");
+            if header(error.sentence()) != header(recorded.as_str().unwrap_or_default()) {
+                failures.push(format!("{name}: {:?} against sharp's {:?} (corrupt-header prefix)", error.sentence(), recorded));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

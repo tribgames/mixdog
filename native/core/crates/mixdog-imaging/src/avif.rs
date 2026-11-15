@@ -140,7 +140,7 @@ impl Decoder {
                 // SAFETY: the context is open and `data` is valid to read and write.
                 let sent = unsafe { dav1d_send_data(self.0, Some(NonNull::from(&mut data.0))) }.0;
                 if sent != 0 && sent != -EAGAIN {
-                    return Err(broken("the AV1 data is not decodable"));
+                    return Err(broken("Corrupt frame detected"));
                 }
             }
             // SAFETY: the context is open and the picture storage is valid to write.
@@ -149,10 +149,10 @@ impl Decoder {
                 return Ok(picture);
             }
             if got != -EAGAIN {
-                return Err(broken("the AV1 data is not decodable"));
+                return Err(broken("Corrupt frame detected"));
             }
         }
-        Err(broken("the AV1 data holds no picture"))
+        Err(broken("Corrupt frame detected"))
     }
 }
 
