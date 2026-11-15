@@ -141,7 +141,14 @@ const DIRECT = {
     requiredAbortOptions(options);
   },
   'route/set': (params) => {
-    if (params.route !== undefined) requiredModelSelection(params.route);
+    if (params.route === undefined) return;
+    // The phone client sends the options of the write inside the route (packages/protocol-client setRoute); the core takes
+    // them out before it checks the selection (boundary/validate/model.rs ROUTE_WRITE_OPTION_KEYS), and so does this.
+    const route = params.route;
+    if (route === null || typeof route !== 'object' || Array.isArray(route)) return requiredModelSelection(route);
+    const selection = { ...route };
+    for (const key of ['applyToCurrentSession', 'keepMainModel', 'sessionOnly', 'validateOnly']) delete selection[key];
+    requiredModelSelection(selection);
   },
   'thread/continueInModel': (params) => DIRECT['route/set'](params),
   'thread/fork': (params) => {
