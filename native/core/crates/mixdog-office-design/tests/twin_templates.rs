@@ -156,14 +156,60 @@ fn recorded(entry: &Value) -> Value {
 }
 
 fn check(what: &str, expected: &Value, actual: &Value) {
-    twin::assert_matches(what, expected, actual);
+    twin::assert_matches(what, &path_free(expected), &path_free(actual));
+}
+
+/// `local-<16 hex>` at the start of a text is the hash of a template's path, and the folder of a run is its own: the recording
+/// holds the hash of the recorder's folder wherever the id is part of a longer one (`local-<hash>-slide-1`; an id on its own is
+/// already written `<local name>`). The hash is written `<path>` on both sides, and the index revision, which hashes the ids
+/// and the paths, `<revision>`.
+fn path_free(value: &Value) -> Value {
+    fn local(text: &str) -> Option<String> {
+        let rest = text.strip_prefix("local-")?;
+        let hash = rest.get(..16)?;
+        (hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) && rest[16..].starts_with('-')).then(|| format!("local-<path>{}", &rest[16..]))
+    }
+    fn walk(value: &Value, found: &mut bool) -> Value {
+        match value {
+            Value::String(text) => match local(text) {
+                Some(masked) => {
+                    *found = true;
+                    Value::String(masked)
+                }
+                None => value.clone(),
+            },
+            Value::Array(items) => Value::Array(items.iter().map(|item| walk(item, found)).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), walk(item, found))).collect()),
+            other => other.clone(),
+        }
+    }
+    fn revisions(value: &mut Value) {
+        match value {
+            Value::Array(items) => items.iter_mut().for_each(revisions),
+            Value::Object(map) => {
+                for (key, item) in map.iter_mut() {
+                    if key == "revision" && item.is_string() {
+                        *item = Value::String("<revision>".to_owned());
+                    } else {
+                        revisions(item);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = false;
+    let mut out = walk(value, &mut found);
+    // The revision hashes each template's id and path: the folder of the run is in it whether or not an id is.
+    revisions(&mut out);
+    out
 }
 
 /// [`check`], and the JSON text is the one Node writes, key order included (the index and what an inspection answers are files
 /// and tool answers).
 fn check_text(what: &str, expected: &Value, actual: &Value) {
     check(what, expected, actual);
-    assert!(json_stringify(&twin::normalise(expected)) == json_stringify(&twin::normalise(actual)), "{what}: the JSON text differs from the recording (key order or number text)");
+    assert!(json_stringify(&twin::normalise(&path_free(expected))) == json_stringify(&twin::normalise(&path_free(actual))), "{what}: the JSON text differs from the recording (key order or number text)");
 }
 
 fn roles_object(roles: &HashMap<u64, String>) -> Value {
