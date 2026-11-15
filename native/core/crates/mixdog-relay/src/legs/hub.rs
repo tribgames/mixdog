@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use mixdog_rt::TaskClass;
-use mixdog_rt::time::{Instant, sleep};
+use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 use tokio::task::AbortHandle;
 
@@ -314,7 +314,7 @@ impl UplinkFlow {
         self.socket.hold_uplink(true);
         let flow = Arc::clone(self);
         let task = mixdog_rt::spawn("relay-uplink-resume", TaskClass::Control, async move {
-            sleep(policy::LEG_RESUME_TIMEOUT).await;
+            sleep_unrefed(policy::LEG_RESUME_TIMEOUT).await;
             flow.resume();
         });
         state.timer = Some(task.abort_handle());

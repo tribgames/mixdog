@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_rt::TaskClass;
-use mixdog_rt::time::{Instant, sleep};
+use mixdog_rt::time::{Instant, sleep_unrefed};
 use tokio::task::AbortHandle;
 
 use super::hub::{Hub, SocketRef};
@@ -141,7 +141,7 @@ pub fn await_desktop_turn(hub: &Arc<Hub>, target: WatchTarget, watch: &mut Watch
 }
 
 async fn run(hub: Arc<Hub>, target: WatchTarget, epoch: u64, turn: Turn, timing: HandshakeTiming, since: Instant) {
-    sleep(timing.stall).await;
+    sleep_unrefed(timing.stall).await;
     let desktop = match verdict(&hub, &target, epoch, turn, since) {
         Verdict::Moved => return,
         Verdict::Heard => {
@@ -150,10 +150,10 @@ async fn run(hub: Arc<Hub>, target: WatchTarget, epoch: u64, turn: Turn, timing:
         }
         Verdict::Silent(desktop) => desktop,
     };
+    let probed_at = Instant::now();
     // Surfaced as a close when it fails.
     desktop.ping();
-    let probed_at = Instant::now();
-    sleep(timing.probe).await;
+    sleep_unrefed(timing.probe).await;
     match verdict(&hub, &target, epoch, turn, probed_at) {
         Verdict::Moved => {}
         Verdict::Heard => logline::emit(&logline::slow_phone_handshake(turn.name(), logline::HEARD_PROBE_ANSWERED)),

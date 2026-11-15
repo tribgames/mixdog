@@ -16,7 +16,7 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use mixdog_rt::TaskClass;
-use mixdog_rt::time::{Instant, sleep};
+use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 
 use super::dispatch::{CapabilityOffer, LegCall};
@@ -528,7 +528,7 @@ impl DesktopHandle {
                     }
                     let (hub, device_id, generation) = (Arc::clone(&self.hub), self.device_id.clone(), self.generation);
                     let task = mixdog_rt::spawn("relay-desktop-offline", TaskClass::Control, async move {
-                        sleep(OFFLINE_GRACE).await;
+                        sleep_unrefed(OFFLINE_GRACE).await;
                         hub.desktop_offline_expired(&device_id, generation);
                     });
                     entry.offline_timer = Some(task.abort_handle());
