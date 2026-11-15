@@ -3,7 +3,9 @@
 //! master (`slideObjectToXml`).
 
 use super::media::{ImageFile, MediaRel, background_rel, image_extension, picture_rel};
-use super::shapes::{Fill, ImageObject, ImageOptions, ShapeObject, ShapeOptions, color_selection, color_selection_of, image_xml, shape_xml};
+use super::shapes::{Fill, Hyperlink, ImageObject, ImageOptions, ShapeObject, ShapeOptions, color_selection, color_selection_of, image_xml, shape_xml};
+use super::table::{TableCell, TableObject, TableOptions, TablePlacement};
+use super::text::{Placement, TextContent, TextObject, TextOptions};
 use super::theme;
 use super::{Axis, CRLF, Dim, Layout, encode_xml_entities, num, or, smart_parse, val_to_pts};
 
@@ -40,11 +42,13 @@ pub struct SlideNumber {
     pub bold: bool,
 }
 
-/// What a slide holds in order: shapes and pictures draw, a notes object only takes a place (it is one of the
-/// slide's objects, so it counts in the ids of the ones after it).
+/// What a slide holds in order: shapes, text boxes, tables and pictures draw, a notes object only takes a place (it is
+/// one of the slide's objects, so it counts in the ids of the ones after it).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SlideObject {
     Shape(ShapeObject),
+    Text(TextObject),
+    Table(TableObject),
     Image(ImageObject),
     Notes(String),
 }
@@ -116,18 +120,47 @@ impl Slide {
         self.background = Some(props);
     }
 
+    /// The text-type objects of the slide (shapes and text boxes), which number the names of the next ones.
+    fn text_object_count(&self) -> usize {
+        self.objects.iter().filter(|object| matches!(object, SlideObject::Shape(_) | SlideObject::Text(_))).count()
+    }
+
+    /// `createHyperlinkRels` for one hyperlink: its relationship, and the id it was given.
+    fn add_hyperlink_rel(&mut self, link: &Hyperlink) -> usize {
+        let rid = self.next_rel_id();
+        let encoded = link.url.as_deref().map(encode_xml_entities).unwrap_or_default();
+        let target = if encoded.is_empty() { num(link.slide.unwrap_or(0.0)) } else { encoded };
+        self.rels.push(HyperlinkRel { rid, to_slide: link.slide.is_some_and(|slide| slide != 0.0 && !slide.is_nan()), target });
+        rid
+    }
+
     /// `slide.addShape(shape, options)`: `shape` is the preset geometry name (`rect`, `roundRect`, `ellipse`, `line`...).
     pub fn add_shape(&mut self, shape: &str, options: ShapeOptions) -> Result<(), String> {
-        let text_objects = self.objects.iter().filter(|object| matches!(object, SlideObject::Shape(_))).count();
-        let mut object = ShapeObject::new(shape, options, text_objects)?;
-        if let Some(link) = object.hyperlink() {
-            let rid = self.next_rel_id();
-            let encoded = link.url.as_deref().map(encode_xml_entities).unwrap_or_default();
-            let target = if encoded.is_empty() { num(link.slide.unwrap_or(0.0)) } else { encoded };
-            self.rels.push(HyperlinkRel { rid, to_slide: link.slide.is_some_and(|slide| slide != 0.0 && !slide.is_nan()), target });
+        let mut object = ShapeObject::new(shape, options, self.text_object_count())?;
+        if let Some(link) = object.hyperlink().cloned() {
+            let rid = self.add_hyperlink_rel(&link);
             object.set_link_rid(rid);
         }
         self.objects.push(SlideObject::Shape(object));
+        Ok(())
+    }
+
+    /// `slide.addText(text, options)`: a string or formatted runs in a text box (or any preset shape).
+    pub fn add_text(&mut self, text: TextContent, options: Option<TextOptions>) -> Result<(), String> {
+        let layout = self.layout.clone();
+        let place = Placement { index: self.objects.len(), text_objects: self.text_object_count(), layout: &layout };
+        let object = TextObject::new(text, options, &place, &mut |link: &Hyperlink| self.add_hyperlink_rel(link))?;
+        self.objects.push(SlideObject::Text(object));
+        Ok(())
+    }
+
+    /// `slide.addTable(rows, options)`: a table of cells, each a string or an object with its own text and options.
+    pub fn add_table(&mut self, rows: Vec<Vec<TableCell>>, options: TableOptions) -> Result<(), String> {
+        let tables_before = self.objects.iter().filter(|object| matches!(object, SlideObject::Table(_))).count();
+        let layout = self.layout.clone();
+        let place = TablePlacement { tables_before, slide_number: self.number, layout: &layout };
+        let object = TableObject::new(rows, options, &place, &mut |link: &Hyperlink| self.add_hyperlink_rel(link))?;
+        self.objects.push(SlideObject::Table(object));
         Ok(())
     }
 
@@ -299,6 +332,8 @@ pub(crate) fn csld_xml(input: &Csld<'_>) -> String {
     for (index, object) in input.objects.iter().enumerate() {
         match object {
             SlideObject::Shape(shape) => xml.push_str(&shape_xml(shape, index, input.layout)),
+            SlideObject::Text(text) => xml.push_str(text.xml()),
+            SlideObject::Table(table) => xml.push_str(table.xml()),
             SlideObject::Image(image) => xml.push_str(&image_xml(image, index, input.layout)),
             SlideObject::Notes(_) => {}
         }

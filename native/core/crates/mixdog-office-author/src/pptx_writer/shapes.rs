@@ -81,7 +81,7 @@ pub struct Shadow {
 impl Shadow {
     /// `correctShadowOptions`, which `addImage` applies: a type other than outer, inner or none is outer, an angle
     /// outside 0-359 is 270, an opacity outside 0-1 is 0.75, a leading `#` of the colour is dropped.
-    fn corrected(mut self) -> Self {
+    pub(crate) fn corrected(mut self) -> Self {
         if !matches!(self.kind.as_deref(), Some("outer" | "inner" | "none")) {
             self.kind = Some("outer".to_owned());
         }
@@ -320,7 +320,7 @@ pub(crate) fn color_element(color: &str, inner: &str) -> String {
 }
 
 /// The attributes of an `a:xfrm`: flips, then the rotation.
-fn location_attributes(rotate: Option<f64>, flip_h: bool, flip_v: bool) -> String {
+pub(crate) fn location_attributes(rotate: Option<f64>, flip_h: bool, flip_v: bool) -> String {
     let mut attributes = String::new();
     if flip_h {
         attributes.push_str(" flipH=\"1\"");
@@ -366,7 +366,7 @@ fn shadow_opening(values: &ShadowValues) -> String {
 
 /// The shadow of a shape (`slideObjectToXml`, text/shape case): the element is closed as `a:outerShdw` whatever its
 /// type, as pptxgenjs writes it.
-fn shape_shadow_xml(shadow: &Shadow) -> String {
+pub(crate) fn shape_shadow_xml(shadow: &Shadow) -> String {
     let Some(values) = shadow_values(shadow) else { return String::new() };
     format!(
         "<a:effectLst> {} <a:srgbClr val=\"{}\"> <a:alpha val=\"{}\"/></a:srgbClr> </a:outerShdw></a:effectLst>",
@@ -389,7 +389,7 @@ fn picture_shadow_xml(shadow: &Shadow) -> String {
 }
 
 /// `<a:hlinkClick .../>` of a hyperlink, with the relationship id it was given.
-fn link_click_xml(link: &Hyperlink, rid: usize) -> String {
+pub(crate) fn link_click_xml(link: &Hyperlink, rid: impl std::fmt::Display) -> String {
     let tooltip = link.tooltip.as_deref().filter(|tooltip| !tooltip.is_empty()).map(encode_xml_entities).unwrap_or_default();
     let mut xml = String::new();
     if link.has_url() {
@@ -402,7 +402,7 @@ fn link_click_xml(link: &Hyperlink, rid: usize) -> String {
 }
 
 /// The `a:ln` of a shape.
-fn line_xml(line: &Line) -> String {
+pub(crate) fn line_xml(line: &Line) -> String {
     let mut xml = if is_set(line.width) { format!("<a:ln w=\"{}\">", num(val_to_pts(line.width.unwrap_or(0.0)))) } else { "<a:ln>".to_owned() };
     if line.color.as_deref().is_some_and(|color| !color.is_empty()) {
         xml.push_str(&color_selection(&Fill { kind: line.kind.clone(), color: line.color.clone(), alpha: None, transparency: line.transparency }));
@@ -421,7 +421,7 @@ fn line_xml(line: &Line) -> String {
 }
 
 /// The `a:gd` adjustments of a preset geometry: a corner radius, else the angles of an arc.
-fn adjustments_xml(options: &ShapeOptions, cx: f64, cy: f64) -> String {
+pub(crate) fn adjustments_xml(options: &ShapeOptions, cx: f64, cy: f64) -> String {
     if is_set(options.rect_radius) {
         let radius = options.rect_radius.unwrap_or(0.0);
         let value = round(radius * EMU * 100_000.0 / mixdog_js::math::min(cx, cy));
