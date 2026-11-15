@@ -144,6 +144,16 @@ incremental = false
 debug = false
 opt-level = 3
 
+# tiny-skia is a port of Skia's lowp pipeline, whose unsigned 16-bit lane arithmetic wraps by design: a blend such as overlay or
+# hard light computes both branches of a lane select and keeps one, and the branch that is dropped is a subtraction that goes
+# below zero for ordinary input (a source of rgba(30,60,220,0.6) over a dest of rgba(220,40,40,0.8): the green lane,
+# sa*da - 2*(sa-s)*(da-d) = 31212 - 40248). A release build wraps and selects the other branch; with the overflow check on, the
+# dependency panics (u16x16_t.rs:157) and aborts the canvas twin. The check stays off for this one dependency.
+[profile.dev.package.tiny-skia]
+debug = false
+opt-level = 3
+overflow-checks = false
+
 [workspace.dependencies]
 # Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).
 mixdog-protocol = { path = "crates/mixdog-protocol" }

@@ -127,6 +127,8 @@ pub struct InlineImage {
     pub width: f64,
     pub height: f64,
     pub source: Arc<PdfStream>,
+    /// The pixels `createImageData(true)` made while the operator list was built (a failure there drops the image).
+    pub decoded: Arc<crate::image::ImageData>,
 }
 
 /// One entry of a `setGState`: the key and what pdf.js keeps of the value.

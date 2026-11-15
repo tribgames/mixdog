@@ -119,6 +119,6 @@ mod tests {
         let mut expected = Sha256::new();
         expected.update(b"a,b\n1,2\n");
         assert_eq!(document_fingerprint_bytes(b"a,b\n1,2\n", "csv").unwrap(), hex(&expected.finalize()));
-        assert_eq!(document_fingerprint_bytes(b"not a zip, only text of some length", "docx").unwrap_err(), "Can't find end of central directory");
+        assert_eq!(document_fingerprint_bytes(b"not a zip, only text of some length", "docx").unwrap_err(), "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html");
     }
 }

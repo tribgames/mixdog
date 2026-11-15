@@ -11,7 +11,8 @@
 //!   `viewBox`, the side that is missing follows the viewBox aspect and neither side given is the viewBox size; without a `viewBox`, a side
 //!   missing means the size of the drawing's ink (stroke included) and nothing is translated. A negative side is ignored, a zero side is
 //!   an error; sizes are rounded half up after the density scale and a size that rounds to nothing is an error;
-//! * the picture is drawn into that rounded size at the largest uniform scale that fits it, centred;
+//! * the picture is drawn into that rounded size at the largest uniform scale that fits it, centred; a page that is the size of its ink is
+//!   drawn at its own scale from the corner, and a viewBox without area draws nothing;
 //! * a **resize** of an SVG re-renders it: sharp loads the vector at the scale that makes the smaller of the two size ratios exact and then
 //!   resamples the (rounded) render to the asked size, which [`rasterize_to`] repeats;
 //! * the error sentences are libvips's: `bad dimensions`, `zero-sized image`, the pixel limit, an unsupported format for bytes that are not
@@ -222,11 +223,34 @@ fn invalid_svg() -> RasterError {
     RasterError::new(corrupt_header("invalid SVG data"))
 }
 
+/// A side of a page stated without a viewBox.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum InkSide {
+    Pixels(f64),
+    /// A share of the raster's side (`50%` is 0.5).
+    Share(f64),
+}
+
+impl InkSide {
+    fn of(self, raster: u32) -> f64 {
+        match self {
+            Self::Pixels(pixels) => pixels,
+            Self::Share(share) => share * f64::from(raster),
+        }
+    }
+}
+
 /// A parsed SVG, with the size of its page in pixels at the density it was opened at (before the `density / 72` scale).
 struct Document {
     tree: usvg::Tree,
     width: f64,
     height: f64,
+    /// The page has no size of its own (the raster is the size of its ink): the sides it does state, each a length in pixels or a share of the
+    /// raster's own side. A side it does not state is the raster's own, so a page that states none is drawn at its own scale from the corner,
+    /// whatever the density.
+    ink: Option<(Option<InkSide>, Option<InkSide>)>,
+    /// The root's viewBox is stated and has no area: nothing is drawn.
+    blank: bool,
 }
 
 impl Document {
@@ -254,11 +278,12 @@ impl Document {
         if root.tag_name().name() != "svg" {
             return Err(invalid_svg());
         }
+        let blank = root.attribute("viewBox").is_some_and(|text| view_box_without_area(text));
         match extent(&root, density)? {
             Extent::Declared => {
                 let tree = build(&document, &options)?;
                 let size = tree.size();
-                Ok(Self { width: f64::from(size.width()), height: f64::from(size.height()), tree })
+                Ok(Self { width: f64::from(size.width()), height: f64::from(size.height()), tree, ink: None, blank })
             }
             Extent::Derived { width, height, rewrite } => {
                 let tree = if rewrite {
@@ -267,16 +292,23 @@ impl Document {
                 } else {
                     build(&document, &options)?
                 };
-                Ok(Self { tree, width, height })
+                Ok(Self { tree, width, height, ink: None, blank })
             }
-            Extent::Ink => {
-                let tree = build(&document, &options)?;
+            Extent::Ink { unusable, stated } => {
+                // A side that is negative or a percentage is no size here and usvg refuses it: the page is the ink without it.
+                let stripped;
+                let tree = if unusable.is_empty() {
+                    build(&document, &options)?
+                } else {
+                    stripped = without_attributes(text, &root, &unusable);
+                    build(&parse(&stripped)?, &options)?
+                };
                 let ink = tree.root().abs_stroke_bounding_box();
                 let (width, height) = (f64::from(ink.width()), f64::from(ink.height()));
                 if width <= 0.0 || height <= 0.0 {
                     return Err(bad_dimensions());
                 }
-                Ok(Self { tree, width, height })
+                Ok(Self { tree, width, height, ink: Some(stated), blank })
             }
         }
     }
@@ -299,25 +331,81 @@ impl Document {
 
     /// The page drawn into `width` x `height` at the largest uniform scale that fits, centred; straight RGBA.
     fn render(&self, width: u32, height: u32) -> Result<Image, RasterError> {
-        let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
-        let scale = (f64::from(width) / self.width).min(f64::from(height) / self.height);
-        let left = (f64::from(width) - self.width * scale) / 2.0;
-        let top = (f64::from(height) - self.height * scale) / 2.0;
-        let transform = tiny_skia::Transform::from_row(scale as f32, 0.0, 0.0, scale as f32, left as f32, top as f32);
+        if self.blank {
+            return Ok(Image::from_rgba(width, height, 4, vec![0; width as usize * height as usize * 4]));
+        }
+        let (scale, left, top) = if let Some((stated_width, stated_height)) = self.ink {
+            let (page_width, page_height) = (stated_width.map_or(f64::from(width), |side| side.of(width)), stated_height.map_or(f64::from(height), |side| side.of(height)));
+            let scale = (f64::from(width) / page_width).min(f64::from(height) / page_height);
+            (scale, (f64::from(width) - page_width * scale) / 2.0, (f64::from(height) - page_height * scale) / 2.0)
+        } else {
+            let scale = (f64::from(width) / self.width).min(f64::from(height) / self.height);
+            (scale, (f64::from(width) - self.width * scale) / 2.0, (f64::from(height) - self.height * scale) / 2.0)
+        };
+        // The rasterizer covers an edge in quarters of a pixel (four sub-scanlines of quarter-pixel runs), the SVG renderer sharp uses by
+        // exact area. The picture is drawn `factor` times larger in each direction and each pixel is the mean of the `factor` x `factor`
+        // block it stands for, which brings an edge within a few levels of exact coverage; a raster too large for that within
+        // `SUPERSAMPLE_PIXELS` is drawn as it is.
+        let factor = supersample_factor(width, height);
+        let (big_width, big_height) = (width * factor, height * factor);
+        let mut pixmap = tiny_skia::Pixmap::new(big_width, big_height).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
+        let k = f64::from(factor);
+        let transform = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, (left * k) as f32, (top * k) as f32);
         resvg::render(&self.tree, transform, &mut pixmap.as_mut());
+        let premultiplied: Vec<[u8; 4]> = if factor == 1 {
+            pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
+        } else {
+            mean_of_blocks(pixmap.pixels(), width as usize, height as usize, factor as usize)
+        };
         // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes the rasterizer's
         // premultiplied pixels back to straight alpha.
-        let data = pixmap
-            .pixels()
+        let data = premultiplied
             .iter()
             .flat_map(|pixel| {
-                let alpha = u32::from(pixel.alpha());
+                let alpha = u32::from(pixel[3]);
                 let straight = |channel: u8| if alpha == 0 { 0 } else { (u32::from(channel) * 255 / alpha).min(255) as u8 };
-                [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
+                [straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), pixel[3]]
             })
             .collect();
         Ok(Image::from_rgba(width, height, 4, data))
     }
+}
+
+/// The pixels a supersampled raster may have, and the most it is drawn larger by.
+const SUPERSAMPLE_PIXELS: u64 = 4_000_000;
+const SUPERSAMPLE_MAX: u32 = 8;
+
+/// How many times larger in each direction a raster of `width` x `height` is drawn before it is averaged down (1 when it is too large).
+fn supersample_factor(width: u32, height: u32) -> u32 {
+    let pixels = u64::from(width) * u64::from(height);
+    let mut factor = SUPERSAMPLE_MAX;
+    while factor > 1 && pixels * u64::from(factor) * u64::from(factor) > SUPERSAMPLE_PIXELS {
+        factor -= 1;
+    }
+    factor
+}
+
+/// The premultiplied pixels of a raster `factor` times larger than `width` x `height`, each the rounded mean of its block.
+fn mean_of_blocks(big: &[tiny_skia::PremultipliedColorU8], width: usize, height: usize, factor: usize) -> Vec<[u8; 4]> {
+    let big_width = width * factor;
+    let area = (factor * factor) as u32;
+    let mut out = Vec::with_capacity(width * height);
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = [0u32; 4];
+            for row in 0..factor {
+                let start = (y * factor + row) * big_width + x * factor;
+                for pixel in &big[start..start + factor] {
+                    sum[0] += u32::from(pixel.red());
+                    sum[1] += u32::from(pixel.green());
+                    sum[2] += u32::from(pixel.blue());
+                    sum[3] += u32::from(pixel.alpha());
+                }
+            }
+            out.push(sum.map(|total| ((total + area / 2) / area) as u8));
+        }
+    }
+    out
 }
 
 fn options(fonts: &SvgFonts, density: f64) -> usvg::Options<'static> {
@@ -353,8 +441,8 @@ enum Extent {
     /// The page follows the viewBox. usvg reads a missing or percentage side as 100 percent of the viewBox side, which is not what librsvg
     /// does, so when the root states a width or a height they are replaced by these sizes before usvg reads the tree.
     Derived { width: f64, height: f64, rewrite: bool },
-    /// Nothing usable is declared: the size of the ink.
-    Ink,
+    /// Nothing usable is declared: the size of the ink. `unusable` names the root's `width` and `height` that are stated and cannot be a size.
+    Ink { unusable: Vec<&'static str>, stated: (Option<InkSide>, Option<InkSide>) },
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -430,6 +518,12 @@ fn view_box(text: &str) -> Option<(f64, f64)> {
     }
 }
 
+/// Whether a `viewBox` is four numbers of which the width or the height is not above zero: librsvg draws nothing for it.
+fn view_box_without_area(text: &str) -> bool {
+    let numbers: Option<Vec<f64>> = text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect();
+    matches!(numbers.as_deref(), Some([_, _, width, height]) if !(*width > 0.0 && *height > 0.0))
+}
+
 /// librsvg's rule for the size of a page, from the root element's `width`, `height` and `viewBox`.
 fn extent(root: &roxmltree::Node<'_, '_>, dpi: f64) -> Result<Extent, RasterError> {
     let side = |name: &str| -> Result<Option<f64>, RasterError> {
@@ -456,8 +550,27 @@ fn extent(root: &roxmltree::Node<'_, '_>, dpi: f64) -> Result<Extent, RasterErro
             let rewrite = root.has_attribute("width") || root.has_attribute("height");
             Ok(Extent::Derived { width, height, rewrite })
         }
-        _ => Ok(Extent::Ink),
+        _ => {
+            let unusable = ["width", "height"].into_iter().filter(|name| root.has_attribute(*name) && !matches!(side(name), Ok(Some(_)))).collect();
+            let stated = |name: &str, pixels: Option<f64>| match (pixels, root.attribute(name).and_then(parse_length)) {
+                (Some(pixels), _) => Some(InkSide::Pixels(pixels)),
+                (None, Some((number, Unit::Percent))) if number >= 0.0 => Some(InkSide::Share(number / 100.0)),
+                _ => None,
+            };
+            Ok(Extent::Ink { unusable, stated: (stated("width", width), stated("height", height)) })
+        }
     }
+}
+
+/// `text` without the named attributes of the root element.
+fn without_attributes(text: &str, root: &roxmltree::Node<'_, '_>, names: &[&str]) -> String {
+    let mut ranges: Vec<std::ops::Range<usize>> = names.iter().filter_map(|name| root.attribute_node(*name).map(|attribute| attribute.range())).collect();
+    ranges.sort_by_key(|range| std::cmp::Reverse(range.start));
+    let mut out = text.to_owned();
+    for range in ranges {
+        out.replace_range(range, "");
+    }
+    out
 }
 
 /// `text` with the root element's `width` and `height` set to `width` and `height` pixels.
