@@ -109,6 +109,12 @@ fn replace<P: WriteProof>(
         arrange_slides(&document, &selected, source_slide_count).map_err(text)?;
     }
     save_document(Some(&document), "pptx").map_err(text)?;
+    // The reopen quits the application and waits for its process, which does not end while something holds a reference to
+    // it: the handles this replacement took (the closed deck, the application, the new deck) are released first, as the
+    // PowerShell host's release of the state's objects released the one wrapper they shared.
+    drop(document);
+    drop(application);
+    drop(current);
     reopen_background_powerpoint_session(actions, out, state, "")?;
     let document = state.document.clone().ok_or_else(|| text(null_call()))?;
     let value = actions.snapshot(&document, "pptx", &super::empty_payload()).map_err(text)?;

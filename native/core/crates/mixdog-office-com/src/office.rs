@@ -311,7 +311,11 @@ pub fn active_application(env: &Env<'_>, prog_id: Option<&str>) -> Option<Obj> {
 /// `$app.DisplayAlerts = 0`, `$app.AutomationSecurity = 3` (macros never run) and, but for PowerPoint, `$app.Visible`,
 /// each with its failure ignored.
 pub fn initialize_owned_application(app: &Obj, format: &str, visible: bool) {
-    let _ = app.put("DisplayAlerts", Value::I4(0));
+    // PowerPoint's alert level is `ppAlertsNone` (1) or `ppAlertsAll` (2): the 0 the other applications take for "none" is not one
+    // of them (Windows PowerShell's binding to the interop assembly refused it and the failure was ignored, so the level stayed
+    // at the default, none), and through `IDispatch` PowerPoint takes it as "all", which asks "save your changes?" on closing an
+    // edited deck: that dialog, in a hidden window, blocks the application for good.
+    let _ = app.put("DisplayAlerts", Value::I4(if format == "pptx" { 1 } else { 0 }));
     let _ = app.put("AutomationSecurity", Value::I4(3));
     if format != "pptx" {
         let _ = app.put("Visible", Value::Bool(visible));
