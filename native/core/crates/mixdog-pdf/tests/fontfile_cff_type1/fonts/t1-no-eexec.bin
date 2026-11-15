@@ -1,0 +1,15 @@
+%!PS-AdobeFont-1.0: TestFont 001.000
+%%CreationDate: today
+11 dict begin
+/FontName /TestFont def
+/FontMatrix [0.001 0 0 0.001 0 0] readonly def
+/FontBBox {-100 -200 1000 900} readonly def
+/Encoding 256 array
+0 1 255 {1 index exch /.notdef put} for
+dup 65 /A put
+dup 66 /B put
+dup 97 /a put
+dup 50 /C put
+readonly def
+currentdict end
+currentfile eexec

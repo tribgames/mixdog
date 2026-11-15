@@ -1,0 +1,6 @@
+#length1=none
+#composite=false
+#firstChar=0
+#lastChar=255
+#widths=
+error=FormatError: getEexecBlock - no font program found.

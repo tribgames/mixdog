@@ -1,0 +1,2 @@
+#bbox=none
+error=FormatError: parseFDSelect: Invalid font data.
