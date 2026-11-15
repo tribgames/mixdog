@@ -227,7 +227,6 @@ const POLISH_GUIDANCE: &[(&str, &str)] = &[
     ("visual_coverage_incomplete", "Render and inspect every page before finalize; the visual coverage must be complete."),
 ];
 
-
 /// `isAdvisoryOfficeIssue`: an advisory code, or a record already marked `info`.
 pub fn is_advisory_office_issue(issue: &Value) -> bool {
     ADVISORY_CODES.contains(&text_or(field(issue, "code"), "").as_str()) || text_or(field(issue, "severity"), "") == "info"
@@ -327,7 +326,7 @@ pub fn normalize_office_review_issues(entries: &[Value]) -> Vec<Value> {
 struct Target {
     path: String,
     error: bool,
-    codes: Vec<Value>,
+    codes: Vec<Option<Value>>,
     actions: Vec<String>,
 }
 
@@ -349,7 +348,8 @@ pub fn build_office_polish_plan(format: &str, issues: &[Value]) -> Value {
         if severity == "error" {
             current.error = true;
         }
-        let code = field(&issue, "code").cloned().unwrap_or(Value::Null);
+        // An absent code (`undefined`, written as null) is a different code from a null one, as in `includes`.
+        let code = field(&issue, "code").cloned();
         if !current.codes.contains(&code) {
             current.codes.push(code);
         }
@@ -495,6 +495,12 @@ mod tests {
     fn a_code_without_guidance_gets_the_generic_correction() {
         let plan = build_office_polish_plan("docx", &[json!({ "code": "made_up", "path": "/p" })]);
         assert_eq!(plan["targets"][0]["actions"][0], "Correct made_up at /p, then render and inspect the affected page again.");
+        let unnamed = build_office_polish_plan("docx", &[json!({ "path": "/p" }), json!({ "code": null, "path": "/p" })]);
+        assert_eq!(unnamed["targets"][0]["codes"], json!([null, null]));
+        assert_eq!(unnamed["targets"][0]["actions"], json!([
+            "Correct undefined at /p, then render and inspect the affected page again.",
+            "Correct null at /p, then render and inspect the affected page again."
+        ]));
     }
 
     #[test]
