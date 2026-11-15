@@ -368,6 +368,7 @@ fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Op
         return Some(Row { value: Value::Object(row), live, stopped });
     }
     let result = output.unwrap_or_default();
+    row.insert("result".to_owned(), json!(result));
     // `attachRestoredToolResult` -> `assignUiDiffFromMessage`: the result message's diff is the card's.
     for (key, value) in string_ui_diff_patch(fld(run, "uiDiff")) {
         row.insert(key, value);
@@ -381,7 +382,6 @@ fn tool_row(item: &Value, meta: Opt, name: &str, args: Option<Value>, output: Op
         let outcome = tool_call_outcome(&json!({ "isError": errored, "toolName": name }), &result);
         (outcome.is_call_error, outcome.is_exit_error)
     };
-    row.insert("result".to_owned(), json!(result));
     row.insert("isError".to_owned(), json!(is_call_error));
     row.insert("errorCount".to_owned(), json!(u8::from(is_call_error)));
     row.insert("callErrorCount".to_owned(), json!(u8::from(is_call_error)));
@@ -761,13 +761,13 @@ fn ext_of(item: &Value, meta: Opt) -> Map<String, Value> {
         // Node's turn end names the prompt by the row id it shows, the submission id (`checkpointId`, turn.mjs `turnDoneItem`);
         // the core's own `checkpointId` is the user item's id, the submission riding in `ext`. A client names a prompt by what it
         // shows (rewind resolves the submission id), so the row shows Node's value.
-        ext.remove("clientSubmissionId");
+        ext.shift_remove("clientSubmissionId");
         ext.insert("checkpointId".to_owned(), json!(submission));
         return ext;
     }
     if item_type == "userMessage" && NOTICE_SOURCES.contains(&text(fld(meta, "source"))) {
         for key in SOURCE_PAYLOAD_KEYS {
-            ext.remove(key);
+            ext.shift_remove(key);
         }
     }
     ext
@@ -1104,7 +1104,7 @@ fn room_row_text(room: Opt, body: &str) -> String {
 fn room_row_item(item: &Value, meta: Opt) -> Value {
     let item_ref = Some(item);
     let mut room = fld(item_ref, "room").and_then(Value::as_object).cloned().unwrap_or_default();
-    room.remove("at");
+    room.shift_remove("at");
     let targets = room_targets(Some(&Value::Object(room.clone())));
     if !targets.is_empty() {
         room.insert("to".to_owned(), Value::Array(targets.iter().map(|(id, _)| json!(id)).collect()));
