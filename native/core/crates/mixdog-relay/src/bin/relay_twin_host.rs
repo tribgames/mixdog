@@ -1,6 +1,5 @@
-//! The scripted relay the twin tests drive. Not assembled yet.
+//! The scripted relay the twin tests drive: `relay_twin_host '<knob json>'` (see `mixdog_relay::server::twin`).
 
 fn main() -> std::process::ExitCode {
-    eprintln!("relay not assembled");
-    std::process::ExitCode::from(3)
+    mixdog_relay::server::twin::main()
 }
