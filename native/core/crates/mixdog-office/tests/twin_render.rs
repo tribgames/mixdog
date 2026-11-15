@@ -7,8 +7,8 @@
 //! with its scratch folder written `<dir>`, a cache miss, the page signatures or the error) and the session afterwards (design
 //! counters, whole-result cache, page cache, export key). The decks are built from the parts the recording carries, so the page
 //! signatures are compared exactly. Review tokens are compared by shape (the twin helper normalises `reviewToken`); the tests
-//! below pin what a token must and must not equal. The live LibreOffice export and the contents-page numbering are re-recorded
-//! by `twin_live_render` (ignored: it runs Node and LibreOffice).
+//! below pin what a token must and must not equal. `twin_live_render` (ignored: it runs Node) records the same scenarios again;
+//! the live LibreOffice export and the contents-page numbering are recorded by neither and have no twin yet.
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -379,7 +379,7 @@ fn the_recording_holds_a_cache_hit_a_miss_a_failure_and_an_incremental_deck() {
     assert!(steps.iter().any(|step| step["outcome"]["reusedPages"] == json!([1, 2, 3])), "no recorded page-by-page reuse");
 }
 
-/// Records again with Node and LibreOffice and compares: `cargo test -p mixdog-office --test twin_render -- --ignored`.
+/// Records the scenarios again with Node (on the same stand-in adapters) and compares: `cargo test -p mixdog-office --test twin_render -- --ignored`.
 #[test]
 #[ignore = "re-records through Node (src/runtime/office/core/office-render-preview.mjs)"]
 fn twin_live_render() {
