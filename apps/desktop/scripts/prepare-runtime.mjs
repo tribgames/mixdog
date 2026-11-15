@@ -31,6 +31,7 @@ import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-depende
 import { optionValue } from './cli-args.mjs';
 import { CORE_READS, mirrorCoreRuntime, PACKAGE_DIR, WINDOWS_ONNX_VC_RUNTIME_DLLS } from './core-layout.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
+import { copyPptxgenjsData, launcherRuntimeFiles } from './stage-js-bundle.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -900,7 +901,8 @@ async function prepareRuntime(manifest, fingerprint) {
       ...CORE_READS.files.map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
-      '/node_modules/mixdog/src/runtime/shared/skill-script-runtime.mjs',
+      // The skill launcher: its entry and the files it imports, nothing from the npm closure.
+      ...launcherRuntimeFiles(rootDir).map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
       ...unpackedArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
@@ -974,6 +976,11 @@ async function prepareRuntime(manifest, fingerprint) {
         platform: embeddingTarget.platform,
         arch: embeddingTarget.arch,
         ortBinarySource: prunedEmbedding.onnx ? prunedEmbedding.targetBinaryDir : null,
+      });
+      // The pptxgenjs files model-written authoring scripts are served from, as data beside the package.
+      await copyPptxgenjsData({
+        modulesDir: join(stagingDir, 'node_modules'),
+        packageDir: join(builderNativeModulesDir, PACKAGE_DIR),
       });
     });
 
