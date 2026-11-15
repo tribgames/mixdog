@@ -125,11 +125,11 @@ listed and no longer exists. `node scripts/regress-clients.mjs --list-mobile-imp
 - `packages/protocol-client/src/rows/tool-work-units.mjs`
 - `packages/protocol-client/src/rows/transport-error-text.mjs`
 - `packages/protocol-client/src/session-state.ts`
-- `src/runtime/shared/bot-hops.mjs`
-- `src/runtime/shared/clean.mjs`
-- `src/runtime/shared/shell-display.mjs`
-- `src/runtime/shared/task-notification-envelope.mjs`
-- `src/runtime/shared/tool-execution-contract.mjs`
+- `packages/protocol-client/src/shared/bot-hops.mjs`
+- `packages/protocol-client/src/shared/clean.mjs`
+- `packages/protocol-client/src/shared/shell-display.mjs`
+- `packages/protocol-client/src/shared/task-notification-envelope.mjs`
+- `packages/protocol-client/src/shared/tool-execution-contract.mjs`
 
 ## Not imports, but also read from the desktop tree
 

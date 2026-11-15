@@ -15,6 +15,6 @@ export {
   toolResultDisplay,
   withCancelledResultMarker,
 } from './tool-result-status.mjs';
-export { isTranscriptHiddenControlToolName, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
+export { isTranscriptHiddenControlToolName, isTranscriptHiddenToolItem } from '../shared/tool-execution-contract.mjs';
 export { toolResultTerminalStatus } from './tool-status.mjs';
 export { summarizeToolResult } from './tool-result-summary.mjs';
