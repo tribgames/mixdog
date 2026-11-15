@@ -22,6 +22,11 @@ path = "tests/methods_twin.rs"
 required-features = ["test-support"]
 
 [[test]]
+name = "still_twin"
+path = "tests/still_twin.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "pool_e2e"
 path = "tests/pool_e2e.rs"
 required-features = ["test-support"]
