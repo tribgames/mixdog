@@ -723,63 +723,37 @@ pub struct Trimmed {
     pub top: u32,
 }
 
-/// `trim({ threshold })`: the box of pixels that differ from the top-left pixel by more than `threshold` in a band
-/// (smoothed by a 3x3 median first when there is alpha, as libvips's `find_trim` does). An image
+/// `trim({ threshold })` as sharp does it: libvips's `find_trim` of the picture (alpha flattened against the top-left
+/// pixel's colour, every band smoothed by a 3x3 median with the edge pixels repeated, a pixel kept when a band differs
+/// from the top-left pixel by more than `threshold`), and for a picture with alpha also `find_trim` of the alpha band
+/// alone against the top-left alpha; the box is the union of the two. A lone pixel does not survive the median. An image
 /// with nothing different is returned whole.
 pub fn trim(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
-    if image.has_alpha() {
-        return trim_with_alpha(image, threshold);
-    }
     let first = &image.rgba()[..4];
-    let background = [first[0], first[1], first[2]];
-    let flat = image.flatten(background);
+    let background = [first[0], first[1], first[2], first[3]];
+    let alpha = image.has_alpha();
+    let flat = image.flatten([background[0], background[1], background[2]]);
     let (w, h) = (image.width() as usize, image.height() as usize);
-    let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0usize, 0usize);
-    for y in 0..h {
-        for x in 0..w {
-            let pixel = &flat.rgba()[(y * w + x) * 4..];
-            let differs = (0..3).any(|c| (f64::from(pixel[c]) - f64::from(background[c])).abs() > threshold);
-            if differs {
-                min_x = min_x.min(x);
-                max_x = max_x.max(x);
-                min_y = min_y.min(y);
-                max_y = max_y.max(y);
+    let (colours, alphas) = (flat.rgba(), image.rgba());
+    let median = |data: &[u8], x: usize, y: usize, band: usize| {
+        let (x0, x1, y0, y1) = (x.saturating_sub(1), (x + 1).min(w - 1), y.saturating_sub(1), (y + 1).min(h - 1));
+        let mut window = [0u8; 9];
+        let mut count = 0;
+        for sy in [y0, y, y1] {
+            for sx in [x0, x, x1] {
+                window[count] = data[(sy * w + sx) * 4 + band];
+                count += 1;
             }
         }
-    }
-    if min_x > max_x {
-        return Ok(Trimmed { image: image.clone(), left: 0, top: 0 });
-    }
-    let cut = extract(image, min_x as u32, min_y as u32, (max_x - min_x + 1) as u32, (max_y - min_y + 1) as u32)?;
-    Ok(Trimmed { image: cut, left: min_x as u32, top: min_y as u32 })
-}
-
-/// `trim` of a picture with an alpha channel: libvips's `find_trim` smooths every band (four, alpha included) with a 3x3
-/// median (the edge pixels repeated) and takes the box of pixels that differ from the top-left pixel by more than
-/// `threshold` in a band. A faint shadow on a transparent page differs through its alpha; a lone pixel does not count.
-fn trim_with_alpha(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
-    let (w, h) = (image.width() as usize, image.height() as usize);
-    let data = image.rgba();
-    let at = |x: usize, y: usize| &data[(y * w + x) * 4..(y * w + x) * 4 + 4];
-    let background = [data[0], data[1], data[2], data[3]];
+        window.sort_unstable();
+        window[4]
+    };
+    let differs = |value: u8, from: u8| (f64::from(value) - f64::from(from)).abs() > threshold;
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0usize, 0usize);
     for y in 0..h {
         for x in 0..w {
-            let (x0, x1, y0, y1) = (x.saturating_sub(1), (x + 1).min(w - 1), y.saturating_sub(1), (y + 1).min(h - 1));
-            let mut smoothed = [0u8; 4];
-            for (band, slot) in smoothed.iter_mut().enumerate() {
-                let mut window = [0u8; 9];
-                let mut count = 0;
-                for sy in [y0, y, y1] {
-                    for sx in [x0, x, x1] {
-                        window[count] = at(sx, sy)[band];
-                        count += 1;
-                    }
-                }
-                window.sort_unstable();
-                *slot = window[4];
-            }
-            if (0..4).any(|c| (f64::from(smoothed[c]) - f64::from(background[c])).abs() > threshold) {
+            let colour = (0..3).any(|band| differs(median(colours, x, y, band), background[band]));
+            if colour || (alpha && differs(median(alphas, x, y, 3), background[3])) {
                 min_x = min_x.min(x);
                 max_x = max_x.max(x);
                 min_y = min_y.min(y);
@@ -911,9 +885,13 @@ mod tests {
 
     #[test]
     fn trim_finds_the_box_of_what_differs_from_the_corner() {
-        let image = rgb(8, 6, |x, y| if (2..5).contains(&x) && (1..3).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
+        // find_trim smooths with a 3x3 median first: a 3x3 block keeps its whole box, a lone pixel is noise.
+        let image = rgb(8, 6, |x, y| if (2..5).contains(&x) && (1..4).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
         let cut = trim(&image, 0.0).unwrap();
-        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 1, 3, 2));
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 1, 3, 3));
+        let lone = rgb(8, 6, |x, y| if (x, y) == (3, 2) { [255, 0, 0] } else { [0, 0, 0] });
+        let cut = trim(&lone, 0.0).unwrap();
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (0, 0, 8, 6));
     }
 
     #[test]

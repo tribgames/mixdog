@@ -144,7 +144,7 @@ fn check(what: &str, expected: &Value, actual: &Value) {
     let at = want.bytes().zip(got.bytes()).position(|(a, b)| a != b);
     assert!(want == got, "{what}: the JSON text differs at byte {at:?} (recorded {} bytes, produced {})
 want {}
-got  {}", want.len(), got.len(), &want[..want.len().min(400)], &got[..got.len().min(400)]);
+got  {}", want.len(), got.len(), want.chars().take(400).collect::<String>(), got.chars().take(400).collect::<String>());
 }
 
 // ---- no network, no templates -------------------------------------------------------------------------------------------
