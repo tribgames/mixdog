@@ -17,6 +17,10 @@ pub mod boxes;
 pub mod markers;
 pub mod packets;
 pub mod tiles;
+pub mod dwt;
+pub mod mct;
+pub mod output;
+pub mod t1;
 
 use std::fmt;
 

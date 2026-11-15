@@ -11,6 +11,9 @@ workspace = true
 [dependencies]
 mixdog-js = { workspace = true }
 brotli = { workspace = true }
+mixdog-fonts = { workspace = true }
+mixdog-fsio = { workspace = true }
+url = { workspace = true }
 flate2 = { workspace = true }
 mixdog-pdf-codec = { workspace = true }
 tracing = { workspace = true }

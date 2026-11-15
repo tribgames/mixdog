@@ -14,6 +14,9 @@ pub mod issue;
 pub mod pipeline;
 pub mod presentation_acceptance;
 pub mod score;
+pub mod document_brief;
+pub mod document_design_review;
+pub mod trust;
 
 /// `value[key]` of a plain object; `None` (JavaScript `undefined`) for anything else or an absent key.
 pub(crate) fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {

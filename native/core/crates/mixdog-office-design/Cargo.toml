@@ -12,7 +12,18 @@ serde_json = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-office-base = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+mixdog-fsio = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
+ring = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time", "net"] }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+mixdog-ooxml = { workspace = true }
 
 [dev-dependencies]
 # The twin test (`tests/twin_discipline.rs`) locates the Node source, loads its recording and compares through the base crate's `twin` helpers.
 mixdog-office-base = { workspace = true, features = ["test-support"] }
+base64 = { workspace = true }
+tempfile = { workspace = true }

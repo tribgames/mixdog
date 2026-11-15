@@ -116,6 +116,8 @@ fn optional_content(content: &Option<OptionalContent>) -> Value {
             policy,
             expression: None,
         }) => json!({ "type": "OCMD", "ids": ids, "policy": policy, "expression": null }),
+        // pdf.js: an OCMD whose OCGs is one reference answers `{ type, id }`.
+        Some(OptionalContent::MembershipOne { id }) => json!({ "type": "OCMD", "id": id }),
     }
 }
 

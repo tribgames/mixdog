@@ -25,6 +25,10 @@ pub mod stream;
 pub mod text;
 pub mod write;
 pub mod xref;
+pub mod annotations;
+pub mod oplist;
+pub mod outline_read;
+pub mod embed;
 
 pub use error::{Budget, CancelCheck, Guard, INCORRECT_PASSWORD, NEED_PASSWORD, PdfError, Result};
 pub use lexer::{CommandArgs, KnownCommands, Lexer};

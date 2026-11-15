@@ -47,6 +47,11 @@ path = "tests/feedback_service.rs"
 required-features = ["test-support"]
 
 [[test]]
+name = "native_push"
+path = "tests/native_push.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "feedback_http"
 path = "tests/feedback_http.rs"
 required-features = ["test-support"]

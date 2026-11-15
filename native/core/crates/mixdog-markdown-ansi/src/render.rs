@@ -48,7 +48,7 @@ pub fn lex_markdown(content: &str, options: LexOptions) -> Arc<Vec<Token>> {
         return Arc::new(vec![paragraph]);
     }
     if options.trim_partial_fences {
-        return Arc::new(lex(content).tokens);
+        return Arc::new(crate::stream::lex_streaming_tail(content));
     }
     let hit = TOKEN_CACHE.lock().unwrap_or_else(PoisonError::into_inner).get(content).map(Arc::clone);
     if let Some(hit) = hit {

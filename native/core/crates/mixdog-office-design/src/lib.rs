@@ -13,6 +13,9 @@ pub mod creative_director;
 pub mod discipline;
 pub mod table_input;
 pub mod tokens;
+pub mod docx;
+pub mod library;
+pub mod xlsx;
 
 use mixdog_js::value_to_string;
 use mixdog_office_base::values::truthy;

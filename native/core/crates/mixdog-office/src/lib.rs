@@ -9,3 +9,5 @@ pub mod digest;
 
 /// The CSV/TSV backend: parsing, edits, snapshots and validation.
 pub mod tabular;
+pub mod contracts;
+pub mod describe;
