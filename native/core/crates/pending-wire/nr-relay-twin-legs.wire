@@ -1,0 +1,39 @@
+# nr-relay-twin-legs
+
+## Cargo and workspace edits
+
+None. The suite is data (tests/twin/scenarios/legs/*.json, 35 scenarios) run by the existing twin binary; no crate, feature
+or dependency is added. compose_flip.rs SERVICE_PENDING: no name is added or removed by this task.
+Regenerate the files with `node tests/twin/scenarios/legs/generate.mjs` (it writes the scenarios and tests/ledger/nr-relay-twin-legs.json; it starts nothing).
+
+## What the lead must apply: tests/twin/normalise.rs (owned by nr-relay-twin-harness)
+
+Every scenario with a phone leg compares the relay's own log lines of both runtimes, and three of them hold values that differ by
+nature in every run. Without a mask, twin_harness_self_check fails on Node against Node for each scenario of this suite (the
+phone-closed line is printed when the leg ends, at the latest when the relay is stopped). Add to Normaliser::string (before or
+beside `identifiers`), applied to log lines:
+
+  1. `client=<8 hex>`: the first 8 characters of the relay's random phone id, in `[relay] phone leg closed client=1a2b3c4d code=1000 reason= lived=5ms`
+     -> mask the 8 hex digits as `<client8>`.
+  2. `lived=<n>ms` in the same line -> mask the number as `<ms>` (or a time marker with tolerance).
+  3. The 30 s socket-diagnostics line `[relay] sockets 30s phones=1 buffered desktop:7c1f3a52=0B phone:d8601a87=0B loop-p50=31.6ms loop-p99=32.3ms loop-max=34.2ms`
+     (printed by the relay once the run passes 30 s: the slow scenario below): mask `phone:<8 hex>=` and the three `loop-*=<n.n>ms` values.
+     The `desktop:<8 hex>` part is the device id prefix (fixed 7c1f3a52 / 2e9d4b17 in these scenarios) and stays.
+
+  `[relay] phone upgrade refused ... device=7c1f3a52` carries the device id prefix, which the scenarios fix: no mask needed.
+
+## Run time
+
+One scenario is slow by nature, as the plan allows: slow_silent_desktop_swept_then_offline_window_closes_phones takes about 65 s per run
+(the 45 s offline window cannot be shortened by a Node option; the sweep interval is 10 s). The twin binary runs it four times
+(self check twice on Node, then Node and Rust once each) = about 4.5 minutes. The other 34 scenarios take under 3 s each, except
+handshake_* and slow_but_live_* (about 2 to 4 s). Nothing in the suite sleeps in a loop without a limit.
+
+## What nr-relay-server's Rust relay must answer the way Node does (the scenarios compare it)
+
+Orders that the scenarios fix and that are easy to get wrong: relay-capabilities then webpush-subscriptions on every desktop leg,
+then client-open for each parked phone in join order; the close-time `{"resync":"desktop-gone"}` goes to each parked phone and is
+throttled to one per second per phone afterwards; a declaration that does not move the numbers publishes nothing; the 4010 close
+reason is `desktop leg unresponsive`, the 4000 reason `superseded`, the 4002 reason `desktop offline`, the 4005 reason
+`pairing rescan required`; phone legs that are only answered with a close (4005, 4002) are counted as outstanding until the raw
+socket closes (32 slots), and the 121st offline answer inside a minute is a 429.

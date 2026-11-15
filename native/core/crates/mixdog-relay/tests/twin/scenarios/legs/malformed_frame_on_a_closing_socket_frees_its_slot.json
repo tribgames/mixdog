@@ -1,0 +1,765 @@
+{
+  "id": "malformed_frame_on_a_closing_socket_frees_its_slot",
+  "description": "a peer that answers the relay close with an unmasked frame is cut at once and gives its PC-offline slot back; the relay keeps serving",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"38298baa833bf3396a90bc4e29361fb2a84134e2b849e81945bc06d50cfa3bb6\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "m0",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m0",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m1",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m1",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m2",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m2",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m3",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m3",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m4",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m4",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m5",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m5",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m6",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m6",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m7",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m7",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m8",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m8",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m9",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m9",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m10",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m10",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m11",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m11",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m12",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m12",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m13",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m13",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m14",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m14",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m15",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m15",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m16",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m16",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m17",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m17",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m18",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m18",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m19",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m19",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m20",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m20",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m21",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m21",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m22",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m22",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m23",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m23",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m24",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m24",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m25",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m25",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m26",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m26",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m27",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m27",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m28",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m28",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m29",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m29",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m30",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m30",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "m31",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "m31",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "ws_open",
+      "conn": "unpaired",
+      "path": "/ws?token=ffffffffffffffffffffffffffffffff",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ]
+    },
+    {
+      "do": "send",
+      "conn": "unpaired",
+      "frame": {
+        "kind": "raw",
+        "data": {
+          "base64": "gQFB"
+        }
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 300
+    },
+    {
+      "do": "http",
+      "path": "/readyz"
+    },
+    {
+      "do": "ws_open",
+      "conn": "again",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "expect",
+      "conn": "again",
+      "frames": 0,
+      "close": true,
+      "close_code": 4002
+    }
+  ]
+}

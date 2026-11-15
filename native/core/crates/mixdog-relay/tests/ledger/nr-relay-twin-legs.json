@@ -1,0 +1,226 @@
+[
+  {
+    "node": "apps/relay/security.test.mjs::phone /ws accepts only per-browser credentials; others close 4005",
+    "rust": "twin::legs/phone_upgrade_without_a_desktop_or_a_credential"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::phone websocket survives a desktop leg redial and is re-announced",
+    "rust": "twin::legs/desktop_redial_keeps_phones_and_replays_client_open"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a desktop leg that misses a joining phone handshake turn is closed so the PC redials",
+    "rust": "twin::legs/handshake_turn_missed_closes_the_desktop_leg_with_4010"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a desktop leg that misses a joining phone handshake turn is closed so the PC redials",
+    "rust": "twin::legs/handshake_hello_unanswered_closes_the_desktop_leg"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a desktop leg that misses a joining phone handshake turn is closed so the PC redials",
+    "rust": "twin::legs/slow_but_live_desktop_keeps_its_shared_leg"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::PC-offline answers are rate-limited and their closing sockets are bounded",
+    "rust": "twin::legs/pc_offline_answers_are_rate_limited"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::PC-offline answers are rate-limited and their closing sockets are bounded",
+    "rust": "twin::legs/pc_offline_closing_sockets_are_bounded"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a malformed frame on an answered-and-closing socket cannot crash the relay, and frees its slot",
+    "rust": "twin::legs/malformed_frame_on_a_closing_socket_frees_its_slot"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an oversize frame is a payload error both phone kinds surface",
+    "rust": "twin::legs/oversize_phone_frame_is_a_payload_error_not_a_close"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an oversize desktop frame is answered on that leg and names the client",
+    "rust": "twin::legs/oversize_desktop_frame_is_answered_on_that_leg_and_names_the_client"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a frame past the ceiling is refused while it is still arriving, once",
+    "rust": "twin::legs/oversize_refused_while_still_arriving_once"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a frame at exactly the ceiling is forwarded, never warned about",
+    "rust": "twin::legs/frame_at_exactly_the_ceiling_is_forwarded_unwarned"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a nested clientId in the payload never attributes a refusal",
+    "rust": "twin::legs/oversize_notice_names_only_the_client_the_router_would_use"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a refusal names the client the router itself would have used",
+    "rust": "twin::legs/oversize_notice_names_only_the_client_the_router_would_use"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::no padding length lets a decoy id outrank the id that routes",
+    "rust": "twin::legs/oversize_notice_names_only_the_client_the_router_would_use"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a burst of control frames pins no ingress reservation",
+    "rust": "twin::legs/control_frame_burst_pins_nothing"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a message that cannot be enveloped for the desktop is refused, not delivered",
+    "rust": "twin::legs/message_that_cannot_be_enveloped_is_refused_not_delivered"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::messages coalesced into one read are refused at most once each",
+    "rust": "twin::legs/coalesced_messages_are_refused_at_most_once_each"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a fragmented message past transport capacity is refused before the close",
+    "rust": "twin::legs/fragmented_message_past_the_transport_is_refused_before_the_close"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a declared frame that never completes is not described as a message",
+    "rust": "twin::legs/declared_frame_that_never_completes_is_not_a_message"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a desktop leg is held to the capacity it declares, not to configuration",
+    "rust": "twin::legs/desktop_declared_capacity_binds_the_phone_path"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::the refused limit is a stable property of the path, and is honoured",
+    "rust": "twin::legs/refused_limit_is_a_stable_property_of_the_path"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a declared text-frame leg carries text in the envelope that cannot inflate",
+    "rust": "twin::legs/text_frame_leg_carries_text_in_the_envelope_that_cannot_inflate"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a claim is trusted on the connection that made it, and on no other",
+    "rust": "twin::legs/redialed_leg_is_held_to_the_floor_until_it_declares"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::the text envelope is acknowledged per connection, never inferred",
+    "rust": "twin::legs/text_envelope_acknowledged_per_connection"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::the text envelope is acknowledged per connection, never inferred",
+    "rust": "twin::legs/capabilities_and_republication"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a close the relay cannot attribute accuses no client",
+    "rust": "twin::legs/a_close_the_relay_cannot_attribute_accuses_no_client"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a critical fan-out defers what the box cannot carry and closes no healthy leg",
+    "rust": "twin::legs/critical_fan_out_defers_what_the_box_cannot_carry_and_closes_no_healthy_leg"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::ingress admission bounds arriving frames to the box, not to leg count",
+    "rust": "twin::legs/ingress_admission_bounds_the_box_not_the_leg_count"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a leg parked for ingress admission waits instead of losing its frame",
+    "rust": "twin::legs/ingress_parked_leg_waits_and_loses_nothing"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a redialed leg carries nothing it has not declared on that connection",
+    "rust": "twin::legs/redialed_leg_is_held_to_the_floor_until_it_declares"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an unrelated 1009 leaves the next leg its full declared capacity",
+    "rust": "twin::legs/redialed_leg_is_held_to_the_floor_until_it_declares"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::one phone cannot shrink the path of the phone beside it",
+    "rust": "twin::legs/redialed_leg_is_held_to_the_floor_until_it_declares"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a nonsense configured capacity is normalised once, and published equals enforced",
+    "rust": "twin::legs/nonsense_configured_capacity_is_normalised_and_published_equals_enforced"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an enveloped uplink message measures the same fragmented or whole",
+    "rust": "twin::legs/enveloped_uplink_measures_the_same_fragmented_or_whole"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::runClientLeg announces client-open and removes the socket on close",
+    "rust": "twin::legs/routing_both_ways_and_ping_answered_locally"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::runDesktopLeg publishes capabilities and replays live phone ids",
+    "rust": "twin::legs/desktop_redial_keeps_phones_and_replays_client_open"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a phone the PC rejected never holds the PC to a handshake turn, even if it withholds its close",
+    "rust": "twin::legs/rejected_phone_is_closed_with_4004"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a missed handshake turn closes the PC leg only when the leg is also silent through a probe",
+    "rust": "twin::legs/handshake_turn_missed_closes_the_desktop_leg_with_4010"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::parked phones are told once when the PC leg closes, then once a second per phone while calls go nowhere",
+    "rust": "twin::legs/parked_phone_notices_are_throttled"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a superseded PC leg closing does not tell phones the PC is gone",
+    "rust": "twin::legs/desktop_replaced_by_a_second_leg"
+  },
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::a leg that never answers its ping is terminated on the next sweep",
+    "rust": "twin::legs/slow_silent_desktop_swept_then_offline_window_closes_phones"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::isTransportFrame recognises MXT\\x01 in clear and nothing else",
+    "rust": "legs_core::a_transport_frame_is_recognised_by_its_magic_in_clear_and_nothing_else"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a transport frame marked droppable is still delivered to a phone past the push-skip mark",
+    "rust": "legs_core::a_transport_frame_marked_droppable_is_still_delivered_to_a_phone_past_the_push_skip_mark"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a full phone queue cuts the leg for a transport frame instead of silently dropping it",
+    "rust": "legs_core::a_full_phone_queue_cuts_the_leg_for_a_transport_frame_instead_of_silently_dropping_it"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::a box that cannot carry a transport frame cuts the leg, never defers or drops it",
+    "rust": "legs_core::a_box_that_cannot_carry_a_transport_frame_cuts_the_leg_never_defers_or_drops_it"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::legacy droppable frames keep dropping: skipped past 1 MiB, dropped at a full queue, with a resync hint",
+    "rust": "legs_core::legacy_droppable_frames_keep_dropping_skipped_past_1_mib_dropped_at_a_full_queue_with_a_resync_hint"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::legacy non-droppable frames keep their behavior: delivered when queued, cut at a full queue",
+    "rust": "legs_core::legacy_non_droppable_frames_keep_their_behavior_delivered_when_queued_cut_at_a_full_queue"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::legacy text frames and broadcasts keep their droppable behavior",
+    "rust": "legs_core::legacy_text_frames_and_broadcasts_keep_their_droppable_behavior"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::downstream: transport frames reach a pressured phone in the order the PC sent them, flush by flush",
+    "rust": "legs_core::downstream_transport_frames_reach_a_pressured_phone_in_the_order_the_pc_sent_them_flush_by_flush"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::upstream: transport frames reach the PC in the order the phone sent them, flush by flush",
+    "rust": "legs_core::upstream_transport_frames_reach_the_pc_in_the_order_the_phone_sent_them_flush_by_flush"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::upstream: an exhausted queue cuts the phone leg after a contiguous prefix, never a silent loss",
+    "rust": "legs_core::upstream_an_exhausted_queue_cuts_the_phone_leg_after_a_contiguous_prefix_never_a_silent_loss"
+  },
+  {
+    "node": "apps/relay/lib/relay-legs.test.mjs::client-open omits the credential when the leg has none (older desktops)",
+    "rust": "legs_core::client_open_omits_the_credential_when_the_leg_has_none_older_desktops"
+  },
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::a leg draining a queue, or paused by backpressure, gets extra windows before it is cut",
+    "rust": "legs_phone::a_leg_draining_a_queue_or_paused_by_backpressure_gets_extra_windows_before_it_is_cut"
+  },
+  {
+    "node": "apps/relay/lib/relay-sweep.test.mjs::answering a ping restores the full grace for the next stall",
+    "rust": "legs_phone::answering_a_ping_restores_the_full_grace_for_the_next_stall"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::the PC-offline close is its own code and never a pairing-revoking one",
+    "rust": "core_units::the_pc_offline_close_is_its_own_code_and_never_a_pairing_revoking_one"
+  }
+]
