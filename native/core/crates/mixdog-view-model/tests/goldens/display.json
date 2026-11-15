@@ -7443,55 +7443,55 @@
     "p",
     ""
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Claude Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     40
    ],
-   "out": "claude-mythos-5-p…"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     79
    ],
-   "out": "claude-mythos-5-p…"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     80
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     119
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     120
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "shortenModelName",
    "args": [
-    "claude-mythos-5-preview",
+    "Claude Mythos 5.preview",
     200
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Mythos 5.preview"
   },
   {
    "fn": "displayModelName",
@@ -7555,7 +7555,7 @@
    "args": [
     "claude-mythos-5-preview"
    ],
-   "out": "claude-mythos-5-preview"
+   "out": "Claude Mythos 5.preview"
   },
   {
    "fn": "gatewayBrandDisplay",
