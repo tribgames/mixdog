@@ -123,7 +123,7 @@ const RETIRED_FILES: &[&str] = &[
 const RETIRED_DIRS: &[&str] = &["live-sessions", "session-writer-locks", "media/renditions"];
 
 /// `gateway-usage.local.jsonl` is not here: at 1.4.5 it is the live store the core appends to per request and the
-/// footer reads (`route-meta.mjs`), which `usage-ledger-import.mjs` only reads. `gateway-usage.local.json` is not
+/// footer reads (`route-meta.mjs`), which the usage history import (`mixdog-ledger` `history`) only reads. `gateway-usage.local.json` is not
 /// either: only the store's first writer retires it (renamed to `.migrated.bak`), which the Rust writer does too.
 const LEDGER_LEGACY_INPUTS: &[&str] = &[
     "usage-rollup.local.json",
@@ -473,8 +473,10 @@ impl StoresDriver {
         Ok(())
     }
 
-    /// Legacy usage inputs: already imported (`metadata.importedThrough`) → retire; else
-    /// retain `ledger_import_incomplete` (the importer is not reimplemented).
+    /// Legacy usage inputs: already imported (`metadata.importedThrough`) → retire; else retained
+    /// untouched (`ledger_import_incomplete`) for the core's usage history import, which reads them
+    /// when statistics are read (`mixdog-ledger` `history`) and marks the ledger imported; the next
+    /// run then retires them.
     fn plan_ledger_inputs(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let imported = crate::ledger::imported_through(&roots.data)?;
         for rel in LEDGER_LEGACY_INPUTS {
@@ -768,7 +770,7 @@ impl ItemDriver for StoresDriver {
         match item.contract {
             Contract::Retain => Ok(Staged::Quarantine {
                 code: QuarantineCode::LedgerImportIncomplete,
-                detail: "the ledger has no metadata.importedThrough: not yet imported".into(),
+                detail: "the ledger has no metadata.importedThrough: kept for the usage history import".into(),
             }),
             _ => Ok(Staged::Output {
                 output_sha256: sources_sha256(&item.sources),

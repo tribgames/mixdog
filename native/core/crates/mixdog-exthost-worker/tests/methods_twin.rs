@@ -188,6 +188,14 @@ async fn ooxml_text_equals_the_extraction_entries() {
     }
     assert!(!ask(&pool, "ooxml.text", json!({"path": good.to_string_lossy()}), &[root.path()]).await.unwrap()["text"].as_str().unwrap().is_empty());
 
+    // A JSON number's notation must not turn a four-byte output cap into the default.
+    let expected = extract_ooxml_text(&Unlaned, &good, &ExtractOptions { max_output_bytes: 4 });
+    assert!(expected.contains("truncated at 4 bytes"));
+    for cap in [json!(4), json!(4.0)] {
+        let got = ask(&pool, "ooxml.text", json!({"path": good.to_string_lossy(), "maxOutputBytes": cap}), &[root.path()]).await.unwrap();
+        assert_eq!(got["text"], expected);
+    }
+
     let limits = Limits { max_output_bytes: 1024, max_part_bytes: 8 * 1024 * 1024, max_container_bytes: 32 * 1024 * 1024 };
     for file in [&good, &bad] {
         let want = try_extract_ooxml_text_from_buffer(&mixdog_testkit::read(file), &file.to_string_lossy(), &limits);
@@ -221,10 +229,6 @@ async fn image_probe_answers_the_corpus_envelopes() {
     for case in corpus_cases("probe") {
         let name = case["name"].as_str().unwrap();
         let answer = ask(&pool, "image.probe", json!({"data": STANDARD.encode(corpus_input(&case))}), &[]).await.unwrap();
-        if case.get("divergence").is_some() {
-            assert!(answer.get("error").is_some(), "{name}: {answer}");
-            continue;
-        }
         match case["expect"]["class"].as_str().unwrap() {
             "ok" => assert_eq!(answer, json!({"ok": {"width": case["expect"]["width"], "height": case["expect"]["height"]}}), "{name}"),
             class => assert_eq!(answer, json!({"error": class}), "{name}"),
@@ -241,10 +245,6 @@ async fn image_jpeg_answers_the_corpus_envelopes() {
         let mut params = case["jpeg"].clone();
         params["data"] = json!(STANDARD.encode(corpus_input(&case)));
         let answer = ask(&pool, "image.jpeg", params, &[]).await.unwrap();
-        if case.get("divergence").is_some() {
-            assert!(answer.get("error").is_some(), "{name}: {answer}");
-            continue;
-        }
         match case["expect"]["class"].as_str().unwrap() {
             "ok" => {
                 let ok = &answer["ok"];
@@ -265,14 +265,7 @@ async fn image_validate_answers_the_corpus_envelopes() {
         let name = case["name"].as_str().unwrap();
         let params = json!({"data": STANDARD.encode(corpus_input(&case)), "format": case["format"]});
         let answer = ask(&pool, "image.validate", params, &[]).await.unwrap();
-        if case.get("divergence").is_some() {
-            assert!(answer.get("error").is_some(), "{name}: {answer}");
-            continue;
-        }
         match case["expect"]["class"].as_str().unwrap() {
-            // The lossy WebP encoder is `nr-exthost-imaging-still`'s: until it lands, a WebP that must be re-encoded answers
-            // an environment failure, which is not compared.
-            "ok" if case["input"].as_str().unwrap().to_lowercase().contains("webp") && answer == json!({"error": "environment"}) => {}
             "ok" => assert_eq!(answer, json!({"ok": true}), "{name}"),
             class => assert_eq!(answer, json!({"error": class}), "{name}"),
         }
@@ -313,5 +306,27 @@ async fn image_calls_refuse_a_malformed_call_with_the_messages_of_the_node_handl
     // An integer too large for a side is an integer to JavaScript: sharp, not the parameter check, rejects it.
     let answer = ask(&pool, "image.jpeg", jpeg(json!({"width": 1.0e16})), &[]).await.unwrap();
     assert_eq!(answer, json!({"error": "invalid"}));
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn svg_buffers_are_accepted_by_all_three_native_image_envelopes() {
+    let pool = pool();
+    let rows: Vec<Value> = serde_json::from_str(include_str!("../../mixdog-imaging/tests/svg-reference.json")).unwrap();
+    for row in rows {
+        let data = STANDARD.encode(row["svg"].as_str().unwrap());
+        let probe = ask(&pool, "image.probe", json!({"data": data}), &[]).await.unwrap();
+        assert_eq!(probe, json!({"ok": {"width": row["width"], "height": row["height"]}}));
+        let valid = ask(&pool, "image.validate", json!({"data": data, "format": "png"}), &[]).await.unwrap();
+        assert_eq!(valid, json!({"ok": true}));
+        let jpeg = ask(&pool, "image.jpeg", json!({
+            "data": data, "width": row["width"], "height": row["height"],
+            "quality": 85, "allowEnlargement": false,
+        }), &[]).await.unwrap();
+        assert_eq!(jpeg["ok"]["width"], row["width"]);
+        assert_eq!(jpeg["ok"]["height"], row["height"]);
+        let bytes = STANDARD.decode(jpeg["ok"]["data"].as_str().unwrap()).unwrap();
+        assert!(bytes.starts_with(&[0xff, 0xd8]));
+    }
     pool.close().await;
 }

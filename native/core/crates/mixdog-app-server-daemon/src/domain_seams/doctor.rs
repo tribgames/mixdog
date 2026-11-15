@@ -1,13 +1,11 @@
 //! `doctor`: the statuses of `/doctor` that no domain answers (`tui/app/doctor.mjs` check table).
-//! Each asks the service Node asks: the JS runtime, the provider setup, the route, the channel
+//! Each asks the service Node asks: the Node runtime retained for user scripts, the provider setup, the route, the channel
 //! worker and setup, the hook bus, the session-log migration, the bridge files and the live
 //! session surface.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_agent::compact::settings_service::CompactionHost;
@@ -20,8 +18,6 @@ use mixdog_rt::InteractiveIo;
 use mixdog_services::bots::live::LiveSurface;
 use mixdog_services::channels::ChannelRuntime;
 use mixdog_services::channels::setup::AutomationAdmin;
-use mixdog_services::tidy::process::Processes;
-use mixdog_services::tidy::process::RunOptions;
 use mixdog_statefile::list_dir;
 use mixdog_statefile::read_content;
 use serde_json::Value;
@@ -38,7 +34,6 @@ const PROGRESS_FILE: &str = "session-log-migration.json";
 const PROGRESS_VERSION: i64 = 1;
 /// `MIGRATION_SKIP.BUSY`.
 const SKIP_BUSY: &str = "busy";
-const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `runtime.hooksStatus()`: the hook bus's `status()`.
 #[async_trait]
@@ -46,19 +41,18 @@ pub trait HooksStatus: Send + Sync {
     async fn status(&self) -> Value;
 }
 
-/// The JS interpreter of the install: what `process.versions.node` reports in Node.
-pub struct JsInterpreter {
-    pub program: PathBuf,
-    /// The program is the app binary running as node (`ELECTRON_RUN_AS_NODE`).
-    pub electron: bool,
+/// Version of the script-only Node supplied by trusted launch/bundle metadata.
+/// Missing metadata stays unknown; doctor never executes the interpreter to discover it.
+#[derive(Debug, Clone)]
+pub struct ScriptRuntime {
+    pub version: Option<String>,
 }
 
 pub struct DoctorInputs {
     pub data_dir: PathBuf,
-    /// The package root: its `package.json` carries `engines.node`.
+    pub runtime: ScriptRuntime,
+    /// The installed package whose engines.node defines the requirement.
     pub package_root: PathBuf,
-    pub interpreter: JsInterpreter,
-    pub processes: Processes,
     pub io: InteractiveIo,
     pub providers: Arc<dyn ProviderSetup>,
     pub routes: Arc<dyn CompactionHost>,
@@ -79,8 +73,13 @@ impl DaemonDoctorHost {
     }
 }
 
-/// `readPackageJson()?.engines?.node`: `None` when the file is unreadable, not JSON, or names no
-/// engine.
+/// Keep the reference {version, engines} shape; null version means metadata is unavailable.
+fn runtime_row(runtime: &ScriptRuntime, engines: Option<String>) -> Value {
+    let version = runtime.version.as_deref().filter(|version| !version.trim().is_empty());
+    json!({ "version": version, "engines": engines })
+}
+
+/// Read the installed package requirement without executing any product JavaScript.
 async fn read_engines(io: InteractiveIo, package_root: &Path) -> Result<Option<String>, ProbeFailed> {
     let path = package_root.join("package.json");
     let bytes = on_lane(io, &CancellationToken::new(), move |_lane| read_content(&path)).await.map_err(|_| ProbeFailed)?;
@@ -89,22 +88,6 @@ async fn read_engines(io: InteractiveIo, package_root: &Path) -> Result<Option<S
     Ok(parsed.get("engines").and_then(|e| e.get("node")).and_then(Value::as_str).map(str::to_owned))
 }
 
-/// `process.versions.node` of the interpreter the install runs.
-async fn probe_version(processes: &Processes, interpreter: &JsInterpreter, cwd: &Path) -> Result<String, ProbeFailed> {
-    let mut env: HashMap<String, String> = std::env::vars().collect();
-    if interpreter.electron {
-        env.insert("ELECTRON_RUN_AS_NODE".into(), "1".into());
-    }
-    let mut options = RunOptions::new(cwd);
-    options.env = Some(&env);
-    options.timeout = VERSION_PROBE_TIMEOUT;
-    let args = ["-p".to_owned(), "process.versions.node".to_owned()];
-    let result = processes.run(&interpreter.program.to_string_lossy(), &args, options).await;
-    if result.code != 0 {
-        return Err(ProbeFailed);
-    }
-    Ok(mixdog_js::js_trim(&result.stdout).to_owned())
-}
 /// `readMigrationProgress`: the progress record, a fresh one when the file is missing; `Err`
 /// when the file is not a progress record (its skips are never guessed).
 fn read_progress(path: &Path) -> Result<(bool, i64, Vec<(String, String)>), ()> {
@@ -172,9 +155,8 @@ fn session_log_status(data_dir: &Path, lane: &mixdog_rt::InLane<InteractiveIo>) 
 #[async_trait]
 impl DoctorHost for DaemonDoctorHost {
     async fn node_runtime(&self) -> Probe {
-        let version = probe_version(&self.inputs.processes, &self.inputs.interpreter, &self.inputs.data_dir).await?;
         let engines = read_engines(self.inputs.io, &self.inputs.package_root).await?;
-        Ok(Some(json!({ "version": version, "engines": engines })))
+        Ok(Some(runtime_row(&self.inputs.runtime, engines)))
     }
     async fn provider_setup(&self) -> Probe {
         self.inputs.providers.get(false, false, false, false).await.map(Some).map_err(|_| ProbeFailed)
@@ -244,32 +226,31 @@ mod tests {
         }
     }
 
-    /// The package the doctor reads `engines.node` from: the recorded `package.json` gives the
-    /// recorded engine; a folder without one gives none.
+    #[test]
+    fn runtime_metadata_keeps_nodes_version_and_requirement_shape() {
+        let recording = golden();
+        let node = &recording["nodeRuntime"];
+        let version = node["version"].as_str().unwrap().to_owned();
+        let engines = node["engines"].as_str().map(str::to_owned);
+        assert_eq!(runtime_row(&ScriptRuntime { version: Some(version) }, engines),
+            json!({ "version": node["version"], "engines": node["engines"] }));
+        for version in [None, Some(String::new()), Some("  ".to_owned())] {
+            assert_eq!(runtime_row(&ScriptRuntime { version }, Some(">=22".into())),
+                json!({ "version": null, "engines": ">=22" }));
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn the_engine_requirement_is_the_package_jsons() {
-        let node = &golden()["nodeRuntime"];
+        let recording = golden();
+        let node = &recording["nodeRuntime"];
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), node["packageJson"].as_str().unwrap()).unwrap();
         let io = mixdog_rt::testing::tokens().interactive_io;
         assert_eq!(read_engines(io, dir.path()).await.unwrap().as_deref(), node["engines"].as_str());
+        std::fs::write(dir.path().join("package.json"), "not json").unwrap();
+        assert_eq!(read_engines(io, dir.path()).await.unwrap(), None);
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(read_engines(io, empty.path()).await.unwrap(), None);
-    }
-
-    /// `process.versions.node` is a dotted triple: the recorded one and the interpreter's.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_interpreters_version_has_the_shape_nodes_has() {
-        let shaped = |version: &str| {
-            let parts: Vec<&str> = version.split('.').collect();
-            parts.len() == 3 && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        };
-        assert!(shaped(golden()["nodeRuntime"]["version"].as_str().unwrap()));
-        let tokens = mixdog_rt::testing::tokens();
-        let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-        let processes = Processes::new(manager, tokens.durability_io);
-        let interpreter = JsInterpreter { program: PathBuf::from("node"), electron: false };
-        let version = probe_version(&processes, &interpreter, &std::env::temp_dir()).await.unwrap();
-        assert!(shaped(&version), "{version}");
     }
 }

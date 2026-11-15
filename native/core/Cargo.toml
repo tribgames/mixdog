@@ -80,6 +80,11 @@ members = [
     "crates/mixdog-tui-style",
     "crates/mixdog-view-model",
     "crates/mixdog-office-base",
+    "crates/mixdog-office-design",
+    "crates/mixdog-office-quality",
+    "crates/mixdog-ooxml",
+    "crates/mixdog-raster",
+    "crates/mixdog-entry",
     "crates/mixdog-xlsx-formula",
     "crates/mixdog-pdf",
     "crates/mixdog-cli",
@@ -189,6 +194,12 @@ mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
 mixdog-ssh = { path = "crates/mixdog-ssh" }
 mixdog-connections = { path = "crates/mixdog-connections" }
 mixdog-office-base = { path = "crates/mixdog-office-base" }
+mixdog-office-design = { path = "crates/mixdog-office-design" }
+mixdog-office-quality = { path = "crates/mixdog-office-quality" }
+mixdog-ooxml = { path = "crates/mixdog-ooxml" }
+mixdog-raster = { path = "crates/mixdog-raster" }
+mixdog-entry = { path = "crates/mixdog-entry" }
+mixdog-cli = { path = "crates/mixdog-cli" }
 mixdog-xlsx-formula = { path = "crates/mixdog-xlsx-formula" }
 mixdog-pdf = { path = "crates/mixdog-pdf" }
 mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }
@@ -220,7 +231,7 @@ base64 = "0.22.1"
 bytes = "1.10.1"
 chrono = "0.4.43"
 deadpool-postgres = "0.14" # not in Codex (it uses sqlx); memory store pool
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30"] } # not in Codex; embedding inference, ONNX Runtime 1.30 loaded at run time
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30", "directml"] } # not in Codex; embedding inference, ONNX Runtime 1.30 loaded at run time
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] } # not in Codex; memory + session_search over Postgres
 unicode-normalization = "0.1" # NFKC for the embedding tokenizer normalizer and import folding
 unicode-segmentation = "1" # grapheme clusters for the Goal title clip (Intl.Segmenter)

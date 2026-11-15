@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-sharp.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3746969,
+      "path": "golden.json",
+      "sha256": "ddde92004c36adb5f9ec9a6a7d9cd7719b4ddf318672a40bc392ecb83f7191c9"
+    }
+  ],
+  "product": {
+    "appsSha256": "f6aaeb0dd31cd9b025798c61563ad6b3ad60497d6d5d5998904369416465c377",
+    "commit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5287,
+    "refComparison": {
+      "closestCommit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "250b176c809f52d5fe1ee3168593adb6e68f2642f93ab6ecb1542b75487820e3",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-sharp.mjs",
+  "set": "office-sharp",
+  "totalBytes": 3746969
+}

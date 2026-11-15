@@ -294,6 +294,8 @@ pub struct MemoryStack {
     opened: std::sync::OnceLock<Opened>,
     opening: std::sync::Mutex<Opening>,
     background: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Told when an opening ends, however it ends: the first-start notice of the database goes then, once `initdb` and the postmaster are behind it.
+    opening_ended: std::sync::OnceLock<Arc<dyn Fn() + Send + Sync>>,
     flags: RuntimeFlags,
     memory_db: Db,
     memory: Arc<LocalMemory>,
@@ -456,6 +458,7 @@ impl MemoryStack {
                 opened: std::sync::OnceLock::new(),
                 opening: std::sync::Mutex::new(Opening::default()),
                 background: std::sync::Mutex::new(None),
+                opening_ended: std::sync::OnceLock::new(),
                 flags,
                 memory_db,
                 memory,
@@ -524,6 +527,11 @@ impl MemoryStack {
         refusal(&self.opening.lock().expect("opening"))
     }
 
+    /// Binds who is told when an opening (runtime install, `initdb`, postmaster start, schemas) ends; the first binding stands.
+    pub fn on_opening_end(&self, ended: Arc<dyn Fn() + Send + Sync>) {
+        let _ = self.opening_ended.set(ended);
+    }
+
     /// The stop's failure seam (development builds only).
     #[cfg(any(test, feature = "test-support"))]
     pub fn stop_seam(&self) -> &StopSeam {
@@ -549,7 +557,11 @@ impl MemoryStack {
         let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
         let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move {
             let _settled = Settled { stack: me.clone(), number };
-            me.run_opening(&cancel).await
+            let outcome = me.clone().run_opening(&cancel).await;
+            if let Some(ended) = me.opening_ended.get() {
+                ended();
+            }
+            outcome
         });
         Ok(async move { task.await.unwrap_or_else(|error| Err(format!("the memory opening ended: {error}"))) }.boxed().shared())
     }

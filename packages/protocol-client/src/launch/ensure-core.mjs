@@ -42,14 +42,15 @@ export function launchCore({
 }
 
 /**
- * `core is not ready`, naming what the launcher saw last. When it started no core of its own and a live process
- * holds the data directory without ever having published an endpoint, that owner is named (its pid), so the user
- * knows what to end instead of reading only that no core published its endpoint.
+ * `core is not ready`, naming what the launcher saw last. When it started no core of its own, the core is not blocked
+ * (a blocked core names its own reason) and a live process holds the data directory without ever having published an
+ * endpoint, that owner is named (its pid), so the user knows what to end instead of reading only that no core published
+ * its endpoint.
  */
 function notReadyError(last, { launched = true } = {}) {
   const state = last ? `the core is ${last.state}` : 'no core published its endpoint';
   const detail = last?.blocked ? ` (${JSON.stringify(last.blocked)})` : '';
-  const owner = !launched && last && Number.isInteger(last.pid) && !last.rpcPort
+  const owner = !launched && !last?.blocked && last && Number.isInteger(last.pid) && !last.rpcPort
     ? `; its owner (pid ${last.pid}) is alive and holds the data directory but has not published an endpoint`
     : '';
   return Object.assign(new Error(`core is not ready: ${state}${detail}${owner}`), { coreDiscovery: last ?? null });
@@ -134,37 +135,41 @@ export async function ensureCore({
 export const CORE_PING_INTERVAL_MS = 5_000;
 /** How long one ask may take before it counts as unanswered. */
 export const CORE_PING_TIMEOUT_MS = 4_000;
-/** A core whose runtime reports a stall this long (`stalledMs` of the control status) counts as unanswered. */
-export const CORE_STALL_LIMIT_MS = 10_000;
-/** The core is ended after this many unanswered asks in a row. */
-export const CORE_MISSED_LIMIT = 3;
+/**
+ * How long a core may answer nothing, awake, before it is ended: the old supervisor's freeze limit
+ * (`DAEMON_FREEZE_LIMIT_MS`, 120 s). The core's own stall monitor ends its process at the same limit, so a core whose launcher has
+ * gone (one started detached by the CLI) does not outlive its hang either.
+ */
+export const CORE_UNANSWERED_LIMIT_MS = 120_000;
+/** A look this much later than the interval says the machine slept: the time unanswered starts again. */
+export const CORE_SLEEP_GAP_MS = 5_000;
 
 /**
- * Whether the core named by `discovery` answers: its control listener (a thread of its own, so it answers while the
- * runtime is wedged) returns the status with `stalledMs` below `stallLimitMs` within `timeoutMs`. No answer, a refusal
- * and a stalled runtime are all "does not answer".
+ * Asks the core named by `discovery` over its control listener (a thread of its own, so it answers while the runtime is
+ * wedged). `answered` is false for no answer within `timeoutMs` and for a refusal; when it answered, `stalledMs` is how long
+ * its runtime has answered nothing (the control status's `stalledMs`).
  */
-export async function pingCore(discovery, { timeoutMs = CORE_PING_TIMEOUT_MS, stallLimitMs = CORE_STALL_LIMIT_MS, fetchImpl = fetch } = {}) {
+export async function pingCore(discovery, { timeoutMs = CORE_PING_TIMEOUT_MS, fetchImpl = fetch } = {}) {
   try {
     const response = await fetchImpl(`http://127.0.0.1:${discovery.controlPort}/mgmt/status`, {
       headers: { authorization: `Bearer ${discovery.token}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) return false;
+    if (!response.ok) return { answered: false, stalledMs: 0 };
     const status = await response.json();
-    return !(Number(status?.stalledMs) >= stallLimitMs);
+    return { answered: true, stalledMs: Math.max(0, Number(status?.stalledMs) || 0) };
   } catch {
-    return false;
+    return { answered: false, stalledMs: 0 };
   }
 }
 
 /**
  * Ends a core of this launcher that has stopped answering (a hung core serves nothing and nobody else would end it).
- * Every `intervalMs` the serving core that `ownedPid()` names is asked over its control listener; after `missedLimit`
- * unanswered asks in a row the process is killed and `onKilled` is told, and the next attach-or-start launches a
- * replacement (the dead pid names no core). A core this launcher did not start is never touched. The core of a
- * launcher that owns it (`detached: false`) is its child and ends with it, so no lifeline is needed beyond that.
- * Returns `stop()`.
+ * Every `intervalMs` the serving core that `ownedPid()` names is asked over its control listener; once it has answered
+ * nothing for `unansweredLimitMs` of awake time (no answer, or a runtime reporting a stall that long) the process is killed
+ * and `onKilled` is told, and the next attach-or-start launches a replacement (the dead pid names no core). A core this
+ * launcher did not start is never touched; a core started detached by a launcher that has gone ends itself at the same
+ * limit (its stall monitor). Returns `stop()`.
  */
 export function watchCore({
   readDiscovery,
@@ -173,48 +178,56 @@ export function watchCore({
   kill = (pid) => process.kill(pid, 'SIGKILL'),
   onKilled = () => {},
   sleep = (ms) => new Promise((done) => setTimeout(done, ms)),
+  now = Date.now,
   intervalMs = CORE_PING_INTERVAL_MS,
-  missedLimit = CORE_MISSED_LIMIT,
+  unansweredLimitMs = CORE_UNANSWERED_LIMIT_MS,
   runs = processRuns,
   log = () => {},
 } = {}) {
   let stopped = false;
-  let missed = 0;
+  let unansweredSince = null;
   let watched = null;
+  let looked = now();
   const done = (async () => {
     while (!stopped) {
       await sleep(intervalMs);
       if (stopped) break;
+      const at = now();
+      // The machine slept (or this process was not scheduled): what looks like a long silence is not the core's.
+      if (at - looked > intervalMs + CORE_SLEEP_GAP_MS) unansweredSince = null;
+      looked = at;
       let discovery;
       try {
         discovery = await readDiscovery();
       } catch {
-        missed = 0;
+        unansweredSince = null;
         continue;
       }
       const owned = ownedPid();
       if (!discovery || discovery.state !== 'serving' || !Number.isInteger(discovery.pid) || discovery.pid !== owned
         || !discovery.controlPort || !discovery.token || !runs(discovery.pid)) {
-        missed = 0;
+        unansweredSince = null;
         continue;
       }
       if (watched !== discovery.pid) {
         watched = discovery.pid;
-        missed = 0;
+        unansweredSince = null;
       }
-      if (await ping(discovery)) {
-        missed = 0;
+      const { answered, stalledMs } = await ping(discovery);
+      if (answered && stalledMs === 0) {
+        unansweredSince = null;
         continue;
       }
-      missed += 1;
-      if (missed < missedLimit) continue;
-      log(`core ${discovery.pid} did not answer ${missed} asks in a row: ending it`);
+      unansweredSince ??= at;
+      const unansweredFor = Math.max(stalledMs, answered ? 0 : now() - unansweredSince);
+      if (unansweredFor < unansweredLimitMs) continue;
+      log(`core ${discovery.pid} has answered nothing for ${Math.round(unansweredFor / 1000)} s: ending it`);
       try {
         kill(discovery.pid);
       } catch (error) {
         if (error?.code !== 'ESRCH') log(`core ${discovery.pid} could not be ended: ${error?.message ?? error}`);
       }
-      missed = 0;
+      unansweredSince = null;
       watched = null;
       await onKilled(discovery);
     }

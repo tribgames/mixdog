@@ -13,6 +13,7 @@ base64 = { workspace = true }
 image = { workspace = true }
 libwebp-sys = { workspace = true }
 moxcms = { workspace = true }
+resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 sha2 = { workspace = true }
 zune-core = { workspace = true }
 zune-jpeg = { workspace = true }

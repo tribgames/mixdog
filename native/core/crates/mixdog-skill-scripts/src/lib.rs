@@ -12,9 +12,13 @@
 
 pub mod argv;
 pub mod inventory;
+pub mod mixdogd_exec;
 pub mod parse_args;
+pub mod qc_pages;
+pub mod review_deck;
 pub mod run;
 pub mod shipped;
+pub mod source_extract;
 pub mod user;
 pub mod validate_skill;
 

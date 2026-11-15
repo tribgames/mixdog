@@ -17,6 +17,7 @@ pub mod db;
 #[cfg(test)]
 mod dst_tests;
 pub mod error;
+pub mod history;
 pub mod hours;
 pub mod ledger;
 pub mod maintenance;

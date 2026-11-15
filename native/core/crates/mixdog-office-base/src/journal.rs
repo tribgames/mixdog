@@ -226,7 +226,8 @@ mod tests {
         put(dir.path(), "bad.json", &[0; 32]);
         assert_eq!(read_office_journal(&Unlaned, "bad", dir.path()).expect("read"), None);
         assert_eq!(read_office_journal(&Unlaned, "good", dir.path()).expect("read").expect("record")["id"], "good");
-        assert_eq!(ids(&list_at(&Unlaned, dir.path(), true, now_ms()).expect("list")), ["good"]);
+        // One minute after the record's `updatedAt`: the listing must not depend on the day the test runs (retention).
+        assert_eq!(ids(&list_at(&Unlaned, dir.path(), true, 1_772_323_260_000.0).expect("list")), ["good"]);
     }
 
     #[test]

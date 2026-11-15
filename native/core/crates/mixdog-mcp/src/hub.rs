@@ -117,6 +117,8 @@ pub struct McpHub {
     oauth: Mutex<HashMap<ScopedName, Arc<McpOAuth>>>,
     /// Where a server's sign-in problem is shown; none: it is not shown.
     sign_in_notices: Mutex<Option<Arc<dyn SignInNotices>>>,
+    /// The Gmail app-password server every server of the hub may be answered by; none: not in this process.
+    gmail: Mutex<Option<Arc<crate::gmail_app_password::GmailMcp>>>,
     /// The accounts of each connector server (by scope and server name), set by the connector
     /// server that answers for them; dropped with the server.
     accounts: ArcSwap<HashMap<ScopedName, Arc<ConnectorAccounts>>>,
@@ -151,6 +153,7 @@ impl McpHub {
             oauth_env: ArcSwapOption::empty(),
             oauth: Mutex::new(HashMap::new()),
             sign_in_notices: Mutex::new(None),
+            gmail: Mutex::new(None),
             accounts: ArcSwap::from_pointee(HashMap::new()),
             lives: Mutex::new(HashMap::new()),
             runtime_scope: uuid::Uuid::new_v4().to_string(),
@@ -249,6 +252,11 @@ impl McpHub {
     /// Sets where sign-ins are stored; applies to servers `apply` creates afterwards.
     pub fn set_oauth_env(&self, env: OAuthEnv) {
         self.oauth_env.store(Some(Arc::new(env)));
+    }
+
+    /// The server a Gmail app-password connector's reserved address is answered by; servers built from here on get it.
+    pub fn set_gmail_server(&self, gmail: Arc<crate::gmail_app_password::GmailMcp>) {
+        *self.gmail.lock().unwrap_or_else(|e| e.into_inner()) = Some(gmail);
     }
 
     /// Sets where the sign-in problems of the servers are shown; applies to servers `apply` creates afterwards.
@@ -383,6 +391,9 @@ impl McpHub {
                         next_oauth.insert(config.name.clone(), oauth);
                     }
                     let server = McpServer::new(config.clone(), self.io, self.spiller.clone(), self.policy, authorizer);
+                    if let Some(gmail) = self.gmail.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+                        server.set_gmail(gmail);
+                    }
                     // A server that follows its scope starts with the scope's root as it is now.
                     let root = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).get(&scope).cloned();
                     server.set_scope_root(root.as_deref().unwrap_or_default());

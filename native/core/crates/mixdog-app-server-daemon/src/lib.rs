@@ -327,6 +327,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     core.start_sub_agent_retention();
     // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.
     core.start_heartbeat();
+    // The boot line, then the 30 s memory and work line, the lag probe and the lag sampler.
+    core.start_telemetry();
     // `startPostgresInBackground` (daemon.mjs:1274), after ready: the memory database starts here only where a cluster already exists.
     core.open_memory_in_background();
     // A pinned channel session outlives the core that pinned it (daemon.mjs:1284-1293): restored after ready, off the boot path.
@@ -341,7 +343,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         tracing::error!(%error, "the thread that converts the earlier version's sessions could not start; the next start tries again");
     }
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
-    let _stall_monitor = serving.watch_stalls(executors.clone());
+    let _stall_monitor = serving.watch_stalls(executors.clone(), core.stall_description());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.
     let signal = watch.wait().await.map_err(ServeError::Signal)?;
     signals::stop_for(&serving.lifecycle, signal);

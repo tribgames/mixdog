@@ -14,7 +14,7 @@ use std::sync::Arc;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_exthost::ExtDocumentText;
 use mixdog_exthost::ExtHostConfig;
-use mixdog_exthost::ExtHostPool;
+use mixdog_exthost::RoutedExtPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_migrate::run::cli::MigrateArgs;
@@ -58,6 +58,16 @@ enum Command {
         ort_library: PathBuf,
         #[arg(long)]
         explicit: bool,
+    },
+    /// The extension-host worker: the process the core's extension host pool starts; it prints READY on its frame pipe and
+    /// serves document calls until the pool says bye. Started by the core, never by a user.
+    #[command(name = "ext-worker", hide = true)]
+    ExtWorker,
+    /// The program the `mixdog-skill-node` launchers start: runs a skill script.
+    #[command(name = "skill-run", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
+    SkillRun {
+        #[arg(allow_hyphen_values = true, value_name = "SCRIPT_AND_ARGS")]
+        args: Vec<std::ffi::OsString>,
     },
 }
 
@@ -152,6 +162,19 @@ fn main() -> ExitCode {
         Command::EffortJudgeHost { dir, ort_library, explicit } => {
             ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
         }
+        Command::ExtWorker => mixdog_exthost_worker::ext_worker_main(),
+        Command::SkillRun { args } => {
+            // A script that is not shipped runs on the install's script interpreter.
+            let runtime = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+                Ok(js) => mixdog_skill_scripts::UserScriptRuntime::Interpreter {
+                    entry: js.package_root.join("src").join("skill-script-entry.mjs"),
+                    program: js.program,
+                    electron: js.electron,
+                },
+                Err(error) => mixdog_skill_scripts::UserScriptRuntime::Unavailable { reason: error.to_string() },
+            };
+            mixdog_skill_scripts::skill_run(args, runtime)
+        }
     }
 }
 
@@ -180,7 +203,7 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     let runtime = executors.handle(TaskClass::Work);
     let pool = {
         let _context = runtime.enter();
-        ExtHostPool::new(ExtHostConfig {
+        let script = ExtHostConfig {
             program: js.program,
             args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
             electron: js.electron,
@@ -192,7 +215,9 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
                 profile_root: roots.data.join("render-browser"),
                 no_sandbox: false,
             },
-        })
+        };
+        let worker = ExtHostConfig { program: js.core_program, args: vec!["ext-worker".into()], electron: false, ..script.clone() };
+        RoutedExtPool::new(worker, script, mixdog_app_server_daemon::compose::native_ext_methods())
     };
     let pool = match pool {
         Ok(pool) => Arc::new(pool),

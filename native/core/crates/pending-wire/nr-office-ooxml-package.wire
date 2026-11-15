@@ -1,0 +1,49 @@
+# nr-office-ooxml-package: integration fragment
+
+The crate mixdog-ooxml (native/core/crates/mixdog-ooxml) is new: the portable OOXML engine (XML string helpers, the package
+container, content types and relationships, blank packages, worksheet cells, pptx shape relationships, the legacy-file
+check, template tokens, the placeholder scan, the document fingerprint). Later tasks add one module per Node file.
+No protocol method, service or SERVICE_PENDING name belongs to it.
+
+## native/core/Cargo.toml
+
+In [workspace] members, add (beside "crates/mixdog-ooxml-text"):
+
+    "crates/mixdog-ooxml",
+
+In [workspace.dependencies], add (beside mixdog-ooxml-text):
+
+    mixdog-ooxml = { path = "crates/mixdog-ooxml" }
+
+Every dependency of the crate is already a workspace entry (mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-ooxml-text,
+serde_json, sha1, sha2, zip; dev: base64, tempfile, mixdog-office-base with feature test-support). The crate lists
+mixdog-workspace-hack itself; if the hakari manifest is regenerated, include mixdog-ooxml.
+
+## native/core/Cargo.lock
+
+Add the package entry (cargo adds it itself on the first --locked-less build; the dependency names are):
+mixdog-ooxml: base64, mixdog-fsio, mixdog-js, mixdog-office-base, mixdog-ooxml-text, mixdog-workspace-hack, serde_json,
+sha1, sha2, tempfile, zip.
+
+## native/core/fixtures/MANIFEST.json
+
+In the "sets" list, after the entry of office-measure (keep the list sorted by set name), add:
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-package.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-package/MANIFEST.json",
+      "manifestSha256": "f36f69eae1e1be744b88b8319c5f76e57787a180a8858ef10c1da1301b219a2e",
+      "recorder": "benchmarks/rust-core/recorders/record-office-package.mjs",
+      "set": "office-package",
+      "totalBytes": 133067
+    }
+
+(Recompute manifestSha256 and totalBytes from the committed office-package/MANIFEST.json and golden.json if the tool that
+keeps this file reorders or reformats them.)
+
+## Not compiled
+
+The crate was written without cargo (the wave is compiled by the lead): the first build of mixdog-ooxml and its tests,
+cargo test -p mixdog-ooxml, is the check. The twin test tests/twin_package.rs replays native/core/fixtures/office-package
+and needs no Node; twin_live_package (ignored) re-records through Node.

@@ -29,12 +29,11 @@ pub(super) fn register(registry: &mut Registry) {
     registry.register_blocking("image.still", still);
 }
 
-/// JavaScript's `String(value ?? '')`.
+/// JavaScript's `String(value ?? '')`: a missing or null parameter is the empty string, any other value is coerced.
 fn text_or_empty(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
+        value => js_string(value),
     }
 }
 

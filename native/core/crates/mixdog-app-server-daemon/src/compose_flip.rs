@@ -79,7 +79,7 @@ pub struct Built {
     /// The host media router: the live view binds its streams' targets here.
     pub host_media: Arc<mixdog_app_server::HostMedia>,
     pub server_requests: Arc<dyn mixdog_core_api::ServerRequestSink>,
-    pub ext_host: Arc<mixdog_exthost::ExtHostPool>,
+    pub ext_host: Arc<mixdog_exthost::RoutedExtPool>,
     pub process_manager: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
     /// The concrete manager `process_manager` wraps (`LocalProcessManager` is `Clone`): `ProcessFeeds`, `ProcessService` and `TerminalService` take it by value.
     pub local_processes: mixdog_spawn::LocalProcessManager,
@@ -688,6 +688,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // probe notes its outcome. The desktop notice raise is the daemon's `notice` section (`DesktopNotices`, the one built at the top of this function).
     let secret_changes = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
     let (keychain_store, keychain_tracker) = tracked_secret_store(b.tokens.durability_io, &b.data_dir, &desktop_notices);
+    // One Gmail app-password check and mail access for the connector's verify step and for its MCP server, which answers the
+    // connector's reserved address in this process and reads the password from the keychain on each request.
+    let gmail_mail = Arc::new(mixdog_mcp::gmail_verify::GmailAppPassword::default());
+    hub.set_gmail_server(Arc::new(mixdog_mcp::gmail_app_password::GmailMcp::new(gmail_mail.clone(), keychain_store.clone())));
     let keychain_live: Arc<dyn mixdog_core_domains::domains::ai_account::setup_cache::KeychainLive> =
         Arc::new(mixdog_core_domains::domains::ai_account::keychain_live::HolderLive::new(keychain_tracker, keychain_store.clone(), b.tokens.durability_io, b.data_dir.clone()));
     // The catalog service's own failure store (never a second one: refresh records into it and `invalidate_accounts` clears it).
@@ -1259,8 +1263,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             data_dir: b.data_dir.clone(),
             user_data_dir: b.user_data_dir.clone(),
             package_root: b.package_root.clone(),
-            node: b.js_runtime.program.clone(),
-            electron: b.js_runtime.electron,
         },
         env: b.env.clone(),
         app_feed: b.app_feed.clone(),
@@ -1351,6 +1353,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::domain_seams::channel_stack::ServerListener::new(webhook_service.clone(), tunnels)),
     ));
     let channel_runtime = mixdog_services::channels::runtime::ChannelRuntime::new(scheduler, schedules.clone(), webhook_automation, channel_agent_runtime);
+    // `<data>/channels/status-snapshot.json` (cron next fire, deferred count, relay hook URL), written while the scheduler is armed.
+    channel_runtime.bind_status_snapshot(mixdog_services::channels::status_snapshot::StatusSnapshot::new(channel_runtime.scheduler().clone(), public_base.clone(), channel_clock.clone(), b.data_dir.join("channels").join("status-snapshot.json"), b.tokens.durability_io));
     // The channels' config hot reload (Node's worker `configReloadWatch`): an edit of `channels` or `voice`, from any process, reloads the runtime.
     let channel_config_follow = mixdog_core_config::config::ChannelConfigFollow::start(config.clone(), channel_runtime.clone());
     let channel_admin = mixdog_services::channels::ChannelAdmin::new(mixdog_services::channels::AdminDeps {
@@ -1387,7 +1391,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         plugins: pre.plugins.clone(),
         workflow: pre.workflow.clone(),
         secret_store: mixdog_core_config::config::secret_changes::AnnouncingStore::new(keychain_store.clone(), secret_changes.clone()), // a saved/forgotten secret announces itself on the config's signal
-        verifier: Arc::new(mixdog_mcp::gmail_verify::GmailAppPassword::default()),
+        verifier: gmail_mail.clone(),
         surface: crate::mcp_surface::DaemonMcpSurface::new(
             mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
             Arc::new(mixdog_core::run_host::compose_parts::LateHeaders(late.clone())),
@@ -1820,7 +1824,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     progress: Some(notices.sink(MemoryStartNotices::DATABASE)),
                 };
                 let installed = pg::ensure_runtime(&options, &cancel).await;
-                notices.clear(MemoryStartNotices::DATABASE);
                 installed.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
             })
         });
@@ -1884,6 +1887,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     })
     .await
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
+    // The database notice covers the whole opening, `initdb` and the postmaster included: it goes when the opening ends (done, failed or cancelled), not when the download does.
+    memory.on_opening_end({
+        let notices = start_notices.clone();
+        Arc::new(move || notices.clear(MemoryStartNotices::DATABASE))
+    });
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
     b.acquired.on_release("memory", {
         let memory = memory.clone();
@@ -2860,8 +2868,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             doctor: crate::domain_seams::doctor::DaemonDoctorHost::new(crate::domain_seams::doctor::DoctorInputs {
                 data_dir: b.data_dir.clone(),
                 package_root: b.package_root.clone(),
-                interpreter: crate::domain_seams::doctor::JsInterpreter { program: b.js_runtime.program.clone(), electron: b.js_runtime.electron },
-                processes: b.tidy_processes.clone(),
+                runtime: crate::domain_seams::doctor::ScriptRuntime { version: b.js_runtime.node_version.clone() },
                 io: b.tokens.interactive_io,
                 providers: provider_setup.clone(),
                 routes: config_hosts.clone(),

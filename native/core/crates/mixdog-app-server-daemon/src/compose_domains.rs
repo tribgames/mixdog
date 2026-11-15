@@ -64,7 +64,7 @@ use mixdog_core_config::config::SettingsEffects;
 use mixdog_core_config::tool_modules::FeatureEffects;
 use mixdog_core_config::tool_modules::ToolModules;
 use mixdog_exthost::BrowserService;
-use mixdog_exthost::ExtHostPool;
+use mixdog_exthost::RoutedExtPool;
 use mixdog_exthost::VisualizeService;
 use mixdog_rt::LaneTokens;
 use mixdog_services::tidy::process::Processes;
@@ -144,10 +144,6 @@ pub struct DomainPaths {
     pub user_data_dir: PathBuf,
     /// The package root: the shipped `orchestration/`, `output-styles/`, `workflows/` and `agents/` are under its `src/` (`mixdogRoot()`).
     pub package_root: PathBuf,
-    /// The JS interpreter of the install (`JsRuntime::program`) and whether it is the app binary
-    /// in node mode: what runs the staged update's `npm`.
-    pub node: PathBuf,
-    pub electron: bool,
 }
 
 /// Traits the other owners' services implement; each field says whose.
@@ -249,7 +245,7 @@ pub struct DomainInputs {
     pub config: Config,
     pub scoped_feeds: Arc<dyn ScopedFeeds>,
     pub host: Arc<dyn HostChannel>,
-    pub ext_host: Arc<ExtHostPool>,
+    pub ext_host: Arc<RoutedExtPool>,
     /// `ComposedCore::tidy_processes()`: the one process manager of Tidy and the local provider.
     pub processes: Processes,
     pub catalog: Arc<CatalogService>,

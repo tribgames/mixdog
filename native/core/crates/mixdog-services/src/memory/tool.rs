@@ -78,7 +78,7 @@ struct MemoryToolService(Arc<Host>);
 #[async_trait]
 impl ToolService for MemoryToolService {
     async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
-        let reply = self.0.memory.memory_reply(&self.0.args(&call).await).await;
+        let reply = self.0.memory.memory_reply_cancellable(&self.0.args(&call).await, call.cancel).await;
         reply_parts(reply.text, reply.is_error, "memory")
     }
 }
