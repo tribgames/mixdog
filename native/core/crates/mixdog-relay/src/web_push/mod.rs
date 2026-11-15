@@ -18,8 +18,13 @@
 //! A desktop sends only through an association it holds for a client the device store still knows: an unpaired or revoked
 //! client, or another PC's association, is refused. `{ type: 'webpush-ready' }` marks a PC as delivering through the relay
 //! ([`WebPush::mark_ready`]).
+//!
+//! [`frames`] registers these frames, the capability and the revocation hooks with the desktop leg; [`http`] answers the browser's
+//! `/webpush/*` routes.
 
 pub mod endpoint;
+pub mod frames;
+pub mod http;
 pub mod registry;
 pub mod send;
 pub mod vapid;
