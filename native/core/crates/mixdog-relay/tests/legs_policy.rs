@@ -142,10 +142,12 @@ fn envelope_byte_vectors_recorded_from_node() {
 
 #[test]
 fn text_flagged_frames_decode_as_text_and_old_frames_stay_bytes() {
-    let text = envelope::decode_frame(&envelope::encode_frame("abcdefgh", b"hi", false, true).unwrap()).unwrap();
+    let text_frame = envelope::encode_frame("abcdefgh", b"hi", false, true).unwrap();
+    let text = envelope::decode_frame(&text_frame).unwrap();
     assert!(text.text && !text.droppable);
     assert_eq!(text.data, b"hi");
-    let both = envelope::decode_frame(&envelope::encode_frame("abcdefgh", &[], true, true).unwrap()).unwrap();
+    let both_frame = envelope::encode_frame("abcdefgh", &[], true, true).unwrap();
+    let both = envelope::decode_frame(&both_frame).unwrap();
     assert!(both.text && both.droppable);
     assert!(both.data.is_empty());
 }

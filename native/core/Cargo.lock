@@ -5674,6 +5674,7 @@ dependencies = [
  "hmac 0.12.1",
  "httparse",
  "libc",
+ "md-5 0.10.6",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-rt",

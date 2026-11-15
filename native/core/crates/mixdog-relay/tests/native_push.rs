@@ -869,10 +869,10 @@ async fn a_token_cannot_hold_more_than_64_associations_per_desktop() {
 #[tokio::test]
 async fn a_relay_without_credentials_ignores_native_push_frames() {
     let paired = Paired::of(vec![("dev-a", vec!["client-1"])]);
-    let service = NativePushService::new(None);
-    service.bind("dev-a", &paired, &bind_frame(&json!({})));
-    assert!(service.send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
-    assert_eq!(service.association_count(APNS_TOKEN), None);
+    let bare = NativePushService::new(None);
+    bare.bind("dev-a", &paired, &bind_frame(&json!({})));
+    assert!(bare.send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
+    assert_eq!(bare.association_count(APNS_TOKEN), None);
     // A sender that serves no platform is no sender: the frame is ignored, not refused.
     let idle = FakePush::new(&[], delivered());
     assert!(service(&idle).send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
