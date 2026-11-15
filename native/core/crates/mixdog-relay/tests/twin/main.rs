@@ -46,7 +46,6 @@ fn twin_harness_self_check() {
 
 /// Node against Rust, every event.
 #[test]
-#[ignore = "relay assembled by nr-relay-server"]
 fn twin_scenarios() {
     for (_, scenario) in load() {
         let node = normalised(&scenario, Runtime::Node, Crossover::Stay);
@@ -58,7 +57,6 @@ fn twin_scenarios() {
 /// One runtime writes the data directory and the other reads it: the run that crosses over equals the run that
 /// restarts the same runtime, starting from either one.
 #[test]
-#[ignore = "relay assembled by nr-relay-server"]
 fn twin_crossover() {
     let crossing: Vec<_> = load().into_iter().filter(|(_, scenario)| scenario.has_crossover()).collect();
     assert!(!crossing.is_empty(), "no scenario has a crossover step");

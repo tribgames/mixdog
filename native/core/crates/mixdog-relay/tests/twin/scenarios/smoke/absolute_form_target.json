@@ -1,0 +1,10 @@
+{
+  "id": "absolute_form_target",
+  "description": "an absolute-form request target is not a route prefix: it reaches the static gate with its path",
+  "steps": [
+    {
+      "do": "http",
+      "raw": "GET http://other.example/healthz HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n"
+    }
+  ]
+}
