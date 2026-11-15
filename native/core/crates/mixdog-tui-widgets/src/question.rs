@@ -78,8 +78,11 @@ impl Question {
 
 /// `questionsOf(toolApproval)`: the questions of a tool approval's arguments.
 pub fn questions_of(tool_approval: &Value) -> Vec<Question> {
+    // Node's card carries them as `args.questions`; the card the session store publishes from the wire request (`item/tool/requestUserInput`)
+    // has them at its top, as the protocol names them.
     tool_approval
         .pointer("/args/questions")
+        .or_else(|| tool_approval.get("questions"))
         .and_then(Value::as_array)
         .map(|list| list.iter().map(Question::from_value).collect())
         .unwrap_or_default()
