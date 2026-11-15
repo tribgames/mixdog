@@ -11,7 +11,7 @@ use mixdog_pdf::text::{self, TextItem};
 use mixdog_pdf::{Obj, PdfError, annotations, outline_read};
 use serde_json::Value;
 
-use super::{js_max, json_number, max_of, min_of, object, round2};
+use super::{js_max, js_min, json_number, max_of, min_of, object, round2};
 use crate::document::{AnalysisError, PdfSource, open_pdf, selected_pages};
 use crate::limits::{DEFAULT_MAX_ITEMS, MAX_SHAPES_PER_PAGE};
 
@@ -302,8 +302,8 @@ fn page_links(
         let (x1, y1) = apply_point((rect[0], rect[1]), &viewport.transform);
         let (x2, y2) = apply_point((rect[2], rect[3]), &viewport.transform);
         let mut entry = Link {
-            x: round2(x1.min(x2)),
-            top: round2(y1.min(y2)),
+            x: round2(js_min(x1, x2)),
+            top: round2(js_min(y1, y2)),
             width: round2((x2 - x1).abs()),
             height: round2((y2 - y1).abs()),
             url: None,
