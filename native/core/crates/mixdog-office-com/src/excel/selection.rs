@@ -10,7 +10,6 @@ use super::cells::dimension_count;
 use super::cells::ordered;
 use super::cells::relative_address;
 use super::cells::string_of;
-use super::cells::is_ps_null;
 
 fn unavailable(reason: &str) -> Value {
     ordered(vec![("available", Value::Bool(false)), ("reason", Value::string(reason))])
@@ -21,7 +20,8 @@ pub(super) fn snapshot_selection(document: &Obj) -> Result<Value> {
     let document = Com::Dispatch(document.clone());
     let selection = document.member("Application")?.member("Selection")?;
     let sheet = selection.member("Parent")?;
-    if is_ps_null(&sheet) || !same_office_path(&string_of(&sheet.member("Parent")?.member("FullName")?), &string_of(&document.member("FullName")?)) {
+    // A sheet that is not there is a null dispatch, which the dispatch layer answers as `Null`.
+    if sheet.is_null() || !same_office_path(&string_of(&sheet.member("Parent")?.member("FullName")?), &string_of(&document.member("FullName")?)) {
         return Ok(unavailable("The active Excel selection belongs to another workbook."));
     }
     let address = string_of(&relative_address(&selection)?);

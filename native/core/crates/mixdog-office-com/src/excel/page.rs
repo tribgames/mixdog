@@ -82,8 +82,8 @@ pub(super) fn snapshot_excel_page(book: &Obj, payload: &Value) -> Result<Value> 
             let take_rows = remaining / columns;
             let take_exact = remaining % columns == 0;
             let first = item(whole_arg(row_exact, row_offset + 1), Com::I4(1))?;
-            let sum_exact = row_exact && take_exact;
-            let last = item(whole_arg(sum_exact, row_offset + take_rows), Com::I4(column_count))?;
+            // A Decimal plus a Double is a Decimal in PowerShell.
+            let last = item(whole_arg(row_exact || take_exact, row_offset + take_rows), Com::I4(column_count))?;
             (take_rows * columns, get_with(&sheet, "Range", &[first, last])?)
         } else {
             let take = remaining.min(columns - i64::from(column_offset));
