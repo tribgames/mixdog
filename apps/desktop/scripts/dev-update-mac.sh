@@ -176,7 +176,7 @@ assert_artifact() {
 	[ -f "$dist_app/Contents/Resources/core/mixdogd" ] || fail "Desktop artifact is missing the core: $dist_app"
 	[ -f "$dist_app/Contents/Resources/core/mixdog-askpass" ] || fail "Desktop artifact is missing the askpass helper: $dist_app"
 	[ -f "$dist_app/Contents/Resources/core/js-runtime.json" ] || fail "Desktop artifact is missing js-runtime.json: $dist_app"
-	[ -f "$dist_app/Contents/Resources/runtime.asar" ] || fail "Desktop artifact is missing runtime.asar: $dist_app"
+	[ -f "$dist_app/Contents/Resources/runtime.asar.unpacked/node_modules/mixdog/package.json" ] || fail "Desktop artifact is missing the unpacked runtime package: $dist_app"
 }
 
 version_before="$(installed_version)"

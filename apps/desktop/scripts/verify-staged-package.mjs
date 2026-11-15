@@ -5,7 +5,8 @@
 //   node apps/desktop/scripts/verify-staged-package.mjs --resources=<dir> [--platform=win32] [--arch=x64] [--deletion-manifest=<file>]
 //
 //   no file of the K1 deletion list (k1-deletion-manifest.txt, or the manifest given) is packed: not in the
-//   unpacked package, runtime.asar or a server bundle
+//   unpacked package or a server bundle; and no runtime.asar is shipped (nothing opens one, the core refuses an
+//   archive package root)
 //
 //   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
 //   native-tools/mixdog-computer.exe          a Windows package holds the Computer Use helper, built for its architecture
@@ -24,11 +25,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { listPackage } from '@electron/asar';
-
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import { SERVER_PLATFORM_TARGETS } from '../src/main/ssh/server-manifest.mjs';
-import { CORE_READS, desktopMixdogRoot, PACKAGE_DIR, UNPACKED_NODE_MODULES, verifyCoreInstall, verifyRemotePayload } from './core-layout.mjs';
+import { desktopMixdogRoot, PACKAGE_DIR, UNPACKED_NODE_MODULES, verifyCoreInstall, verifyRemotePayload } from './core-layout.mjs';
 
 /** The K1 deletion manifest. This committed file is the single authority for what the cut deletes (see its
  *  header); there is no filtered copy: `parseDeletionList` is the only place that decides which sections delete. */
@@ -46,17 +45,12 @@ export function parseDeletionList(text) {
   return deleted;
 }
 
-/** Package-root-relative paths of every file of the Mixdog package that `resources` holds: the real-file copy,
- *  runtime.asar and each server bundle. Keyed by where they were found. */
+/** Package-root-relative paths of every file of the Mixdog package that `resources` holds: the real-file copy
+ *  and each server bundle. Keyed by where they were found. */
 function packedPackageFiles({ resources, bundles }) {
   const found = new Map();
   const unpacked = join(resources, UNPACKED_NODE_MODULES, PACKAGE_DIR);
   if (existsSync(unpacked)) found.set(unpacked, readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/')));
-  const archive = join(resources, 'runtime.asar');
-  if (existsSync(archive)) {
-    const prefix = `/node_modules/${PACKAGE_DIR}/`;
-    found.set(archive, listPackage(archive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')).filter((entry) => entry.startsWith(prefix)).map((entry) => entry.slice(prefix.length)));
-  }
   for (const [bundle, entries] of bundles) {
     const prefix = `payload/js/pkg/node_modules/${PACKAGE_DIR}/`;
     found.set(bundle, [...entries].filter((entry) => entry.startsWith(prefix)).map((entry) => entry.slice(prefix.length)));
@@ -82,13 +76,11 @@ export function verifyStagedResources({ resources, platform, arch, hostOnly = fa
   if (!existsSync(mainNative) || !statSync(mainNative).isFile()) throw new Error(`the main-process native module ${mainNative} is not in the package`);
   if (!nativeBinaryRunsOn(readFileSync(mainNative), arch)) throw new Error(`the main-process native module ${mainNative} does not run on ${platform}-${arch}`);
   const mixdogRoot = desktopMixdogRoot(resources);
-  const archived = existsSync(join(resources, 'runtime.asar'))
-    ? new Set(listPackage(join(resources, 'runtime.asar'), { isPack: false }).map((entry) => entry.replaceAll('\\', '/')))
-    : new Set();
-  const asarOnly = [...CORE_READS.files, ...CORE_READS.dirs].filter(
-    (entry) => !existsSync(join(mixdogRoot, '..', entry)) && archived.has(`/node_modules/${PACKAGE_DIR}/${entry}`)
-  );
-  if (asarOnly.length) throw new Error(`the core's resources ${asarOnly.join(', ')} are only inside runtime.asar; MIXDOG_ROOT (${mixdogRoot}) needs real files`);
+  // The core's resources are real files under MIXDOG_ROOT, and no archive of the runtime is shipped: a package that
+  // carries one has the root production tree packed for nothing (and a core resource only inside it would be unreadable).
+  if (existsSync(join(resources, 'runtime.asar'))) {
+    throw new Error(`${join(resources, 'runtime.asar')} is shipped, but nothing opens it: the core reads the real files under ${mixdogRoot}`);
+  }
   verifyCoreInstall({ manifestDir: join(resources, 'core'), kind: 'desktop', platform, arch });
 
   const serversDir = join(resources, 'server-cores');

@@ -8,13 +8,17 @@
 //   .runtime/server-cores/<os>-<arch>/bundle.tgz + servers.json
 //                                      what the SSH install uploads (LR §8.1): mixdogd and its
 //                                      JS runtime (scripts/stage-js-bundle.mjs)
+// The server bundles are built once per release run (`--servers-only`, the server-cores job of
+// server-cores-build.yml) and every package job takes them with `--server-cores=<dir>`: the same four
+// bundles are not rebuilt in each of the packaging jobs. A prebuilt set is accepted only when it matches
+// what this job staged itself (version, every bundle's bytes and every platform's mixdogd).
 // It stages already-built binaries (`cargo build --release --target <triple>
 // -p mixdog-cli`, one per target, in CI); it never builds and never runs a
 // binary except `--version` of the host one, to prove the manifest's version is
 // the version the core reports — the version `compat::order` compares.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -129,24 +133,30 @@ export async function stageCore({
   buildPayload = buildJsPayload,
   verifyPayload = verifyRemotePayload,
   hostOnly = false,
+  serversOnly = false,
+  prebuiltServerCores = null,
 }) {
-  const hostKey = `${host.platform}-${host.arch}`;
-  const hostTarget = HOST_TARGETS[hostKey];
-  if (!hostTarget) throw new Error(`no mixdogd target for ${hostKey}`);
-
   const serversDir = join(runtimeDir, 'server-cores');
-  await rm(serversDir, { recursive: true, force: true });
-  await stageHostCore({
-    binary: await builtBinary(targetDir, hostTarget, host.platform),
-    askpass: await builtBinary(targetDir, hostTarget, host.platform, askpassName(host.platform)),
-    runtimeDir,
-    version,
-    host,
-    hostRunnable,
-    reportedVersion,
-  });
+  if (!serversOnly) {
+    const hostKey = `${host.platform}-${host.arch}`;
+    const hostTarget = HOST_TARGETS[hostKey];
+    if (!hostTarget) throw new Error(`no mixdogd target for ${hostKey}`);
+    await rm(serversDir, { recursive: true, force: true });
+    await stageHostCore({
+      binary: await builtBinary(targetDir, hostTarget, host.platform),
+      askpass: await builtBinary(targetDir, hostTarget, host.platform, askpassName(host.platform)),
+      runtimeDir,
+      version,
+      host,
+      hostRunnable,
+      reportedVersion,
+    });
+  } else {
+    await rm(serversDir, { recursive: true, force: true });
+  }
 
   if (hostOnly) return null;
+  if (prebuiltServerCores) return adoptServerCores({ source: prebuiltServerCores, serversDir, targetDir, version });
   const binaries = {};
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
     const source = await builtBinary(targetDir, target, key.split('-')[0]);
@@ -160,6 +170,53 @@ export async function stageCore({
   }
   const manifest = { version, build: manifestBuild(binaries), binaries };
   await writeFile(join(serversDir, SERVER_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}
+
+/**
+ * Takes the server bundles another job built (`--servers-only`) in place of building them: `source` holds
+ * `servers.json` and `<key>/bundle.tgz`. Fails closed, never rebuilds: the manifest lists exactly the
+ * server platforms and this version, every bundle matches its recorded size and sha256, the recorded
+ * build is the one of its binaries, and each recorded mixdogd is the very binary this job holds for that
+ * platform.
+ */
+export async function adoptServerCores({ source, serversDir, targetDir, version }) {
+  const problems = [];
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(source, SERVER_MANIFEST_FILE), 'utf8'));
+  } catch (error) {
+    throw new Error(`the prebuilt server cores in ${source} have no readable ${SERVER_MANIFEST_FILE}: ${error.code ?? error.message}`);
+  }
+  if (manifest.version !== version) problems.push(`they are version ${manifest.version}, the release is ${version}`);
+  const keys = Object.keys(manifest.binaries ?? {}).sort();
+  const wanted = Object.keys(SERVER_PLATFORM_TARGETS).sort();
+  if (keys.join() !== wanted.join()) problems.push(`they list ${keys.join(', ') || 'no platform'}, not ${wanted.join(', ')}`);
+  for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
+    const target = SERVER_PLATFORM_TARGETS[key];
+    if (!target) continue;
+    if (entry?.bundle?.file !== BUNDLE_FILE) {
+      problems.push(`${key}: the bundle file must be ${BUNDLE_FILE}`);
+      continue;
+    }
+    const bundle = join(source, key, BUNDLE_FILE);
+    try {
+      const bytes = await readFile(bundle);
+      if (bytes.length !== entry.bundle.size) problems.push(`${key}: ${bundle} is ${bytes.length} bytes, the manifest says ${entry.bundle.size}`);
+      if (createHash('sha256').update(bytes).digest('hex') !== entry.bundle.sha256) problems.push(`${key}: ${bundle} does not match the manifest`);
+    } catch (error) {
+      problems.push(`${key}: ${bundle} is not readable (${error.code ?? error.message})`);
+    }
+    try {
+      const local = await builtBinary(targetDir, target, key.split('-')[0]);
+      if ((await sha256Of(local)) !== entry.sha256) problems.push(`${key}: the bundled mixdogd is not the mixdogd built for ${target}`);
+    } catch (error) {
+      problems.push(error.message);
+    }
+  }
+  if (manifest.binaries && manifestBuild(manifest.binaries) !== manifest.build) problems.push('the recorded build is not the build of the listed binaries');
+  if (problems.length) throw new Error(`prebuilt server cores ${source} are refused:\n- ${problems.join('\n- ')}`);
+  await cp(source, serversDir, { recursive: true });
   return manifest;
 }
 
@@ -194,6 +251,8 @@ if (invokedPath === import.meta.url) {
         version: argument('version') ?? (await workspaceVersion()),
         host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
         hostOnly: process.argv.includes('--host-only'),
+        serversOnly: process.argv.includes('--servers-only'),
+        prebuiltServerCores: argument('server-cores') ? resolve(argument('server-cores')) : null,
       });
       console.log(
         manifest

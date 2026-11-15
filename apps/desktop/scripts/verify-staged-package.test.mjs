@@ -5,8 +5,6 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { createPackage } from '@electron/asar';
-
 import { CORE_READS, ortBinaryDir, remoteJsRuntimeManifest } from './core-layout.mjs';
 import { install, put } from './core-layout-fixture.mjs';
 import { DEFAULT_DELETION_LIST, parseDeletionList, verifyStagedResources } from './verify-staged-package.mjs';
@@ -78,6 +76,12 @@ test('resources missing what the core needs are refused', () => {
   const noLibrary = resources();
   rmSync(join(noLibrary.modules, 'onnxruntime-node', ortBinaryDir('linux', 'x64'), 'libonnxruntime.so.1'));
   assert.throws(() => verify(noLibrary), /ONNX Runtime library .* does not exist/);
+
+  for (const file of CORE_READS.files.filter((name) => name.startsWith('data/pptxgenjs/'))) {
+    const missing = resources();
+    rmSync(join(missing.modules, 'mixdog', file));
+    assert.throws(() => verify(missing), new RegExp(`missing file ${file.replaceAll('.', '\\.')}`));
+  }
 });
 
 test('a package without the main-process native module, or with one built for another architecture, is refused', () => {
@@ -139,7 +143,7 @@ test('each server bundle is unpacked and checked as the staging checked the payl
   assert.throws(() => verify(stale), /linux-x64: bundle\.tgz does not match servers\.json/);
 });
 
-test('a file of the K1 deletion list in the unpacked package, runtime.asar or a server bundle is refused', async () => {
+test('a file of the K1 deletion list in the unpacked package or a server bundle is refused', async () => {
   const deleted = parseDeletionList('# header\nsrc/repl.mjs\n## KEEP: tests\nsrc/keep.test.mjs\n## DELETE: Node source\nsrc/app.mjs\n## MOVE (not deleted)\nsrc/moved.json\n');
   assert.deepEqual([...deleted], ['src/repl.mjs', 'src/app.mjs']);
   assert.equal(verify(resources(), { deleted }).length, SERVERS.length);
@@ -148,34 +152,22 @@ test('a file of the K1 deletion list in the unpacked package, runtime.asar or a 
   put(join(inUnpacked.modules, 'mixdog/src/app.mjs'));
   assert.throws(() => verify(inUnpacked, { deleted }), /runtime\.asar\.unpacked.*packs 1 file\(s\) the K1 cut deletes, e\.g\. src\/app\.mjs/);
 
-  const inArchive = resources();
-  const archiveSource = join(inArchive.top, 'archive-source');
-  put(join(archiveSource, 'node_modules/mixdog/src/repl.mjs'));
-  await createPackage(archiveSource, join(inArchive.root, 'runtime.asar'));
-  assert.throws(() => verify(inArchive, { deleted }), /runtime\.asar packs 1 file\(s\).*src\/repl\.mjs/);
-
   const inBundle = resources();
   put(join(payloadOf(inBundle, 'linux-x64'), remoteJsRuntimeManifest('linux', 'x64').packageRoot, 'src/app.mjs'));
   inBundle.pack('linux-x64');
   assert.throws(() => verify(inBundle, { deleted }), /bundle\.tgz packs 1 file\(s\).*src\/app\.mjs/);
 });
 
-test('src/defaults/shipped-history.json only inside runtime.asar is refused', async () => {
+test('a package that ships runtime.asar is refused: nothing opens it and the core reads real files', () => {
   const tree = resources();
-  rmSync(join(tree.modules, 'mixdog/src/defaults/shipped-history.json'));
-  const source = join(tree.top, 'asar-history');
-  put(join(source, 'node_modules/mixdog/src/defaults/shipped-history.json'));
-  await createPackage(source, join(tree.root, 'runtime.asar'));
-  assert.throws(() => verify(tree, { deleted: new Set() }), /src\/defaults\/shipped-history\.json are only inside runtime\.asar; MIXDOG_ROOT/);
+  put(join(tree.root, 'runtime.asar'));
+  assert.throws(() => verify(tree, { deleted: new Set() }), /runtime\.asar is shipped, but nothing opens it/);
 });
 
-test('core resources only inside runtime.asar are refused: MIXDOG_ROOT needs real files', async () => {
+test('the Linux package carries the WebAssembly sharp the Electron interpreter loads', () => {
   const tree = resources();
-  rmSync(join(tree.modules, 'mixdog/src/rules'), { recursive: true });
-  const source = join(tree.top, 'asar-rules');
-  put(join(source, 'node_modules/mixdog/src/rules/a.md'));
-  await createPackage(source, join(tree.root, 'runtime.asar'));
-  assert.throws(() => verify(tree, { deleted: new Set() }), /src\/rules are only inside runtime\.asar; MIXDOG_ROOT/);
+  rmSync(join(tree.modules, '@img/sharp-wasm32'), { recursive: true });
+  assert.throws(() => verify(tree, { deleted: new Set() }), /@img\/sharp-wasm32 \(reached from the remote entry points\) is not installed/);
 });
 
 test('the committed deletion list holds package paths and none a K1 survivor needs', () => {
