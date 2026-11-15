@@ -437,9 +437,11 @@ fn probe_stun_resends_the_same_request_on_the_doubling_schedule_and_answers_on_a
     let log = server.received.lock().unwrap().clone();
     assert_eq!(log.len(), 3, "an answered transaction sends nothing more");
     assert!(log.iter().all(|(_, request)| *request == log[0].1), "every copy is the same transaction");
-    // The waits are rto and 2 * rto at least (the timer may only fire late).
-    assert!(log[1].0 - log[0].0 >= rto - Duration::from_millis(2));
-    assert!(log[2].0 - log[1].0 >= 2 * rto - Duration::from_millis(2));
+    // The sends are at 0, 1 and 3 rto after the first (the timer may only fire late). The server stamps each copy when ITS thread
+    // wakes, which on a loaded machine is late by an unbounded, per-copy amount, so one gap is no evidence of the sender's wait:
+    // the distances from the first copy are, and the schedule itself is pinned by the retransmit_schedule check above.
+    assert!(log[1].0 - log[0].0 >= rto - Duration::from_millis(15));
+    assert!(log[2].0 - log[0].0 >= 3 * rto - Duration::from_millis(15));
     std::thread::sleep(rto * 6);
     assert_eq!(server.count(), 3);
 }
