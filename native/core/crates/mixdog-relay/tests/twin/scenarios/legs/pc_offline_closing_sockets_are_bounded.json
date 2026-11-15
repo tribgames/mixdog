@@ -1,0 +1,440 @@
+{
+  "id": "pc_offline_closing_sockets_are_bounded",
+  "description": "peers that never acknowledge the PC-offline close hold a slot each up to the per-device phone capacity; past it the upgrade is refused 429",
+  "files": {
+    "data": {
+      "devices.json": "{\n  \"7c1f3a52-9b0e-4d6a-8e21-3f4c5d6e7a80\": {\n    \"secretHash\": \"9f9f5111f7b27a781f1f1ddde5ebc2dd2b796bfc7365c9c28b548e564176929f\",\n    \"clientTokenHash\": \"\",\n    \"clients\": {\n      \"bbbbbbbb\": {\n        \"tokenHash\": \"38298baa833bf3396a90bc4e29361fb2a84134e2b849e81945bc06d50cfa3bb6\",\n        \"createdAt\": 1700000000000,\n        \"lastSeenAt\": 1700000000000\n      }\n    }\n  }\n}"
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "s0",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s1",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s2",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s3",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s4",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s5",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s6",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s7",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s8",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s9",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s10",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s11",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s12",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s13",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s14",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s15",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s16",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s17",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s18",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s19",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s20",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s21",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s22",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s23",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s24",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s25",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s26",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s27",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s28",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s29",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s30",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "s31",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 101
+    },
+    {
+      "do": "ws_open",
+      "conn": "over",
+      "path": "/ws?token=bd53b130de67fa56d48baf23e1992c3e0bc3e0c1d8e5183858dc10e77d7147f7",
+      "role": "phone",
+      "headers": [
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "expect_status": 429
+    }
+  ]
+}
