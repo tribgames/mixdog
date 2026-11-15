@@ -7,6 +7,8 @@ import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 import {
   CLOSURE_RECORD,
   CORE_READS,
+  OFFICE_TEMPLATE_FILES,
+  OFFICE_TEMPLATES_DIR,
   desktopJsRuntimeManifest,
   mirrorCoreRuntime,
   ortBinaryDir,
@@ -43,6 +45,16 @@ test('a complete install of each layout and platform passes', () => {
     ['remote', 'darwin', 'x64'],
   ]) {
     assert.doesNotThrow(() => verify(kind, install(kind, platform, arch), platform, arch), `${kind} ${platform}-${arch}`);
+  }
+});
+
+test('a core install without the Office templates beside the binary is refused, in each layout', () => {
+  for (const kind of ['desktop', 'remote']) {
+    for (const file of OFFICE_TEMPLATE_FILES) {
+      const tree = install(kind, 'linux', 'x64');
+      rmSync(join(tree.dir, OFFICE_TEMPLATES_DIR, file));
+      assert.throws(() => verify(kind, tree, 'linux', 'x64'), new RegExp(`missing Office template ${OFFICE_TEMPLATES_DIR}/${file.replaceAll('.', '\\.')}`));
+    }
   }
 });
 

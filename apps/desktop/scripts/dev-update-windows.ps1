@@ -1091,6 +1091,15 @@ function Install-IncrementalBuild {
             Copy-Item -LiteralPath $builtCore -Destination $installedCore
             if (Test-Path -LiteralPath $installedAskpass -PathType Leaf) { Backup-InstalledArtifact $installedAskpass 'mixdog-askpass.exe' }
             Copy-Item -LiteralPath $builtAskpass -Destination $installedAskpass -Force
+            # The Office engine reads its templates from assets\templates beside mixdogd: the crate's assets, as stage-core stages them.
+            $builtTemplates = Join-Path $repoRoot 'native\core\crates\mixdog-office-design\assets\templates'
+            foreach ($template in @('mixdog-executive.pptx', 'mixdog-executive.pptx.mixdog.json', 'mixdog-executive.mixdog-edit.pptx')) {
+                if (-not (Test-Path -LiteralPath (Join-Path $builtTemplates $template) -PathType Leaf)) { throw "Office template is missing: $builtTemplates\$template" }
+            }
+            $installedTemplates = Join-Path $installedResources 'core\assets\templates'
+            Backup-InstalledArtifact $installedTemplates 'office-templates'
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $installedTemplates) | Out-Null
+            Copy-Item -LiteralPath $builtTemplates -Destination $installedTemplates -Recurse -Force
         }
 
         if (-not $NoLaunch) {

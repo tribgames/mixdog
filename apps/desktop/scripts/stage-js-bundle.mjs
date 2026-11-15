@@ -26,6 +26,7 @@ import {
   ORT_PACKAGE,
   onnxRuntimeSupported,
   recordCoreClosure,
+  stageOfficeTemplates,
   remoteJsRuntimeManifest,
   trimOrtBinaries,
 } from './core-layout.mjs';
@@ -208,6 +209,8 @@ export async function buildJsPayload({
   recordClosure(join(pkgDir, 'node_modules'));
   const { platform, arch } = splitKey(key);
   await writeFile(join(payloadDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(remoteJsRuntimeManifest(platform, arch), null, 2)}\n`);
+  // The Office engine reads its templates beside the executable; the payload's entries move beside `mixdogd`.
+  await stageOfficeTemplates(payloadDir);
   return { nodeVersion: node.version };
 }
 

@@ -8,6 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { exitCodeOf, nativeEnv, nativeProgram } from '../bin/mixdog.mjs';
+import { OFFICE_TEMPLATE_FILES, OFFICE_TEMPLATES_DIR, OFFICE_TEMPLATES_SOURCE } from '../apps/desktop/scripts/core-layout.mjs';
 import { NATIVE_PROGRAMS, jsRuntimeManifest, stageNpmNative } from './stage-npm-native.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -41,19 +42,22 @@ test('the manifest names node and the package root two folders up', () => {
   assert.deepEqual(NATIVE_PROGRAMS, ['mixdog', 'mixdogd']);
 });
 
-test('staging copies both programs and writes the manifest; a program that is not built is an error', () => {
+test('staging copies both programs and writes the manifest; a program that is not built is an error', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-stage-'));
   try {
     const from = join(dir, 'built');
     mkdirSync(from);
     writeFileSync(join(from, 'mixdog'), 'entry');
-    assert.throws(() => stageNpmNative({ from, packageRoot: join(dir, 'pkg'), platform: 'linux', arch: 'x64' }), /mixdogd is not built/);
+    await assert.rejects(async () => stageNpmNative({ from, packageRoot: join(dir, 'pkg'), platform: 'linux', arch: 'x64' }), /mixdogd is not built/);
     writeFileSync(join(from, 'mixdogd'), 'core');
-    const folder = stageNpmNative({ from, packageRoot: join(dir, 'pkg'), platform: 'linux', arch: 'x64' });
+    const folder = await stageNpmNative({ from, packageRoot: join(dir, 'pkg'), platform: 'linux', arch: 'x64' });
     assert.equal(folder, join(dir, 'pkg', 'native-bin', 'linux-x64'));
     assert.equal(readFileSync(join(folder, 'mixdog'), 'utf8'), 'entry');
     assert.equal(readFileSync(join(folder, 'mixdogd'), 'utf8'), 'core');
     assert.deepEqual(JSON.parse(readFileSync(join(folder, 'js-runtime.json'), 'utf8')), jsRuntimeManifest());
+    for (const file of OFFICE_TEMPLATE_FILES) {
+      assert.deepEqual(readFileSync(join(folder, OFFICE_TEMPLATES_DIR, file)), readFileSync(join(OFFICE_TEMPLATES_SOURCE, file)));
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

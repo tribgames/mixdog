@@ -16,6 +16,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cp, mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { deriveRemoteRoots, installedClosure } from './remote-js-roots.mjs';
@@ -24,6 +25,29 @@ export const JS_RUNTIME_MANIFEST = 'js-runtime.json';
 /** Where the desktop's real-file modules live, relative to `resources/`. */
 export const UNPACKED_NODE_MODULES = 'runtime.asar.unpacked/node_modules';
 export const PACKAGE_DIR = 'mixdog';
+/** The packaged Office templates: the one source is the Office engine crate's assets, and the engine reads
+ *  `assets/templates` beside the running executable (mixdog-office-design `Environment::process`). `mixdogd`
+ *  runs the engine in `mixdogd ext-worker` (the same executable), so the folder sits beside `mixdogd` in every
+ *  layout: `resources/core/`, `<isoRoot>/core/`, the dev binary's folder, the remote version directory (the
+ *  bundle's `payload/` entries move beside the binary) and `native-bin/<platform>-<arch>/`. */
+export const OFFICE_TEMPLATES_DIR = 'assets/templates';
+export const OFFICE_TEMPLATES_SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), '../../../native/core/crates/mixdog-office-design', OFFICE_TEMPLATES_DIR);
+export const OFFICE_TEMPLATE_FILES = Object.freeze(['mixdog-executive.pptx', 'mixdog-executive.pptx.mixdog.json', 'mixdog-executive.mixdog-edit.pptx']);
+
+/** Copies the packaged templates into `<executableDir>/assets/templates`; throws when the source lacks one. */
+export async function stageOfficeTemplates(executableDir, source = OFFICE_TEMPLATES_SOURCE) {
+  const target = join(executableDir, OFFICE_TEMPLATES_DIR);
+  for (const file of OFFICE_TEMPLATE_FILES) if (!existsSync(join(source, file))) throw new Error(`Office template ${join(source, file)} does not exist`);
+  await mkdir(target, { recursive: true });
+  for (const file of OFFICE_TEMPLATE_FILES) await cp(join(source, file), join(target, file));
+  return target;
+}
+
+/** What is missing of the templates beside the executable in `executableDir`. */
+export const officeTemplateProblems = (executableDir) =>
+  OFFICE_TEMPLATE_FILES.filter((file) => !isFile(join(executableDir, OFFICE_TEMPLATES_DIR, file))).map(
+    (file) => `missing Office template ${OFFICE_TEMPLATES_DIR}/${file} beside the core`
+  );
 export const ORT_PACKAGE = 'onnxruntime-node';
 
 /** What `mixdogd` reads from the package root as plain files. Directories must hold at least one file. The
@@ -172,6 +196,7 @@ export function verifyCoreInstall({ manifestDir, kind, platform, arch, checkProg
   const packageRoot = at(expected.packageRoot);
   if (checkProgram && !isFile(at(expected.program))) problems.push(`interpreter ${at(expected.program)} does not exist`);
   problems.push(...coreTreeProblems({ modulesDir: dirname(packageRoot), platform, arch }));
+  problems.push(...officeTemplateProblems(manifestDir));
   if (problems.length) throw new Error(`${kind} core install ${manifestDir} is incomplete:\n- ${problems.join('\n- ')}`);
   return { manifest, packageRoot };
 }

@@ -406,6 +406,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_packaged_templates_are_read_from_assets_templates_beside_the_executable() {
+        let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        assert_eq!(Environment::process().bundled_templates, exe_dir.join("assets").join("templates"));
+    }
+
+    #[test]
     fn safe_ids_are_trimmed_lower_case_and_bounded() {
         assert_eq!(safe_id_text("  Pack_1.x ", "id").unwrap(), "pack_1.x");
         assert!(safe_id_text("", "pack id").unwrap_err().contains("Office design pack id must use 1-64"));
