@@ -289,16 +289,52 @@ fn wrap(result: Result<serde_json::Map<String, Value>, mixdog_core_api::turn_rev
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn scenarios_match_node() {
+const SCENARIO_SLICES: usize = 4;
+
+/// The recorded scenarios of this platform.
+fn platform_scenarios(golden: &Value) -> Vec<&Value> {
+    golden.as_array().unwrap().iter().filter(|scenario| scenario["platform"] == std::env::consts::OS.replace("windows", "win32")).collect()
+}
+
+/// Runs the scenarios of this platform whose position is `slice` modulo `SCENARIO_SLICES`.
+async fn scenario_slice(slice: usize) {
     let golden = fixture("scenarios.json");
-    for scenario in golden.as_array().unwrap() {
-        if scenario["platform"] != std::env::consts::OS.replace("windows", "win32") {
+    let mut ran = 0;
+    for (position, scenario) in platform_scenarios(&golden).into_iter().enumerate() {
+        if position % SCENARIO_SLICES != slice {
             continue;
         }
         let name = scenario["name"].as_str().unwrap();
         run_scenario(name, scenario).await;
+        ran += 1;
     }
+    assert!(REGISTERED_SCENARIO_SLICES.contains(&slice));
+    assert_eq!(ran, (0..platform_scenarios(&golden).len()).filter(|position| position % SCENARIO_SLICES == slice).count(), "executed scenarios");
+    println!("slice {slice}: {ran} scenarios ran");
+}
+
+macro_rules! registered_scenarios_match_node {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+        const REGISTERED_SCENARIO_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test(flavor = "multi_thread")]
+        async fn $name() { scenario_slice($slice).await; })*
+    };
+}
+registered_scenarios_match_node! {
+    scenarios_match_node_slice_0 => 0,
+    scenarios_match_node_slice_1 => 1,
+    scenarios_match_node_slice_2 => 2,
+    scenarios_match_node_slice_3 => 3,
+}
+
+#[test]
+fn the_slices_run_every_recorded_scenario_of_this_platform_once() {
+    let golden = fixture("scenarios.json");
+    let total = platform_scenarios(&golden).len();
+    assert_eq!(REGISTERED_SCENARIO_SLICES, &(0..SCENARIO_SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SCENARIO_SLICES.iter().map(|slice| (0..total).filter(|position| position % SCENARIO_SLICES == *slice).count()).sum();
+    println!("{total} scenarios in {SCENARIO_SLICES} slices");
+    assert_eq!(covered, total);
 }
 
 async fn run_scenario(name: &str, scenario: &Value) {

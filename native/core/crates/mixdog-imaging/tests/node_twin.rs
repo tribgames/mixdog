@@ -295,11 +295,16 @@ fn the_corpus_is_recorded_and_complete() {
     }
 }
 
-#[test]
-fn every_probe_jpeg_validate_and_resize_call_equals_sharps() {
+const SLICES: usize = 8;
+
+/// Compares the cases whose index is `slice` modulo `SLICES`; every case lies in exactly one slice.
+fn compare_slice(slice: usize) {
     let corpus = corpus();
     let (mut failures, mut compared) = (Vec::new(), 0);
-    for case in corpus["cases"].as_array().expect("cases") {
+    for (index, case) in corpus["cases"].as_array().expect("cases").iter().enumerate() {
+        if index % SLICES != slice {
+            continue;
+        }
         let outcome = match text(case, "op") {
             "resize" => resize_case(case),
             "probe" => probe_case(case),
@@ -312,7 +317,41 @@ fn every_probe_jpeg_validate_and_resize_call_equals_sharps() {
             failures.push(message);
         }
     }
-    assert!(failures.is_empty(), "{} of {compared} cases differ from sharp:\n{}", failures.len(), failures.join("\n"));
+    assert!(REGISTERED_SLICES.contains(&slice));
+    assert_eq!(compared, (0..corpus["cases"].as_array().unwrap().len()).filter(|index| index % SLICES == slice).count(), "executed cases of slice {slice}");
+    println!("slice {slice}: {compared} cases compared");
+    assert!(failures.is_empty(), "{} of {compared} cases of slice {slice} differ from sharp:\n{}", failures.len(), failures.join("\n"));
+}
+
+macro_rules! probe_jpeg_validate_resize_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SLICES: &[usize] = &[$($slice),*];
+        $(#[test]
+        fn $name() {
+            compare_slice($slice);
+        })*
+    };
+}
+
+probe_jpeg_validate_resize_slices! {
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_0 => 0,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_1 => 1,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_2 => 2,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_3 => 3,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_4 => 4,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_5 => 5,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_6 => 6,
+    every_probe_jpeg_validate_and_resize_call_equals_sharps_slice_7 => 7,
+}
+
+#[test]
+fn the_slices_cover_every_probe_jpeg_validate_and_resize_case_exactly_once() {
+    let corpus = corpus();
+    let total = corpus["cases"].as_array().expect("cases").len();
+    assert_eq!(REGISTERED_SLICES, &(0..SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SLICES.iter().map(|slice| (0..total).filter(|index| index % SLICES == *slice).count()).sum();
+    println!("{total} cases in {SLICES} slices");
+    assert_eq!(covered, total);
 }
 
 #[test]

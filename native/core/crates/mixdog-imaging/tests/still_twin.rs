@@ -150,12 +150,17 @@ fn resize_case(case: &Value) -> Result<(), String> {
     check_pixels(name, &resized.data, &expect["pixels"], true)
 }
 
-#[test]
-fn every_still_case_matches_what_node_wrote() {
+const SLICES: usize = 8;
+
+/// Compares the cases whose index is `slice` modulo `SLICES`; every case lies in exactly one slice.
+fn compare_slice(slice: usize) -> usize {
     let corpus = corpus();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for case in corpus["cases"].as_array().expect("cases") {
+    for (index, case) in corpus["cases"].as_array().expect("cases").iter().enumerate() {
+        if index % SLICES != slice {
+            continue;
+        }
         let result = match text(case, "op") {
             "still" => still_case(case),
             "resize" => resize_case(case),
@@ -166,8 +171,43 @@ fn every_still_case_matches_what_node_wrote() {
             failures.push(message);
         }
     }
-    assert!(checked >= 80, "only {checked} cases");
-    assert!(failures.is_empty(), "{} of {checked} cases differ:\n{}", failures.len(), failures.join("\n"));
+    assert!(REGISTERED_SLICES.contains(&slice));
+    assert_eq!(checked, (0..corpus["cases"].as_array().unwrap().len()).filter(|index| index % SLICES == slice).count(), "executed cases of slice {slice}");
+    println!("slice {slice}: {checked} cases compared");
+    assert!(failures.is_empty(), "{} of {checked} cases of slice {slice} differ:\n{}", failures.len(), failures.join("\n"));
+    checked
+}
+
+macro_rules! still_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SLICES: &[usize] = &[$($slice),*];
+        $(#[test]
+        fn $name() {
+            compare_slice($slice);
+        })*
+    };
+}
+
+still_slices! {
+    every_still_case_matches_what_node_wrote_slice_0 => 0,
+    every_still_case_matches_what_node_wrote_slice_1 => 1,
+    every_still_case_matches_what_node_wrote_slice_2 => 2,
+    every_still_case_matches_what_node_wrote_slice_3 => 3,
+    every_still_case_matches_what_node_wrote_slice_4 => 4,
+    every_still_case_matches_what_node_wrote_slice_5 => 5,
+    every_still_case_matches_what_node_wrote_slice_6 => 6,
+    every_still_case_matches_what_node_wrote_slice_7 => 7,
+}
+
+#[test]
+fn the_slices_cover_every_still_case_exactly_once() {
+    let corpus = corpus();
+    let total = corpus["cases"].as_array().expect("cases").len();
+    assert_eq!(REGISTERED_SLICES, &(0..SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SLICES.iter().map(|slice| (0..total).filter(|index| index % SLICES == *slice).count()).sum();
+    println!("{total} cases in {SLICES} slices");
+    assert_eq!(covered, total);
+    assert!(total >= 80, "only {total} cases");
 }
 
 #[test]

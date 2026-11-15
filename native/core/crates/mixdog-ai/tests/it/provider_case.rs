@@ -2123,24 +2123,86 @@ fn skipped_cases() -> Vec<(String, String, String)> {
         .collect()
 }
 
-/// Every recorded provider set has a replay here that loaded it and compared every case (registered at run time by the
-/// set's drop), or is named in [`REPLAYED_ELSEWHERE`]; a set replayed here is not named there.
-#[test]
-fn every_provider_set_has_a_comparing_replay() {
+const SET_SLICES: usize = 6;
+
+/// The sets this branch replays (those no other branch's [`REPLAYED_ELSEWHERE`] names), sorted and distinct.
+fn replayed_here(replays: &[&Replay]) -> Vec<&'static str> {
+    let mut sets: Vec<&'static str> = replays.iter().map(|replay| replay.set).collect();
+    sets.sort_unstable();
+    sets.dedup();
+    sets
+}
+
+/// Runs every replay of the sets whose position among [`replayed_here`] is `slice` modulo `SET_SLICES` (all the replays of one
+/// set run in one slice, each on a fresh process state) and holds each such set to the rule of
+/// [`every_provider_set_has_a_replay_in_one_slice`]: some replay loaded it and compared every case (registered by its drop), or
+/// it has skipped cases kept apart with their reasons.
+fn replay_sets_of_slice(slice: usize) {
     let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let replays = registry();
-    for replay in &replays {
-        assert!(!REPLAYED_ELSEWHERE.contains(&replay.set), "{}: replayed here and named as another branch's", replay.set);
+    let sets = replayed_here(&replays);
+    let mine: Vec<&Replay> = replays.iter().copied().filter(|replay| sets.iter().position(|set| *set == replay.set).is_some_and(|at| at % SET_SLICES == slice)).collect();
+    COMPARED_SETS.lock().unwrap().clear();
+    SKIPPED_SETS.lock().unwrap().clear();
+    let mut executed = 0;
+    for replay in &mine {
+        mixdog_ai::reset_process_state();
+        (replay.run)();
+        executed += 1;
     }
-    let missing = uncompared(&replays, &recorded_sets());
-    // A set with skipped cases is not among the compared ones: its cases and reasons are listed apart.
+    assert!(REGISTERED_SET_SLICES.contains(&slice));
+    assert_eq!(executed, mine.len(), "all registered replays of this slice executed");
+    let compared = COMPARED_SETS.lock().unwrap().clone();
     let skipped = skipped_cases();
     for (set, id, reason) in &skipped {
         eprintln!("recorded, not replayed: {set} {id}: {reason}");
     }
     let partial: std::collections::BTreeSet<String> = skipped.iter().map(|(set, ..)| set.clone()).collect();
-    let missing: Vec<String> = missing.into_iter().filter(|set| !partial.contains(set)).collect();
+    let mut checked = std::collections::BTreeSet::new();
+    let missing: Vec<&str> = mine
+        .iter()
+        .map(|replay| replay.set)
+        .filter(|set| checked.insert(*set))
+        .filter(|set| !compared.contains(*set) && !partial.contains(*set))
+        .collect();
+    println!("slice {slice}: {} replays of {} sets", mine.len(), checked.len());
     assert!(missing.is_empty(), "recorded provider sets no replay compared: {missing:?}");
+}
+
+macro_rules! provider_set_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SET_SLICES: &[usize] = &[$($slice),*];
+        $(#[test]
+        fn $name() {
+            replay_sets_of_slice($slice);
+        })*
+    };
+}
+
+provider_set_slices! {
+    every_provider_set_has_a_comparing_replay_slice_0 => 0,
+    every_provider_set_has_a_comparing_replay_slice_1 => 1,
+    every_provider_set_has_a_comparing_replay_slice_2 => 2,
+    every_provider_set_has_a_comparing_replay_slice_3 => 3,
+    every_provider_set_has_a_comparing_replay_slice_4 => 4,
+    every_provider_set_has_a_comparing_replay_slice_5 => 5,
+}
+
+/// Every recorded provider set has a replay here (run and held to its comparison by one of the slice tests above, each set in
+/// exactly one slice), or is named in [`REPLAYED_ELSEWHERE`]; a set replayed here is not named there.
+#[test]
+fn every_provider_set_has_a_replay_in_one_slice() {
+    let replays = registry();
+    for replay in &replays {
+        assert!(!REPLAYED_ELSEWHERE.contains(&replay.set), "{}: replayed here and named as another branch's", replay.set);
+    }
+    let here = replayed_here(&replays);
+    let unreplayed: Vec<String> = recorded_sets().into_iter().filter(|set| !REPLAYED_ELSEWHERE.contains(&set.as_str()) && !here.contains(&set.as_str())).collect();
+    assert!(unreplayed.is_empty(), "recorded provider sets no replay is registered for: {unreplayed:?}");
+    assert_eq!(REGISTERED_SET_SLICES, &(0..SET_SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SET_SLICES.iter().map(|slice| (0..here.len()).filter(|at| at % SET_SLICES == *slice).count()).sum();
+    println!("{} sets in {SET_SLICES} slices", here.len());
+    assert_eq!(covered, here.len());
 }
 
 /// A case named not replayed stays visible: its set is not registered as compared, and its reason is kept.

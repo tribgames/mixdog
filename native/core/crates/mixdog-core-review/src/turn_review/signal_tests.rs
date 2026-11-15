@@ -151,24 +151,64 @@ fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext
 }
 
 
-#[tokio::test]
-async fn the_core_tells_clients_to_reread_as_node_does() {
-    let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap();
+const SLICES: usize = 3;
+
+/// The recorded scenarios this platform replays here: its own, without those in which the core restarts (those need a core
+/// that composes again over its data directory).
+fn replayable(golden: &Value) -> Vec<&Value> {
     let platform = std::env::consts::OS.replace("windows", "win32");
+    golden
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|scenario| scenario["platform"] == platform)
+        .filter(|scenario| !scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true))
+        .collect()
+}
+
+fn signal_golden() -> Value {
+    serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap()
+}
+
+/// Replays the replayable scenarios whose position is `slice` modulo `SLICES`.
+async fn replay_slice(slice: usize) {
+    let golden = signal_golden();
     let mut replayed = 0;
-    for scenario in golden.as_array().unwrap() {
-        if scenario["platform"] != platform {
-            continue;
-        }
-        // A scenario in which the core restarts needs a core that composes again over its data directory.
-        if scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true) {
+    for (position, scenario) in replayable(&golden).into_iter().enumerate() {
+        if position % SLICES != slice {
             continue;
         }
         let data = tempfile::tempdir().unwrap();
         replay(scenario, &mut world(data.path())).await;
         replayed += 1;
     }
-    assert!(replayed > 0, "no recorded scenario for {platform}");
+    assert!(REGISTERED_SIGNAL_SLICES.contains(&slice));
+    assert_eq!(replayed, (0..replayable(&golden).len()).filter(|position| position % SLICES == slice).count(), "executed scenarios");
+    println!("slice {slice}: {replayed} scenarios replayed");
+}
+
+macro_rules! registered_the_core_tells_clients_to_reread_as_node_does {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+        const REGISTERED_SIGNAL_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test]
+        async fn $name() { replay_slice($slice).await; })*
+    };
+}
+registered_the_core_tells_clients_to_reread_as_node_does! {
+    the_core_tells_clients_to_reread_as_node_does_slice_0 => 0,
+    the_core_tells_clients_to_reread_as_node_does_slice_1 => 1,
+    the_core_tells_clients_to_reread_as_node_does_slice_2 => 2,
+}
+
+#[test]
+fn the_slices_replay_every_recorded_scenario_of_this_platform_once() {
+    let golden = signal_golden();
+    let total = replayable(&golden).len();
+    assert_eq!(REGISTERED_SIGNAL_SLICES, &(0..SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SIGNAL_SLICES.iter().map(|slice| (0..total).filter(|position| position % SLICES == *slice).count()).sum();
+    println!("{total} scenarios in {SLICES} slices");
+    assert!(total > 0, "no recorded scenario for this platform");
+    assert_eq!(covered, total);
 }
 /// One recorded listener scenario's functions, handles and call log. What a listener does when it runs is the recording's data.
 struct Script {

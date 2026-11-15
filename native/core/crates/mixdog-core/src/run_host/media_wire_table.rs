@@ -399,8 +399,9 @@ fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
 }
 
 /// Every row of the table through the run loop: the request body the core sends equals the one Node's family builds.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_row_of_nodes_media_table_replays_equal() {
+const SLICES: usize = 8;
+
+async fn replay_slice(slice: usize) {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
     let rows = table["rows"].as_array().unwrap();
@@ -432,7 +433,12 @@ async fn every_row_of_nodes_media_table_replays_equal() {
     let store = Arc::new(StoreAttachments { store: blobs, interactive: tokens.interactive_io });
     let thread = ThreadId::from("sess_media".to_owned());
     let mut differences = Vec::new();
-    for row in rows {
+    let mut replayed = 0;
+    for (index, row) in rows.iter().enumerate() {
+        if index % SLICES != slice {
+            continue;
+        }
+        replayed += 1;
         let name = format!("{} / {}", row["provider"].as_str().unwrap(), row["kind"].as_str().unwrap());
         let family = row["family"].as_str().unwrap();
         let capabilities = &row["capabilities"];
@@ -524,5 +530,41 @@ async fn every_row_of_nodes_media_table_replays_equal() {
         }
     }
     pool.close().await;
-    assert!(differences.is_empty(), "{} of {} rows differ:\n{}", differences.len(), rows.len(), differences.join("\n"));
+    assert!(REGISTERED_SLICES.contains(&slice));
+    assert_eq!(replayed, (0..rows.len()).filter(|index| index % SLICES == slice).count(), "executed media rows");
+    println!("slice {slice}: {replayed} rows replayed");
+    assert!(differences.is_empty(), "{} of {replayed} rows of slice {slice} differ:\n{}", differences.len(), differences.join("\n"));
+}
+
+macro_rules! media_table_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn $name() {
+            replay_slice($slice).await;
+        })*
+    };
+}
+
+media_table_slices! {
+    every_row_of_nodes_media_table_replays_equal_slice_0 => 0,
+    every_row_of_nodes_media_table_replays_equal_slice_1 => 1,
+    every_row_of_nodes_media_table_replays_equal_slice_2 => 2,
+    every_row_of_nodes_media_table_replays_equal_slice_3 => 3,
+    every_row_of_nodes_media_table_replays_equal_slice_4 => 4,
+    every_row_of_nodes_media_table_replays_equal_slice_5 => 5,
+    every_row_of_nodes_media_table_replays_equal_slice_6 => 6,
+    every_row_of_nodes_media_table_replays_equal_slice_7 => 7,
+}
+
+#[test]
+fn media_slices_register_every_row_once() {
+    assert_eq!(REGISTERED_SLICES, &(0..SLICES).collect::<Vec<_>>());
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
+    let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap();
+    let rows = table["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 177);
+    for index in 0..rows.len() {
+        assert_eq!(REGISTERED_SLICES.iter().filter(|slice| index % SLICES == **slice).count(), 1);
+    }
 }
