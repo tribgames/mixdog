@@ -20,8 +20,8 @@ const MAX_CONCURRENT_READS: usize = 3;
 /// What reading the body came to.
 enum Read {
     Body(Vec<u8>),
-    /// A refusal was answered and the connection is being closed.
-    Answered,
+    /// The body is refused with this status and code; the connection is closed once the answer is out.
+    Refused(u16, &'static str),
     /// The request ended before its body did: there is no one to answer.
     Gone,
 }
@@ -84,6 +84,7 @@ impl FeedbackEndpoint {
     }
 
     /// The same with another limit on how long a body may take.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn with_body_timeout(mut self, timeout: Duration) -> Self {
         self.body_timeout = timeout;
         self
@@ -94,7 +95,7 @@ impl FeedbackEndpoint {
         self.service.as_ref()
     }
 
-    async fn read_body(&self, request: &mut Request, response: &mut ResponseWriter) -> Read {
+    async fn read_body(&self, request: &mut Request) -> Read {
         let timer = mixdog_rt::time::sleep(self.body_timeout);
         tokio::pin!(timer);
         let mut body = Vec::new();
@@ -108,15 +109,11 @@ impl FeedbackEndpoint {
                 },
             };
             match step {
-                Err(()) => {
-                    refuse_unread(request.conn().clone(), response, 408, "request_timeout").await;
-                    return Read::Answered;
-                }
+                Err(()) => return Read::Refused(408, "request_timeout"),
                 Ok(None) => return Read::Body(body),
                 Ok(Some(chunk)) => {
                     if body.len() + chunk.len() > MAX_BODY_BYTES {
-                        refuse_unread(request.conn().clone(), response, 413, "payload_too_large").await;
-                        return Read::Answered;
+                        return Read::Refused(413, "payload_too_large");
                     }
                     body.extend_from_slice(&chunk);
                 }
@@ -147,13 +144,20 @@ impl FeedbackEndpoint {
             refuse_unread(request.conn().clone(), &mut response, 413, "payload_too_large").await;
             return;
         }
-        let Some(_slot) = Slot::take(&self.active_reads) else {
+        let Some(slot) = Slot::take(&self.active_reads) else {
             refuse_unread(request.conn().clone(), &mut response, 503, "feedback_busy").await;
             return;
         };
-        let raw = match self.read_body(&mut request, &mut response).await {
+        let raw = match self.read_body(&mut request).await {
             Read::Body(raw) => raw,
-            Read::Answered | Read::Gone => return,
+            Read::Refused(status, code) => {
+                // The place is given back before the refusal goes out (`readBody` resolves first); a body that was read
+                // keeps it until the answer.
+                drop(slot);
+                refuse_unread(request.conn().clone(), &mut response, status, code).await;
+                return;
+            }
+            Read::Gone => return,
         };
         let result = match js::parse_bytes(&raw) {
             Ok(body) => service.submit(&body).await,
