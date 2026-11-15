@@ -364,27 +364,6 @@ impl MurmurHash {
     }
 }
 
-/// `Number.prototype.toString()` of a number that was read from a PDF (the hash is over these strings).
-fn js_number_to_string(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
-    }
-    if value == 0.0 {
-        return "0".to_owned();
-    }
-    let magnitude = value.abs();
-    if magnitude >= 1e21 {
-        return format!("{value:e}").replace('e', "e+");
-    }
-    if magnitude < 1e-6 {
-        return format!("{value:e}");
-    }
-    format!("{value}")
-}
-
 // ---- glyphs and fonts ----------------------------------------------------------------------------------------------
 
 /// One glyph of a string (`Glyph`), as far as the text of a page reads it.
@@ -1033,7 +1012,7 @@ impl Font {
             let mut width = None;
             for glyph_name in ["space", "minus", "one", "i", "I"] {
                 let glyph_unicode = i64::from(data::glyph_unicode(glyph_name).unwrap_or(0));
-                // `None` is a CID string that is neither one nor two bytes long: no width is found for it.
+                // `None` is a CID string that is neither one nor two bytes long (`undefined`, falsy like 0).
                 let mut char_code: Option<i64> = Some(0);
                 if self.composite
                     && let Some(cmap) = &self.cmap
@@ -1048,7 +1027,7 @@ impl Font {
                         _ => Some(0),
                     };
                 }
-                if char_code == Some(0) {
+                if char_code.is_none_or(|code| code == 0) {
                     char_code = Some(self.to_unicode.char_code_of(&UniValue::Code(glyph_unicode)));
                 }
                 if char_code.is_some_and(|code| code <= 0) {
@@ -1566,7 +1545,7 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
                                 .iter()
                                 .map(|entry| match entry {
                                     Obj::Name(name) => name.to_string(),
-                                    Obj::Num(number) => js_number_to_string(*number),
+                                    Obj::Num(number) => mixdog_js::number_to_string(*number),
                                     Obj::Ref(reference) => reference.to_string(),
                                     _ => String::new(),
                                 })
@@ -1657,7 +1636,7 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
 /// `entry.toString()` of a number or a reference, `None` for anything else.
 fn number_or_ref_string(entry: &Obj) -> Option<String> {
     match entry {
-        Obj::Num(number) => Some(js_number_to_string(*number)),
+        Obj::Num(number) => Some(mixdog_js::number_to_string(*number)),
         Obj::Ref(reference) => Some(reference.to_string()),
         _ => None,
     }
@@ -2226,16 +2205,6 @@ mod tests {
         let mut bytes = MurmurHash::new();
         bytes.update(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         assert_eq!(bytes.hexdigest(), "b66452464d1edacc");
-    }
-
-    #[test]
-    fn numbers_are_written_as_javascript_writes_them() {
-        assert_eq!(js_number_to_string(500.0), "500");
-        assert_eq!(js_number_to_string(-0.0), "0");
-        assert_eq!(js_number_to_string(0.5), "0.5");
-        assert_eq!(js_number_to_string(1e-7), "1e-7");
-        assert_eq!(js_number_to_string(1e21), "1e+21");
-        assert_eq!(js_number_to_string(f64::NAN), "NaN");
     }
 
     #[test]
