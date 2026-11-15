@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-xlsx-drawings-snapshot.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1758662,
+      "path": "golden.json",
+      "sha256": "adb1ffcb493b69fc9b8c4c9bb28e9bd34a6c67b4175874b8590026317fde3c1c"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "df88de4222bd91a9ea6db2111e4607a0532319ee",
+      "commitFilesMissingFromTree": 766,
+      "exact": false,
+      "filesDifferingFromCommit": 17830
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-drawings-snapshot.mjs",
+  "set": "office-xlsx-drawings-snapshot",
+  "totalBytes": 1758662
+}
