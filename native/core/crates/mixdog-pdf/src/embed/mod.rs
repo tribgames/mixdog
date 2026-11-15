@@ -14,7 +14,9 @@
 //! Differences from pdf-lib that are on purpose: the faces tried and rejected while choosing are not left in the file as
 //! unused font objects (a Rust document registers the chosen font only); the text is laid out with HarfBuzz's
 //! shaping ([`mixdog_fonts::shape`], the engine of the canvas measurement) where fontkit has its own shaper, as one run
-//! of the first script of the string as fontkit does, and a glyph's width is its advance in the `hmtx` table in both; WOFF, WOFF2 and dfont files are not read.
+//! of the first script of the string as fontkit does, and a glyph's width is its advance in the `hmtx` table in both.
+//!
+//! Not ported yet (fontkit reads them, so pdf-fonts.mjs is not deletable before they are): WOFF, WOFF2 and dfont files.
 
 pub mod standard;
 mod subset_cff;
@@ -107,8 +109,9 @@ impl<'a> Sfnt<'a> {
     }
 }
 
-/// pdf-lib's `SimpleRNG` as `PDFContext.addRandomSuffix` uses it: the suffix of a font's name is the next number of a
-/// counter that starts at 1 for each document, so the names are the same from run to run.
+/// pdf-lib's `SimpleRNG` as `PDFContext.addRandomSuffix` uses it: the suffix of a font's name (4 digits) and of a page's
+/// font resource key (`PDFDict.uniqueKey`, 10 digits) is the next number of one counter that starts at 1 for each
+/// document, so the names are the same from run to run.
 #[derive(Debug, Clone)]
 pub struct SuffixRng {
     seed: u64,
@@ -127,11 +130,11 @@ impl SuffixRng {
         value - value.floor()
     }
 
-    /// `prefix-NNNN`.
-    pub fn name(&mut self, prefix: &str) -> String {
+    /// `addRandomSuffix(prefix, digits)`: `prefix-N` with N below `10^digits`.
+    pub fn name(&mut self, prefix: &str, digits: i32) -> String {
         format!(
             "{prefix}-{}",
-            (self.next_fraction() * 10000.0).floor() as u64
+            (self.next_fraction() * 10f64.powi(digits)).floor() as u64
         )
     }
 }
@@ -195,9 +198,9 @@ impl EmbeddedFace {
             Some(b"ttcf") => {
                 return Err(EmbedError::new("_this.font.createSubset is not a function"));
             }
-            Some(b"wOFF" | b"wOF2" | b"dfont") => {
+            Some(b"wOFF" | b"wOF2") => {
                 return Err(EmbedError::new(
-                    "WOFF, WOFF2 and dfont fonts are not supported: embed the TrueType or OpenType file",
+                    "WOFF and WOFF2 fonts are not supported: embed the TrueType or OpenType file",
                 ));
             }
             _ => return Err(EmbedError::new("Unknown font format")),
@@ -423,7 +426,7 @@ impl EmbeddedFace {
         target: Option<Ref>,
         rng: &mut SuffixRng,
     ) -> Result<Ref, EmbedError> {
-        let base_font = rng.name(&self.postscript_name);
+        let base_font = rng.name(&self.postscript_name, 4);
         let (encoded, first) = {
             let state = self.lock();
             (state.encoded.clone(), state.first_code_points.clone())
@@ -1036,8 +1039,9 @@ mod tests {
     #[test]
     fn the_suffix_counter_is_pdf_libs() {
         let mut rng = SuffixRng::default();
-        assert_eq!(rng.name("Font"), "Font-7098");
-        assert_ne!(rng.name("Font"), "Font-7098");
+        assert_eq!(rng.name("Font", 4), "Font-7098");
+        assert_ne!(rng.name("Font", 4), "Font-7098");
+        assert_eq!(rng.name("F", 10), "F-2000805986");
     }
 
     #[test]
