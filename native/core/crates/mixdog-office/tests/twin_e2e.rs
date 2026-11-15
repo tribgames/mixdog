@@ -186,12 +186,22 @@ impl Platform for World {
     }
 }
 
+/// The system's faces, scanned once: the ones Node measured the recording with.
+fn system_fonts() -> Arc<FontRegistry> {
+    static FONTS: std::sync::LazyLock<Arc<FontRegistry>> = std::sync::LazyLock::new(|| {
+        let home = std::env::home_dir().unwrap_or_default();
+        let env = mixdog_fonts::discovery::HostEnv::current(&|name| std::env::var(name).ok(), &home);
+        Arc::new(mixdog_fonts::discovery::scan(&mixdog_fsio::Unlaned, &env).registry)
+    });
+    Arc::clone(&FONTS)
+}
+
 fn world(dir: &Path, data: &Path) -> World {
     let tokens = mixdog_rt::testing::tokens();
     World {
         office: OfficeCom::new(OfficeComConfig::new(data.to_path_buf(), tokens.clone())),
         tokens,
-        fonts: Arc::new(FontRegistry::new()),
+        fonts: system_fonts(),
         font_env: FontEnv::host(),
         svg_fonts: SvgFonts::none(),
         // Node reads the design library's environment from the process (the template folders of an Office installation, the user's

@@ -352,7 +352,8 @@
       "a fresh renderer artifact is reused when renderer inputs changed",
       "desktop command edits do not invalidate the live renderer",
       "the live renderer fingerprint includes the renderer source tree",
-      "transitive local codec changes invalidate the renderer, but unrelated tests do not"
+      "transitive local codec changes invalidate the renderer, but unrelated tests do not",
+      "the relay fingerprint covers what the binary is built from and the deploy scripts"
     ]
   }
 }

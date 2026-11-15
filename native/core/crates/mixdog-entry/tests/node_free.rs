@@ -33,12 +33,28 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// Runs `mixdog args` to its end with the sandbox's environment and the stand-in's pin; (exit code, stdout, stderr, the Node or
 /// Electron images the watcher saw).
 fn run(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> (Option<i32>, String, String, Vec<String>) {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mixdog"));
+    let mut command = Command::new(install().unwrap_or_else(|| env!("CARGO_BIN_EXE_mixdog").into()));
     command.args(args).current_dir(sandbox.work()).env_clear().envs(sandbox.env()).envs(stand_in.pin());
     let child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let watch = procs::Watch::start(child.id());
     let output = child.wait_with_output().unwrap();
     (output.status.code(), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned(), watch.finish())
+}
+
+/// An install of the binary under test, as a product install is: the binary hard-linked beside a `js-runtime.json` that names
+/// this tree as the package and the interpreter the install carries (the host's Node, by its full path). The search path of
+/// the runs holds no Node, and the watcher proves the run starts none: the interpreter is there for the scripts of users, and
+/// nothing of `exec` or the terminal UI runs on it. `None` on a host with no Node to lay an install out with.
+fn install() -> Option<std::path::PathBuf> {
+    let name = if cfg!(windows) { "node.exe" } else { "node" };
+    let node = std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())?;
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("node-free-install-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join("mixdog.exe");
+    std::fs::hard_link(env!("CARGO_BIN_EXE_mixdog"), &exe).unwrap();
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
+    std::fs::write(dir.join("js-runtime.json"), serde_json::json!({ "program": node, "packageRoot": package }).to_string()).unwrap();
+    Some(exe)
 }
 
 #[test]
@@ -62,6 +78,9 @@ fn help_succeeds_without_node() {
 
 #[test]
 fn exec_succeeds_without_node_and_starts_neither_node_nor_electron() {
+    if install().is_none() {
+        return;
+    }
     let sandbox = Sandbox::new();
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
     let (code, out, err, started) = run(&sandbox, &stand_in, &["exec", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "go"]);

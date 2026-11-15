@@ -63,9 +63,12 @@ fn the_capability_table_matches_every_com_implementation() {
         assert_eq!(found.len(), native_count, "{format}: the operations the host implements");
         assert_eq!(described.len(), described_count, "{format}: the operations the table lists for the backend (the runtime's own are virtual)");
         for operation in described {
-            let targeted = tables.operation(format, operation).unwrap_or_else(|| panic!("{format}: {operation} is listed but has no entry"));
-            assert_eq!(targeted.input.required.first().map(String::as_str), Some("op"), "{format} {operation}: the first required field");
-            assert!(targeted.supported_backends.contains(&BACKEND), "{format} {operation}: the backend list");
+            // `describeOfficeCapabilities({ format, backend, operation }).operation`, as the Node test reads it.
+            let request = mixdog_office::describe::DescribeRequest { format, backend: BACKEND, target: "", operation };
+            let described = mixdog_office::describe::describe_office_capabilities(&request).unwrap_or_else(|error| panic!("{format}: {operation}: {error}"));
+            let targeted = &described["operation"];
+            assert_eq!(targeted["input"]["required"][0], json!("op"), "{format} {operation}: the first required field");
+            assert!(targeted["supportedBackends"].as_array().is_some_and(|list| list.contains(&json!(BACKEND))), "{format} {operation}: the backend list");
         }
     }
 }

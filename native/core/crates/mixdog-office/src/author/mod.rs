@@ -18,6 +18,7 @@ pub mod html_document;
 pub mod pdf;
 pub mod pptx;
 pub mod pptx_session;
+pub mod script_runtime;
 mod system;
 
 use std::future::Future;

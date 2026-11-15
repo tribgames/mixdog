@@ -137,29 +137,35 @@ fn map_ext_error(error: ExtError, wrote: bool) -> ToolError {
     }
 }
 
-/// `writes` entries of the worker's receipt: `null` absent, `{bytes: n}` taken from the chunk
-/// stream, `{uncaptured: true, size, reason?}` nothing sent.
-fn side(spec: &Value, chunks: &mut std::vec::IntoIter<Vec<u8>>) -> WriteSide {
+/// `writes` entries of the worker's receipt: `null` absent, `{bytes: n}` the next `n` bytes of the
+/// stream, `{uncaptured: true, size, reason?}` nothing sent. A side's bytes arrive split into
+/// chunks of the worker's frame size and an empty side sends none, so a side is counted in bytes
+/// and never in chunks.
+fn side(spec: &Value, stream: &mut &[u8]) -> WriteSide {
     if spec.is_null() {
         WriteSide::Absent
     } else if spec.get("uncaptured") == Some(&Value::Bool(true)) {
         WriteSide::Uncaptured { size: spec.get("size").and_then(Value::as_u64).unwrap_or(0), reason: spec.get("reason").and_then(Value::as_str).map(str::to_owned) }
     } else {
-        WriteSide::Bytes(chunks.next().unwrap_or_default())
+        let wanted = spec.get("bytes").and_then(Value::as_u64).and_then(|count| usize::try_from(count).ok()).unwrap_or(0);
+        let (taken, rest) = stream.split_at(wanted.min(stream.len()));
+        *stream = rest;
+        WriteSide::Bytes(taken.to_vec())
     }
 }
 
-/// Receipts in order: per change, before then after, from the chunks in the order sent.
+/// Receipts in order: per change, before then after, from the bytes in the order sent.
 pub fn receipts(writes: &Value, chunks: Vec<Vec<u8>>) -> Vec<WriteReceipt> {
-    let mut chunks = chunks.into_iter();
+    let sent = chunks.concat();
+    let mut stream = sent.as_slice();
     writes
         .as_array()
         .into_iter()
         .flatten()
         .map(|w| WriteReceipt {
             path: w.get("path").and_then(Value::as_str).unwrap_or_default().to_owned(),
-            before: side(&w["before"], &mut chunks),
-            after: side(&w["after"], &mut chunks),
+            before: side(&w["before"], &mut stream),
+            after: side(&w["after"], &mut stream),
         })
         .collect()
 }
@@ -256,6 +262,18 @@ mod tests {
         assert_eq!(got[0], WriteReceipt { path: "/a".into(), before: WriteSide::Absent, after: WriteSide::Bytes(b"hi".to_vec()) });
         assert_eq!(got[1], WriteReceipt { path: "/b".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured { size: 9, reason: Some("binary".into()) } });
         assert_eq!(got[2].after, WriteSide::Bytes(b"x".to_vec()));
+    }
+
+    /// A side larger than one frame arrives as several chunks, and an empty side as none.
+    #[test]
+    fn a_side_is_counted_in_bytes_across_chunks_and_an_empty_side_takes_none() {
+        let writes = json!([
+            {"path":"/big","before":{"bytes":5},"after":{"bytes":0}},
+            {"path":"/next","before":{"bytes":2},"after":{"bytes":3}},
+        ]);
+        let got = receipts(&writes, vec![b"ab".to_vec(), b"cde".to_vec(), b"xy1".to_vec(), b"23".to_vec()]);
+        assert_eq!(got[0], WriteReceipt { path: "/big".into(), before: WriteSide::Bytes(b"abcde".to_vec()), after: WriteSide::Bytes(Vec::new()) });
+        assert_eq!(got[1], WriteReceipt { path: "/next".into(), before: WriteSide::Bytes(b"xy".to_vec()), after: WriteSide::Bytes(b"123".to_vec()) });
     }
 
     #[test]

@@ -420,9 +420,8 @@ fn the_frozen_titles_equal_the_node_files() {
             },
         }
     }
-    for file in frozen.titles.keys().filter(|file| !files.contains(file)) {
-        problems.push(format!("{file}: listed in {FROZEN} but not a Node test file"));
-    }
+    // A Node test file that is gone keeps its titles here: its rows still name what took its place (the test above), and
+    // a shell test that took the place of one runs below.
     report("frozen titles", &problems);
 }
 
@@ -484,4 +483,32 @@ fn titles_are_read_as_node_prints_them_and_a_template_must_be_expanded() {
     assert!(titles_of("a.test.mjs", source, &templates).is_err());
     templates.insert("a.test.mjs::${name} logo".to_owned(), vec!["/a logo".to_owned(), "/b logo".to_owned()]);
     assert_eq!(titles_of("a.test.mjs", source, &templates), Ok(vec!["plain".to_owned(), "it's \\x01".to_owned(), "/a logo".to_owned(), "/b logo".to_owned()]));
+}
+
+/// `deploy/release-transaction.test.sh` took the place of the Node file that ran its scenarios one by one: it runs every
+/// scenario itself, and this runs it where a POSIX shell is installed (the deploy host's shell; Git's on Windows).
+#[test]
+fn the_release_transaction_shell_test_passes() {
+    let bash = if cfg!(windows) {
+        let git = PathBuf::from(std::env::var_os("ProgramFiles").unwrap_or_else(|| "C:/Program Files".into())).join("Git/bin/bash.exe");
+        if !mixdog_fsio::is_file(&Unlaned, &git) {
+            return;
+        }
+        git
+    } else {
+        PathBuf::from("bash")
+    };
+    let deploy = repo_root().join(NODE_ROOT).join("deploy");
+    let script = deploy.join("release-transaction.test.sh");
+    if !mixdog_fsio::is_file(&Unlaned, &script) {
+        return;
+    }
+    let output = std::process::Command::new(bash).arg("release-transaction.test.sh").current_dir(&deploy).output().expect("the shell starts");
+    assert!(output.status.success(), "stdout:
+{}
+stderr:
+{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    for scenario in ["success", "preparation-fails", "first-move-fails", "second-move-fails", "restart-fails", "verify-fails", "interrupted", "stop-fails", "rollback-start-fails"] {
+        assert!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line == format!("ok: {scenario}")), "scenario {scenario} did not report");
+    }
 }

@@ -1,8 +1,7 @@
 //! [`SystemAuthor`]: the [`AuthorHost`] of a process. The files go through the lanes, the sessions through the engine's registry,
 //! the documents are laid out by the shared render browser, measured by the inline audit and drawn by the render engine.
 //!
-//! A pptxgenjs script runs on the embedded JavaScript runtime of the extension host. Where that runtime is not part of the
-//! build the route is off and says why: an HTML source is the one that always works.
+//! A pptxgenjs script runs on the script interpreter of the install ([`super::script_runtime`]), in a process of its own.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -233,8 +232,8 @@ impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> 
         Ok(read.get("pages").and_then(Value::as_array).cloned().unwrap_or_default())
     }
 
-    async fn run_pptx_script(&self, _script: &str, _output: &Path, _cwd: &Path) -> Result<Value, String> {
-        Err("A pptxgenjs script cannot run: the script runtime is not part of this build. Author the deck as HTML slides (a source that opens with <) instead.".to_owned())
+    async fn run_pptx_script(&self, script: &str, output: &Path, cwd: &Path) -> Result<Value, String> {
+        super::script_runtime::run_pptx_script(script, output, cwd).await
     }
 
     async fn run_pptx_html(&self, html: &str, output: &Path, target: &Path, signal: Option<&CancellationToken>, frame: bool) -> Result<Value, RunError> {
