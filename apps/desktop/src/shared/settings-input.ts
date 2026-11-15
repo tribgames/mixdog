@@ -1,7 +1,14 @@
 // The argument checks of the desktop settings and notification calls, with Node's exact texts (main/ipc-validation.ts at
 // b6f10295a, :2195-2329): the window's IPC handlers and the paired phone's adapter (renderer/remote-protocol-settings.ts) run
 // the same ones before anything is written.
-import type { DesktopSettingKey } from './contract';
+import {
+  type DesktopSettingKey,
+  NOTIFICATION_VOLUME_MAX,
+  isSessionRetentionDays,
+  isSessionRetentionSettingKey,
+  type SessionRetentionSettingKey,
+} from './contract';
+import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from './browser-permission-policy';
 import {
   type ConversationNotificationSetting,
   NOTIFICATION_EVENTS,
@@ -144,4 +151,27 @@ export function requiredConversationNotificationSetting(value: unknown): Convers
     throw new TypeError('notification mute end must be epoch milliseconds or null.');
   }
   return { mode: 'muted', until: until as number | null };
+}
+
+export function requiredNotificationVolume(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > NOTIFICATION_VOLUME_MAX) {
+    throw new TypeError('notification volume is invalid.');
+  }
+  return value as number;
+}
+
+export function requiredBrowserPermissionPolicy(value: unknown): BrowserPermissionPolicy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('browser permissions are invalid.');
+  }
+  return normalizeBrowserPermissionPolicy(value);
+}
+
+export function requiredSessionRetentionSetting(
+  key: unknown,
+  days: unknown
+): { key: SessionRetentionSettingKey; days: number } {
+  if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
+  if (!isSessionRetentionDays(key, days)) throw new TypeError('session retention days are invalid.');
+  return { key, days };
 }

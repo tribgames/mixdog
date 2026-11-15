@@ -300,3 +300,45 @@ test('remote_settings_and_new_claims_follow_the_remote_section', async () => {
   assert.deepEqual(settings, [{ enabled: false, name: 'a', defaultName: 'b' }]);
   assert.equal(claims.length, 1);
 });
+
+test('setting_writes_are_checked_before_anything_is_sent', async () => {
+  const { api, sent } = world({ replies: { 'config/value/write': { values: [true] }, 'config/read': { config: { agent: {}, desktop: {} } } } });
+  await assert.rejects(api.updateSetting('homeAccess', true), /setting key is invalid/);
+  await assert.rejects(api.updateSetting('autoCompact', 'yes'), /enabled must be a boolean/);
+  await assert.rejects(api.setNotificationVolume(401), /notification volume is invalid/);
+  await assert.rejects(api.setNotificationVolume('7'), /notification volume is invalid/);
+  await assert.rejects(api.setSessionRetention('notificationVolume', 7), /invalid/);
+  await assert.rejects(api.setSessionRetention('sessionAutoArchiveDays', '14'), /invalid/);
+  await assert.rejects(api.setBrowserPermissions(null), /browser permissions are invalid/);
+  assert.deepEqual(sent, []);
+  await api.setSessionRetention('sessionAutoArchiveDays', 14);
+  assert.deepEqual(
+    sent.filter((call) => call.method === 'config/value/write').map((call) => [call.params.path, call.params.value, call.params.announce]),
+    [['desktop.sessionAutoArchiveDays', 14, 'desktop']]
+  );
+});
+
+test('a_core_refusal_of_a_setting_write_rejects_the_call_and_reads_nothing_back', async () => {
+  const { api, sent } = world({
+    replies: {
+      'config/value/write': () => {
+        throw new Error('config write rejected');
+      },
+    },
+  });
+  await assert.rejects(api.updateSetting('autoClear', false), /config write rejected/);
+  assert.deepEqual(sent.map((call) => call.method), ['config/value/write']);
+});
+
+test('a_device_alias_is_sent_as_given_and_an_empty_string_clears_it', async () => {
+  const { api, sent } = world({});
+  await api.setRemoteClientAlias('cred-1', 'Mom’s iPhone');
+  await api.setRemoteClientAlias('cred-1', '');
+  assert.deepEqual(
+    sent.map((call) => [call.method, call.params]),
+    [
+      ['remoteAccess/setClientAlias', { clientId: 'cred-1', alias: 'Mom’s iPhone' }],
+      ['remoteAccess/setClientAlias', { clientId: 'cred-1', alias: '' }],
+    ]
+  );
+});

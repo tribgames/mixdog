@@ -24,6 +24,12 @@ import type { DirectKey } from '../../shared/desktop-api-split';
 import { createOperationLane, watchAnnouncements } from '../../shared/core-lanes/desktop-operation-route';
 import { remotePagedMember } from '../../shared/core-lanes/remote-reads';
 import { readActivityRailPins } from '../../shared/core-lanes/section-reads';
+import {
+  requiredBrowserPermissionPolicy,
+  requiredDesktopSettingKey,
+  requiredNotificationVolume,
+  requiredSessionRetentionSetting,
+} from '../../shared/settings-input';
 import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
@@ -164,7 +170,12 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
 
   return {
     readSettings: () => op('readSettings'),
-    updateSetting: (key, enabled) => op('updateSetting', [key, enabled]),
+    // The arguments are checked as the window's handler checked them before anything is written (the route would otherwise turn a
+    // non-boolean into false and write any key under desktop).
+    updateSetting: async (key, enabled) => {
+      if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
+      return op('updateSetting', [requiredDesktopSettingKey(key), enabled]);
+    },
     subscribeSettingsChanged: (listener) => announced(SETTINGS_CHANGED_EVENT, listener),
     readActivityRailPins: () => op('readActivityRailPins'),
     updateActivityRailPins: (pins, initializeIfMissing) => op('updateActivityRailPins', [pins, initializeIfMissing]),
@@ -174,9 +185,12 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
       void op('notifyProviderModelsChanged', [origin]).catch(() => undefined);
     },
     subscribeProviderModelsChanged: (listener) => announced(PROVIDER_MODELS_EVENT, listener),
-    setNotificationVolume: (volume) => op('updateNotificationVolume', [volume]),
-    setSessionRetention: (key, days) => op('updateSessionRetention', [key, days]),
-    setBrowserPermissions: (policy) => op('updateBrowserPermissions', [policy]),
+    setNotificationVolume: async (volume) => op('updateNotificationVolume', [requiredNotificationVolume(volume)]),
+    setSessionRetention: async (key, days) => {
+      const setting = requiredSessionRetentionSetting(key, days);
+      return op('updateSessionRetention', [setting.key, setting.days]);
+    },
+    setBrowserPermissions: async (policy) => op('updateBrowserPermissions', [requiredBrowserPermissionPolicy(policy)]),
     setNotificationPreferences: (deviceId, patch) =>
       withDirectErrors(
         (async () => {
