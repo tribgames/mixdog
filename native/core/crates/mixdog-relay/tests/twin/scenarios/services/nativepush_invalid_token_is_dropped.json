@@ -1,0 +1,154 @@
+{
+  "id": "nativepush_invalid_token_is_dropped",
+  "description": "a token the platform reports dead is dropped from the desktop bindings and the desktop is told invalid; the failure is reported with its status and error",
+  "fakes": {
+    "nativePush": {
+      "platforms": [
+        "apns",
+        "fcm"
+      ],
+      "answers": [
+        {
+          "ok": false,
+          "status": 410,
+          "invalid": true,
+          "error": "Unregistered"
+        },
+        {
+          "ok": false,
+          "status": 500,
+          "error": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "do": "ws_open",
+      "conn": "d",
+      "path": "/desktop",
+      "role": "desktop",
+      "basic": [
+        "dddddddd-1111-4111-8111-000000000001",
+        "0123456789abcdef"
+      ],
+      "expect_status": 101,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 2
+    },
+    {
+      "do": "http",
+      "method": "POST",
+      "path": "/claim",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "Origin",
+          "${origin}"
+        ]
+      ],
+      "body": "{\"deviceId\":\"dddddddd-1111-4111-8111-000000000001\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"publicKey\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+      "expect_status": 202,
+      "capture": [
+        {
+          "var": "claimId",
+          "from": "body_json",
+          "path": "claimId"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"claim-approve\",\"claimId\":\"${claimId}\"}"
+      }
+    },
+    {
+      "do": "wait",
+      "ms": 200
+    },
+    {
+      "do": "http",
+      "path": "/claim/${claimId}",
+      "expect_status": 200,
+      "capture": [
+        {
+          "var": "token",
+          "from": "body_json",
+          "path": "token"
+        }
+      ],
+      "close_probe_ms": 100
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c1\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c2\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push-bind\",\"clientId\":\"cccccccc-1111-4111-8111-000000000001\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\"}"
+      }
+    },
+    {
+      "do": "send",
+      "conn": "d",
+      "frame": {
+        "kind": "text",
+        "text": "{\"type\":\"native-push\",\"platform\":\"apns\",\"token\":\"abababababababababababababababababababababababababababababababab\",\"mx\":\"bXg\",\"reason\":\"turn-finished\",\"collapseKey\":\"c3\",\"sandbox\":false}"
+      }
+    },
+    {
+      "do": "expect",
+      "conn": "d",
+      "frames": 1
+    }
+  ]
+}

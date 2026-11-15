@@ -1,0 +1,82 @@
+{
+  "id": "hook_agent_offline_every_method",
+  "description": "webhook requests of every method answer 503 agent offline while no hook leg is open",
+  "steps": [
+    {
+      "do": "http",
+      "label": "GET",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/get?run=1",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "POST",
+      "method": "POST",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/post?run=1",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"a\":1}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "PUT",
+      "method": "PUT",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/put?run=1",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"a\":1}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "PATCH",
+      "method": "PATCH",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/patch?run=1",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "body": "{\"a\":1}",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "DELETE",
+      "method": "DELETE",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/delete?run=1",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "HEAD",
+      "method": "HEAD",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/head?run=1",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    },
+    {
+      "do": "http",
+      "label": "OPTIONS",
+      "method": "OPTIONS",
+      "path": "/hook/dddddddd-1111-4111-8111-000000000001/events/options?run=1",
+      "expect_status": 503,
+      "close_probe_ms": 100
+    }
+  ]
+}
