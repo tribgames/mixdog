@@ -5671,6 +5671,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "flate2",
+ "futures",
  "hmac 0.12.1",
  "httparse",
  "libc",

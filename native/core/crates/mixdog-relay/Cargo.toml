@@ -46,10 +46,21 @@ name = "feedback_service"
 path = "tests/feedback_service.rs"
 required-features = ["test-support"]
 
+[[test]]
+name = "feedback_http"
+path = "tests/feedback_http.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "legs_ingress"
+path = "tests/legs_ingress.rs"
+required-features = ["test-support"]
+
 [dependencies]
 base64 = { workspace = true }
 bytes = { workspace = true }
 flate2 = { workspace = true }
+futures = { workspace = true }
 hmac = { workspace = true }
 httparse = { workspace = true }
 md-5 = { workspace = true }

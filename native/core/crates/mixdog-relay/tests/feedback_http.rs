@@ -526,7 +526,7 @@ async fn smtp(auth_reply: &'static str) -> Smtp {
 }
 
 async fn smtp_session<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(mut io: BufReader<S>, auth_reply: &str, seen: Arc<Mailbox>) {
-    async fn say<S: tokio::io::AsyncWrite + Unpin>(io: &mut BufReader<S>, text: &str) {
+    async fn say<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(io: &mut BufReader<S>, text: &str) {
         let _ = io.get_mut().write_all(format!("{text}\r\n").as_bytes()).await;
         let _ = io.get_mut().flush().await;
     }
