@@ -55,8 +55,24 @@ fn kind_options(options: &Value, now: f64) -> KindOptions {
     KindOptions { text: flag("text", true), quota_flags: flag("quotaFlags", true), legacy_quota_wording: flag("legacyQuotaWording", false), now_ms: Some(now) }
 }
 
+/// The corpus is cut into this many slices; a case belongs to the slice its index in the golden is congruent to, so every
+/// case runs in exactly one slice.
+const SLICES: usize = 16;
+
+fn slice_cases(total: usize, slice: usize) -> usize {
+    (0..total).filter(|index| index % SLICES == slice).count()
+}
+
 #[test]
-fn failures_give_what_node_gave() {
+fn the_failure_slices_cover_every_case_once() {
+    let golden = golden();
+    let total = golden["cases"].as_array().expect("cases").len();
+    let sliced: usize = (0..SLICES).map(|slice| slice_cases(total, slice)).sum();
+    assert_eq!(sliced, total);
+    println!("{total} cases in {SLICES} slices");
+}
+
+fn failures_of_slice_give_what_node_gave(slice: usize) {
     with_local_zone(Tz::UTC, || {
         let golden = golden();
         let now = golden["now"].as_f64().expect("now");
@@ -65,7 +81,9 @@ fn failures_give_what_node_gave() {
         let present = golden["presentOptions"].as_array().expect("presentOptions");
         let kinds = golden["kindOptions"].as_array().expect("kindOptions");
         let statuses = golden["statuses"].as_array().expect("statuses");
-        for case in cases {
+        let mut ran = 0;
+        for (_, case) in cases.iter().enumerate().filter(|(index, _)| index % SLICES == slice) {
+            ran += 1;
             let input = if case.get("undef").is_some() { None } else { case.get("error") };
             check(case, "errText", recorded(&case["errText"]), json!(err_text::err_text(input)));
             check(case, "httpStatus", recorded(&case["httpStatus"]), json_number(err_text::error_http_status(input)));
@@ -116,8 +134,40 @@ fn failures_give_what_node_gave() {
                 }
             }
         }
+        println!("slice {slice}: {ran} of {} cases", cases.len());
+        assert_eq!(ran, slice_cases(cases.len(), slice));
     });
 }
+
+macro_rules! failure_slices {
+    ($($name:ident = $slice:expr),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                failures_of_slice_give_what_node_gave($slice);
+            }
+        )*
+    };
+}
+
+failure_slices!(
+    failures_give_what_node_gave_slice_00 = 0,
+    failures_give_what_node_gave_slice_01 = 1,
+    failures_give_what_node_gave_slice_02 = 2,
+    failures_give_what_node_gave_slice_03 = 3,
+    failures_give_what_node_gave_slice_04 = 4,
+    failures_give_what_node_gave_slice_05 = 5,
+    failures_give_what_node_gave_slice_06 = 6,
+    failures_give_what_node_gave_slice_07 = 7,
+    failures_give_what_node_gave_slice_08 = 8,
+    failures_give_what_node_gave_slice_09 = 9,
+    failures_give_what_node_gave_slice_10 = 10,
+    failures_give_what_node_gave_slice_11 = 11,
+    failures_give_what_node_gave_slice_12 = 12,
+    failures_give_what_node_gave_slice_13 = 13,
+    failures_give_what_node_gave_slice_14 = 14,
+    failures_give_what_node_gave_slice_15 = 15,
+);
 
 #[test]
 fn texts_give_what_node_gave() {
