@@ -526,6 +526,11 @@ impl<'a> Evaluator<'a> {
         self.next_object
     }
 
+    /// The fonts the evaluator loaded while it read (`commonObjs`).
+    pub fn into_fonts(self) -> Vec<FontHandle> {
+        self.font_cache.into_values().collect()
+    }
+
     /// `PartialEvaluator.getOperatorList`: reads `content` and adds what it draws to `op_list`. `stream_id` is the
     /// reference the stream was fetched as (a form met again through itself is an error), `prev_refs` the forms that
     /// are being read around it. With `ignore_errors` a failure in the stream ends the stream and keeps the

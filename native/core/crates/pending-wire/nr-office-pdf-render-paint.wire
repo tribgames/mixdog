@@ -1,0 +1,47 @@
+# nr-office-pdf-render-paint: the paint stage of the page rasteriser of mixdog-pdf (src/render/)
+
+Not compiled: cargo was not run (the lead compiles the wave). The unit tests and the twin test `twin_render_paint` were written
+without being run, and the allowances of the twin test (tests/twin_render_paint.rs, `ALLOWANCES`) were chosen from the nature of
+each kind of case, not measured: the first run may need them moved.
+
+## Module lines
+
+None. `mod pattern; mod shading; mod transparency;` are already in native/core/crates/mixdog-pdf/src/render/mod.rs (this task
+edited that file: the render-core task that owns it is finished and nothing else in the wave owns it).
+
+## Cargo
+
+None. The task uses mixdog-raster (the tiny-skia types through `mixdog_raster::canvas::skia`), mixdog-js, serde_json and the
+dev-dependencies the crate already has. No new crate, no new edge between workspace crates, no Cargo.lock change.
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" (keep the list sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-render-paint.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-render-paint/MANIFEST.json",
+      "manifestSha256": "6818e303cdc87b20d53afcc22373b0eb9f1e8c0295efe597a3c923ed0bc8e0f7",
+      "recorder": "benchmarks/rust-core/recorders/record-office-render-paint.mjs",
+      "set": "office-render-paint",
+      "totalBytes": 688417
+    }
+
+## Files this task touched that another task owns
+
+- native/core/crates/mixdog-pdf/src/render/{mod,painter,text,images}.rs (render-core, finished): the paint stage is the extension
+  of `Painter` the render-core result named; the operators are routed to the new files, `show_text` returns a `Result`, the
+  pattern branches of fill, stroke, text and image masks call `pattern.rs`.
+- native/core/crates/mixdog-pdf/src/oplist/mod.rs and interpreter.rs (oplist, finished): `oplist::get_page_operators` returns the
+  operator list with the fonts the evaluator loaded (`PageOperators`), `Evaluator::into_fonts` hands them over; `get_operator_list`
+  is unchanged for its callers. `render_page` uses it so the glyph procedures of Type3 fonts reach the painter. A list built by the
+  caller and painted with `render_operator_list` does not bring its fonts: its Type3 text moves the text position and draws nothing.
+
+## What the rasteriser still needs from other tasks
+
+- nr-office-pdf-render-pages (mixdog-office-pdf) calls `render::render_page`; its `RenderOptions` literal is unchanged.
+- The font bridge (a `FontProvider` and a `FontDrawing` that turns a font program into outlines) is still nobody's in the tree:
+  without it text is not drawn and the Type3 glyph procedures are only exercised by the unit tests.
+
+No service, protocol method or SERVICE_PENDING name comes from this task.
