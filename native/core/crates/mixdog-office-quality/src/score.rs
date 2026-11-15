@@ -178,6 +178,24 @@ mod tests {
     }
 
     #[test]
+    fn an_aesthetic_score_is_not_a_release_threshold_and_documents_wait_for_their_page_review() {
+        let low = score_office_release_quality(&json!({
+            "format": "pptx", "aesthetics": { "score": 0 }, "renderedPages": 5, "expectedPages": 5, "structuralAvailable": true
+        }));
+        let accepted = assess_presentation_acceptance(&low["evidence"], true, Some(&json!({ "ok": true })));
+        assert_eq!(accepted["releaseReady"], true);
+        for format in crate::document_acceptance::DOCUMENT_VISUAL_FORMATS {
+            let unreviewed = score_office_release_quality(&json!({
+                "format": format, "aesthetics": { "score": 1 }, "structuralAvailable": true, "renderedPages": 2, "expectedPages": 2
+            }));
+            assert_eq!(unreviewed["automatedReady"], true, "{format}");
+            assert_eq!(unreviewed["releaseReady"], false, "{format}");
+            let acknowledged = json!({ "acknowledged": true, "status": "accepted" });
+            assert_eq!(assess_document_acceptance(&unreviewed["evidence"], Some(&acknowledged))["releaseReady"], true);
+        }
+    }
+
+    #[test]
     fn a_blocking_issue_or_a_low_score_is_not_release_ready() {
         let issue = json!({ "severity": "warning", "code": "x" });
         let blocked = score_office_release_quality(&json!({ "format": "csv", "aesthetics": { "score": 1 }, "issues": [issue] }));
