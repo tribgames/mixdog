@@ -15,7 +15,7 @@ use mixdog_raster::Image;
 use mixdog_raster::svg::{self, SvgFonts};
 use serde_json::Value;
 
-use crate::embed::EmbedError;
+use crate::embed::{EmbedError, be_u16};
 use crate::stream::FilterSpec;
 use crate::write::flate_stream;
 use crate::write::store::{ObjectStore, stream_object};
@@ -170,10 +170,7 @@ fn frame_marker(marker: u16) -> bool {
 const OUTSIDE: &str = "Offset is outside the bounds of the DataView";
 
 fn be16(data: &[u8], at: usize) -> Result<u16, EmbedError> {
-    match data.get(at..at.saturating_add(2)) {
-        Some(bytes) if bytes.len() == 2 => Ok(u16::from_be_bytes([bytes[0], bytes[1]])),
-        _ => Err(EmbedError::new(OUTSIDE)),
-    }
+    be_u16(data, at).ok_or_else(|| EmbedError::new(OUTSIDE))
 }
 
 fn embed_jpeg(store: &mut ObjectStore, data: &[u8]) -> Result<EmbeddedImage, EmbedError> {
