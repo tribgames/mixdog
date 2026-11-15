@@ -1,0 +1,238 @@
+{
+  "refcount": {
+    "registered": {
+      "files": [
+        "self.pid"
+      ],
+      "content": "pid ms newline"
+    },
+    "registeredTwice": {
+      "files": [
+        "self.pid"
+      ]
+    },
+    "unregistered": {
+      "files": []
+    },
+    "unregisteredTwice": {
+      "files": []
+    }
+  },
+  "markers": {
+    "noMarker": false,
+    "markerNotJson": false,
+    "markerOfAnotherVersion": false,
+    "payloadMissing": false,
+    "complete": true,
+    "emptyVersion": false,
+    "versionWithSpaces": true
+  },
+  "spawn": {
+    "emptyVersion": false,
+    "disabled": false,
+    "alreadyStaged": false
+  },
+  "stage": {
+    "emptyVersion": {
+      "outcome": "failed: no version",
+      "markerVersion": null,
+      "lockLeft": false
+    },
+    "fresh": {
+      "outcome": "staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "alreadyStaged": {
+      "outcome": "already-staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "lockOfLiveOwner": {
+      "outcome": "in-progress",
+      "markerVersion": null,
+      "lockLeft": true
+    },
+    "lockOfDeadOwner": {
+      "outcome": "staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "lockOfLiveOwnerOverTenMinutes": {
+      "outcome": "staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "lockOfLiveOwnerUnderTenMinutes": {
+      "outcome": "in-progress",
+      "markerVersion": null,
+      "lockLeft": true
+    },
+    "lockThatIsNotAPid": {
+      "outcome": "staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "markerOfAnotherVersion": {
+      "outcome": "staged",
+      "markerVersion": "1.6.0",
+      "lockLeft": false
+    },
+    "versionWithSpaces": {
+      "outcome": "staged",
+      "markerVersion": "1.6.2",
+      "lockLeft": false
+    }
+  },
+  "swap": {
+    "nothingStaged": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "older": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "equal": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "newer": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "bestOfSeveral": {
+      "swapped": true,
+      "live": "1.10.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "prereleaseOfTheNextVersion": {
+      "swapped": true,
+      "live": "1.5.1-rc.1",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "prereleaseBelowCurrent": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "prereleaseBeatsNothingButLosesToRelease": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "anotherLiveSession": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.6.0"
+      ],
+      "sessions": [
+        "other.pid"
+      ],
+      "backups": 0
+    },
+    "deadSessionFile": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "ownSessionFile": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [
+        "self.pid"
+      ],
+      "backups": 0
+    },
+    "swapSwitchedOff": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.6.0"
+      ],
+      "sessions": [],
+      "backups": 0
+    },
+    "afterASwap": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.6.0"
+      ],
+      "sessions": [],
+      "backups": 0
+    },
+    "incompleteAttempts": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.8.0"
+      ],
+      "sessions": [],
+      "backups": 0
+    },
+    "payloadMissing": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.6.0"
+      ],
+      "sessions": [],
+      "backups": 0
+    },
+    "markerNotJson": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [
+        "1.6.0"
+      ],
+      "sessions": [],
+      "backups": 0
+    },
+    "swapLockOfDeadOwner": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "leftoverBackup": {
+      "swapped": false,
+      "live": "1.5.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    },
+    "leftoverBackupAfterASwap": {
+      "swapped": true,
+      "live": "1.6.0",
+      "staging": [],
+      "sessions": [],
+      "backups": 0
+    }
+  }
+}
