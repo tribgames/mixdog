@@ -282,6 +282,12 @@ async fn a_decision_refused_by_decide_is_told_a_phone_without_the_secret_and_a_l
     let error = expected["params"]["error"]["data"].as_object_mut().unwrap();
     error.remove("message");
     error.remove("detail");
+    // Each frame is stamped when it is written (`emittedAtMs`, the wall clock): the two were written a moment apart.
+    let mut told = told;
+    for frame in [&mut told, &mut expected] {
+        assert!(frame["emittedAtMs"].is_number(), "{frame}");
+        frame.as_object_mut().unwrap().remove("emittedAtMs");
+    }
     assert_eq!(told, expected);
 }
 

@@ -28,6 +28,9 @@ fn registry() -> Registry {
     if let Some(now_ms) = args.nth(1).and_then(|text| text.parse::<f64>().ok()) {
         registry.register_blocking("office.sweepJournals", move |ctx| {
             let dir = ctx.params["dataDir"].as_str().unwrap_or_default();
+            // The recording's worker ran in the data folder (`process.chdir(data)`): the checkpoint and the baseline a journal
+            // names are relative paths, removed where the process is.
+            let _ = std::env::set_current_dir(dir);
             mixdog_office_base::journal::list_office_journals_at(&mixdog_fsio::Unlaned, std::path::Path::new(dir), true, now_ms)
                 .map_err(|error| mixdog_exthost_worker::CodedError::new("failed", error.to_string()))?;
             Ok(Outcome::value(serde_json::Value::Null))
