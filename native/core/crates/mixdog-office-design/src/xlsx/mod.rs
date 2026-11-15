@@ -317,7 +317,8 @@ mod tests {
             kinds(&list),
             ["set_cell", "merge_cells", "set_style", "set_row_height", "set_range", "set_style", "set_style", "add_table", "freeze_panes", "set_style", "set_style", "autofit_range", "autofit_range", "set_page_setup", "set_sheet_view"]
         );
-        assert_eq!(list[4]["range"], json!("A2:B4"));
+        // The title band, then the gap row under it: the table starts on row 3.
+        assert_eq!(list[4]["range"], json!("A3:B5"));
         assert_eq!(list[7]["name"], json!("Sheet1Data"));
         assert_eq!(list[7]["style"], json!("TableStyleMedium4"));
         // The integer column takes the thousands form.
