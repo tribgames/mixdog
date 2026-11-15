@@ -1,0 +1,75 @@
+# nr-office-comrs-actions: the actions of mixdog-office-com (src/format.rs, src/drivers.rs, src/color.rs, src/template.rs, src/issues.rs,
+# src/actions/{mod,oneshot_entry,session_actions,document,preview,reopen,import,apply,dpi}.rs), tests/actions.rs, tests/actions_live.rs,
+# recorder/scenarios/actions.json and tests/fixtures/actions/inputs/{ole-header.docx,zero-dpi.xlsx}.
+# Nothing was compiled (the lead builds the wave); the sources were checked to parse with rustfmt only.
+# No protocol row, no service, no SERVICE_PENDING name belongs to this task.
+
+## 1. native/core/crates/mixdog-office-com/src/lib.rs (not owned by this task)
+Module list, after `pub mod identity;` ... keep alphabetical groups as they are and add these six lines to the `pub mod` block:
+
+    pub mod actions;
+    pub mod color;
+    pub mod drivers;
+    pub mod format;
+    pub mod issues;
+    pub mod template;
+
+(the modules carry their own docs; nothing else in lib.rs changes.)
+
+## 2. native/core/crates/mixdog-office-com/src/host/handlers.rs (host-runtime's file)
+Register the two handlers in `registered()`, replacing the `Box::new(unregistered_one_shot)` / `Box::new(unregistered_session)` lines:
+
+    Handlers {
+        apartment: Box::new(|| Apartment::enter().map(|apartment| Box::new(apartment) as Box<dyn Any>)),
+        one_shot: Box::new(crate::actions::one_shot_handler),
+        session: Box::new(crate::actions::session_handler),
+    }
+
+and delete the two functions `unregistered_one_shot` and `unregistered_session`. The type `Unregistered`, its `unsupported` helper and its two
+impls are used only by the tests of that file once they are gone: put `#[cfg(test)]` on the struct, on `fn unsupported` and on the two `impl` blocks
+(and drop the `payload`/`convert` imports from the non-test part if they become unused).
+`crate::actions::one_shot_handler` and `session_handler` take the host's `HostEnv`, build the real Windows platform layer and the real applications
+(`WindowsPlatform::new()`, `LiveApplications`; off Windows, or when the platform layer cannot start, a handler that answers every request with
+the reason) and the formats' tables `Drivers::registered()`.
+
+## 3. native/core/crates/mixdog-office-com/Cargo.toml (not owned by this task)
+Dependency (the DPI repair reads and writes the package of a workbook; `zip` is already a workspace dependency with `deflate`):
+
+    [dependencies]
+    zip = { workspace = true }
+
+Test targets, after `[[test]] name = "session_live"`:
+
+    [[test]]
+    name = "actions"
+    path = "tests/actions.rs"
+
+    [[test]]
+    name = "actions_live"
+    path = "tests/actions_live.rs"
+
+## 4. native/core/Cargo.lock
+In `[[package]] name = "mixdog-office-com"` add `"zip",` after `"windows-sys 0.61.2",` (the lock holds one zip, 2.6.1, already used by mixdog-ooxml and
+mixdog-launch; no new crate, nothing to fetch). mixdog-workspace-hack lists no zip line today and needs none.
+
+## 5. What the application tasks add (the format driver tables)
+`src/drivers.rs` holds two empty tables, `READERS` and `EDITORS`, each element `("<format>", &<value>)`. A reader implements
+`format::FormatReader` (snapshot, snapshot_page (Excel only, defaults to snapshot), issues, selection; each takes `&Env`), an editor
+`format::FormatEditor` (apply_operation(&mut EditContext, document, op, live, allow_ui_activation) -> Result<Option<Value>> where None means "no structured
+result", operation_names, and for Word append_run_length / apply_append_run). `EditContext` carries `env` and `chart_excel: &mut ChartExcel` (the
+registry the PowerPoint chart-data operations fill). Each task adds its one line to the table it fills, for example
+`("docx", &crate::word::Reader)` and `("docx", &crate::word::Editor)`.
+Until a format has a reader, snapshot and issues of that format answer "No Office reader is registered for .<format>" (and the editor: "No Office editor
+is registered for .<format>"): nothing is routed to the Rust host yet (`route::RUST_HOST_FORMATS` is empty), so no caller sees it.
+`issues.rs` (office_issue, add_capped_office_issue with ISSUE_CAP, missing_font_issue over `Platform::installed_office_fonts`), `template.rs`
+(template_value_map, template_value, template_matches, template_count_filled, template_result), `color.rs` (re-exports `ps::convert::{color_value,
+color_hex, color_hex_of}`) and `format::same_office_path` are the shared helpers the three readers and the editors use.
+
+## 6. Behaviour decisions the wiring should know
+- A failed operation is `<op> failed at <file>.rs:<line>: <message>` (owner decision on the location): the file and line are those of the Rust call
+  that failed (apply.rs for a batch, import.rs for `replace_presentation_from_source`), not of the statement inside the editor.
+- The exclusive handle of `Platform::open_exclusive` cannot shorten a file, so the DPI repair opens the workbook exclusively (a held workbook is refused
+  with .NET's text), reads it, releases it and writes the repaired package with `mixdog_fsio::write` only when an entry changed. A package that
+  needs nothing is not rewritten.
+- `Open-SessionState` writes its early identity line when a PowerPoint session reopens itself (post_save_validate does not, render and a failed
+  reload do): the actions pass the request's `Emitter` through, as the PowerShell host wrote that line to the same stdout.
