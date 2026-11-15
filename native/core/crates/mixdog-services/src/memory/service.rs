@@ -126,6 +126,9 @@ impl LocalMemory {
 
     /// [`Self::memory_reply`] for a request `cancel` ends (Node's `signal` of `handleMemoryAction`).
     pub async fn memory_reply_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> ToolReply {
+        if cancel.is_cancelled() {
+            return maintenance::failure_reply(&crate::memory::recall::aborted());
+        }
         let action = match maintenance::parse_action(args) {
             Ok(action) => action,
             Err(name) => return maintenance::unknown_action_reply(&name),
@@ -153,7 +156,7 @@ impl LocalMemory {
                 ToolReply::ok(self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message()))
             }
             Action::Search => {
-                let outcome = self.recall.handle_search(args, &tokio_util::sync::CancellationToken::new()).await?;
+                let outcome = self.recall.handle_search(args, cancel).await?;
                 maintenance::search_reply(outcome)
             }
             Action::DumpSessionRoots => maintenance::dump_session_roots(&self.db, args).await?,
@@ -345,9 +348,20 @@ impl MemoryService {
     }
 
     async fn memory_control(&self, params: &Value, cancel: &tokio_util::sync::CancellationToken) -> Result<Value, CoreError> {
-        self.runtime(params.get("threadId").and_then(Value::as_str)).await?;
+        if cancel.is_cancelled() {
+            return Err(CoreError::Cancelled { by: "caller".into() });
+        }
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(CoreError::Cancelled { by: "caller".into() }),
+            ready = self.runtime(params.get("threadId").and_then(Value::as_str)) => ready?,
+        }
         let args = params.get("args").filter(|args| truthy(args)).cloned().unwrap_or_else(|| json!({}));
-        Ok(Value::String(self.memory.memory_cancellable(args, cancel).await))
+        let reply = self.memory.memory_cancellable(args, cancel).await;
+        if cancel.is_cancelled() {
+            return Err(CoreError::Cancelled { by: "caller".into() });
+        }
+        Ok(Value::String(reply))
     }
 
     /// `recall(query, args)` of the session runtime.
@@ -505,3 +519,7 @@ mod tests {
         assert_eq!(dump.text, "(no current session)");
     }
 }
+
+#[cfg(test)]
+#[path = "service/cancellation_tests.rs"]
+mod cancellation_tests;
