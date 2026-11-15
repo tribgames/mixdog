@@ -507,6 +507,14 @@ impl Gradient {
         Ok(())
     }
 
+    /// The colour glyph coverage is corrected for when this gradient paints text: the mean of the stops (Skia's
+    /// `asLuminanceColor` of a gradient shader).
+    pub(crate) fn luminance_color(&self) -> Color {
+        let count = self.stops.len().max(1) as f32;
+        let sum = self.stops.iter().fold([0.0_f32; 3], |sum, (_, color)| [sum[0] + color.red(), sum[1] + color.green(), sum[2] + color.blue()]);
+        Color::from_rgba(sum[0] / count, sum[1] / count, sum[2] / count, 1.0).unwrap_or(Color::BLACK)
+    }
+
     /// The shader in the space the canvas was in when the gradient is used, with `opacity` (`globalAlpha`) applied.
     /// `None` draws nothing (no stop, or a gradient tiny-skia refuses).
     pub(crate) fn shader(&self, opacity: f32) -> Option<Shader<'static>> {
@@ -549,6 +557,17 @@ pub enum Style {
     Color(Color),
     Gradient(Gradient),
     Pattern(PatternStyle),
+}
+
+impl Style {
+    /// The colour the coverage of glyphs painted with this style is corrected for (a pattern: black).
+    pub(crate) fn luminance_color(&self) -> Color {
+        match self {
+            Self::Color(color) => *color,
+            Self::Gradient(gradient) => gradient.luminance_color(),
+            Self::Pattern(_) => Color::BLACK,
+        }
+    }
 }
 
 impl Default for Style {

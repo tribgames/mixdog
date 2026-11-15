@@ -19,6 +19,7 @@
 //! File reads take a lane proof (`mixdog_fsio::ReadProof`): they run in a lane job. A [`registry::Registry`] is built,
 //! then shared behind an `Arc` and never changed.
 
+pub mod autohint;
 pub mod css_font;
 pub mod discovery;
 pub mod face;
