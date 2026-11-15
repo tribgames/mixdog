@@ -1,0 +1,35 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-svg.mjs --tree <dir with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 677414,
+      "path": "golden.json",
+      "sha256": "5bea7991021f9a0a06af1ef57191205124442cc8a20129085690fe439adb9efb"
+    }
+  ],
+  "product": {
+    "appsSha256": "affb7bc9f7731381d4d7bf4dcb570b73c6ff1582366623685a5f2c60108867cc",
+    "commit": "65bc83cdd545615e7a2977e3dcd8bfc502efc491",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5268,
+    "refComparison": {
+      "closestCommit": "65bc83cdd545615e7a2977e3dcd8bfc502efc491",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "bffdefbc2469519d184c43845ff536fadf27ebdf4eaea0f91a47a3e208c5c56f",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "provenance": {
+    "inputs": [],
+    "nodeVersion": "v22.20.0",
+    "recorderSha256": "b37ebcf07406432dc19a2970fb6957c673dda2b8a86a29f78d7296adacefb5f6"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-svg.mjs",
+  "set": "office-svg",
+  "totalBytes": 677414
+}
