@@ -11,6 +11,7 @@ use serde_json::json;
 
 use super::base64_param;
 use super::invalid_params;
+use super::js_string;
 use super::node_base64;
 use crate::ctx::CallCtx;
 use crate::error::CodedError;
@@ -84,8 +85,7 @@ fn validate(ctx: CallCtx) -> HandlerResult {
     let bytes = node_base64(base64_param(&ctx.params)?);
     let format = match ctx.params.get("format") {
         None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
+        value => js_string(value),
     };
     not_cancelled(&ctx)?;
     match mixdog_imaging::validate(&bytes, &format) {
