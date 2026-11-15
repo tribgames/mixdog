@@ -43,14 +43,6 @@ const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
 const runtimeArchive = join(runtimeDir, 'runtime.asar');
 const runtimeSidecar = `${runtimeArchive}.unpacked`;
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
-const externalProcessArchivePaths = [
-  'node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
-  'node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
-  'node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
-  'node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
-  'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
-  'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
-];
 // Built-in skills hand their directory to the model, which runs their bundled
 // scripts with plain Node; Node cannot read inside runtime.asar, so every
 // shipped skill file is unpacked beside the archive (asar matches unpackDir
@@ -71,7 +63,7 @@ function builtinSkillArchivePaths(manifest) {
 
 /** Archive paths that must exist as real files in runtime.asar.unpacked. */
 function unpackedArchivePaths(manifest) {
-  return [...externalProcessArchivePaths, ...builtinSkillArchivePaths(manifest)];
+  return builtinSkillArchivePaths(manifest);
 }
 
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
@@ -899,8 +891,6 @@ async function prepareRuntime(manifest, fingerprint) {
       // What the Rust core reads from the package root (core-layout.mjs); the real-file copy is the
       // core-runtime-mirror below, which verifyCoreTree checks against the same list.
       ...CORE_READS.files.map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
-      '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
-      '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       // The skill launcher: its entry and the files it imports, nothing from the npm closure.
       ...launcherRuntimeFiles(rootDir).map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
       ...unpackedArchiveEntries,

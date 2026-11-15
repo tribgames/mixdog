@@ -178,14 +178,6 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     '/package.json',
     '/node_modules/mixdog/package.json',
     ...CORE_READS.files.map((file) => `/node_modules/mixdog/${file}`),
-    '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
-    '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
-    '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
-    '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
-    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
-    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
     '/node_modules/@huggingface/transformers/package.json',
     '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
     '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
@@ -231,12 +223,6 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const unpackedRuntimeEntries = [
     ...new Set([
       ...nativeBinaryEntries,
-      '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
-      '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
-      '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
-      '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
-      '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
-      '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
       ...entries.filter(
         (entry) => entry.startsWith('/node_modules/mixdog/src/defaults/skills/') && /\.\w+$/.test(entry)
       ),
