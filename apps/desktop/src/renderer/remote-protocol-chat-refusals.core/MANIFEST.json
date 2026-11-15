@@ -3,13 +3,14 @@
   "recordings": [
     {
       "file": "01.json",
-      "sha256": "db6481ab636b2af0a8fa925d729b9a83bfe39984afbcefaa642d671beb802b6c"
+      "sha256": "1d91022a7fa1698053fe62b2536fc60cd67fc7466a90e2134d841dc57f0ad702"
     }
   ],
   "recorder": {
-    "remote-protocol-chat-refusals.record.mjs": "1a573881338ff85c6b395e8f2f69578996110befadcb800e97fcc3cb7baf4d10",
-    "../../../../packages/protocol-client/src/client.ts": "443b20b3b6aebccb9a5364bd43cf38e2ee4fe41ef5d0892221cc1e67f9622baa",
-    "../main/protocol/service-route.ts": "dd69a3cc59ef6ca98ff9a2b808e8161abab934bcd2168e54b445866facfe6634",
+    "remote-protocol-chat-refusals.record.mjs": "94271540454566d286995dec2644783f8640bf3ccc792a8b20e777ccc2ee5bb5",
+    "../../../../packages/protocol-client/src/client.ts": "3298a34866083d1ad450acb00822d4add08f5b346fbe5da34cce5cc7bb381eac",
+    "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
+    "../shared/core-lanes/service-route.ts": "d8f8cf2192c25b4f69ac4e2807eb9d66d7c953c8d01a9f3649655eb23e278e9c",
     "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
   }
 }

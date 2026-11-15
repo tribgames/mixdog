@@ -16,6 +16,8 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
 
 const [bin, harness, outFile] = process.argv.slice(2);
+// The version this client announces is the tree's own: a core refuses an older client.
+const CLIENT_VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
 const lib = (name) => join(harness, 'lib', name);
 const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
@@ -104,7 +106,7 @@ async function phoneRequest(name, call, args) {
 
 let out;
 try {
-  ok(await ask('initialize', { clientInfo: { name: 'ph2-chat-refusals', title: 'PH-2 refusals', version: '1.4.5', kind: 'tui' }, capabilities: {} }));
+  ok(await ask('initialize', { clientInfo: { name: 'ph2-chat-refusals', title: 'PH-2 refusals', version: CLIENT_VERSION, kind: 'tui' }, capabilities: {} }));
   socket.send(JSON.stringify({ method: 'initialized' }));
   // One idle thread with an answered turn: the phone's Stop and Send go to it.
   const threadId = ok(await op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
