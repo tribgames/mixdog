@@ -721,27 +721,78 @@ impl LiveObject {
         }
     }
 
-    /// The id the object's type information gives a member (`ITypeInfo::GetIDsOfNames`, slot 10 of its table).
-    fn type_member_id(dispatch: &Iface, name: &str) -> Option<i32> {
-        type TypeIds = unsafe extern "system" fn(*mut c_void, *const *const u16, u32, *mut i32) -> i32;
-        let mut info: *mut c_void = ptr::null_mut();
-        // SAFETY: `dispatch` holds a reference; `info` receives an owned reference on success.
-        let hr = unsafe { (vtbl::<IDispatchVtbl>(dispatch.as_ptr()).get_type_info)(dispatch.as_ptr(), 0, LCID, &mut info) };
-        if hr < 0 {
-            return None;
-        }
-        // SAFETY: on success `info` carries the reference the call gave.
-        let info = unsafe { Iface::from_raw(info) }?;
-        let wide = utf16_nul(name);
-        let names = [wide.as_ptr()];
-        let mut id = 0i32;
-        // SAFETY: `unused[6]` is slot 10 of ITypeInfo's table (3 of IUnknown, GetTypeAttr, then six more), GetIDsOfNames, whose
-        // signature `TypeIds` is; `names` holds one NUL-terminated string that outlives the call and `id` has room for one id.
-        let hr = unsafe {
-            let slot: TypeIds = std::mem::transmute::<usize, TypeIds>(vtbl::<ITypeInfoVtbl>(info.as_ptr()).unused[6]);
-            slot(info.as_ptr(), names.as_ptr(), 1, &mut id)
+    /// A property PowerPoint's `Invoke` does not find (the `HWND` of its application: `GetIDsOfNames` gives an id, `Invoke` answers
+    /// DISP_E_MEMBERNOTFOUND for it) is read through the vtable of the interface the type library names, the way a
+    /// binding to the primary interop assembly reads it: the dual interface is taken from the object's type information, the
+    /// member found by name among its functions, its slot taken from the function's `oVft`, and the interface asked of the object
+    /// by the identifier the type information gives. Only a property read with no argument that returns a 32-bit integer.
+    fn vtable_long_get(dispatch: &Iface, name: &str) -> Option<i32> {
+        use windows::Win32::System::Com::IDispatch;
+        use windows::Win32::System::Com::ITypeInfo;
+        use windows::Win32::System::Com::INVOKE_PROPERTYGET;
+        use windows::Win32::System::Com::TKIND_DISPATCH;
+        use windows::Win32::System::Variant::VT_I4;
+        use windows::Win32::System::Variant::VT_INT;
+        use windows::Win32::System::Variant::VT_PTR;
+        use windows::core::Interface;
+        let raw = dispatch.as_ptr();
+        // SAFETY: `dispatch` holds a reference for the whole call; the borrowed wrapper adds none and releases none.
+        let object = unsafe { IDispatch::from_raw_borrowed(&raw) }?;
+        // SAFETY: plain call on a valid IDispatch.
+        let mut info: ITypeInfo = unsafe { object.GetTypeInfo(0, LCID) }.ok()?;
+        // SAFETY: the TYPEATTR is read before it is released.
+        let (kind, flags) = unsafe {
+            let attr = info.GetTypeAttr().ok()?;
+            let kind = ((*attr).typekind, (*attr).wTypeFlags);
+            info.ReleaseTypeAttr(attr);
+            kind
         };
-        (hr >= 0).then_some(id)
+        if kind == TKIND_DISPATCH && flags & 0x40 != 0 {
+            // SAFETY: plain calls on a valid ITypeInfo.
+            info = unsafe { info.GetRefTypeInfo(info.GetRefTypeOfImplType(u32::MAX).ok()?) }.ok()?;
+        }
+        // SAFETY: as above; each FUNCDESC and BSTR is read and released before the next.
+        let (iid, slot) = unsafe {
+            let attr = info.GetTypeAttr().ok()?;
+            let (iid, count) = ((*attr).guid, (*attr).cFuncs);
+            info.ReleaseTypeAttr(attr);
+            let mut found = None;
+            for index in 0..u32::from(count) {
+                let Ok(func) = info.GetFuncDesc(index) else { continue };
+                let (id, invkind, params, offset) = ((*func).memid, (*func).invkind, (*func).cParams, (*func).oVft);
+                // The property's value is the one parameter, a pointer to the integer (the return type is the HRESULT).
+                let returns_long = params == 1 && {
+                    let tdesc = &(*(*func).lprgelemdescParam).tdesc;
+                    tdesc.vt == VT_PTR && !tdesc.Anonymous.lptdesc.is_null() && {
+                        let target = (*tdesc.Anonymous.lptdesc).vt;
+                        target == VT_I4 || target == VT_INT
+                    }
+                };
+                info.ReleaseFuncDesc(func);
+                if invkind != INVOKE_PROPERTYGET || !returns_long || offset <= 0 {
+                    continue;
+                }
+                let mut names = [windows::core::BSTR::new()];
+                let mut got = 0u32;
+                if info.GetNames(id, &mut names, &mut got).is_ok() && got >= 1 && names[0].to_string().eq_ignore_ascii_case(name) {
+                    found = Some((iid, offset as usize / std::mem::size_of::<usize>()));
+                    break;
+                }
+            }
+            found?
+        };
+        let guid = Guid { d1: iid.data1, d2: iid.data2, d3: iid.data3, d4: iid.data4 };
+        let typed = dispatch.query(&guid).ok()?;
+        type Getter = unsafe extern "system" fn(*mut c_void, *mut i32) -> i32;
+        let mut value = 0i32;
+        // SAFETY: `slot` is the vtable index the type information gives for a property read whose only parameter is the 32-bit
+        // integer it returns; `typed` is the interface that type information describes.
+        let hr = unsafe {
+            let table = *(typed.as_ptr() as *const *const usize);
+            let getter: Getter = std::mem::transmute::<usize, Getter>(*table.add(slot));
+            getter(typed.as_ptr(), &mut value)
+        };
+        (hr >= 0).then_some(value)
     }
 
     fn get_ids(&self, dispatch: &Iface, names: &[&str]) -> Result<Vec<i32>, i32> {
@@ -910,12 +961,16 @@ impl ComObject for LiveObject {
         } else {
             named_ids.reverse();
             match self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named_ids) {
-                // PowerPoint's `GetIDsOfNames` names a member its `Invoke` then does not find (the HWND of its application),
-                // while the type information gives the member's own id. Windows PowerShell reads a COM member by the id of
-                // the type information, so the read is made again with that id when it is another one.
-                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET => match Self::type_member_id(dispatch, call.member) {
-                    Some(id) if id != member_id => self.invoke_id(dispatch, id, flags, &mut arguments, &mut named_ids),
-                    _ => Err(raw),
+                // PowerPoint's `GetIDsOfNames` names a member its `Invoke` then does not find (the HWND of its application): it is
+                // read through the vtable of the interface the type library names.
+                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET && arguments.is_empty() => match Self::vtable_long_get(dispatch, call.member) {
+                    Some(value) => {
+                        let mut variant = Variant::empty();
+                        variant.vt = VT_I4;
+                        variant.data.l = value;
+                        Ok(OwnedVariant(variant))
+                    }
+                    None => Err(raw),
                 },
                 other => other,
             }

@@ -1,7 +1,7 @@
 //! The workbook editor (`Apply-ExcelOperation`) against a scripted workbook: a tree of COM objects that log every access and
 //! answer what a test tells them, in place of Excel.
 //!
-//! The recorded call logs of `recorder/scenarios/excel-edit.json` (taken from the PowerShell host against Microsoft Excel) are the
+//! The recorded call logs of `tests/scenarios/excel-edit.json` (taken from the PowerShell host against Microsoft Excel) are the
 //! reference the same editor is held to once they exist on the migration PC; these tests pin what needs no Office: the registry
 //! of operation names, every refusal text, the order and the VARIANT types of the calls of the operations whose contract is in
 //! them (typed text kept as text, one array for a block, Single widths, Double zoom, the colour names of a Korean Excel, page

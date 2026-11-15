@@ -3,7 +3,7 @@
 //! call log of its scenario, in order, and every line the host writes is compared with the line the script writes.
 //!
 //! The logs here are written by hand from `office-com-session-host.ps1`; the logs recorded from the PowerShell host against
-//! Office (`recorder/scenarios/session.json`, run on a PC with Microsoft Office) are held to the same ports once they exist.
+//! Office (`tests/scenarios/session.json`, run on a PC with Microsoft Office) are held to the same ports once they exist.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -113,7 +113,8 @@ impl Log {
 
     /// The calls of `Initialize-OwnedOfficeApplication` and of `New-HiddenApplication`.
     fn initialize(&mut self, app: u64, format: &str, visible: bool) {
-        self.put(app, "DisplayAlerts", i4(0));
+        // PowerPoint takes ppAlertsNone (1), not 0, for no alerts.
+        self.put(app, "DisplayAlerts", i4(if format == "pptx" { 1 } else { 0 }));
         self.put(app, "AutomationSecurity", i4(3));
         if format != "pptx" {
             self.put(app, "Visible", b(visible));
