@@ -1,15 +1,16 @@
 //! Which host program serves a format: Windows PowerShell with the embedded scripts, or the Rust host, which is the
 //! service binary started as `<program> office-com-host` (one-shot) or `<program> office-com-host --session`, with the
-//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration; a format that is
-//! not on it, and a payload with no format, go to PowerShell. A one-shot `detect`, whatever format it probes, goes
+//! same stdio line protocol. The list of formats the Rust host serves is code, not configuration (`docx` today); a
+//! format that is not on it, and a payload with no format, go to PowerShell. A one-shot `detect`, whatever format it probes, goes
 //! where `docx` goes.
 
 use std::ffi::OsString;
 
 use serde_json::Value;
 
-/// The formats served by the Rust host. Empty until the Rust host implements one.
-pub(crate) const RUST_HOST_FORMATS: &[&str] = &[];
+/// The formats served by the Rust host: Word documents (one-shot calls, sessions and `detect`). Excel and PowerPoint
+/// stay on Windows PowerShell until their readers and editors are switched.
+pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx"];
 
 /// The format whose host serves `detect`.
 const DETECT_FOLLOWS: &str = "docx";
@@ -65,10 +66,21 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_list_serves_nothing() {
-        for format in ["docx", "xlsx", "pptx"] {
+    fn the_shipped_list_serves_word_only() {
+        assert!(serves(RUST_HOST_FORMATS.iter().copied(), Some("docx")));
+        for format in ["xlsx", "pptx"] {
             assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some(format)));
         }
+        assert!(!serves(RUST_HOST_FORMATS.iter().copied(), None));
+    }
+
+    #[test]
+    fn detect_and_a_docx_call_are_served_and_an_xlsx_call_is_not() {
+        let list = || RUST_HOST_FORMATS.iter().copied();
+        assert!(serves(list(), one_shot_format(&serde_json::json!({"action": "detect", "format": "xlsx"}))));
+        assert!(serves(list(), one_shot_format(&serde_json::json!({"action": "snapshot", "format": "docx"}))));
+        assert!(!serves(list(), one_shot_format(&serde_json::json!({"action": "snapshot", "format": "xlsx"}))));
+        assert!(!serves(list(), one_shot_format(&serde_json::json!({"action": "snapshot"}))));
     }
 
     #[test]
