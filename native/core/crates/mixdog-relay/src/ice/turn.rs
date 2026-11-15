@@ -113,7 +113,13 @@ pub fn verify_turn_credential(secret: &str, username: Option<&str>, credential: 
         return false;
     }
     let expected = turn_password(secret, username);
-    ring::constant_time::verify_slices_are_equal(expected.as_bytes(), credential.as_bytes()).is_ok()
+    timing_safe_equal(expected.as_bytes(), credential.as_bytes())
+}
+
+/// `given.length === expected.length && timingSafeEqual(given, expected)`: the time taken does not depend on where the bytes
+/// differ.
+fn timing_safe_equal(expected: &[u8], given: &[u8]) -> bool {
+    expected.len() == given.len() && expected.iter().zip(given).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
 }
 
 /// `Number(value)` as a port, 1 to 65535.
