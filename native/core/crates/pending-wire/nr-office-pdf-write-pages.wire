@@ -1,0 +1,54 @@
+# nr-office-pdf-write-pages
+
+mixdog-pdf: page insert/remove/copy with forms and annotations, embedded files, outline writing.
+
+## 1. Module lines (lead-owned file)
+
+File: native/core/crates/mixdog-pdf/src/write/mod.rs (written by nr-office-pdf-write-core).
+Anchor: the module declarations after the doc comment, `pub mod info;` / `pub mod object_streams;` /
+`mod serialize;` / `pub mod store;`. Add four lines so the block reads (alphabetical):
+
+    pub mod attachments;
+    pub mod copy_pages;
+    pub mod info;
+    pub mod object_streams;
+    pub mod outline;
+    pub mod pages;
+    mod serialize;
+    pub mod store;
+
+No other edit to mod.rs is needed: the new files are children of `write`, so they use its private items
+(`PdfDocument::pages_root`, `MAX_PAGE_TREE_DEPTH`, the `store` field) directly. The new `impl PdfDocument` blocks live in
+pages.rs, copy_pages.rs, attachments.rs and outline.rs; the new public types are
+`write::attachments::{AttachmentOptions, Attachment}`, `write::copy_pages::FormField` and
+`write::outline::{OutlineEntry, OutlineItem}` (the twin test reaches them by these module paths; add `pub use` lines in
+mod.rs only if a consumer wants them at `write::`).
+
+## 2. Cargo / lockfile / workspace hack
+
+None. The crate uses nothing it did not have (std, the existing `tracing`/`flate2` edges; tests use the existing
+dev-dependencies mixdog-testkit and serde_json and the crate's own `flate2`).
+
+## 3. Protocol rows, SERVICE_PENDING, compose_flip
+
+None: this task adds library code only; no protocol method, tool or service is registered.
+
+## 4. Fixtures
+
+native/core/fixtures/office-write-pages/ (golden.json and its MANIFEST.json) is added with
+`git add --sparse`. The recorder benchmarks/rust-core/recorders/record-office-write-pages.mjs needs the product tree
+with node_modules (`--tree <tree>`) and writes the set; its helpers are recorders/lib/common.mjs (already in the tree).
+
+## 5. Behaviour notes for the consumers (the batch operations of pdf-batch-structure.mjs, ported later)
+
+- `PdfDocument::pages()` reads the page tree on every call, so a removal is seen at once: pdf-lib's cached page list
+  that `removePageAt` invalidates by hand has no counterpart and needs no call.
+- `keep_pages_in_order`, `copy_to_new_document`, `register_copied_fields`, `drop_fields_off_the_pages` are the Rust
+  forms of `keepPagesInOrder`, `copyToNewDocument`, `registerCopiedFields`, `dropFieldsOffThePages`. The glue of the
+  rest of the batch operations (selection of pages, rotate and crop arithmetic, merge with bookmarks, move, extract
+  and attach argument handling) is written in tests/twin_write_pages.rs over these primitives and is what the batch
+  port can take over.
+- Like pdf-lib, `register_copied_fields` makes an empty AcroForm when the document has none (merge_pdf in Node leaves
+  an empty form in a merged file whose sources have no fields).
+- Attachments are embedded at once by `attach` (pdf-lib embeds at save time, so `extract_attachment` right after
+  `add_attachment` in one Node batch finds nothing; here it finds the file).
