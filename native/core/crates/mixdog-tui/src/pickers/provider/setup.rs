@@ -171,7 +171,10 @@ pub fn run_return_to(host: &mut dyn ProviderHost) -> bool {
 /// The OAuth code prompt finished with a login: the result panel (`successReturn`).
 pub fn oauth_success_return(host: &mut dyn ProviderHost) {
     with_flow(host, |host, flow| {
-        if let Some(login) = flow.login.clone() {
+        if let Some(login) = flow.login.as_mut() {
+            // The prompt reported the result: a status the watcher reads later for the same flow changes nothing.
+            login.handled = true;
+            let login = login.clone();
             let message = format!("{} login complete.", login_name(&login.item));
             flow.show_result(host, &login.item, true, &message);
         }
@@ -181,7 +184,9 @@ pub fn oauth_success_return(host: &mut dyn ProviderHost) {
 /// The OAuth code prompt was rejected (`failureReturn`).
 pub fn oauth_failure_return(host: &mut dyn ProviderHost, error: &str) {
     with_flow(host, |host, flow| {
-        if let Some(login) = flow.login.clone() {
+        if let Some(login) = flow.login.as_mut() {
+            login.handled = true;
+            let login = login.clone();
             let message = format!("{} code failed: {error}", login_name(&login.item));
             flow.show_result(host, &login.item, false, &message);
         }
