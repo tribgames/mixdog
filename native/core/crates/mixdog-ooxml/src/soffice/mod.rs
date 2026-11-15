@@ -613,7 +613,7 @@ impl Soffice {
         if aborted() {
             return Err(ConvertError::Aborted(match result {
                 RunResult::Failed(message) => message,
-                RunResult::Done => "The operation was aborted".to_owned(),
+                RunResult::Done => "This operation was aborted".to_owned(),
             }));
         }
         if let RunResult::Failed(error) = result {

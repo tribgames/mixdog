@@ -30,12 +30,6 @@ pub enum RunResult {
     Failed(String),
 }
 
-impl RunResult {
-    pub fn is_ok(&self) -> bool {
-        matches!(self, Self::Done)
-    }
-}
-
 /// How one run is bounded.
 #[derive(Debug, Clone)]
 pub struct RunOptions<'a> {

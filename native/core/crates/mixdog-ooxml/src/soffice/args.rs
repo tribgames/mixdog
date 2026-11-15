@@ -241,7 +241,7 @@ mod tests {
         let mac = candidates(&Host::new(Os::Mac, "/Users/me", "/tmp", &[]));
         assert_eq!(mac[0], "soffice");
         assert_eq!(mac[1], "/Applications/LibreOffice.app/Contents/MacOS/soffice");
-        assert!(mac[2].ends_with("LibreOffice.app/Contents/MacOS/soffice") && mac[2].starts_with("/Users/me"));
+        assert_eq!(Path::new(&mac[2]), Path::new("/Users/me").join("Applications").join("LibreOffice.app").join("Contents").join("MacOS").join("soffice"));
         assert_eq!(mac[3..], ["/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"]);
         let linux = candidates(&Host::new(Os::Linux, "/home/me", "/tmp", &[]));
         assert_eq!(linux[..5], ["soffice", "libreoffice", "/usr/lib/libreoffice/program/soffice", "/snap/bin/libreoffice", "/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice"]);
