@@ -2,7 +2,7 @@
 // These pure helpers keep live rows, persisted messages and restored rows on
 // the same field contract without rewriting older display-only transcripts.
 import { displayModelName } from '../../../../../../../packages/protocol-client/src/rows/model-display.mjs';
-import { botChainOf } from '../../../../../../../src/runtime/shared/bot-hops.mjs';
+import { botChainOf } from '../../../../../../../packages/protocol-client/src/shared/bot-hops.mjs';
 import { routineTriggerField } from './routine-trigger.mjs';
 
 export function transcriptRouteMetadataFields(value) {
