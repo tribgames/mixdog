@@ -28,6 +28,7 @@ use mixdog_pdf::PdfError;
 use mixdog_pdf::document::{Document, OpenOptions};
 use mixdog_pdf::error::CancelCheck;
 use mixdog_pdf::oplist::gstate::transform;
+use mixdog_pdf::fontdraw::PageFonts;
 use mixdog_pdf::render::{RenderOptions, render_page};
 use mixdog_pdf::text;
 use mixdog_raster::canvas::{Canvas, ImageData};
@@ -442,7 +443,8 @@ fn paint_page(job: &PageJob) -> Result<Painted, AnalysisError> {
     let page = document.page(job.page - 1).map_err(|error| reader(&error))?;
     let base = page.viewport(1.0);
     let scale = scale_of(job.target_width, base.width, job.minimum_scale, job.maximum_scale);
-    let options = RenderOptions { scale, fonts: None, drawing: None };
+    let drawn_fonts = PageFonts::new(&document);
+    let options = RenderOptions { scale, fonts: Some(&drawn_fonts), drawing: Some(&drawn_fonts) };
     let rendered = render_page(&document, &page, &options).map_err(|error| reader(&error))?;
     let (width, height) = (rendered.width(), rendered.height());
     let viewport = page.viewport(scale);

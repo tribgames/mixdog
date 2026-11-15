@@ -10,6 +10,7 @@ pub mod codec_glue;
 pub mod color;
 pub mod document;
 pub mod error;
+pub mod fontdraw;
 pub mod fontfile;
 pub mod fonts;
 pub mod function;
