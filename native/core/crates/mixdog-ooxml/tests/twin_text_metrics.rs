@@ -42,6 +42,12 @@ fn registry(golden: &Value) -> Registry {
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         }
     }
+    // A recording made on Windows measured Helvetica in the system Arial the canvas fell back to: the same file is registered here.
+    if golden["platform"].as_str() == Some("win32") {
+        let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")).map(PathBuf::from).expect("the Windows directory");
+        let path = root.join("Fonts").join("arial.ttf");
+        registry.register_file(&Unlaned, &path, Some("Arial")).unwrap_or_else(|error| panic!("the recording used the system Arial, which is not readable here ({}): {error}", path.display()));
+    }
     let Some(entry) = golden["noto"].as_object() else { return registry };
     let id = entry["id"].as_str().expect("id");
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_default();

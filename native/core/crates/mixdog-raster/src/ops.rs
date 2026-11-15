@@ -723,19 +723,64 @@ pub struct Trimmed {
     pub top: u32,
 }
 
-/// `trim({ threshold })`: the box of pixels that differ from the top-left pixel by more than `threshold` in a band
-/// (colour flattened against that pixel's colour first when there is alpha, as libvips's `find_trim` does). An image
+/// The middle of nine values (a sorting network of 19 exchanges): libvips's `median` of a 3 x 3 window.
+fn median9(mut v: [u8; 9]) -> u8 {
+    macro_rules! swap {
+        ($a:expr, $b:expr) => {
+            if v[$a] > v[$b] {
+                v.swap($a, $b);
+            }
+        };
+    }
+    swap!(1, 2);
+    swap!(4, 5);
+    swap!(7, 8);
+    swap!(0, 1);
+    swap!(3, 4);
+    swap!(6, 7);
+    swap!(1, 2);
+    swap!(4, 5);
+    swap!(7, 8);
+    swap!(0, 3);
+    swap!(5, 8);
+    swap!(4, 7);
+    swap!(3, 6);
+    swap!(1, 4);
+    swap!(2, 5);
+    swap!(4, 7);
+    swap!(4, 2);
+    swap!(6, 4);
+    swap!(4, 2);
+    v[4]
+}
+
+/// `trim({ threshold })`: the box of pixels that differ from the top-left pixel by more than `threshold` in a band, as
+/// sharp finds it with libvips's `find_trim`: once over the colour (flattened against the top-left pixel's colour) and,
+/// when there is alpha, once more over the alpha band alone, the two boxes combined. Each search smooths its bands by a
+/// 3 x 3 median first, so a speck of one pixel is no content and a faint shadow over a transparent corner is. An image
 /// with nothing different is returned whole.
 pub fn trim(image: &Image, threshold: f64) -> Result<Trimmed, RasterError> {
     let first = &image.rgba()[..4];
-    let background = [first[0], first[1], first[2]];
-    let flat = image.flatten(background);
+    let background = [first[0], first[1], first[2], first[3]];
     let (w, h) = (image.width() as usize, image.height() as usize);
+    let flat = image.flatten([first[0], first[1], first[2]]);
+    let (colour, alpha) = (flat.rgba(), image.rgba());
+    let bands = if image.has_alpha() { 4 } else { 3 };
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0usize, 0usize);
     for y in 0..h {
+        let rows = [y.saturating_sub(1), y, (y + 1).min(h - 1)];
         for x in 0..w {
-            let pixel = &flat.rgba()[(y * w + x) * 4..];
-            let differs = (0..3).any(|c| (f64::from(pixel[c]) - f64::from(background[c])).abs() > threshold);
+            let columns = [x.saturating_sub(1), x, (x + 1).min(w - 1)];
+            let differs = (0..bands).any(|c| {
+                let data = if c < 3 { colour } else { alpha };
+                let mut window = [0u8; 9];
+                for (r, row) in rows.iter().enumerate() {
+                    for (k, column) in columns.iter().enumerate() {
+                        window[r * 3 + k] = data[(row * w + column) * 4 + c];
+                    }
+                }
+                (f64::from(median9(window)) - f64::from(background[c])).abs() > threshold
+            });
             if differs {
                 min_x = min_x.min(x);
                 max_x = max_x.max(x);
@@ -868,18 +913,29 @@ mod tests {
 
     #[test]
     fn trim_finds_the_box_of_what_differs_from_the_corner() {
-        let image = rgb(8, 6, |x, y| if (2..5).contains(&x) && (1..3).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
+        let image = rgb(10, 8, |x, y| if (2..8).contains(&x) && (2..6).contains(&y) { [255, 0, 0] } else { [0, 0, 0] });
         let cut = trim(&image, 0.0).unwrap();
-        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 1, 3, 2));
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 2, 6, 4));
     }
 
     #[test]
-    fn trim_of_a_transparent_canvas_keeps_the_painted_box() {
+    fn trim_of_a_transparent_canvas_keeps_the_painted_box_and_not_a_speck() {
         let mut bytes = vec![0u8; 6 * 4 * 4];
         let at = (2 * 6 + 3) * 4;
         bytes[at..at + 4].copy_from_slice(&[10, 20, 30, 255]);
         let image = Image::from_raw(6, 4, 4, &bytes).unwrap();
+        // The 3 x 3 median that smooths the image first takes a single pixel for noise: nothing differs, the image comes back whole.
         let cut = trim(&image, 0.0).unwrap();
-        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (3, 2, 1, 1));
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (0, 0, 6, 4));
+        // A faint shadow (alpha only, black over a transparent corner) is painted.
+        let mut bytes = vec![0u8; 10 * 8 * 4];
+        for y in 2..6 {
+            for x in 2..8 {
+                bytes[(y * 10 + x) * 4 + 3] = 70;
+            }
+        }
+        let image = Image::from_raw(10, 8, 4, &bytes).unwrap();
+        let cut = trim(&image, 0.0).unwrap();
+        assert_eq!((cut.left, cut.top, cut.image.width(), cut.image.height()), (2, 2, 6, 4));
     }
 }

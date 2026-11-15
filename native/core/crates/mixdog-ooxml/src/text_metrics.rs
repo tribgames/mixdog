@@ -60,7 +60,8 @@ const SUFFIX_WEIGHT: [(&str, u16); 7] =
 /// Open faces with the advance widths of the proprietary family they stand in for.
 const METRIC_EQUIVALENTS: [(&str, &[&str]); 7] = [
     ("arial", &["liberation sans", "arimo"]),
-    ("helvetica", &["liberation sans", "arimo"]),
+    // Windows answers a request for Helvetica with its own Arial (the font substitution the canvas rode on there); the open faces follow.
+    ("helvetica", &["arial", "liberation sans", "arimo"]),
     ("times new roman", &["liberation serif", "tinos"]),
     ("courier new", &["liberation mono", "cousine"]),
     ("calibri", &["carlito"]),
