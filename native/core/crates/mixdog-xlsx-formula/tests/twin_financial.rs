@@ -44,6 +44,7 @@ fn encode(v: &Value) -> Json {
         Value::Null => json!({"t":"null"}),
         Value::Bool(v) => json!({"t":"bool","v":v}),
         Value::Text(v) => json!({"t":"text","v":v}),
+        Value::Utf16(units) => json!({"t":"text","units":units}),
         Value::Error(e) => json!({"t":"error","v":e.message()}),
         Value::Array(a) => json!({"t":"array","v":a.iter().map(encode).collect::<Vec<_>>()}),
     }

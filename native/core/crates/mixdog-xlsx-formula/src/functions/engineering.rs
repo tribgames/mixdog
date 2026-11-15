@@ -95,7 +95,7 @@ fn conversion(name: &str, number: &V, places: &V) -> Result<V, Failure> {
             return Ok(input);
         }
     }
-    let s = to_js_string(&input);
+    let Ok(s) = String::from_utf16(&to_js_utf16(&input)) else { return Ok(V::Error(E::Num)); };
     let maximum = if base == 10 {
         match target {
             2 => 3,
@@ -200,6 +200,7 @@ fn conversion(name: &str, number: &V, places: &V) -> Result<V, Failure> {
 // Copyright jStat contributors; MIT license retained in LICENSE.jstat in the fixture set.
 // It is shared by ERF/ERFC; a later distribution module can reuse this implementation.
 pub(crate) fn erf(value: &V) -> f64 {
+    #[allow(clippy::excessive_precision, reason = "coefficients are preserved verbatim from the pinned jStat implementation")]
     const COF: [f64; 28] = [
         -1.3026537197817094,
         6.4196979235649026e-1,
@@ -237,8 +238,10 @@ pub(crate) fn erf(value: &V) -> f64 {
         value.clone()
     };
     let denominator = match &x {
-        V::Text(_) | V::Array(_) | V::Date(_) | V::Error(_) => {
-            to_js_number(&V::Text("2".to_owned() + &to_js_string(&x)))
+        V::Text(_) | V::Utf16(_) | V::Array(_) | V::Date(_) | V::Error(_) => {
+            let mut units = vec![u16::from(b'2')];
+            units.extend(to_js_utf16(&x));
+            to_js_number(&V::from_utf16(units))
         }
         _ => 2.0 + to_js_number(&x),
     };
@@ -378,11 +381,11 @@ fn unit(value: &V, label: &str) -> Result<Option<(&'static Unit, f64)>, Failure>
             .rev()
             .find(|u| u.symbol == s || u.aliases.contains(&s))
     };
-    if let V::Text(s) = value {
-        if let Some(u) = lookup(s) {
+    if let V::Text(s) = value
+        && let Some(u) = lookup(s) {
             return Ok(Some((u, 1.0)));
         }
-    }
+    if matches!(value, V::Utf16(_)) { return Ok(None); }
     let V::Text(s) = value else {
         return Err(Failure::thrown(match value {
             V::Undefined => "Cannot read properties of undefined (reading 'substring')".into(),

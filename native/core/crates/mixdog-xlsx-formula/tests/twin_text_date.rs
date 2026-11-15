@@ -35,6 +35,7 @@ fn encode(v: Value) -> Json {
         Value::Number(n) => json!({"numberBits":format!("{:016x}",n.to_bits())}),
         Value::Date(n) => json!({"dateBits":format!("{:016x}",n.to_bits())}),
         Value::Text(s) => json!({"text":s,"utf16":s.encode_utf16().collect::<Vec<_>>()}),
+        Value::Utf16(units) => json!({"text":String::from_utf16_lossy(&units),"utf16":units}),
         Value::Array(a) => Json::Array(a.into_iter().map(encode).collect()),
     }
 }
@@ -85,14 +86,56 @@ fn replay(golden: &Json) {
     for case in golden["engine"].as_array().unwrap() {
         let formula = case["formula"].as_str().unwrap();
         let got = with_local_zone(Tz::UTC, || {
-            mixdog_xlsx_formula::evaluate_formula(formula, &mut Empty).map(encode)
+            mixdog_xlsx_formula::evaluate_formula(formula, &mut Empty)
         });
         match got {
-            Ok(got) if equal(&case["value"], &got) => {}
-            other => differences.push(format!(
-                "engine {formula}: want {}, got {other:?}",
-                case["value"]
-            )),
+            Ok(value) => {
+                let encoded = encode(value.clone());
+                if !equal(&case["value"], &encoded) {
+                    differences.push(format!(
+                        "engine {formula}: want {}, got {encoded}",
+                        case["value"]
+                    ));
+                }
+                // Original xmlEncode escapes only ASCII punctuation. Keep raw
+                // units through that operation, then model JSZip's Buffer.from.
+                let mut xml = Vec::new();
+                for unit in mixdog_xlsx_formula::coerce::to_js_utf16(&value) {
+                    let escaped = match unit {
+                        38 => Some("&amp;"),
+                        60 => Some("&lt;"),
+                        62 => Some("&gt;"),
+                        34 => Some("&quot;"),
+                        39 => Some("&apos;"),
+                        _ => None,
+                    };
+                    if let Some(text) = escaped {
+                        xml.extend(text.encode_utf16());
+                    } else {
+                        xml.push(unit);
+                    }
+                }
+                let xml = Value::from_utf16(xml);
+                if !equal(&case["xml"], &encode(xml.clone())) {
+                    differences.push(format!(
+                        "engine XML units {formula}: want {}, got {:?}",
+                        case["xml"], xml
+                    ));
+                }
+                let bytes = xml.text_to_utf8_lossy().unwrap();
+                let hex: String = bytes
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                if case["xmlUtf8"] != hex {
+                    differences.push(format!(
+                        "engine XML UTF8 {formula}: want {}, got {hex}",
+                        case["xmlUtf8"]
+                    ));
+                }
+            }
+            Err(error) => differences.push(format!("engine {formula}: unexpected {error:?}")),
         }
     }
     assert!(

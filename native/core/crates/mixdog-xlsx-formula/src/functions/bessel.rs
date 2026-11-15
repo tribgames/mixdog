@@ -6,6 +6,8 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 //! Bessel 1.0.2, retaining its signed-domain tests, order rounding and recurrences.
+#![allow(clippy::approx_constant, reason = "the original Bessel coefficient approximations are intentional and must retain their exact values")]
+
 use super::engineering::int32;
 use mixdog_js::math as m;
 

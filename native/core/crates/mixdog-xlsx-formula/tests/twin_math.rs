@@ -31,20 +31,14 @@ fn encode(v: &Value) -> Json {
         Value::Number(n) => json!({"t":"number","bits":format!("{:016x}",n.to_bits())}),
         Value::Date(n) => json!({"t":"date","bits":format!("{:016x}",n.to_bits())}),
         Value::Text(s) => json!({"t":"text","v":s}),
+        Value::Utf16(units) => json!({"t":"utf16","units":units}),
         Value::Bool(b) => json!({"t":"bool","v":b}),
         Value::Error(e) => json!({"t":"error","v":e.message()}),
         Value::Array(a) => json!({"t":"array","v":a.iter().map(encode).collect::<Vec<_>>()}),
     }
 }
 fn golden() -> Json {
-    serde_json::from_str(
-        &std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/office-math/golden.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap()
+    serde_json::from_str(include_str!("../../../fixtures/office-math/golden.json")).unwrap()
 }
 #[test]
 fn every_exported_math_logical_information_path_has_a_registered_function() {

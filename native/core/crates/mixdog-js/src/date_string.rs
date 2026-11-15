@@ -181,10 +181,9 @@ fn equivalent_time(time: i64, outside_epoch: bool) -> i64 {
 }
 
 fn daylight_in_current_year(z: &Value, now: i64) -> bool {
-    if let Some(f) = z.get("f") {
-        if now >= days_from_civil(int(&f[0]), 1, 1) * DAY {
-            return int(&f[2][1]) != 0 && int(&f[2][6]) != 0;
-        }
+    if let Some(f) = z.get("f")
+        && now >= days_from_civil(int(&f[0]), 1, 1) * DAY {
+        return int(&f[2][1]) != 0 && int(&f[2][6]) != 0;
     }
     let year = civil(now.div_euclid(DAY)).0;
     let begin = days_from_civil(year, 1, 1) * DAY;
@@ -366,14 +365,12 @@ fn gmt(locale: &str, keyword: Option<&str>, chain: &[String], offset: i64) -> St
     let h = absolute / 3600;
     let m = (absolute % 3600) / 60;
     let s = absolute % 60;
-    if s != 0 {
-        if let Some(minute) = hour_pattern.find("mm") {
-            let separator = hour_pattern[..minute]
-                .rfind('H')
-                .map(|at| hour_pattern[at + 1..minute].to_owned())
-                .unwrap_or_default();
-            hour_pattern.insert_str(minute + 2, &(separator + "ss"));
-        }
+    if s != 0 && let Some(minute) = hour_pattern.find("mm") {
+        let separator = hour_pattern[..minute]
+            .rfind('H')
+            .map(|at| hour_pattern[at + 1..minute].to_owned())
+            .unwrap_or_default();
+        hour_pattern.insert_str(minute + 2, &(separator + "ss"));
     }
     let digit_chars: Vec<char> = digits.chars().collect();
     let render = |n: i64| {
@@ -478,16 +475,15 @@ fn format_date(time: f64, zone_name: &str, locale: &str, now: i64, cached: bool)
         clock % 3600 / 60,
         clock % 60,
     );
-    if cached && crate::time::local_offset_ms(millis as f64) == offset * 1000 {
-        if let Some(fields) = crate::time::local_fields(millis as f64) {
-            year = fields.year as i64;
-            month = fields.month as i64;
-            day = fields.day as i64;
-            wd = fields.weekday as i64;
-            hour = fields.hour as i64;
-            minute = fields.minute as i64;
-            second = fields.second as i64;
-        }
+    if cached && crate::time::local_offset_ms(millis as f64) == offset * 1000
+        && let Some(fields) = crate::time::local_fields(millis as f64) {
+        year = fields.year as i64;
+        month = fields.month as i64;
+        day = fields.day as i64;
+        wd = fields.weekday as i64;
+        hour = fields.hour as i64;
+        minute = fields.minute as i64;
+        second = fields.second as i64;
     }
     const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MONTHS: [&str; 12] = [

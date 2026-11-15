@@ -1,0 +1,758 @@
+{
+  "node": "v22.20.0",
+  "referenceLocale": "ko-KR",
+  "formulas": [
+    {
+      "formula": "VALUE(\"35%\")",
+      "value": {
+        "t": "number",
+        "bits": "3fd6666666666667"
+      }
+    },
+    {
+      "formula": "VALUE(\"-0\")",
+      "value": {
+        "t": "number",
+        "bits": "0000000000000000"
+      }
+    },
+    {
+      "formula": "VALUE(\"-0%\")",
+      "value": {
+        "t": "number",
+        "bits": "0000000000000000"
+      }
+    },
+    {
+      "formula": "LEFT(\"😀\",1)&RIGHT(\"😀\",1)",
+      "value": {
+        "t": "text",
+        "units": [
+          55357,
+          56832
+        ],
+        "utf8": "f09f9880",
+        "xmlUtf8": "f09f9880"
+      }
+    },
+    {
+      "formula": "CODE(LEFT(\"😀\",1))",
+      "value": {
+        "t": "number",
+        "bits": "40eb07a000000000"
+      }
+    },
+    {
+      "formula": "UNICODE(RIGHT(\"😀\",1))",
+      "value": {
+        "t": "number",
+        "bits": "40ebc00000000000"
+      }
+    },
+    {
+      "formula": "CHAR(55296)",
+      "value": {
+        "t": "text",
+        "units": [
+          55296
+        ],
+        "utf8": "efbfbd",
+        "xmlUtf8": "efbfbd"
+      }
+    },
+    {
+      "formula": "LEN(CHAR(55296))",
+      "value": {
+        "t": "number",
+        "bits": "3ff0000000000000"
+      }
+    },
+    {
+      "formula": "CONCAT(CHAR(55296),CHAR(56320))",
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          56320
+        ],
+        "utf8": "f0908080",
+        "xmlUtf8": "f0908080"
+      }
+    },
+    {
+      "formula": "CONCATENATE(LEFT(\"😀\",1),RIGHT(\"😀\",1))",
+      "value": {
+        "t": "text",
+        "units": [
+          55357,
+          56832
+        ],
+        "utf8": "f09f9880",
+        "xmlUtf8": "f09f9880"
+      }
+    },
+    {
+      "formula": "TEXTJOIN(\"\",FALSE,LEFT(\"😀\",1),RIGHT(\"😀\",1))",
+      "value": {
+        "t": "text",
+        "units": [
+          55357,
+          56832
+        ],
+        "utf8": "f09f9880",
+        "xmlUtf8": "f09f9880"
+      }
+    },
+    {
+      "formula": "REPT(CHAR(55296),2)",
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          55296
+        ],
+        "utf8": "efbfbdefbfbd",
+        "xmlUtf8": "efbfbdefbfbd"
+      }
+    },
+    {
+      "formula": "REPLACE(\"ab\",2,1,CHAR(55296))",
+      "value": {
+        "t": "text",
+        "units": [
+          97,
+          55296
+        ],
+        "utf8": "61efbfbd",
+        "xmlUtf8": "61efbfbd"
+      }
+    },
+    {
+      "formula": "SUBSTITUTE(\"a|b\",\"|\",CHAR(55296))",
+      "value": {
+        "t": "text",
+        "units": [
+          97,
+          55296,
+          98
+        ],
+        "utf8": "61efbfbd62",
+        "xmlUtf8": "61efbfbd62"
+      }
+    },
+    {
+      "formula": "NUMBERVALUE(CONCAT(\"1\",CHAR(55296),\"2\"),\".\",CHAR(55296))",
+      "value": {
+        "t": "number",
+        "bits": "4028000000000000"
+      }
+    },
+    {
+      "formula": "VALUE(CONCAT(CHAR(55296),\"1\"))",
+      "value": {
+        "t": "number",
+        "bits": "3ff0000000000000"
+      }
+    },
+    {
+      "formula": "TYPE(CHAR(55296))",
+      "value": {
+        "t": "number",
+        "bits": "4000000000000000"
+      }
+    },
+    {
+      "formula": "ISTEXT(CHAR(55296))",
+      "value": {
+        "t": "bool",
+        "value": true
+      }
+    },
+    {
+      "formula": "ISNONTEXT(CHAR(55296))",
+      "value": {
+        "t": "bool",
+        "value": false
+      }
+    },
+    {
+      "formula": "NOT(CHAR(55296))",
+      "value": {
+        "t": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "formula": "AND(CHAR(55296),TRUE)",
+      "value": {
+        "t": "bool",
+        "value": true
+      }
+    },
+    {
+      "formula": "SUM(CONCAT(\"12\",CHAR(55296)))",
+      "value": {
+        "t": "number",
+        "bits": "4028000000000000"
+      }
+    },
+    {
+      "formula": "UPPER(CONCAT(\"a\",CHAR(55296),\"ß\"))",
+      "value": {
+        "t": "text",
+        "units": [
+          65,
+          55296,
+          83,
+          83
+        ],
+        "utf8": "41efbfbd5353",
+        "xmlUtf8": "41efbfbd5353"
+      }
+    },
+    {
+      "formula": "EXACT(CHAR(55296),CHAR(55296))",
+      "value": {
+        "t": "bool",
+        "value": true
+      }
+    },
+    {
+      "formula": "YEAR(DATEVALUE(CONCAT(CHAR(55296),\" Jan 1, 2024\")))",
+      "value": {
+        "t": "number",
+        "bits": "409fa00000000000"
+      }
+    },
+    {
+      "formula": "CHAR(55296)<CHAR(55297)",
+      "value": {
+        "t": "bool",
+        "value": true
+      }
+    },
+    {
+      "formula": "LEFT(\"😀\",1)<\"�\"",
+      "value": {
+        "t": "bool",
+        "value": true
+      }
+    },
+    {
+      "formula": "CONCAT(CHAR(55296),\"&<>\")",
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          38,
+          60,
+          62
+        ],
+        "utf8": "efbfbd263c3e",
+        "xmlUtf8": "efbfbd26616d703b266c743b2667743b"
+      }
+    }
+  ],
+  "library": [
+    {
+      "name": "CONCAT",
+      "args": [
+        [
+          {
+            "units": [
+              55357
+            ]
+          },
+          {
+            "units": [
+              56832
+            ]
+          }
+        ]
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55357,
+          56832
+        ],
+        "utf8": "f09f9880",
+        "xmlUtf8": "f09f9880"
+      }
+    },
+    {
+      "name": "REPT",
+      "args": [
+        {
+          "units": [
+            55296
+          ]
+        },
+        2
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          55296
+        ],
+        "utf8": "efbfbdefbfbd",
+        "xmlUtf8": "efbfbdefbfbd"
+      }
+    },
+    {
+      "name": "REPLACE",
+      "args": [
+        {
+          "units": [
+            97,
+            55296,
+            98
+          ]
+        },
+        2,
+        1,
+        {
+          "units": [
+            56320
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          97,
+          56320,
+          98
+        ],
+        "utf8": "61efbfbd62",
+        "xmlUtf8": "61efbfbd62"
+      }
+    },
+    {
+      "name": "SUBSTITUTE",
+      "args": [
+        {
+          "units": [
+            97,
+            55296,
+            98
+          ]
+        },
+        {
+          "units": [
+            55296
+          ]
+        },
+        {
+          "units": [
+            56320
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          97,
+          56320,
+          98
+        ],
+        "utf8": "61efbfbd62",
+        "xmlUtf8": "61efbfbd62"
+      }
+    },
+    {
+      "name": "LEFT",
+      "args": [
+        {
+          "units": [
+            55296,
+            97
+          ]
+        },
+        1
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55296
+        ],
+        "utf8": "efbfbd",
+        "xmlUtf8": "efbfbd"
+      }
+    },
+    {
+      "name": "RIGHT",
+      "args": [
+        {
+          "units": [
+            97,
+            56320
+          ]
+        },
+        1
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          56320
+        ],
+        "utf8": "efbfbd",
+        "xmlUtf8": "efbfbd"
+      }
+    },
+    {
+      "name": "MID",
+      "args": [
+        {
+          "units": [
+            97,
+            55296,
+            98
+          ]
+        },
+        2,
+        1
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55296
+        ],
+        "utf8": "efbfbd",
+        "xmlUtf8": "efbfbd"
+      }
+    },
+    {
+      "name": "LOWER",
+      "args": [
+        {
+          "units": [
+            65,
+            55296,
+            66
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          97,
+          55296,
+          98
+        ],
+        "utf8": "61efbfbd62",
+        "xmlUtf8": "61efbfbd62"
+      }
+    },
+    {
+      "name": "PROPER",
+      "args": [
+        {
+          "units": [
+            97,
+            55296,
+            66
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          65,
+          55296,
+          98
+        ],
+        "utf8": "41efbfbd62",
+        "xmlUtf8": "41efbfbd62"
+      }
+    },
+    {
+      "name": "TRIM",
+      "args": [
+        {
+          "units": [
+            32,
+            55296,
+            32,
+            32,
+            97,
+            32
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          32,
+          97
+        ],
+        "utf8": "efbfbd2061",
+        "xmlUtf8": "efbfbd2061"
+      }
+    },
+    {
+      "name": "CLEAN",
+      "args": [
+        {
+          "units": [
+            0,
+            55296,
+            31,
+            97
+          ]
+        }
+      ],
+      "value": {
+        "t": "text",
+        "units": [
+          55296,
+          97
+        ],
+        "utf8": "efbfbd61",
+        "xmlUtf8": "efbfbd61"
+      }
+    },
+    {
+      "name": "SEARCH",
+      "args": [
+        {
+          "units": [
+            55296
+          ]
+        },
+        {
+          "units": [
+            97,
+            55296,
+            98
+          ]
+        }
+      ],
+      "value": {
+        "t": "number",
+        "bits": "4000000000000000"
+      }
+    },
+    {
+      "name": "FIND",
+      "args": [
+        {
+          "units": [
+            56320
+          ]
+        },
+        "😀"
+      ],
+      "value": {
+        "t": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "name": "INDEX",
+      "args": [
+        {
+          "units": [
+            55357,
+            56832
+          ]
+        },
+        1
+      ],
+      "value": {
+        "t": "error",
+        "value": "#VALUE!"
+      }
+    },
+    {
+      "name": "MATCH",
+      "args": [
+        {
+          "units": [
+            55296
+          ]
+        },
+        [
+          {
+            "units": [
+              55296
+            ]
+          }
+        ],
+        0
+      ],
+      "value": {
+        "t": "number",
+        "bits": "3ff0000000000000"
+      }
+    },
+    {
+      "name": "DATEVALUE",
+      "args": [
+        {
+          "units": [
+            55296,
+            32,
+            74,
+            97,
+            110,
+            32,
+            49,
+            44,
+            32,
+            50,
+            48,
+            50,
+            52
+          ]
+        }
+      ],
+      "value": {
+        "t": "date",
+        "milliseconds": 1704067200000
+      }
+    },
+    {
+      "name": "DATEVALUE",
+      "args": [
+        {
+          "units": [
+            74,
+            97,
+            110,
+            32,
+            49,
+            44,
+            32,
+            50,
+            48,
+            50,
+            52,
+            32,
+            40,
+            55296,
+            41
+          ]
+        }
+      ],
+      "value": {
+        "t": "date",
+        "milliseconds": 1704067200000
+      }
+    },
+    {
+      "name": "MATCH",
+      "args": [
+        "?",
+        [
+          {
+            "units": [
+              55296
+            ]
+          }
+        ],
+        0
+      ],
+      "value": {
+        "t": "number",
+        "bits": "3ff0000000000000"
+      }
+    },
+    {
+      "name": "VLOOKUP",
+      "args": [
+        {
+          "units": [
+            55297
+          ]
+        },
+        [
+          [
+            {
+              "units": [
+                55296
+              ]
+            },
+            1
+          ],
+          [
+            {
+              "units": [
+                55298
+              ]
+            },
+            2
+          ]
+        ],
+        2,
+        true
+      ],
+      "value": {
+        "t": "number",
+        "bits": "3ff0000000000000"
+      }
+    }
+  ],
+  "exceptionBoundary": {
+    "messageUnits": [
+      67,
+      97,
+      110,
+      110,
+      111,
+      116,
+      32,
+      97,
+      115,
+      115,
+      105,
+      103,
+      110,
+      32,
+      116,
+      111,
+      32,
+      114,
+      101,
+      97,
+      100,
+      32,
+      111,
+      110,
+      108,
+      121,
+      32,
+      112,
+      114,
+      111,
+      112,
+      101,
+      114,
+      116,
+      121,
+      32,
+      39,
+      49,
+      39,
+      32,
+      111,
+      102,
+      32,
+      115,
+      116,
+      114,
+      105,
+      110,
+      103,
+      32,
+      39,
+      55296,
+      50,
+      39
+    ],
+    "jsonBytes": "7b226d657373616765223a2243616e6e6f742061737369676e20746f2072656164206f6e6c792070726f706572747920273127206f6620737472696e6720275c75643830303227227d",
+    "utf8Bytes": "43616e6e6f742061737369676e20746f2072656164206f6e6c792070726f706572747920273127206f6620737472696e672027efbfbd3227"
+  }
+}

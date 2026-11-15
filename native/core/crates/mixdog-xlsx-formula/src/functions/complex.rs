@@ -34,7 +34,7 @@ fn coefficient(value: &V, imaginary: bool) -> V {
             return numeric(0.0);
         }
     }
-    let mut s = to_js_string(value);
+    let Ok(mut s) = String::from_utf16(&to_js_utf16(value)) else { return V::Error(E::Num); };
     if imaginary {
         s = s
             .replacen("+i", "+1i", 1)
@@ -95,6 +95,7 @@ fn parts(value: &V) -> (V, V) {
 fn suffix(v: &V, label: &str) -> Result<&'static str, Failure> {
     match v {
         V::Text(s) => Ok(if s.ends_with('j') { "j" } else { "i" }),
+        V::Utf16(units) => Ok(if units.last() == Some(&u16::from(b'j')) { "j" } else { "i" }),
         _ => Err(Failure::thrown(format!(
             "{label}.substring is not a function"
         ))),

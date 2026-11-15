@@ -248,6 +248,7 @@ fn encode(value: &Value) -> Json {
         Value::Undefined => json!({ "t": "undefined" }),
         Value::Number(number) => json!({ "t": "number", "bits": format!("{:016x}", number.to_bits()) }),
         Value::Text(text) => json!({ "t": "text", "v": text }),
+        Value::Utf16(units) => json!({"t":"utf16","units":units}),
         Value::Error(error) => json!({ "t": "error", "v": error.message() }),
         Value::Bool(flag) => json!({ "t": "bool", "v": flag }),
         other => panic!("not an engine result: {other:?}"),
@@ -481,11 +482,9 @@ fn the_engine_refuses_what_it_cannot_stand_behind_instead_of_guessing() {
 }
 
 
-/// Owned by formula-core; enable after the four library modules have been wired
-/// into TABLES. These are the remaining engine-level assertions from the original
-/// xlsx-formula-engine.test.mjs, not substitutes implemented by the test handful.
+/// Original engine assertions use the registered production library.
 #[test]
-#[ignore = "integration gate: requires the four formula library tasks registered in TABLES"]
+#[allow(clippy::approx_constant, reason = "the expected 0.7071 is Node ROUND(...,4), not the unrounded mathematical constant")]
 fn original_engine_cases_with_the_production_library() {
     use mixdog_xlsx_formula::evaluate_formula;
     let mut cells = Cells(HashMap::from([
