@@ -116,7 +116,7 @@ pub fn fill_form_values(form: &mut PdfForm, doc: &mut PdfDocument, values: &Valu
                 } else {
                     if chosen.is_empty() && field.kind == FieldKind::Dropdown {
                         return Err(FormError::new(
-                            "`options` must be of type `string` or `array`, but was actually of type `undefined`",
+                            "`options` must be of type `string` or `Array`, but was actually of type `undefined`",
                         ));
                     }
                     form.select_choice(doc, &field, &chosen)?;
