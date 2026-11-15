@@ -209,7 +209,7 @@ What it does, and how each result reads:
 The check passed when its last line is `shadow check: all checks passed` and the
 exit status is 0. It never touches the live service, port or `DATA_DIR`. If the run
 was interrupted, `ls -d /var/tmp/mixdog-shadow.*` shows a leftover scratch copy:
-`rm -rf` it (it holds copies of the credentials), and `pgrep -af mixdog-relay.candidate`
+`rm -rf` it (it holds copies of the credentials), and `pgrep -af /var/tmp/mixdog-shadow`
 must show nothing.
 
 ## 4. Switch
@@ -326,10 +326,10 @@ Only after the owner's window has passed with the binary serving. Steps in this 
 
    ```sh
    cd /opt/mixdog-relay/deploy/coturn      # the new tree carries the updated script
-   ./provision-coturn.sh <the same arguments as the first provisioning>
+   ./provision-coturn.sh <relay-domain> <public-ipv4> --user-quota=<N> --issue-limit=<N>   # the values of the first provisioning
    systemctl cat mixdog-coturn-egress | grep ExecStart      # /opt/mixdog-relay/mixdog-relay reserved-ports ...
    systemctl is-active mixdog-coturn-egress mixdog-coturn
-   ./verify-turn.sh <the same arguments as before>
+   ./verify-turn.sh <public-ipv4>
    ```
 
    Worked when `ExecStart` names the binary, both units are active and
