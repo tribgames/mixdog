@@ -519,7 +519,7 @@ for (const entry of synthetic) {
   out.synthetic.push(record);
 }
 
-if (!process.env.KEEP_WORK) rmSync(work, { recursive: true, force: true });
+rmSync(work, { recursive: true, force: true });
 
 const fixtures = path.join(FIXTURES_ROOT, 'office-analysis');
 mkdirSync(fixtures, { recursive: true });
