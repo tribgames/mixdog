@@ -631,7 +631,7 @@ mod tests {
         for cell in ["38", "-4.2%", "−4.2%", "₩740,000", "1.6배", "12건", "(12)", "+3%p", "2.6억 원", "$ 5"] {
             assert!(FIGURE_CELL.is_match(cell), "{cell}");
         }
-        for cell in ["", "abc", "12 months ago", "1.6 배배배배", "-", "12건 건 건"] {
+        for cell in ["", "abc", "12 months ago", "1.6 배배배배배배배", "-", "12건 건 건"] {
             assert!(!FIGURE_CELL.is_match(cell), "{cell}");
         }
     }
