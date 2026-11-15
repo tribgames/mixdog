@@ -87,6 +87,7 @@ members = [
     "crates/mixdog-ooxml",
     "crates/mixdog-raster",
     "crates/mixdog-entry",
+    "crates/mixdog-repl",
     "crates/mixdog-tui-widgets",
     "crates/mixdog-tui",
     "crates/mixdog-office-com/recorder",
@@ -224,6 +225,7 @@ mixdog-office-quality = { path = "crates/mixdog-office-quality" }
 mixdog-ooxml = { path = "crates/mixdog-ooxml" }
 mixdog-raster = { path = "crates/mixdog-raster" }
 mixdog-entry = { path = "crates/mixdog-entry" }
+mixdog-repl = { path = "crates/mixdog-repl" }
 mixdog-tui-widgets = { path = "crates/mixdog-tui-widgets" }
 mixdog-tui = { path = "crates/mixdog-tui" }
 mixdog-office-author = { path = "crates/mixdog-office-author" }

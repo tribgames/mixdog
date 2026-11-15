@@ -16,6 +16,8 @@ mixdog-fsio = { workspace = true }
 mixdog-ooxml = { workspace = true }
 mixdog-raster = { workspace = true }
 base64 = { workspace = true }
+mixdog-office-pdf = { workspace = true }
+mixdog-office-design = { workspace = true }
 
 [dev-dependencies]
 mixdog-office-base = { workspace = true, features = ["test-support"] }

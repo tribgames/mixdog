@@ -8,6 +8,14 @@ pub mod analysis;
 pub mod document;
 pub mod limits;
 pub mod search;
+pub mod adapter;
+pub mod edit_document;
+pub mod safety;
+pub mod security;
+pub mod structure;
+pub mod forms;
+pub mod contact_sheets;
+pub mod render;
 
 pub use analysis::images::{ExtractedImage, ImageExtraction, ImageOptions, extract_pdf_images};
 pub use analysis::layout::{

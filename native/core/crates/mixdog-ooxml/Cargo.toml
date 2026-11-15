@@ -30,6 +30,7 @@ mixdog-xlsx-formula = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 icu_collator = { workspace = true }
 icu_locale_core = { workspace = true }
+mixdog-raster = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
@@ -40,3 +41,6 @@ flate2 = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tar = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
