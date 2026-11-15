@@ -1,0 +1,141 @@
+# nr-office-author-pptx-charts: what the lead applies (all of it is in files this task does not own).
+# (No protocol rows, no daemon service, no SERVICE_PENDING change, no Cargo edge: the chart writer and the normaliser are
+# library modules of mixdog-office-author; every crate they use (mixdog-ooxml, mixdog-js, mixdog-fsio, mixdog-office-base,
+# serde_json; dev: base64, mixdog-office-base with test-support) is in the crate's Cargo.toml already. The callers are the
+# pptx build task (nr-office-author-pptx-build) and the script runner (nr-office-author-script-runtime).)
+
+## 1. native/core/crates/mixdog-office-author/src/lib.rs
+Add the module beside `pub mod geometry;` (any place in the list; it has no dependency on the others):
+
+    pub mod normalize;
+
+and one line to the crate's header comment: `normalize`, the post-processing of an authored deck (`authoring/pptx-script-normalize.mjs`:
+one `a:pPr` per paragraph, merged accent series, chart faces, schema order, native gradients, unique shape ids, icon SVGs,
+the presentation's list order).
+
+## 2. native/core/crates/mixdog-office-author/src/pptx_writer/mod.rs
+Beside `mod media;` add (alphabetical: before `media`):
+
+    mod chart_workbook;
+    mod charts;
+
+and beside `pub use media::ImageFile;` add:
+
+    pub use charts::{AxisCrossing, AxisStyle, Chart, ChartArea, ChartBorder, ChartData, ChartKind, ChartLayout, ChartOptions, ChartShadow, GridLine, PlotArea, TitlePos};
+
+In the module comment, "Not carried" gains: the 3D bar, the bubble chart and combo charts with a secondary axis (the chart
+writer of charts.rs carries area, bar and column, line, pie, doughnut, radar and scatter).
+
+## 3. native/core/crates/mixdog-office-author/src/pptx_writer/slide.rs  (a chart is one of the slide's objects)
+(a) imports: `use super::charts::{Chart, ChartData, ChartKind, ChartOptions};`
+
+(b) `enum SlideObject`: add the variant `Chart(Chart),` after `Image(ImageObject),`.
+
+(c) `Slide::next_rel_id` (`getNewRelId`): the chart relationships count too:
+
+    fn next_rel_id(&self) -> usize {
+        self.rels.len() + self.rels_media.len() + self.charts().count() + 1
+    }
+
+and beside it:
+
+    /// The charts of the slide in the order they were added (`slide._relsChart`).
+    pub(crate) fn charts(&self) -> impl Iterator<Item = &Chart> {
+        self.objects.iter().filter_map(|object| match object {
+            SlideObject::Chart(chart) => Some(chart),
+            _ => None,
+        })
+    }
+
+    /// `slide.addChart(type, data, options)`; `id` is the deck's chart number (`Presentation::add_chart` counts them).
+    pub(crate) fn add_chart(&mut self, kind: ChartKind, data: Vec<ChartData>, options: ChartOptions, id: usize) -> Result<(), String> {
+        let before = self.charts().count();
+        let chart = Chart::new(kind, data, options, id, self.next_rel_id(), before)?;
+        self.objects.push(SlideObject::Chart(chart));
+        Ok(())
+    }
+
+(d) `csld_xml`, in the `match object` of the loop over `input.objects`, add:
+
+    SlideObject::Chart(chart) => xml.push_str(&chart.frame_xml(index, input.layout)),
+
+(e) `Slide::rels_xml`: after the loop over `self.rels` and before the loop over `self.rels_media` (the order of
+`slideObjectRelationsToXml`: hyperlinks, charts, media) add:
+
+    for chart in self.charts() {
+        last = last.max(chart.rid());
+        xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"{}\"/>", chart.rid(), chart.target()));
+    }
+
+(`SlideObject` derives Debug, Clone, PartialEq; `Chart` derives the same. `notes_text` and the picture and shape counters
+already match on their own variants only, so a chart does not change them: a chart's id on the slide is its place among
+the slide's objects plus 2, as for the others.)
+
+## 4. native/core/crates/mixdog-office-author/src/pptx_writer/presentation.rs
+(a) `struct Presentation`: a field `chart_counter: usize,` (pptxgenjs's module-level `_chartCounter`, here one per deck:
+`chart<n>.xml` numbers from 1), initialised to 0 in `Presentation::new` (and `Default` if it is spelled out).
+Imports: `use super::charts::{ChartData, ChartKind, ChartOptions};`
+
+(b) beside `add_slide`:
+
+    /// `slide.addChart(type, data, options)` on the slide at `index`.
+    pub fn add_chart(&mut self, index: usize, kind: ChartKind, data: Vec<ChartData>, options: ChartOptions) -> Result<(), String> {
+        self.chart_counter += 1;
+        let id = self.chart_counter;
+        let slide = self.slides.get_mut(index).ok_or_else(|| format!("no slide {index}"))?;
+        slide.add_chart(kind, data, options, id)
+    }
+
+(c) `content_types_xml`: the loop `for index in 1..=self.slides.len()` that writes the slide master and slide overrides
+becomes a loop over `self.slides.iter().enumerate()` (`index` is `at + 1`), and after the slide's Override it adds, as
+`makeXmlContTypes` does, for each chart of the slide:
+
+    for chart in slide.charts() {
+        xml.push_str(&format!("<Override PartName=\"{}\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", chart.target()));
+    }
+
+(The `xlsx` Default is already written there.)
+
+(d) `package`: after the loop that writes the media of every slide (pptxgenjs writes the media synchronously and each chart's
+parts when its workbook is generated, so charts come after all media), add:
+
+    for slide in &self.slides {
+        for chart in slide.charts() {
+            for (name, bytes) in chart.parts()? {
+                package.set(&name, bytes);
+            }
+        }
+    }
+
+(`FOLDERS` already holds `ppt/charts`, `ppt/charts/_rels` and `ppt/embeddings`: the folder entries are written first.)
+
+## 5. native/core/fixtures/MANIFEST.json, "sets" (keep the list sorted by set name: after "office-author-..." sets of the
+##    track, before "office-brief" if that is where the sorted order puts it):
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-author-pptx-charts.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-author-pptx-charts/MANIFEST.json",
+      "manifestSha256": "f10cf0ff03bdcf67f74d694a3bcaa1000e1be3ecf182be9800d8c7c7eaccffbd",
+      "recorder": "benchmarks/rust-core/recorders/record-office-author-pptx-charts.mjs",
+      "set": "office-author-pptx-charts",
+      "totalBytes": 2883611
+    },
+(Or run `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` once the wave is merged.)
+
+## 6. For the later tasks of the track
+The new exports: `pptx_writer::{Chart, ChartData, ChartKind, ChartOptions, AxisStyle, ChartShadow, ...}` (the options of
+`addChart` by their pptxgenjs names in snake case; an unset option is `None`/`false`, as `undefined` is), `Presentation::add_chart(slide_index,
+kind, data, options)`, `Chart::{new, xml, parts, rels_xml, target, frame_xml}`; and `normalize::{normalize_authored_pptx(proof,
+note, path), normalize_package(&mut Package), Normalized, merge_accent_series, order_chart_children, native_gradients,
+gradient_fill_xml, unique_shape_ids, normalize_chart_fonts, prune_undeclared_axis_ids, order_presentation_lists,
+normalize_paragraph_properties}`. The caller of the build (nr-office-author-pptx-build) runs `normalize_authored_pptx` on the
+saved deck, as `pptx-script-runner.mjs` and `pptx-html-runner.mjs` do.
+Kept on purpose: the colour of a marker past the colour list is random (`Math.random` of pptxgenjs, `mixdog_js::math::random`),
+and so are the identifiers of a scatter chart's custom labels. Not carried: 3D bar, bubble, combo charts with a secondary axis.
+
+## Not compiled
+The modules were written without cargo (the wave is compiled by the lead): `cargo test -p mixdog-office-author` is the check
+(unit tests in charts.rs, chart_workbook.rs and normalize.rs, the ten tests of `pptx-script-normalize.test.mjs` among
+them; tests/twin_pptx_charts.rs replays native/core/fixtures/office-author-pptx-charts and needs no Node;
+`twin_live_pptx_charts` (ignored) re-records through Node). The twin test needs the two `mod` lines and the `pub use` of
+section 2 and `pub mod normalize` of section 1; the chart replay does not need sections 3 and 4.

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-author-pptx-charts.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2883611,
+      "path": "golden.json",
+      "sha256": "631084e98e5ea71bd5347b8c858c4ccee9f2cbb298160636430a2894c531ecd2"
+    }
+  ],
+  "product": {
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
+    "refComparison": {
+      "closestCommit": "8d961573d84a4ae181f67053899737a78719d6a3",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 21681
+    },
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-author-pptx-charts.mjs",
+  "set": "office-author-pptx-charts",
+  "totalBytes": 2883611
+}
