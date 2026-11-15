@@ -1,7 +1,8 @@
 /**
  * The engine transcript tap: with MIXDOG_BROWSER_TRANSCRIPT naming a
  * directory, every engine host call is appended to `engine-<pid>.jsonl` there
- * as `{dir, method, params, result | error, t}`. It exists only in a
+ * as `{dir, method, params, result | error, t}` (`push` rows are what the host volunteered: `events`, `page/facts`, `userInput`, with
+ * `params`). It exists only in a
  * development or test build (`devBuild`: the desktop runs unpackaged, or the
  * test-hooks build flag is set) and is off in a packaged app whatever the
  * variable says. The registry masks the secrets known to the page before it
@@ -13,12 +14,22 @@ import { join } from 'node:path';
 import { redactBrowserText } from '../../browser/redaction';
 
 export interface TranscriptEntry {
-  /** `in` is the core's request, `out` the host's answer. */
-  dir: 'in' | 'out';
+  /** `in` is the core's request, `out` the host's answer, `push` a notification the host sent. */
+  dir: 'in' | 'out' | 'push';
   method: string;
   params?: unknown;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
+}
+
+/** Every string leaf redacted: a line is redacted as JSON text it would no longer parse (the rules mask a `"key":"value"` pair whole). */
+function redactLeaves(value: unknown): unknown {
+  if (typeof value === 'string') return redactBrowserText(value);
+  if (Array.isArray(value)) return value.map(redactLeaves);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactLeaves(item)]));
+  }
+  return value;
 }
 
 export interface TranscriptTap {
@@ -45,7 +56,7 @@ export function createTranscriptTap(options: {
     record(entry) {
       if (failed) return;
       try {
-        appendFileSync(file, `${redactBrowserText(JSON.stringify({ ...entry, t: now() }))}\n`);
+        appendFileSync(file, `${JSON.stringify(redactLeaves({ ...entry, t: now() }))}\n`);
       } catch (error) {
         failed = true;
         console.error('[browser-engine] transcript write failed, the tap is off:', (error as Error).message);

@@ -113,7 +113,9 @@ test('resolve with background:true makes the hidden page; a tab index is the vis
   assert.equal(hidden.page.tabId, 'bg');
   assert.equal(hidden.leaseId, undefined);
   await h.call('resolve', { sessionId: 'sess', tab: { index: 1 } });
-  assert.ok(h.log.includes('target false v1'));
+  assert.ok(h.log.includes('target undefined v1'), 'a command that did not say background leaves it unsaid, as the old runner did');
+  await h.call('resolve', { sessionId: 'sess', background: false, tab: { index: 1 } });
+  assert.ok(h.log.includes('target false v1'), 'an explicit background:false is told as it is');
 });
 
 test('a hidden page an agent made is the turn to reclaim, one kept alive or the user own is not', async () => {

@@ -46,6 +46,8 @@ interface Step {
   input: (context: Context) => Record<string, unknown>;
   /** Runs before the step (test-only setup). */
   before?: () => void;
+  /** The corpus recorded this step in a remote session (private networks blocked); the core runs it under that stance. */
+  remote?: boolean;
 }
 
 /** One step of the corpus. */
@@ -60,18 +62,28 @@ interface GoldenStep {
 }
 
 /** One command of the script in the harness's mode; it carries `turn_id`, as every command of a turn does. */
-async function runCommand(harness: CoreHarness, request: Record<string, unknown>): Promise<Outcome> {
+async function runCommand(harness: CoreHarness, request: Record<string, unknown>, remoteSession: boolean): Promise<Outcome> {
   const { action, ...input } = request;
   if (harness.engine === 'core') {
-    const result = (await harness.runTool(HARNESS_SESSION, 'browser', { action, input: { turn_id: 1, ...input } })) as {
+    const result = (await harness.runTool(HARNESS_SESSION, 'browser', {
+      action,
+      input: { turn_id: 1, ...input },
+      ...(remoteSession ? { remoteSession: true } : {}),
+    })) as {
       text?: string;
       image?: { mimeType?: string };
       isError?: boolean;
+      outcome?: string;
     };
+    // The corpus is what the bridge answered (`{ok, value}` or `{ok: false, error}`), before the tool's client led a failure with
+    // `Error: ` and flagged a blocked outcome as an error: so a blocked outcome is the bridge's success, and a failure's text is
+    // read without the lead the model's copy of it carries.
+    const failed = Boolean(result.isError) && result.outcome !== 'blocked';
+    const text = String(result.text ?? '');
     return {
-      ok: !result.isError,
-      text: String(result.text ?? ''),
-      ...(!result.isError && result.image ? { imageMime: result.image.mimeType } : {}),
+      ok: !failed,
+      text: failed ? text.replace(/^Error: /, '') : text,
+      ...(!failed && result.image ? { imageMime: result.image.mimeType } : {}),
     };
   }
   try {
@@ -293,7 +305,11 @@ const suite: CoreHarnessSuite = async (harness) => {
         input: () => ({ action: 'downloads', wait: true, timeoutMs: 3000 }),
       },
       { name: 'navigate-404', input: () => ({ action: 'navigate', url: `${origin}/missing`, background: true, tab: 'beta' }) },
-      { name: 'navigate-refused-address', input: () => ({ action: 'navigate', url: 'http://10.255.255.1/', background: true, tab: 'beta' }) },
+      {
+        name: 'navigate-refused-address',
+        remote: true,
+        input: () => ({ action: 'navigate', url: 'http://10.255.255.1/', background: true, tab: 'beta' }),
+      },
       { name: 'status', input: () => ({ action: 'status' }) },
       { name: 'list_tabs', input: () => ({ action: 'list_tabs' }) },
       { name: 'close_tab', input: () => ({ action: 'close_tab', tab: 'beta' }) },
@@ -313,11 +329,25 @@ const suite: CoreHarnessSuite = async (harness) => {
     for (const step of steps) {
       step.before?.();
       const request = step.input(context);
-      const outcome = await runCommand(harness, request);
+      const outcome = await runCommand(harness, request, step.remote === true);
       latest.previous = outcome.text;
       if (/\[p\d+-s\d+-e\d+\]/.test(outcome.text)) latest.text = outcome.text;
       results.push({ request, outcome });
     }
+
+    // Every string of a request is normalised on its own: a path in the serialised request has its backslashes doubled, which the
+    // placeholders of `normalize` (the plain path) would never find.
+    // The corpus was recorded where that normalisation missed the upload path of its own run (a path of its profile folder, kept as
+    // it was), so a path into a profile of this script's folder is the upload fixture on both sides.
+    const profilePath = /^(?:[A-Za-z]:)?[\\/].*mixdog-browser-golden-profile-[A-Za-z0-9]+[\\/]browser-upload-fixture\.txt$/;
+    const normalizeLeaves = (value: unknown): unknown => {
+      if (typeof value === 'string') return profilePath.test(value) ? '<UPLOAD>' : normalize(value);
+      if (Array.isArray(value)) return value.map(normalizeLeaves);
+      if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeLeaves(item)]));
+      }
+      return value;
+    };
 
     // Ids compare by order of first appearance, so a run that starts its page and download counters elsewhere still matches.
     const canonical = (): ((text: string) => string) => {
@@ -356,13 +386,15 @@ const suite: CoreHarnessSuite = async (harness) => {
       }
       const same =
         outcome.ok === recorded.ok &&
-        JSON.stringify(JSON.parse(normalize(JSON.stringify(request)))) === JSON.stringify(recorded.request) &&
+        JSON.stringify(normalizeLeaves(request)) === JSON.stringify(normalizeLeaves(recorded.request)) &&
         (isTrace ? normalizeTraceDurations(outcome.text) === expectedText : canonCorpus(expectedText) === canonRun(outcome.text)) &&
         outcome.imageMime === recorded.imageMime &&
         (outcome.hasTiming === undefined || outcome.hasTiming === recorded.hasTiming);
       if (!same) {
         mismatches.push(
-          `${step.name}\n  corpus: ${JSON.stringify([recorded.ok, expectedText.slice(0, 400)])}\n  ${harness.engine}: ${JSON.stringify([outcome.ok, canonRun(outcome.text).slice(0, 400)])}`
+          `${step.name}\n  corpus: ${JSON.stringify([recorded.ok, canonCorpus(expectedText)])}\n  ${harness.engine}: ${JSON.stringify([outcome.ok, canonRun(outcome.text)])}
+  requests: ${JSON.stringify([normalizeLeaves(recorded.request), normalizeLeaves(request)])}
+  image/timing: ${JSON.stringify([recorded.imageMime, outcome.imageMime, recorded.hasTiming, outcome.hasTiming])}`
         );
       }
       progress(`${step.name}: ok=${outcome.ok} same=${same}`);
