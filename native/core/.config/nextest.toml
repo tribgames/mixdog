@@ -190,8 +190,8 @@ threads-required = 'num-test-threads'
 filter = 'package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/)'
 test-group = 'tag-gates'
 # The exec binary replay runs seven cases one after the other, each a process of the binary beside a TLS stand-in (one beside a running core, two
-# interrupted). Alone it passes in 12-14 s (g7, g97); in the whole-workspace run, with the build drives busy, it was at 120 s in two of two runs
-# (g95, t2) while the test's own bounds (180 s a run, a held request or a child's end) had not been reached. It gets the time those bounds name.
+# interrupted). In whole-workspace runs it passed in 12-14 s (g7, g97) and reached 120 s in g95 and t2: an intermittent wait, not yet found and not
+# load alone. This limit is not a fix: it lets the test's own bounds (180 s a run, a held request or a child's end) fire first and name what waits.
 [[profile.default.overrides]]
 filter = 'package(mixdog-cli) & binary(exec_cli_replay) & test(=the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case)'
 slow-timeout = { period = "60s", terminate-after = 6 }
