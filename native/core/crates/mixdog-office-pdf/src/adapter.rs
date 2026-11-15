@@ -570,6 +570,9 @@ pub struct BatchState<'a, P: WriteProof> {
     /// The file as the batch found it.
     pub source: &'a [u8],
     pub document: PdfDocument,
+    /// Set by a handler that continues on a fresh load of its own (it replaces `document`): the new document starts clean, so
+    /// its being unedited says nothing about the file.
+    pub replaced: bool,
     /// Text positions measured for a mark, valid across further marks; any other operation drops them.
     pub measure: Option<Box<dyn Any + Send>>,
 }
@@ -599,7 +602,7 @@ pub fn apply_pdf_batch<P: WriteProof>(
 ) -> Result<Vec<Value>, AnalysisError> {
     let source = read_file(proof, path)?;
     let document = load_pdf(&source, false)?;
-    let mut state = BatchState { proof, note, path, source: &source, document, measure: None };
+    let mut state = BatchState { proof, note, path, source: &source, document, replaced: false, measure: None };
     let mut results: Vec<Value> = Vec::new();
     for operation in operations {
         let op = js_string(operation.get("op"));
@@ -613,7 +616,12 @@ pub fn apply_pdf_batch<P: WriteProof>(
         }
         results.push(set.run(&mut state, operation)?);
     }
-    let mut bytes = state.document.save(SaveOptions::default());
+    // A batch that edited nothing leaves the file as it was: the rewrite of an untouched pdf-lib file is byte for byte the file
+    // in Node, where this writer's would differ in its compression and its bookkeeping streams. A compression is the exception:
+    // its work is the rewrite itself.
+    let compression_asked = operations.iter().any(|operation| js_string(operation.get("op")) == "compress");
+    let untouched = !state.replaced && !state.document.store().is_dirty() && !compression_asked;
+    let mut bytes = if untouched { source.clone() } else { state.document.save(SaveOptions::default()) };
     // Object streams can cost more than they save on a file that is already compact. When compression was the only
     // thing asked for and the rewrite came back larger, the file it started with is the better answer: keeping it and
     // reporting no change beats reporting growth as a successful compression.

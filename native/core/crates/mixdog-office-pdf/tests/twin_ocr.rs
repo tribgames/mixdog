@@ -202,10 +202,15 @@ fn replay(golden: &Value) {
         if case["written"].as_bool().expect("written") {
             let layout = extract_pdf_text_layout(&Unlaned, PdfSource::Bytes(&after), &LayoutOptions { shapes: false, ..LayoutOptions::default() }).expect("layout");
             for sheet in &layout.pages {
-                let mut carried: Vec<String> = sheet.items.iter().map(|item| item.text.trim().to_owned()).filter(|text| !text.is_empty()).collect();
-                let mut placed: Vec<String> = runs.iter().filter(|run| run["page"].as_u64() == Some(sheet.page as u64)).map(|run| run["text"].as_str().expect("text").trim().to_owned()).collect();
-                carried.sort();
-                placed.sort();
+                // pdf.js reads a run of text as one item per stretch the font spaces out ("Second", " ", "row here" for a run
+                // of three words set with wide gaps, as it does in Node), so the words are compared, not the items.
+                let words = |texts: &mut dyn Iterator<Item = String>| {
+                    let mut words: Vec<String> = texts.flat_map(|text| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>()).collect();
+                    words.sort();
+                    words
+                };
+                let carried = words(&mut sheet.items.iter().map(|item| item.text.clone()));
+                let placed = words(&mut runs.iter().filter(|run| run["page"].as_u64() == Some(sheet.page as u64)).map(|run| run["text"].as_str().expect("text").to_owned()));
                 assert_eq!(carried, placed, "{name}: the text layer of page {}", sheet.page);
             }
         }

@@ -115,3 +115,31 @@ async fn a_pdf_previews_in_place_and_the_root_and_type_are_guarded() {
     };
     assert_eq!(refused(not_a_file), ("not_a_file".to_owned(), "Not a file.".to_owned()));
 }
+
+/// The page of a PDF rasterised by the office PDF backend the worker registers (no LibreOffice or Office is started: the
+/// document is a PDF), answered in the shape of Node's `document.previewPages`.
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "test setup builds fixture trees")]
+async fn a_pdf_page_is_rasterised_by_the_registered_engine() {
+    const PDF: &str = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << >> >>\nendobj\n4 0 obj\n<< /Length 49 >>\nstream\n0.9 g 0 0 595 842 re f 0.2 g 59.5 421 476 12 re f\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000219 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n318\n%%EOF\n";
+    let root = tempfile::tempdir().expect("root");
+    let base = root.path();
+    std::fs::write(base.join("page.pdf"), PDF).expect("pdf");
+    let pool = pool();
+    let params = json!({
+        "root": base.to_string_lossy(),
+        "rel": "page.pdf",
+        "cacheRoot": base.join(".cache").to_string_lossy(),
+        "options": {"pages": [1], "maxWidth": 400},
+    });
+    let answer = ask(&pool, "document.previewPages", params, &[base]).await.expect("the page is rendered");
+    assert_eq!(answer["pageCount"], 1);
+    let pages = answer["pages"].as_array().expect("pages");
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0]["page"], 1);
+    assert_eq!(pages[0]["mime"], "image/png");
+    assert_eq!(pages[0]["width"], 401, "Math.ceil(595 * (400 / 595)) is 401 in doubles, as in Node");
+    assert_eq!(pages[0]["height"], 567);
+    let data = pages[0]["base64"].as_str().expect("base64");
+    assert!(data.starts_with("iVBORw0KGgo"), "a PNG");
+}

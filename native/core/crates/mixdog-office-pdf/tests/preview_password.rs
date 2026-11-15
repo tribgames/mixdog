@@ -46,6 +46,16 @@ fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Writes `contents` and moves the file's modification time on, as the time between two edits does in life: two writes within
+/// one tick of the file system's clock would otherwise leave the same identity (modification time and size) behind.
+#[allow(clippy::disallowed_methods, reason = "a test sets a file's modification time, which the lane API has no call for")]
+fn rewrite(path: &std::path::Path, contents: impl AsRef<[u8]>) {
+    static EDITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    mixdog_testkit::write(path, contents);
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(10 * EDITS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+    std::fs::File::options().write(true).open(path).and_then(|file| file.set_modified(later)).expect("the modification time moves on");
+}
+
 fn block<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("runtime").block_on(future)
 }
@@ -249,7 +259,7 @@ fn an_unlocked_document_serves_later_page_requests_without_its_password_and_keep
     assert_eq!(pages.page_count, 3);
     assert!(!mixdog_testkit::exists(Path::new(&f.cache_root).join("document-preview-pages")), "no page raster is stored on disk");
     // A changed document is a new identity: it asks for its password again.
-    mixdog_testkit::write(&f.source, document("agile"));
+    rewrite(&f.source, document("agile"));
     rejected(open_with(&preview, &f, ""), "OFFICE_PREVIEW_PASSWORD_PROTECTED");
 }
 
@@ -434,13 +444,13 @@ fn scratch_directories_are_tracked_from_creation_until_a_removal_succeeds_then_r
     assert!(tracked.contains(&copy), "the decrypted copy is tracked while it is rendered");
     assert!(tracked.contains(&pdf), "the unlocked PDF directory is tracked while it is written");
     // Every background retry fails too (1 + 2 + 4 + 8 + 16 + 32 ms).
-    block(mixdog_rt::time::sleep(Duration::from_millis(200)));
+    block(async { mixdog_rt::time::sleep(Duration::from_millis(200)).await });
     assert!(mixdog_testkit::exists(&copy));
     assert!(tracked_preview_scratch().contains(&copy), "a removal that keeps failing stays tracked");
     // The unlocked PDF disappears: the entry is pushed out, and its directory, whose removal fails, stays tracked.
     mixdog_testkit::remove_file(&result.path);
     rejected(open_with(&preview, &f, ""), "OFFICE_PREVIEW_PASSWORD_PROTECTED");
-    block(mixdog_rt::time::sleep(Duration::from_millis(200)));
+    block(async { mixdog_rt::time::sleep(Duration::from_millis(200)).await });
     assert!(mixdog_testkit::exists(&pdf));
     assert!(tracked_preview_scratch().contains(&pdf), "a pushed-out unlocked PDF stays tracked until it is removed");
     remove_tracked_preview_scratch_sync(&Unlaned);
