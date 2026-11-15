@@ -502,10 +502,9 @@ impl Queue {
         if let Some(ticket) = ticket {
             ticket.settle(TicketEnd::Admitted);
         }
-        if let Some(edge) = self.room.checked_sub(1).and_then(|edge| self.entries.get_mut(edge)) {
-            if let Some(ticket) = edge.ticket.take() {
-                ticket.settle(TicketEnd::Admitted);
-            }
+        if let Some(edge) = self.room.checked_sub(1).and_then(|edge| self.entries.get_mut(edge))
+            && let Some(ticket) = edge.ticket.take() {
+            ticket.settle(TicketEnd::Admitted);
         }
         Some(job)
     }

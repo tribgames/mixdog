@@ -213,12 +213,12 @@ pub fn tool_label(name: &str) -> &'static str {
     use std::sync::RwLock;
     static NAMES: RwLock<Option<HashSet<&'static str>>> = RwLock::new(None);
     if let Some(found) = NAMES.read().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|names| names.get(name)) {
-        return *found;
+        return found;
     }
     let mut names = NAMES.write().unwrap_or_else(|p| p.into_inner());
     let names = names.get_or_insert_with(HashSet::new);
     if let Some(found) = names.get(name) {
-        return *found;
+        return found;
     }
     let label: &'static str = Box::leak(name.to_owned().into_boxed_str());
     names.insert(label);

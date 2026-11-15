@@ -955,10 +955,9 @@ pub fn browser_timing_record(a: &Args) -> Args {
     fn numeric(source: Option<&Value>, keys: &[&str]) -> Map<String, Value> {
         let mut out = Map::new();
         for key in keys {
-            if let Some(v) = source.and_then(|s| s.get(*key)) {
-                if v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0) {
-                    out.insert((*key).to_string(), v.clone());
-                }
+            if let Some(v) = source.and_then(|s| s.get(*key))
+                && v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0) {
+                out.insert((*key).to_string(), v.clone());
             }
         }
         out

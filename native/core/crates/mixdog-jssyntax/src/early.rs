@@ -1500,10 +1500,8 @@ impl<'s> Checker<'s> {
                     return Err(Reason::Msg(msg::STRICT_OCTAL_ESCAPE));
                 }
             }
-            Some(b'8' | b'9') => {
-                if forbid_octal {
-                    return Err(Reason::Msg(msg::STRICT_OCTAL_ESCAPE));
-                }
+            Some(b'8' | b'9') if forbid_octal => {
+                return Err(Reason::Msg(msg::STRICT_OCTAL_ESCAPE));
             }
             _ => {}
         }
