@@ -224,7 +224,7 @@ thread_local! {
     static COVERAGE: std::cell::RefCell<Option<Mask>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Fills `path` (device points) with Skia's analytic anti-aliasing (`analytic`): the exact area of each pixel is the coverage,
+/// Fills `path` (device points) with Skia's fixed-point analytic anti-aliasing (`analytic`),
 /// cut by `cut` (the clip) and used as the mask of one fill of the paint over the pixels the path touches.
 fn fill_analytic(pixmap: &mut Pixmap, paint: &Paint, path: &Path, rule: FillRule, cut: Option<&Mask>) {
     if !paint.anti_alias {
