@@ -210,3 +210,6 @@ scripts/rust-core/tree-helper/target/
 
 # PowerShell's module cache, written beside the working directory by a child started with an isolated profile.
 native/core/Microsoft/
+
+# The native programs staged for the npm package (scripts/stage-npm-native.mjs).
+/native-bin/

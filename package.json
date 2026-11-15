@@ -27,7 +27,12 @@
     "cli",
     "mcp"
   ],
+  "bin": {
+    "mixdog": "bin/mixdog.mjs"
+  },
   "files": [
+    "bin/",
+    "native-bin/",
     "README.md",
     "NOTICE.md",
     "LICENSES/",
