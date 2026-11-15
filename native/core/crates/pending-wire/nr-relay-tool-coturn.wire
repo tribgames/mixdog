@@ -1,0 +1,28 @@
+nr-relay-tool-coturn wire fragment
+
+Cargo / workspace / compose_flip: nothing to apply. mixdog-relay already has regex, rand, libc (unix), tempfile (dev) and tokio;
+src/main.rs already dispatches `reserved-ports | stun-probe | udp-sink | turn-credential` to tools::coturn::main(&args) and
+tools/mod.rs already declares `pub mod coturn`. No SERVICE_PENDING name to remove.
+
+New subcommands of the mixdog-relay binary (same behaviour as the Node scripts, exit codes 0 / 1 error / 2 usage):
+  mixdog-relay reserved-ports apply <min> <max> <record> | release <record> | covers <min> <max>   (env RESERVED_PORTS_PROC)
+  mixdog-relay stun-probe <host> [port=3478]
+  mixdog-relay udp-sink <address> <port>
+  mixdog-relay turn-credential <user-id> [offset-ms]     (secret from env TURN_AUTH_SECRET; prints "<username> <credential>")
+
+What the deploy task that owns apps/relay/deploy/coturn must change (those files are not owned by this task), with RELAY_BIN the
+installed mixdog-relay binary (/opt/mixdog-relay/mixdog-relay, or whatever the relay unit's ExecStart names):
+- mixdog-coturn-egress.service, three lines: `@NODE_BIN@ /etc/mixdog-coturn/reserved-ports.mjs apply ...` ->
+  `@RELAY_BIN@ reserved-ports apply @TURN_MIN_PORT@ @TURN_MAX_PORT@ /run/mixdog-coturn-egress/added`; the ExecStopPost line likewise
+  `@RELAY_BIN@ reserved-ports release /run/mixdog-coturn-egress/added`.
+- provision-coturn.sh: drop the `command -v node` check (lines "node is not installed ...") and NODE_BIN; define RELAY_BIN (the installed
+  relay binary), substitute @RELAY_BIN@ where @NODE_BIN@ was, stop installing reserved-ports.mjs into $CONF_DIR, and replace the final
+  `"$NODE_BIN" "$CONF_DIR/reserved-ports.mjs" covers ...` with `"$RELAY_BIN" reserved-ports covers "$TURN_MIN_PORT" "$TURN_MAX_PORT"`.
+- deprovision-coturn.sh: comment and any call `reserved-ports.mjs release` -> `$RELAY_BIN reserved-ports release`.
+- verify-turn.sh: `node .../reserved-ports.mjs covers` -> `"$RELAY_BIN" reserved-ports covers`; `node .../stun-probe.mjs H P` ->
+  `"$RELAY_BIN" stun-probe H P`; `node .../udp-sink.mjs A P` -> `"$RELAY_BIN" udp-sink A P`; the inline `node --input-type=module -e`
+  block of mint() -> `"$RELAY_BIN" turn-credential "$2" "$1"` (the env file is still sourced with set -a before it, so TURN_AUTH_SECRET is
+  in its environment; the output is the same `username credential` line).
+- render-turnserver-conf.sh stays shell (tests/tool_coturn.rs runs it under bash on unix).
+- Then delete reserved-ports.mjs, stun-probe.mjs, udp-sink.mjs and the three *.test.mjs files (every case is in
+  mixdog-relay/tests/tool_coturn.rs, listed in tests/ledger/nr-relay-tool-coturn.json).
