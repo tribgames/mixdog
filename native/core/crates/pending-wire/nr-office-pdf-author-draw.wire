@@ -1,0 +1,55 @@
+# nr-office-pdf-author-draw: mixdog-pdf author module (wrapText, colours, page sizes, rounding, PNG/JPEG/SVG image embedding)
+
+Not compiled: cargo was not run (the lead compiles the wave). The font choice of pdf-fonts.mjs is not in this task: it is
+already `mixdog_pdf::embed::{embed_document_font, embed_bold_font, unicode_font_path}` (task nr-office-pdf-embed, replayed by
+twin_embed), so there is no author/fonts.rs.
+
+## native/core/crates/mixdog-pdf/src/lib.rs
+
+After `pub mod image;` add:
+
+    pub mod author;
+
+## native/core/crates/mixdog-pdf/Cargo.toml
+
+[dependencies], after `mixdog-js = { workspace = true }`:
+
+    mixdog-office-base = { workspace = true }
+    mixdog-raster = { workspace = true }
+    serde_json = { workspace = true }
+
+[dev-dependencies], after `serde_json = { workspace = true }`:
+
+    sha2 = { workspace = true }
+
+(mixdog-office-base stays in dev-dependencies too, with `features = ["test-support"]`, for the twin helpers. No dependency
+cycle: mixdog-office-base depends on fsio, js, rt, statefile; mixdog-raster on image, imaging, rt, fonts, fsio, none on mixdog-pdf.
+No crate outside native/core/Cargo.lock is added.)
+
+## Cargo.lock and mixdog-workspace-hack
+
+`cargo update --workspace --offline`: the package mixdog-pdf gains the dependencies mixdog-office-base, mixdog-raster, serde_json
+and (dev) sha2, all already in the lock.
+
+## native/core/fixtures/MANIFEST.json
+
+Add to "sets" (sorted by set name; verify with benchmarks/rust-core/recorders/verify-manifests.mjs):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-author-draw.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-author-draw/MANIFEST.json",
+      "manifestSha256": "fde07a8b5f33255b476a03eba9b209d37fb81ea20b67f8a19ae9020fc78c5f72",
+      "set": "office-author-draw"
+    }
+
+(copy the exact key set of the neighbouring entries, e.g. office-sharp; the sha is that of the recorded MANIFEST.json of this
+worktree.) The set was recorded with `--tree C:/Project/mixdog` (read-only), the recorder's lib/ copied in for the run and removed.
+
+## Where the writer tasks call it
+
+`mixdog_pdf::author::draw::{embed_image, page_size, parse_color, round2, EmbeddedImage}` and
+`mixdog_pdf::author::wrap::wrap_text(text, width, |s| font.width_of_text_at_size(s, size))` (nr-office-pdf-writer,
+nr-office-pdf-forms, nr-office-pdf-content-ops). `embed_image` registers the image objects into the document's
+`ObjectStore` at once (pdf-lib registers them when the page is saved: the object numbers of a writer that wants pdf-lib's
+order are that task's to arrange); the SVG logo needs a `SvgFonts` (`SvgFonts::none()` draws no text).
