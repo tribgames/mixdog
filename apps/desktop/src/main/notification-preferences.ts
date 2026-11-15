@@ -3,7 +3,8 @@
 // NotificationDevicePreferences per device (this PC under
 // NOTIFICATION_PC_DEVICE_ID, a paired device under its remote client id) and
 // the conversation overrides every device shares. The desktop service owns the
-// writes; the window process reads the file fresh for each notification.
+// writes. Superseded by the core config key `notifications` (pc-notification-view.ts): only the store below
+// remains, for the tests that go with its deletion.
 //
 // First load migrates: `desktop.turnNotifications: false` becomes this PC's
 // scope 'off', and every agent the old mute list (`agent-notifications.json`)
@@ -78,15 +79,6 @@ function storedDoc(value: unknown): NotificationPreferencesDoc {
 function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
   // A damaged file is kept aside and its last good copy read.
   return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
-}
-
-/** This PC's view, read from disk (the window process). */
-export function readPcNotificationView(filePath: string, now = Date.now()): NotificationPreferencesView {
-  const doc = readNotificationPreferencesFile(filePath);
-  return {
-    preferences: devicePreferencesIn(doc, NOTIFICATION_PC_DEVICE_ID),
-    overrides: activeOverrides(doc?.overrides ?? [], now),
-  };
 }
 
 /** `current` with `patch` applied; a patch is validated before it gets here. */
