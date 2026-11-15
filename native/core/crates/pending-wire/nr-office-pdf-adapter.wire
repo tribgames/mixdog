@@ -1,0 +1,75 @@
+# nr-office-pdf-adapter: what the lead applies (all of it is in files this task does not own)
+# Written without cargo: none of the new modules of mixdog-office-pdf has been compiled or run in Rust (the recording was
+# produced by running Node over generated PDFs; rustfmt parsed every Rust file of the task).
+
+## 1. native/core/crates/mixdog-office-pdf/src/lib.rs
+Add, right after `pub mod analysis;`:
+
+    pub mod adapter;
+    pub mod edit_document;
+    pub mod safety;
+    pub mod security;
+    pub mod structure;
+
+(The crate's other tasks add their own `pub mod` lines the same way.) Optional single-import re-exports for the tool
+layer, after the existing `pub use` lines:
+
+    pub use adapter::{
+        BatchState, FormView, OperationSet, PDF_AUDIT_MAX_CHARS, SnapshotOptions, apply_pdf_batch, issues_pdf,
+        snapshot_pdf, validate_pdf,
+    };
+    pub use edit_document::{PDF_ENCRYPTED_HINT, load_pdf, page_spin, pdf_attachments, selected_edit_pages, write_sibling};
+    pub use safety::active_content_issues;
+    pub use security::{SecureRequest, qpdf_available, secure_pdf};
+    pub use structure::StructureOperations;
+
+## 2. native/core/crates/mixdog-office-pdf/Cargo.toml (the crate's own manifest; not in this task's files)
+[dependencies]: add (all already in native/core/Cargo.lock; no new crate enters the lock):
+
+    mixdog-office-base = { workspace = true }
+    mixdog-ooxml = { workspace = true }
+    mixdog-rt = { workspace = true }
+    tokio = { workspace = true, features = ["rt", "time", "process", "io-util"] }
+    uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies] keeps `mixdog-office-base = { workspace = true, features = ["test-support"] }` and `mixdog-testkit`.
+Why: `mixdog-office-base` for `write_note::WriteNote` (the call's note of every file written; it was a dev-dependency
+only), `mixdog-ooxml` for `placeholder_scan::placeholder_text_issues` (one list for every format with visible text; the
+ooxml crate does not depend on this one, so there is no cycle), `mixdog-rt` + `tokio` for the bounded qpdf run
+(`mixdog_rt::time::timeout` over `tokio::process`, the spawn route the lint allows; std::process::Command is banned),
+`uuid` for the temporary names of the response file and the sibling of a file secured in place.
+Cargo.lock: the package `mixdog-office-pdf` gains those five entries in its dependency list.
+
+## 3. native/core/fixtures/MANIFEST.json
+Index the new set `office-adapter` (recorder benchmarks/rust-core/recorders/record-office-adapter.mjs, 1 file,
+golden.json; the set's own MANIFEST.json is at native/core/fixtures/office-adapter/MANIFEST.json) with the manifest tool
+that built the other entries: `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index`.
+
+## 4. SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)
+Nothing to remove: this task registers no protocol method, no service and no tool. The tool surface that calls these
+functions is another task's.
+
+## 5. Seams the lead connects after the wave (each is a trait this task defines and another task implements)
+- `adapter::FormView` (describe_fields, minimum_size, rectangles_overlap) is implemented by the forms module of
+  nr-office-pdf-forms over `describeFormField`, `minimumFieldSize` and `rectanglesOverlap`. The snapshot lists the form
+  through it and the audit's unnamed_form_field / field_too_small / overlapping_form_fields issues read its answers.
+- `adapter::OperationSet` is implemented by `structure::StructureOperations` (this task) and by the content operations
+  (nr-office-pdf-content-ops: fill, draw, marks, flatten, ocr, ...; the mark operations answer `keeps_measurement`
+  true, as `MARK_OPERATIONS` did). The caller of `apply_pdf_batch` passes both: `&[&content, &StructureOperations]`.
+  `BatchState.document` is replaceable by a handler that must continue on a fresh load; `BatchState.measure` carries
+  what a mark measured (a boxed value of the content module's own type).
+
+## 6. Consumers
+`mixdog_office_pdf::adapter::{snapshot_pdf, validate_pdf, issues_pdf, apply_pdf_batch}` (blocking, generic over the
+read/write lane proof, as the analysis functions are; options through `SnapshotOptions::from_json`),
+`edit_document::{load_pdf, selected_edit_pages, pdf_attachments, write_sibling, page_spin, PDF_ENCRYPTED_HINT}`,
+`safety::active_content_issues`, `security::{secure_pdf, qpdf_available}`. `secure_pdf` starts qpdf on a runtime of its
+own and so is for a lane job (a plain thread), never for a runtime worker; it needs the call's `WriteNote`.
+
+## 7. Tests
+tests/twin_adapter.rs (replays native/core/fixtures/office-adapter/golden.json; `twin_live_adapter` is #[ignore]),
+tests/security.rs (no qpdf, no process), and unit tests in adapter.rs, edit_document.rs and safety.rs.
+
+## 8. Not covered by the recording
+qpdf itself (not installed here, and a recording must not depend on it); an encrypted file's snapshot (making one needs
+qpdf); the form descriptions (the forms module's twin).
