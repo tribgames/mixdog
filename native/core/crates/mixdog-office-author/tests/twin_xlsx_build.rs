@@ -134,6 +134,17 @@ fn compare_package(name: &str, g: &Value, parts: &[Value], package: &Package, fa
 }
 
 /// The recorded measure built in a folder of its own that holds its photographs, as the recorder had them.
+fn measuring_registry() -> Registry {
+    // Node measured in the fonts of the machine that recorded (Windows: Calibri sets the digit width of a workbook, Malgun Gothic
+    // and Arial the cells); the same faces are read from the system font folder.
+    let mut registry = Registry::new();
+    let folder = PathBuf::from(std::env::var("windir").unwrap_or_else(|_| "C:/Windows".to_owned())).join("Fonts");
+    for file in ["calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf", "malgun.ttf", "malgunbd.ttf", "arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"] {
+        let _ = registry.register_file(&Unlaned, &folder.join(file), None);
+    }
+    registry
+}
+
 fn build_record(g: &Value, record: &Value) -> Result<(Vec<u8>, Vec<String>, usize), String> {
     let dir = scratch_dir("case");
     let mut captures = BTreeMap::new();
@@ -142,7 +153,7 @@ fn build_record(g: &Value, record: &Value) -> Result<(Vec<u8>, Vec<String>, usiz
         mixdog_testkit::write(&path, blob_bytes(g, &picture["blob"]));
         captures.insert(number.parse::<usize>().expect("a capture number"), path);
     }
-    let built = build_xlsx_from_sheets(&Unlaned, &Registry::new(), &record["measure"], &captures, record["title"].as_str().unwrap_or_default());
+    let built = build_xlsx_from_sheets(&Unlaned, &measuring_registry(), &record["measure"], &captures, record["title"].as_str().unwrap_or_default());
     mixdog_testkit::remove_dir_all(&dir);
     built.map(|built| (built.bytes, built.notes, built.operations))
 }
@@ -209,7 +220,7 @@ fn the_report_is_a_native_live_workbook() {
     let sheet = package.text("xl/worksheets/sheet1.xml");
     let formulas: Vec<&str> = sheet.split("<f>").skip(1).filter_map(|rest| rest.split("</f>").next()).collect();
     assert!(formulas.iter().any(|formula| formula.contains('-') && formula.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')), "{formulas:?}");
-    assert!(formulas.iter().any(|formula| formula.starts_with("SUMIFS(Ops[처리량],Ops[월],") && formula.ends_with(|c: char| c.is_ascii_digit())), "{formulas:?}");
+    assert!(formulas.iter().any(|formula| formula.strip_prefix("SUMIFS(Ops[처리량],Ops[월],").and_then(|rest| rest.strip_suffix(')')).is_some_and(|cell| cell.trim_start_matches(|c: char| c.is_ascii_uppercase()).len() < cell.len() && cell.trim_start_matches(|c: char| c.is_ascii_uppercase()).chars().all(|c| c.is_ascii_digit()) && !cell.ends_with(|c: char| c.is_ascii_uppercase()))), "{formulas:?}");
     assert!(!formulas.iter().any(|formula| formula.contains('{')), "{formulas:?}");
     let figure = sheet.split("<c ").find(|cell| cell.contains("SUMIFS(Ops[처리량]")).expect("a figure cell");
     let style: usize = figure.split("s=\"").nth(1).and_then(|rest| rest.split('"').next()).and_then(|index| index.parse().ok()).expect("a style");

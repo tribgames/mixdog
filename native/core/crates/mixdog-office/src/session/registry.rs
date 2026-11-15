@@ -100,6 +100,24 @@ impl Registry {
         }
     }
 
+    /// `materializeWorkingCopy`'s index step: the document index drops the path the session held (when it still names this session),
+    /// the session takes `target`, and the index names it under the new path. The session keeps its place in the sessions map.
+    pub fn retarget(&self, env: &Environment, handle: &SessionHandle, target: String) {
+        let (id, held) = {
+            let session = lock(handle);
+            (session.id.clone(), session.target.clone())
+        };
+        let (old_key, new_key) = (document_session_key(env, &held), document_session_key(env, &target));
+        {
+            let mut tables = self.tables();
+            if tables.documents.get(&old_key) == Some(&id) {
+                tables.documents.shift_remove(&old_key);
+            }
+            tables.documents.insert(new_key, id);
+        }
+        lock(handle).target = target;
+    }
+
     /// `sessions.delete(id)`: the session leaves the map and the document index is left as it is (discarding a recovered
     /// transaction does this).
     pub fn remove(&self, id: &str) -> Option<SessionHandle> {
@@ -237,6 +255,23 @@ mod tests {
         registry.index(&env, &two);
         registry.index(&env, &one);
         assert_eq!(registry.ids(), vec!["office_1".to_owned(), "office_2".to_owned()]);
+    }
+
+    #[test]
+    fn retargeting_a_session_keeps_its_place_and_moves_its_document_key() {
+        let (registry, env) = (Registry::new(), environment(true));
+        let (one, two) = (session("office_1", "a.docx"), session("office_2", "b.docx"));
+        registry.index(&env, &one);
+        registry.index(&env, &two);
+        registry.retarget(&env, &one, "c.docx".to_owned());
+        assert_eq!(registry.ids(), vec!["office_1".to_owned(), "office_2".to_owned()]);
+        assert!(registry.for_document(&env, "a.docx").is_none());
+        assert!(Arc::ptr_eq(&registry.for_document(&env, "c.docx").expect("moved"), &one));
+        let newer = session("office_3", "c.docx");
+        registry.index(&env, &newer);
+        registry.retarget(&env, &one, "d.docx".to_owned());
+        assert!(Arc::ptr_eq(&registry.for_document(&env, "c.docx").expect("newer keeps"), &newer));
+        assert!(Arc::ptr_eq(&registry.for_document(&env, "d.docx").expect("moved"), &one));
     }
 
     #[test]

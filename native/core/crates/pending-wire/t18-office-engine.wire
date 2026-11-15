@@ -1,0 +1,13 @@
+# t18-office-engine: hot-file parts of nr-office-engine-inspect, nr-office-engine-open-create, nr-office-engine-render, nr-office-author-xlsx-build
+
+## native/core/Cargo.lock
+Package `mixdog-office`: dependencies now also mixdog-fonts, mixdog-office-author, mixdog-pdf, mixdog-raster, tokio (mixdog-pdf was a dev-dependency; it and mixdog-fonts are now [dependencies]). Regenerate offline (`cargo update -w`).
+
+## native/core/fixtures/MANIFEST.json, `sets` (name order; add each if the integration manifest lacks it)
+    { "command": "node benchmarks/rust-core/recorders/record-office-inspect.mjs --tree <tree>", "fileCount": 1, "manifest": "office-inspect/MANIFEST.json", "manifestSha256": "c969f68b31ad487416880d2d6a0114b2e8170f090c45f38f7913f9c7471abdf3", "recorder": "benchmarks/rust-core/recorders/record-office-inspect.mjs", "set": "office-inspect", "totalBytes": 188706 }
+    { "command": "node benchmarks/rust-core/recorders/record-office-open-create.mjs --tree <tree>", "fileCount": 1, "manifest": "office-open-create/MANIFEST.json", "manifestSha256": "8f52aa4fa732d64d6aa752bd207d74a5c1475a8e64e5df534b42d8a27d4de3ac", "recorder": "benchmarks/rust-core/recorders/record-office-open-create.mjs", "set": "office-open-create", "totalBytes": 344052 }
+    { "command": "node benchmarks/rust-core/recorders/record-office-render.mjs --tree <tree>", "fileCount": 1, "manifest": "office-render/MANIFEST.json", "manifestSha256": "e0aa9343272bb487181714869bfe239500047a5484e06d332ebb269559582fb1", "recorder": "benchmarks/rust-core/recorders/record-office-render.mjs", "set": "office-render", "totalBytes": 61231 }
+    { "command": "node benchmarks/rust-core/recorders/record-office-xlsx-build.mjs --tree <tree>", "fileCount": 1, "manifest": "office-xlsx-build/MANIFEST.json", "manifestSha256": "9827ba935dae9d27e1759cd9425ebd05211f78d9769e86f0ede93ca9be773c6d", "recorder": "benchmarks/rust-core/recorders/record-office-xlsx-build.mjs", "set": "office-xlsx-build", "totalBytes": 241211 }
+
+## SERVICE_PENDING / mixdog-workspace-hack
+Nothing: no service or protocol method registered, no new external crate.
