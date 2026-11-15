@@ -1,0 +1,307 @@
+{
+  "note": "Ordered Office call sequences run through Node's executeOfficeTool (record-office-e2e.mjs) and through mixdog_office::engine::Engine::execute (tests/twin_e2e.rs). Paths are relative to the call's folder. Every create/open of a docx, xlsx or pptx names mode portable so no Microsoft Office is reached. A string argument <session> is the latest session id any answer named, <session:NAME> the one a call marked as:NAME named, <reviewToken> the latest reviewToken any answer held. setup puts files in the folder before the first call (text, hex, or zip: entry name to text). outputs names the files compared after the last call; data:true compares the data folder's journal JSON. A call with cancelled:true is made with a signal that is already aborted.",
+  "scenarios": [
+    {
+      "name": "contract: describe, refusals and unknown names",
+      "suites": ["office-runtime-contract"],
+      "calls": [
+        { "args": { "action": "describe" } },
+        { "args": { "action": "describe", "format": "docx", "backend": "mixdog-ooxml" } },
+        { "args": { "action": "describe", "format": "xlsx", "backend": "mixdog-ooxml", "operation": "set_cell" } },
+        { "args": { "action": "describe", "format": "pptx", "backend": "mixdog-ooxml", "operation": "add_textbox" } },
+        { "args": { "action": "describe", "format": "pdf", "operation": "add_text" } },
+        { "args": { "action": "describe", "format": "docx", "operation": "no_such_operation" } },
+        { "args": { "action": "describe", "format": "nowhere" } },
+        { "args": { "action": "frobnicate" } },
+        { "args": { "action": "create", "path": "x.docx", "mode": "portable", "operations": [{ "op": "compress", "alowNoChange": true }] } },
+        { "args": { "action": "create", "path": "x.pptx", "mode": "portable", "operations": [{ "op": "add_textbox", "slide": 1, "text": "Title", "boldish": true }] } },
+        { "args": { "action": "create", "path": "x.docx", "mode": "unsupported-mode" } },
+        { "args": { "action": "snapshot", "session": "office_missing" } },
+        { "args": { "action": "batch" } },
+        { "args": { "action": "close", "session": "office_missing" } },
+        { "args": { "action": "author" } }
+      ],
+      "outputs": []
+    },
+    {
+      "name": "docx: create, edit, snapshot, issues, validate, save, close",
+      "suites": ["office-runtime-portable", "office-authoring"],
+      "calls": [
+        { "args": { "action": "create", "path": "memo.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Quarterly memo for the US office." }, { "op": "append_text", "text": "Second paragraph with a tab\tand more words to read." }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "replace_text", "find": "Quarterly memo", "replace": "Annual memo" }, { "op": "set_paragraph_text", "paragraph": 2, "text": "Total\t42" }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "get", "session": "<session>", "target": "/body/p[1]" } },
+        { "args": { "action": "query", "session": "<session>", "query": "Total" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "validate", "session": "<session>" } },
+        { "args": { "action": "save", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } },
+        { "args": { "action": "snapshot", "path": "memo.docx", "mode": "portable" } }
+      ],
+      "outputs": ["memo.docx"]
+    },
+    {
+      "name": "docx: tables, fonts, lists, header, footer, page, numbers",
+      "suites": ["office-runtime-portable", "office-runtime-design"],
+      "calls": [
+        { "args": { "action": "create", "path": "report.docx", "mode": "portable", "operations": [
+          { "op": "append_text", "text": "Region report" },
+          { "op": "append_text", "text": "Point one" },
+          { "op": "append_text", "text": "Point two" },
+          { "op": "add_table", "values": [["Region", "Revenue"], ["North", "120"], ["South", "95"]], "properties": { "columnWidths": [3000, 2000], "headerBold": true } },
+          { "op": "set_table_cell", "table": 1, "row": 2, "col": 2, "text": "130" },
+          { "op": "set_list", "paragraph": 2, "kind": "bullet", "level": 1 },
+          { "op": "set_list", "paragraph": 3, "kind": "number", "level": 1 },
+          { "op": "set_header_footer", "kind": "footer", "text": "Internal use" },
+          { "op": "add_page_numbers", "alignment": "right" },
+          { "op": "set_page", "properties": { "orientation": "landscape", "pageSize": "A4" } }
+        ] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_table_cell_style", "table": 1, "row": 1, "col": 1, "properties": { "fillColor": "EEF2F7", "bold": true } }, { "op": "set_paragraph_format", "paragraph": 1, "properties": { "alignment": "center", "spacingAfter": 12 } }, { "op": "insert_table_row", "table": 1, "row": 3 }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "delete_table_row", "table": 1, "row": 9 }] } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["report.docx"]
+    },
+    {
+      "name": "docx: tracked changes, comments and revisions",
+      "suites": ["office-runtime-portable", "office-assurance"],
+      "calls": [
+        { "args": { "action": "create", "path": "review.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Keep this sentence." }, { "op": "append_text", "text": "Doomed paragraph to remove." }, { "op": "append_text", "text": "Survivor stays." }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "track_changes", "enabled": true }, { "op": "replace_text", "find": "Keep this", "replace": "Retain this", "author": "Reviewer" }, { "op": "remove_paragraph", "paragraph": 2, "author": "Reviewer" }, { "op": "add_comment", "find": "Survivor", "text": "Keep", "author": "Reviewer" }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_comment_reply", "comment": 1, "text": "Agreed", "author": "Author" }, { "op": "set_comment_resolved", "comment": 1, "resolved": true }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "resolve_revisions", "resolution": "accept" }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["review.docx"]
+    },
+    {
+      "name": "docx: a transaction rolled back and one committed, with a diff",
+      "suites": ["office-runtime-contract"],
+      "calls": [
+        { "args": { "action": "create", "path": "tx.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Original text" }] } },
+        { "args": { "action": "begin", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_paragraph_text", "paragraph": 1, "text": "Temporary transaction text" }] } },
+        { "args": { "action": "diff", "session": "<session>" } },
+        { "args": { "action": "transactions" } },
+        { "args": { "action": "rollback", "session": "<session>" } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "begin", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_paragraph_text", "paragraph": 1, "text": "Committed text" }] } },
+        { "args": { "action": "commit", "session": "<session>" } },
+        { "args": { "action": "commit", "session": "<session>" } },
+        { "args": { "action": "recover" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["tx.docx"],
+      "data": true
+    },
+    {
+      "name": "docx: a picture and a hyperlink, and phrases that are absent",
+      "suites": ["office-runtime-portable"],
+      "setup": [
+        { "file": "dot.png", "hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082" }
+      ],
+      "calls": [
+        { "args": { "action": "create", "path": "pics.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Visit the operations dashboard today." }, { "op": "add_image", "path": "dot.png", "width": 120, "altText": "dot" }, { "op": "add_hyperlink", "find": "operations dashboard", "url": "https://example.com/ops" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_hyperlink", "find": "no such phrase", "address": "https://example.com", "display": "x" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_bookmark", "name": "top", "paragraph": 1 }, { "op": "insert_toc" }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["pics.docx"]
+    },
+    {
+      "name": "docx: open an existing file to an output, and the refusals of open",
+      "suites": ["office-runtime-portable"],
+      "setup": [
+        { "file": "broken.docx", "text": "this is not a zip file at all" },
+        { "file": "legacy.docx", "hex": "d0cf11e0a1b11ae1000000000000000000000000000000003e000300feff0900" }
+      ],
+      "calls": [
+        { "args": { "action": "create", "path": "base.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Base text" }], "finalize": false } },
+        { "args": { "action": "close", "session": "<session>" } },
+        { "args": { "action": "open", "path": "base.docx", "output": "copy.docx", "mode": "portable", "operations": [{ "op": "append_text", "text": "Copy only" }] } },
+        { "args": { "action": "save", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } },
+        { "args": { "action": "open", "path": "broken.docx", "mode": "portable" } },
+        { "args": { "action": "open", "path": "legacy.docx", "mode": "portable" } },
+        { "args": { "action": "open", "path": "absent.docx", "mode": "portable" } },
+        { "args": { "action": "create", "path": "base.docx", "mode": "portable" } }
+      ],
+      "outputs": ["base.docx", "copy.docx"]
+    },
+    {
+      "name": "xlsx: cells, ranges, formulas, styles, sheets",
+      "suites": ["office-runtime-portable", "office-assurance"],
+      "calls": [
+        { "args": { "action": "create", "path": "book.xlsx", "mode": "portable", "operations": [
+          { "op": "set_range", "range": "A1:B3", "values": [["name", "score"], ["alpha", 1], ["beta", 2]] },
+          { "op": "set_formula", "cell": "B4", "formula": "=SUM(B2:B3)" },
+          { "op": "set_style", "range": "A1:B1", "properties": { "bold": true, "fillColor": "EEF2F7", "borders": { "bottom": { "style": "thin", "color": "C9CED6" } } } },
+          { "op": "freeze_panes", "cell": "A2" }
+        ] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_sheet", "name": "Calc" }, { "op": "set_cell", "sheet": "Calc", "cell": "A1", "value": "x" }, { "op": "append_row", "sheet": "Calc", "values": ["tail", 5] }, { "op": "rename_sheet", "sheet": "Calc", "name": "Summary" }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "rename_sheet", "sheet": "Summary", "name": "Bad/Name" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "delete_sheet", "sheet": "Missing" }] } },
+        { "args": { "action": "get", "session": "<session>", "target": "/sheet[Sheet1]/cell[B4]" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["book.xlsx"]
+    },
+    {
+      "name": "xlsx: open a minimal workbook to an output and edit it",
+      "suites": ["office-runtime-portable"],
+      "setup": [
+        { "file": "source.xlsx", "zip": {
+          "[Content_Types].xml": "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>",
+          "xl/workbook.xml": "<?xml version=\"1.0\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/></sheets><definedNames><definedName name=\"InputRange\">Data!$B$1:$C$2</definedName></definedNames></workbook>",
+          "xl/_rels/workbook.xml.rels": "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>",
+          "xl/worksheets/sheet1.xml": "<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>Old</t></is></c></row></sheetData><dataValidations count=\"1\"><dataValidation type=\"list\" allowBlank=\"1\" showInputMessage=\"1\" showErrorMessage=\"1\" sqref=\"E1:E3\"><formula1>\"Yes,No\"</formula1></dataValidation></dataValidations></worksheet>"
+        } }
+      ],
+      "calls": [
+        { "args": { "action": "open", "path": "source.xlsx", "output": "edited.xlsx", "mode": "portable" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [
+          { "op": "set_cell", "sheet": "Data", "cell": "A1", "value": "New" },
+          { "op": "set_range", "sheet": "Data", "range": "B1:C2", "values": [[1, 2], [3, 4]] },
+          { "op": "set_formula", "sheet": "Data", "cell": "D1", "formula": "=SUM(B1:C2)" },
+          { "op": "append_row", "sheet": "Data", "values": ["tail", 5] }
+        ] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "save", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["edited.xlsx"]
+    },
+    {
+      "name": "xlsx: a chart, merged cells and an image",
+      "suites": ["office-runtime-portable"],
+      "setup": [
+        { "file": "dot.png", "hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082" }
+      ],
+      "calls": [
+        { "args": { "action": "create", "path": "chart.xlsx", "mode": "portable", "operations": [
+          { "op": "set_range", "range": "A1:B4", "values": [["Month", "Sales"], ["Jan", 3], ["Feb", 5], ["Mar", 4]] },
+          { "op": "merge_cells", "range": "D1:E1" },
+          { "op": "add_chart", "sheet": "Sheet1", "chartType": "column", "range": "A1:B4", "left": 260, "top": 20, "width": 480, "height": 280 },
+          { "op": "add_image", "path": "dot.png", "cell": "H1", "width": 40, "height": 40 }
+        ] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["chart.xlsx"]
+    },
+    {
+      "name": "pptx: slides, text, shapes, restyle and the review",
+      "suites": ["office-runtime-portable", "office-runtime-design"],
+      "calls": [
+        { "args": { "action": "create", "path": "deck.pptx", "mode": "portable", "operations": [
+          { "op": "add_slide", "layout": "blank" },
+          { "op": "add_textbox", "slide": 1, "text": "Retention rose after onboarding", "left": 48, "top": 40, "width": 520, "height": 60 },
+          { "op": "add_shape", "slide": 1, "shapeType": "rect", "fillColor": "E5E7EB", "text": "Key figure", "left": 48, "top": 140, "width": 200, "height": 80 },
+          { "op": "add_slide", "layout": "blank" },
+          { "op": "add_textbox", "slide": 2, "text": "Second slide", "left": 20, "top": 40, "width": 200, "height": 50 }
+        ] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [
+          { "op": "set_shape", "slide": 1, "shape": 2, "properties": { "lineColor": "F59E0B", "lineWidth": 3, "fillTransparency": 30 } },
+          { "op": "set_text", "slide": 1, "shape": 1, "text": "Retention rose again" }
+        ] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "validate", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_shape", "slide": 9, "shape": 1, "properties": { "color": "FFFFFF" } }] } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["deck.pptx"]
+    },
+    {
+      "name": "pptx: a table and a chart on a slide",
+      "suites": ["office-runtime-portable"],
+      "calls": [
+        { "args": { "action": "create", "path": "figures.pptx", "mode": "portable", "operations": [
+          { "op": "add_slide", "layout": "blank" },
+          { "op": "add_table", "slide": 1, "values": [["Line", "Verdict"], ["Seoul 1", "OK"], ["Busan 2", "Check"]], "left": 48, "top": 60, "width": 500, "height": 120 },
+          { "op": "add_chart", "slide": 1, "chartType": "column", "categories": ["Before", "After"], "series": [{ "name": "Retention", "values": [31, 47] }], "left": 48, "top": 220, "width": 400, "height": 240 }
+        ] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_table_data", "slide": 1, "shape": 1, "values": [["Line", "Verdict"], ["Seoul 1", "OK"], ["Busan 2", "Check"], ["Daegu 3", "OK"]] }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": ["figures.pptx"]
+    },
+    {
+      "name": "pdf: create from blocks, edit, validate and the refusal to overwrite",
+      "suites": ["office-runtime-design", "office-runtime-pdf"],
+      "calls": [
+        { "args": { "action": "create", "path": "doc.pdf", "format": "pdf", "blocks": [{ "type": "paragraph", "text": "First draft" }] } },
+        { "args": { "action": "close", "session": "<session>" } },
+        { "args": { "action": "create", "path": "doc.pdf", "format": "pdf", "blocks": [{ "type": "paragraph", "text": "Again" }] } },
+        { "args": { "action": "create", "path": "doc.pdf", "format": "pdf", "overwrite": true, "blocks": [{ "type": "paragraph", "text": "Second draft" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_text", "page": 1, "text": "PDF edited", "x": 20, "y": 20, "size": 14 }, { "op": "rotate_pages", "pages": [1], "rotation": 90 }, { "op": "set_metadata", "properties": { "title": "Mixdog PDF" } }] } },
+        { "args": { "action": "validate", "session": "<session>" } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_text", "page": 5, "text": "Nowhere", "x": 1, "y": 1 }] } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": []
+    },
+    {
+      "name": "pdf: marks, text search and links on an authored document",
+      "suites": ["office-runtime-pdf-marks"],
+      "calls": [
+        { "args": { "action": "create", "path": "marks.pdf", "format": "pdf", "blocks": [{ "type": "heading", "text": "Quarterly total due" }, { "type": "paragraph", "text": "The grand total due is shown on page [page] of the report." }] } },
+        { "args": { "action": "query", "session": "<session>", "queryKind": "pdf-layout" } },
+        { "args": { "action": "query", "session": "<session>", "queryKind": "pdf-layout", "query": "TOTAL due" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "highlight", "find": "total due" }, { "op": "add_link", "find": "report", "url": "https://mix.dog" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "highlight", "find": "nowhere", "pages": [1, 3] }] } },
+        { "args": { "action": "issues", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } }
+      ],
+      "outputs": []
+    },
+    {
+      "name": "pdf: begin, qa, render and a finalize that waits for the review",
+      "suites": ["office-runtime-pdf", "office-render-preview", "document-acceptance"],
+      "calls": [
+        { "args": { "action": "create", "path": "review.pdf", "format": "pdf", "blocks": [{ "type": "heading", "text": "Quarterly review" }, { "type": "paragraph", "text": "Revenue rose in every region." }] } },
+        { "args": { "action": "begin", "session": "<session>" } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "add_text", "page": 1, "text": "Visual QA delta", "x": 30, "y": 60, "size": 16 }] } },
+        { "args": { "action": "qa", "session": "<session>", "output": "qa-preview.pdf", "pages": [1], "maxWidth": 640 } },
+        { "args": { "action": "rollback", "session": "<session>" } },
+        { "args": { "action": "render", "session": "<session>", "output": "preview.pdf", "pages": [1], "maxWidth": 640 } },
+        { "args": { "action": "finalize", "session": "<session>", "output": "final-preview.pdf", "pages": [1], "maxWidth": 640 } },
+        { "args": { "action": "finalize", "session": "<session>", "output": "final-preview.pdf", "pages": [1], "maxWidth": 640, "design": { "reviewed": true, "reviewToken": "<reviewToken>", "critique": [{ "page": 1, "verdict": "pass", "note": "The page keeps its text inside the page bounds." }] } } },
+        { "args": { "action": "finalize", "session": "<session>", "output": "final-preview.pdf", "pages": [1], "maxWidth": 640, "design": { "reviewed": true, "reviewToken": "stale", "critique": [] } } }
+      ],
+      "outputs": []
+    },
+    {
+      "name": "tabular: tsv and csv sessions, refusals and a cancelled call",
+      "suites": ["office-runtime-contract"],
+      "setup": [
+        { "file": "plain.tsv", "text": "a\tb\n1\t2\n" }
+      ],
+      "calls": [
+        { "args": { "action": "open", "path": "plain.tsv", "output": "plain-out.tsv", "mode": "portable", "operations": [{ "op": "append_row", "values": ["3", "4"] }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "set_cell", "cell": "A1", "value": "=cmd()" }] } },
+        { "args": { "action": "batch", "session": "<session>", "operations": [{ "op": "insert_rows", "row": 2, "count": 1 }, { "op": "delete_columns", "column": "B", "count": 1 }] } },
+        { "args": { "action": "snapshot", "session": "<session>" } },
+        { "args": { "action": "save", "session": "<session>" } },
+        { "args": { "action": "close", "session": "<session>" } },
+        { "args": { "action": "snapshot", "path": "plain-out.tsv" }, "cancelled": true },
+        { "args": { "action": "secure", "path": "plain.tsv", "output": "locked.tsv", "security": "encrypt" } }
+      ],
+      "outputs": ["plain.tsv", "plain-out.tsv"]
+    }
+  ]
+}
