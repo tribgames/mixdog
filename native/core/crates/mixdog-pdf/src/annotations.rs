@@ -220,6 +220,17 @@ fn parse_annotation(
             data.quad_points = quad_points(&dict, None, document)?;
             quad_points_valid = data.quad_points.is_some();
         }
+        Some("Text") => {
+            // `TextAnnotation`: without an appearance the note is drawn as the 22 px icon, so the rectangle becomes
+            // 22 x 22 from its top-left corner (larger or smaller); with an appearance it is kept.
+            const DEFAULT_ICON_SIZE: f64 = 22.0;
+            if !has_appearance {
+                let mut icon = rect;
+                icon[1] = icon[3] - DEFAULT_ICON_SIZE;
+                icon[2] = icon[0] + DEFAULT_ICON_SIZE;
+                data.rect = Some(icon);
+            }
+        }
         Some("Popup") => {
             if rect[2] - rect[0] == 0.0 || rect[3] - rect[1] == 0.0 {
                 data.rect = None;

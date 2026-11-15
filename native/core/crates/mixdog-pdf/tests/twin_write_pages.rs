@@ -335,7 +335,6 @@ fn merge(world: &World, document: &mut PdfDocument, op: &Value, returned: &mut V
     let mut insert_at = op["index"].as_u64().map(|index| index as usize - 1);
     let mut merged: Vec<(usize, usize, String)> = Vec::new();
     let mut pages_added = 0;
-    let mut form_fields_total = 0;
     for entry in &sources {
         let path = entry.as_str().or_else(|| entry["path"].as_str()).expect("source path");
         let other = load(&file(&world.golden, path)).unwrap();
@@ -352,7 +351,7 @@ fn merge(world: &World, document: &mut PdfDocument, op: &Value, returned: &mut V
                 }
             }
         }
-        form_fields_total += document.register_copied_fields(&copied).unwrap();
+        document.register_copied_fields(&copied).unwrap();
         let title = entry["title"].as_str().filter(|title| !title.is_empty()).map_or_else(
             || path.rsplit_once('.').map_or(path, |(stem, _)| stem).to_owned(),
             str::to_owned,
@@ -370,9 +369,6 @@ fn merge(world: &World, document: &mut PdfDocument, op: &Value, returned: &mut V
     }
     returned["pagesAdded"] = json!(pages_added);
     returned["pageCount"] = json!(document.page_count());
-    if form_fields_total > 0 {
-        returned["formFields"] = json!(form_fields_total);
-    }
 }
 
 /// The document of a recorded case with its operations applied, what each operation returned, and the files it wrote.
