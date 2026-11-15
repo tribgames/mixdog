@@ -5,6 +5,7 @@
 
 mod early;
 mod message;
+mod repair;
 mod scope;
 
 use tree_sitter::Parser;
@@ -27,9 +28,15 @@ pub fn check_commonjs_script(source: &str) -> Result<(), Rejection> {
     let tree = parser.parse(source, None).ok_or_else(invalid)?;
     let root = tree.root_node();
     if root.has_error() {
-        return Err(rejection(&message::grammar(root, source)));
+        // The grammar cannot read a few things V8 compiles: the source is rewritten into one it reads, or rejected.
+        let repaired = repair::repair(&mut parser, source, &tree).filter(|r| !r.tree.root_node().has_error());
+        return match repaired {
+            Some(fixed) => early::check(fixed.tree.root_node(), &fixed.source, &fixed.blanked)
+                .map_err(|reason| rejection(&reason)),
+            None => Err(rejection(&message::grammar(root, source))),
+        };
     }
-    early::check(root, source).map_err(|reason| rejection(&reason))
+    early::check(root, source, &[]).map_err(|reason| rejection(&reason))
 }
 
 #[cfg(test)]
@@ -139,6 +146,55 @@ mod tests {
         bad("function f() { super.x }");
         ok("class A extends B { constructor() { super() } m() { return super.m() } }");
         bad("class A { constructor() { super() } }");
+    }
+
+    #[test]
+    fn what_the_grammar_cannot_read_but_v8_compiles() {
+        for source in [
+            "f() = 1",
+            "f()++",
+            "f() += 1",
+            "for (f() of c) {}",
+            "[(a)] = [1]",
+            "({a: (b)} = {})",
+            "f`\\u`",
+            "f`\\unicode`",
+            "yield * 1",
+            "import(a, b)",
+            "var \\u0061",
+            "var \u{309B}",
+            "<!-- c\n1",
+            "1\n--> c",
+            "class A { [010]() {} }",
+            "a: { b: 1 }",
+        ] {
+            ok(source);
+        }
+    }
+
+    #[test]
+    fn what_v8_rejects_that_the_grammar_reads() {
+        for source in [
+            "try { }",
+            "a + b = 1",
+            "a => {} + 1",
+            "[...a, b] = []",
+            "function f(...a, b) {}",
+            "(...a,) => 1",
+            "switch (a) { default: default: }",
+            "a: { a: 1 }",
+            "/(?i:a)/",
+            "var \\u0076ar",
+            "let [(a)] = 1",
+            "f() &&= 1",
+            "`\\u`",
+            "x = { (a) }",
+            "class A { (a) }",
+            "[{ (a) }] = []",
+            "\"use strict\"; class A { [010]() {} }",
+        ] {
+            bad(source);
+        }
     }
 
     #[test]

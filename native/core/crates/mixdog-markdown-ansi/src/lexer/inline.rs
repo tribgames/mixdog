@@ -4,7 +4,7 @@ use mixdog_js::{js_to_lowercase, js_trim};
 
 use super::block::unescape_punctuation;
 use super::token::{Token, TokenKind};
-use super::{Lexer, advance, escape_html, find_closing_bracket, prefix, rtrim_char, trim_ends};
+use super::{Lexer, advance, escape_html, find_closing_bracket, prefix, prefix_units, rtrim_char, skip_units_borrowed, trim_ends, trim_ends_units, utf16_len};
 
 lazy_re!(TAG_ANCHOR_OPEN, r"^<a ", "i");
 lazy_re!(TAG_ANCHOR_CLOSE, r"^<\/a>", "i");
@@ -25,8 +25,9 @@ impl Lexer {
     pub(super) fn inline_tokens(&mut self, src: &str) -> Vec<Token> {
         let rules = self.rules;
         let mut tokens: Vec<Token> = Vec::new();
-        // String with links masked to avoid interference with em and strong: every mask keeps the byte length, so an
-        // offset in it is an offset in `src`.
+        // String with links masked to avoid interference with em and strong. The masks are as long, in UTF-16 units,
+        // as marked's (a `\` and a character outside the BMP become two characters there, one unit short), and a
+        // search goes on at the unit it stopped at.
         let mut masked = src.to_owned();
         // Mask out reflinks
         if !self.links.is_empty() {
@@ -40,22 +41,21 @@ impl Lexer {
                 });
                 let Some((start, end, listed)) = found else { break };
                 if listed {
-                    masked = masked_span(&masked, start, end, 'a', true);
+                    (masked, at) = mask_span(&masked, start, end, 'a', true);
+                } else {
+                    at = end;
                 }
-                at = end;
             }
         }
         // Mask out other blocks
         let mut at = 0;
         while let Some((start, end)) = rules.inline.block_skip.exec_from(&masked, at).map(|m| (m.start(), m.end())) {
-            masked = masked_span(&masked, start, end, 'a', true);
-            at = end;
+            (masked, at) = mask_span(&masked, start, end, 'a', true);
         }
         // Mask out escaped characters
         let mut at = 0;
         while let Some((start, end)) = rules.inline.any_punctuation.exec_from(&masked, at).map(|m| (m.start(), m.end())) {
-            masked = masked_span(&masked, start, end, '+', false);
-            at = end;
+            (masked, at) = mask_span(&masked, start, end, '+', false);
         }
 
         let mut src = src;
@@ -263,9 +263,13 @@ impl Lexer {
         let mut delim_total = i64::try_from(left_length).unwrap_or(0);
         let mut mid_delim_total = 0i64;
         let left_length_signed = delim_total;
-        // Clip maskedSrc to same section of string as src
-        let clip_from = (masked.len() + left_length).saturating_sub(src.len());
-        let clipped = masked.get(clip_from..).unwrap_or("");
+        // Clip maskedSrc to same section of string as src: `maskedSrc.slice(-src.length + lLength)`, in UTF-16 units
+        // from the end (the masks of other text are not as long as the text, so this is not always `src`'s own place).
+        let masked_units = utf16_len(masked);
+        let src_units = utf16_len(src);
+        let clip_units = (i64::try_from(masked_units).unwrap_or(0) - i64::try_from(src_units).unwrap_or(0) + left_length_signed).max(0);
+        let clipped = skip_units_borrowed(masked, usize::try_from(clip_units).unwrap_or(0));
+        let clipped = &*clipped;
         let mut at = 0;
         while let Some(found) = end_rule.exec_from(clipped, at) {
             at = found.end();
@@ -290,19 +294,22 @@ impl Lexer {
             // Remove extra characters. *a*** -> *a*
             right_length = right_length.min(right_length + delim_total + mid_delim_total);
             // char length can be >1 for unicode characters
-            let last_char_length = found.whole().chars().next().map_or(0, char::len_utf8);
-            let raw_length = i64::try_from(left_length + found.start() + last_char_length).unwrap_or(0) + right_length;
-            let raw = prefix(src, usize::try_from(raw_length).unwrap_or(0));
+            // marked adds the UTF-16 index of the match, the UTF-16 length of its first character and the right
+            // delimiter's count of characters, and slices `src` by UTF-16 units.
+            let last_char_length = found.whole().chars().next().map_or(0, char::len_utf16);
+            let index_units = clipped.get(..found.start()).map_or(0, utf16_len);
+            let raw_length = i64::try_from(left_length + index_units + last_char_length).unwrap_or(0) + right_length;
+            let raw = prefix_units(src, usize::try_from(raw_length).unwrap_or(0));
             if raw.is_empty() {
                 // marked would return a token that consumes nothing and read the same text again for ever
                 return None;
             }
             // Create `em` if smallest delimiter has odd char count. *a***
             let (kind, text) = if left_length_signed.min(right_length) % 2 != 0 {
-                (TokenKind::Em, trim_ends(raw, 1))
+                (TokenKind::Em, trim_ends_units(raw, 1))
             } else {
                 // Create 'strong' if smallest delimiter has even char count. **a***
-                (TokenKind::Strong, trim_ends(raw, 2))
+                (TokenKind::Strong, trim_ends_units(raw, 2))
             };
             let children = self.inline_tokens(text);
             let mut token = Token::with_text(kind, raw, text);
@@ -384,21 +391,34 @@ fn append_text(last: &mut Token, token: &Token) {
     last.text.get_or_insert_with(String::new).push_str(token.text_str());
 }
 
-/// `masked.slice(0, start) + '[' + 'a'.repeat(len - 2) + ']' + masked.slice(end)` (`bracketed`), or the span replaced by
-/// its length in `fill`; the length in bytes stays.
-fn masked_span(masked: &str, start: usize, end: usize, fill: char, bracketed: bool) -> String {
-    let width = end - start;
+/// `masked.slice(0, start) + '[' + 'a'.repeat(len - 2) + ']' + masked.slice(end)` (`bracketed`), or the span replaced
+/// by `++` (the mask of an escaped character), with the offset where the search goes on: marked keeps `lastIndex`, a
+/// count of UTF-16 units of the old string, for the new one (a character outside the BMP after a `\` leaves the new
+/// string one unit short, and the search starts that much later; it starts at the beginning of the character that
+/// holds the unit).
+fn mask_span(masked: &str, start: usize, end: usize, fill: char, bracketed: bool) -> (String, usize) {
+    let units = masked[start..end].encode_utf16().count();
     let mut out = String::with_capacity(masked.len());
     out.push_str(&masked[..start]);
     if bracketed {
         out.push('[');
-        out.extend(std::iter::repeat_n(fill, width.saturating_sub(2)));
+        out.extend(std::iter::repeat_n(fill, units.saturating_sub(2)));
         out.push(']');
     } else {
-        out.extend(std::iter::repeat_n(fill, width));
+        out.extend(std::iter::repeat_n(fill, 2));
     }
     out.push_str(&masked[end..]);
-    out
+    let last_index = masked[..end].encode_utf16().count();
+    let mut seen = 0;
+    let mut next = out.len();
+    for (at, c) in out.char_indices() {
+        if seen + c.len_utf16() > last_index {
+            next = at;
+            break;
+        }
+        seen += c.len_utf16();
+    }
+    (out, next)
 }
 
 #[cfg(test)]
@@ -461,6 +481,16 @@ mod tests {
     }
 
     #[test]
+    fn marked_counts_the_units_of_a_character_outside_the_bmp() {
+        // `\` and such a character mask to two characters (one unit short), so the end clip starts earlier and the
+        // raw text of the strong token takes in the character after it; its text is cut by units.
+        let tokens = inline_of("\u{1F642}**a**\u{1F642} **\u{1F642}** *\u{1F600}*x _\u{1F642}_ \u{1F642}_a_ \\\u{1F642} a\\\u{1F642}b\n");
+        assert_eq!(tokens[1].kind, TokenKind::Strong);
+        assert_eq!(tokens[1].raw, "**a**\u{1F642}");
+        assert_eq!(tokens[1].text.as_deref(), Some("a**"));
+    }
+
+    #[test]
     fn emphasis_next_to_cjk_text() {
         assert_eq!(kinds("가**나**다"), [TokenKind::Text, TokenKind::Strong, TokenKind::Text]);
         assert_eq!(kinds("이것은 *강조* 입니다"), [TokenKind::Text, TokenKind::Em, TokenKind::Text]);
@@ -468,8 +498,10 @@ mod tests {
 
     #[test]
     fn the_inline_masks_keep_their_length() {
-        assert_eq!(masked_span("a[b](c)d", 1, 7, 'a', true), "a[aaaa]d");
-        assert_eq!(masked_span("a\\*b", 1, 3, '+', false), "a++b");
+        assert_eq!(mask_span("a[b](c)d", 1, 7, 'a', true).0, "a[aaaa]d");
+        assert_eq!(mask_span("a\\*b", 1, 3, '+', false), ("a++b".to_owned(), 3));
+        // `\` and a character outside the BMP: three units become two, and the search goes on at unit 3, past the `b`
+        assert_eq!(mask_span("\\\u{1F642}b", 0, 5, '+', false), ("++b".to_owned(), 3));
         assert_eq!(last_unit("x🙂"), Some('\u{FFFF}'));
         assert_eq!(last_unit("x가"), Some('가'));
     }

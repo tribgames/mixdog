@@ -152,6 +152,19 @@ pub(crate) fn prefix(src: &str, n: usize) -> &str {
     &src[..at]
 }
 
+/// `src.slice(0, n)` for a count of UTF-16 units. A cut inside a surrogate pair takes the whole pair (a Rust string
+/// cannot end in half of one).
+pub(crate) fn prefix_units(src: &str, n: usize) -> &str {
+    let mut units = 0;
+    for (at, c) in src.char_indices() {
+        if units >= n {
+            return &src[..at];
+        }
+        units += c.len_utf16();
+    }
+    src
+}
+
 /// `src.slice(n)` for a count of characters.
 pub(crate) fn skip_chars(src: &str, n: usize) -> &str {
     match src.char_indices().nth(n) {
@@ -188,6 +201,51 @@ pub(crate) fn trim_ends(src: &str, n: usize) -> &str {
         Some((at, _)) => &inner[..at],
         None => inner,
     }
+}
+
+/// The length of `text` in UTF-16 units.
+pub(crate) fn utf16_len(text: &str) -> usize {
+    if text.is_ascii() { text.len() } else { text.encode_utf16().count() }
+}
+
+/// `src.slice(n)` for a count of UTF-16 units, borrowed unless the cut is inside a surrogate pair (see `skip_units`).
+pub(crate) fn skip_units_borrowed(src: &str, n: usize) -> std::borrow::Cow<'_, str> {
+    if src.is_ascii() {
+        return std::borrow::Cow::Borrowed(src.get(n.min(src.len())..).unwrap_or(""));
+    }
+    let mut units = 0;
+    for (at, c) in src.char_indices() {
+        if units >= n {
+            return std::borrow::Cow::Borrowed(&src[at..]);
+        }
+        units += c.len_utf16();
+        if units > n {
+            return std::borrow::Cow::Owned(format!("\u{FFFF}{}", &src[at + c.len_utf8()..]));
+        }
+    }
+    std::borrow::Cow::Borrowed("")
+}
+
+/// `src.slice(n, -n)` for a count of UTF-16 units. A cut inside a surrogate pair drops the whole pair (a Rust string
+/// cannot start or end in half of one).
+pub(crate) fn trim_ends_units(src: &str, n: usize) -> &str {
+    let total = src.encode_utf16().count();
+    if total <= 2 * n {
+        return "";
+    }
+    let mut start = src.len();
+    let mut end = 0;
+    let mut units = 0;
+    for (at, c) in src.char_indices() {
+        if units >= n && start == src.len() {
+            start = at;
+        }
+        units += c.len_utf16();
+        if units <= total - n {
+            end = at + c.len_utf8();
+        }
+    }
+    src.get(start..end.max(start)).unwrap_or("")
 }
 
 /// marked's `rtrim(str, c)`.
