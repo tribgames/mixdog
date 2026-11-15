@@ -206,15 +206,15 @@ fn thread_read(params: &Map<String, Value>) -> Verdict {
 /// `requiredTranscriptHistoryRequest`: a page of at most 512 rows and an optional positive byte budget.
 fn thread_items_list(params: &Map<String, Value>) -> Verdict {
     const EXPECTED: &str = "transcript history request is invalid.";
-    if let Some(limit) = params.get("limit").filter(|value| !value.is_null()) {
-        if !integer_within(limit, 1.0, TRANSCRIPT_HISTORY_PAGE_ITEMS) {
-            return Err(refuse("/limit", EXPECTED));
-        }
+    if let Some(limit) = params.get("limit").filter(|value| !value.is_null())
+        && !integer_within(limit, 1.0, TRANSCRIPT_HISTORY_PAGE_ITEMS)
+    {
+        return Err(refuse("/limit", EXPECTED));
     }
-    if let Some(budget) = params.get("byteBudget").filter(|value| !value.is_null()) {
-        if !safe_integer(budget).is_some_and(|bytes| bytes >= 1.0) {
-            return Err(refuse("/byteBudget", EXPECTED));
-        }
+    if let Some(budget) = params.get("byteBudget").filter(|value| !value.is_null())
+        && !safe_integer(budget).is_some_and(|bytes| bytes >= 1.0)
+    {
+        return Err(refuse("/byteBudget", EXPECTED));
     }
     Ok(())
 }
@@ -346,10 +346,10 @@ fn lsp_document(params: &Map<String, Value>) -> Verdict {
     if !input.get("version").and_then(integer).is_some_and(|version| version >= 0.0) {
         return Err(refuse("/document/version", "LSP document version is invalid."));
     }
-    if let Some(content) = input.get("content") {
-        if !within_text_ceiling(Some(content)) {
-            return Err(refuse("/document/content", "LSP document content is invalid."));
-        }
+    if let Some(content) = input.get("content")
+        && !within_text_ceiling(Some(content))
+    {
+        return Err(refuse("/document/content", "LSP document content is invalid."));
     }
     if let Some(project_path) = input.get("projectPath") {
         required_string(Some(project_path), "/document/projectPath", "projectPath", REQUIRED_STRING_MAX)?;
