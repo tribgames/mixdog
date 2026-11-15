@@ -1,0 +1,19 @@
+# t10-config-misc: integration fragment
+
+## scripts/collect-client-inputs.mjs, OVERRIDE_ARGS (the clients-accepted corpus; lead regenerates the fixture)
+
+Anchor: the line `  setRoute: [{ provider: 'p', model: 'm' }],` of the session-action sample arguments.
+
+Replace it with what the remote chat really sends on a model pick (apps/desktop/src/renderer/remote-protocol-chat.ts
+`setModelRoute`: `{ ...selection, applyToCurrentSession: true, keepMainModel: Boolean(sessionId) }`):
+
+  setRoute: [{ provider: 'p', model: 'm', applyToCurrentSession: true, keepMainModel: true }],
+
+and regenerate native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json. The row
+`session action setRoute` then carries the two options inside `params.route`; with this task's change of
+boundary/validate/model.rs (`route_write`) the corpus tests accept it (`validate_model_clients_accepted_rows_pass`,
+mixdog-app-server `clients_accepted_corpus_passes`). Before the change the validator refused that row with
+"model selection contains an unsupported field.", which is what every remote model pick got.
+
+No protocol method, table row or Cargo dependency is added by this task: nothing for methods.rs, params.rs,
+inventory.rs, Cargo.toml, Cargo.lock or the workspace-hack.
