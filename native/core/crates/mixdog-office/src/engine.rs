@@ -279,8 +279,8 @@ impl<P: Platform> Engine<P> {
             abort: Some(Arc::clone(&abort)),
         };
         let design = mixdog_office_design::library::Context { lane, env: platform.design_environment(), fetch: platform.fetch(), indexer: platform.indexer() };
-        let legacy = SofficeConverter { soffice: Soffice::process(), proof: lane, cancel: Some(&*abort) };
-        let env = SessionEnv { design: &design, note: note.as_ref(), registry: &self.registry, host: office, legacy: &legacy, data_dir, cwd, cancel: None };
+        let converter = SofficeConverter { soffice: Soffice::process(), proof: lane, cancel: Some(&*abort) };
+        let env = SessionEnv { design: &design, note: note.as_ref(), registry: &self.registry, host: office, legacy: &converter, data_dir, cwd, cancel: None };
         let closer = Closer { host: office, registry: &self.registry, env: platform.design_environment(), reviews: &self.reviews };
         let render = SystemRender::new(lanes, office.clone(), Arc::clone(&fonts), Arc::clone(note));
         let held = std::mem::take(&mut *self.deliveries.lock().unwrap_or_else(PoisonError::into_inner));

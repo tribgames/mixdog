@@ -183,7 +183,7 @@ impl<L: WriteLane, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Mac
             let advisory: Vec<Value> = issues_after
                 .iter()
                 .zip(&blocked)
-                .filter(|(issue, blocked)| !**blocked && matches!(issue.get("severity").and_then(Value::as_str), Some("error" | "warning")) && !blocking_issues.contains(issue))
+                .filter(|(issue, blocked)| !**blocked && matches!(issue.get("severity").and_then(Value::as_str), Some("error" | "warning")))
                 .map(|(issue, _)| issue.clone())
                 .collect();
             fields.insert("advisoryIssues".to_owned(), Value::Array(advisory));
