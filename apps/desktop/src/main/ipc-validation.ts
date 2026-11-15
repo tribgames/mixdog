@@ -37,10 +37,6 @@ import {
   DESKTOP_CAPABILITIES,
   DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
-  NOTIFICATION_VOLUME_MAX,
-  isSessionRetentionDays,
-  isSessionRetentionSettingKey,
-  type SessionRetentionSettingKey,
   type DesktopAbortOptions,
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
@@ -101,7 +97,6 @@ import {
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
 import { HEARTBEAT_INTERVAL_CHOICES } from '../shared/core-src/runtime/shared/heartbeat-interval.mjs';
-import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import {
   MAX_PROMPT_LENGTH,
   optionalPlainRecord,
@@ -1966,35 +1961,15 @@ export function requiredZoomFactor(value: unknown): number {
   return Math.round(value * 100) / 100;
 }
 
-export function requiredNotificationVolume(value: unknown): number {
-  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > NOTIFICATION_VOLUME_MAX) {
-    throw new TypeError('notification volume is invalid.');
-  }
-  return value as number;
-}
-
-export function requiredBrowserPermissionPolicy(value: unknown): BrowserPermissionPolicy {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('browser permissions are invalid.');
-  }
-  return normalizeBrowserPermissionPolicy(value);
-}
-
-export function requiredSessionRetentionSetting(
-  key: unknown,
-  days: unknown
-): { key: SessionRetentionSettingKey; days: number } {
-  if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
-  if (!isSessionRetentionDays(key, days)) throw new TypeError('session retention days are invalid.');
-  return { key, days };
-}
-
 export {
+  requiredBrowserPermissionPolicy,
   requiredConversationNotificationSetting,
   requiredDesktopSettingKey,
   requiredNotificationDeviceId,
   requiredNotificationPreferencesPatch,
   requiredNotificationTarget,
+  requiredNotificationVolume,
+  requiredSessionRetentionSetting,
 } from '../shared/settings-input';
 
 const LSP_REQUEST_METHOD_SET: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);

@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DESKTOP_IPC } from '../shared/contract.ts';
 import { DesktopServiceClient } from './desktop-service-client.ts';
-import { registerSessionIpc } from './ipc-sessions.ts';
 import { createCapabilityLane } from './protocol/capability-route.ts';
 
 // The session methods a window calls on a core connection. There is no Node host on that connection: the lane is the
 // whole path (SessionHost is Node-only and K1 deletes it), so each method is one core request and the Node service is
-// never reached. The checks of Node's IPC layer stay in `ipc-sessions.ts`; the core repeats them for a phone.
+// never reached. The window's rename is the renderer's core-direct `renameSession` (renderer/core-direct/api-sessions.ts: this capability, errors mapped by withDirectErrors); the title's own checks are the lane's and the core's.
 const SESSION = `sess_desktop_${'a'.repeat(64)}`;
 const notAvailable = Object.assign(new Error('rpc'), {
   detail: { kind: 'rpc', data: { reason: 'domainError', domain: 'thread', message: 'Session is not available.' } },
@@ -50,15 +48,13 @@ const settle = (promise) =>
 const OUTCOMES = [
   { name: 'a title the core accepts', refuse: false, title: 'Quarterly plan', sent: true, expect: { ok: true } },
   { name: 'a title the core refuses', refuse: true, title: 'Mine', sent: true, expect: { error: 'Session is not available.', kind: 'Error' } },
-  { name: 'an empty title', refuse: false, title: '   ', sent: false, expect: { error: 'title is invalid.', kind: 'TypeError' } },
+  { name: 'an empty title', refuse: false, title: '   ', sent: false, expect: { error: 'Session title is invalid.', kind: 'TypeError' } },
 ];
 
 for (const outcome of OUTCOMES) {
   test(`the window's rename IPC on a core connection: ${outcome.name}`, async () => {
     const { calls, client } = coreClient({ refuse: outcome.refuse });
-    const handlers = new Map();
-    registerSessionIpc({ handle: (channel, fn) => handlers.set(channel, fn), host: client, invokeDesktopOperation: async () => undefined });
-    const result = await settle(Promise.resolve().then(() => handlers.get(DESKTOP_IPC.renameSession)({}, SESSION, outcome.title)));
+    const result = await settle(client.renameSession(SESSION, outcome.title));
     assert.deepEqual(result, outcome.expect);
     assert.deepEqual(
       calls.filter((call) => call.method === 'thread/name/set'),
