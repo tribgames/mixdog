@@ -131,18 +131,18 @@ const runStep = async (state, step) => {
       return { format: made.format, fileKind: made.fileKind, parts: made.parts };
     }
     case 'ensureOverride':
-      opc.ensureContentTypeOverride(state.zip, step.part, step.type);
+      await opc.ensureContentTypeOverride(state.zip, step.part, step.type);
       return null;
     case 'removeOverride':
-      opc.removeContentTypeOverride(state.zip, step.part);
+      await opc.removeContentTypeOverride(state.zip, step.part);
       return null;
     case 'ensureDefault':
-      opc.ensureDefaultContentType(state.zip, step.extension, step.type);
+      await opc.ensureDefaultContentType(state.zip, step.extension, step.type);
       return null;
     case 'addRel':
       return opc.addPackageRelationship(state.zip, step.rels, step.type, step.target, step.mode);
     case 'removeRel':
-      opc.removePackageRelationship(state.zip, step.rels, step.id);
+      await opc.removePackageRelationship(state.zip, step.rels, step.id);
       return null;
     case 'set':
       state.zip.file(step.name, step.text);

@@ -102,7 +102,11 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     if !package_present(&package_root) {
         return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
     }
-    Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(), node_version: manifest.node_version })
+    Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(),
+        node_version: manifest.node_version,
+        #[cfg(test)]
+        script_hosts: false,
+    })
 }
 
 /// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which

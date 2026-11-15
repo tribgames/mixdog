@@ -901,10 +901,10 @@ pub fn equals(a: &Value, b: &Value) -> bool {
     super::collate::compare_partial(a, b) == Some(std::cmp::Ordering::Equal)
 }
 
-/// `$a -ceq $b` for strings: exact.
+/// `$a -ceq $b` for strings: the culture comparison without ignoring case (canonically equal texts are equal).
 pub fn equals_case_sensitive(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::String(x), Value::String(y)) => x == y,
+        (Value::String(x), Value::String(y)) => super::collate::compare_strings_case_sensitive(x, y) == std::cmp::Ordering::Equal,
         _ => equals(a, b),
     }
 }
