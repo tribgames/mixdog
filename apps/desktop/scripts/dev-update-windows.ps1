@@ -864,7 +864,7 @@ function Invoke-FastDirectChangedOutputs {
     if ($Plan.full) {
         Push-Location $desktopDir
         try {
-            Write-Step 'preparing production runtime.asar for the complete fallback'
+            Write-Step 'preparing the production runtime for the complete fallback'
             & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
             if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
         }

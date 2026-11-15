@@ -47,18 +47,29 @@ check_native_tools() { # check_native_tools <label> <tools dir>
 		exit 1
 	fi
 	exec_tool mixdog-computer --version
-	exec_tool mixdog-patch --help
 	exec_tool mixdog-graph /tmp --langs
-	exec_tool mixdog-spawn --version
+}
+# The core the app starts (resources/core/mixdogd) must load and answer here too, by the same test.
+check_core() { # check_core <label> <core dir>
+	local label=$1 core=$2 out rc=0
+	out=$(timeout 30 "$core/mixdogd" --version </dev/null 2>&1) || rc=$?
+	echo "-- $label mixdogd --version (exit $rc)"
+	echo "$out" | head -n 5
+	if [ "$rc" -ne 0 ] || echo "$out" | grep -Eq "GLIBC_[0-9.]+' not found|error while loading shared libraries|cannot execute"; then
+		echo "CORE FAILED TO LOAD: $label mixdogd"
+		exit 1
+	fi
 }
 mkdir -p /tmp/ex && cd /tmp/ex && /w/pkg/*.AppImage --appimage-extract >/dev/null && cd /
 check_native_tools AppImage /tmp/ex/squashfs-root/resources/native-tools
+check_core AppImage /tmp/ex/squashfs-root/resources/core
 echo "== AppImage ($family)"
 SMOKE_LAUNCH_ARGS=--appimage-extract-and-run xvfb-run -a --server-args="-screen 0 1440x900x24" \
 	node /w/ctr/linux-launch-smoke.mjs /w/pkg/mixdog-desktop-linux-*.AppImage "/w/out/appimage-$family"
 if [ "$family" = debian ]; then
 	echo "== .deb ($family)"
 	apt-get install -y /w/pkg/*.deb
+	check_core .deb /opt/Mixdog/resources/core
 	xvfb-run -a --server-args="-screen 0 1440x900x24" \
 		node /w/ctr/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop "/w/out/deb-$family"
 fi

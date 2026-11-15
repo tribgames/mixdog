@@ -129,7 +129,7 @@ try {
         } | Out-Null
         Invoke-AcceptanceStep 'staging' 'npm run prepare:runtime' {
             Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'prepare:runtime')
-            $native = @(Get-ChildItem '.runtime\runtime.asar.unpacked' -Recurse -File)
+            $native = @(Get-ChildItem '.runtime\native-modules' -Recurse -File)
             return [ordered]@{ nativeFiles = $native.Count; nativeBytes = ($native | Measure-Object Length -Sum).Sum }
         } | Out-Null
         Invoke-AcceptanceStep 'integrated-build' 'npm run build' {
@@ -188,8 +188,8 @@ try {
 
     $installedExe = Join-Path $InstallDir 'Mixdog.exe'
     Invoke-AcceptanceStep 'native-resolution' 'ELECTRON_RUN_AS_NODE=1 Mixdog.exe --input-type=module -e <sharp PNG probe>' {
-        $archive = (Join-Path $InstallDir 'resources\runtime.asar').Replace('\', '/')
-        $probeScript = "const sharp=(await import('file:///$archive/node_modules/sharp/lib/index.js')).default; const r=await sharp({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer({resolveWithObject:true}); console.log(JSON.stringify(r.info));"
+        $modules = (Join-Path $InstallDir 'resources\runtime.asar.unpacked\node_modules').Replace('\', '/')
+        $probeScript = "const sharp=(await import('file:///$modules/sharp/lib/index.js')).default; const r=await sharp({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer({resolveWithObject:true}); console.log(JSON.stringify(r.info));"
         $probeOutput = Join-Path $distDir 'acceptance-native-probe.stdout'
         $probeError = Join-Path $distDir 'acceptance-native-probe.stderr'
         $env:ELECTRON_RUN_AS_NODE = '1'

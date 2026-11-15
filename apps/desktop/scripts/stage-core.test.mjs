@@ -183,3 +183,31 @@ test('the release version is the workspace package version', async () => {
   writeFileSync(manifest, '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.4.6"\nedition = "2024"\n\n[dependencies]\nversion = "9"\n');
   assert.equal(await workspaceVersion(manifest), '1.4.6');
 });
+
+test('server bundles built by another job are adopted only when they match this job\'s own staging', async () => {
+  const targetDir = makeTempDirSync('stage-core-adopt');
+  const producerRuntime = makeTempDirSync('stage-core-adopt-producer');
+  const packagerRuntime = makeTempDirSync('stage-core-adopt-packager');
+  builtTargets(targetDir, Object.values(HOST_TARGETS));
+  const host = { platform: 'win32', arch: 'x64' };
+  // The producer stages the server half only: no host core, no host binary run.
+  const produced = await stageCore({ targetDir, runtimeDir: producerRuntime, version: '1.4.6', host, buildPayload: fakePayload(), verifyPayload, serversOnly: true });
+  assert.equal(existsSync(join(producerRuntime, 'core')), false);
+  const source = join(producerRuntime, 'server-cores');
+  const adopt = (overrides = {}) =>
+    stageCore({ targetDir, runtimeDir: packagerRuntime, version: '1.4.6', host, reportedVersion: () => '1.4.6', buildPayload: async () => assert.fail('nothing is rebuilt'), verifyPayload: async () => assert.fail('nothing is rebuilt'), prebuiltServerCores: source, ...overrides });
+  const adopted = await adopt();
+  assert.deepEqual(adopted, produced);
+  assert.equal(readFileSync(join(packagerRuntime, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
+  assert.deepEqual(readFileSync(join(packagerRuntime, 'server-cores', 'linux-x64', 'bundle.tgz')), readFileSync(join(source, 'linux-x64', 'bundle.tgz')));
+  assert.deepEqual(JSON.parse(readFileSync(join(packagerRuntime, 'server-cores', 'servers.json'), 'utf8')), produced);
+
+  // Another version, a changed bundle, a mixdogd of another build and a missing set are all refused, never rebuilt.
+  await assert.rejects(adopt({ version: '1.4.7', reportedVersion: () => '1.4.7' }), /are version 1\.4\.6, the release is 1\.4\.7/);
+  writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'rebuilt');
+  await assert.rejects(adopt(), /darwin-arm64: the bundled mixdogd is not the mixdogd built for aarch64-apple-darwin/);
+  writeFileSync(join(targetDir, 'aarch64-apple-darwin', 'release', 'mixdogd'), 'binary for aarch64-apple-darwin');
+  writeFileSync(join(source, 'linux-arm64', 'bundle.tgz'), 'tampered');
+  await assert.rejects(adopt(), /linux-arm64: .*bundle\.tgz (is \d+ bytes|does not match the manifest)/);
+  await assert.rejects(adopt({ prebuiltServerCores: join(producerRuntime, 'nowhere') }), /have no readable servers\.json/);
+});
