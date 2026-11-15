@@ -149,7 +149,8 @@ impl HookHub {
         entry.socket.send_text(js::wire(&frame), None);
         let answer = tokio::select! {
             answer = &mut receiver => answer.ok(),
-            () = mixdog_rt::time::sleep(self.options.timeout) => {
+            // `timer.unref()`: the answer timer never keeps the process up.
+            () = mixdog_rt::time::sleep_unrefed(self.options.timeout) => {
                 if entry.take(&id).is_some() {
                     reply(&mut response, 504, "agent timeout", &[]);
                     return;
