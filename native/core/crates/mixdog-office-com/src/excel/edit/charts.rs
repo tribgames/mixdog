@@ -157,7 +157,7 @@ fn is_negative_number(value: &Com) -> bool {
 /// places them, not on the zero line, where a loss bar's value label and its category name ran over each other.
 fn set_category_labels_low(chart: &Com, plotted: &[Com]) {
     if plotted.iter().any(is_negative_number) {
-        quiet(|| get_with(chart, "Axes", &[Com::I4(1), Com::I4(1)]).and_then(|axis| axis.set_member("TickLabelPosition", Com::I4(-4134))));
+        quiet(|| chart.call_member("Axes", &[Com::I4(1), Com::I4(1)]).and_then(|axis| axis.set_member("TickLabelPosition", Com::I4(-4134))));
     }
 }
 
@@ -293,7 +293,7 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
     quiet(|| chart.member("ChartArea")?.member("Format")?.member("Line")?.set_member("Visible", Com::I4(0)));
     quiet(|| chart.member("PlotArea")?.member("Format")?.member("Fill")?.set_member("Visible", Com::I4(0)));
     quiet(|| {
-        let axis = get_with(&chart, "Axes", &[Com::I4(1), Com::I4(1)])?;
+        let axis = chart.call_member("Axes", &[Com::I4(1), Com::I4(1)])?;
         axis.set_member("CategoryType", Com::I4(2))?;
         axis.set_member("TickLabelPosition", Com::I4(4))?;
         axis.member("TickLabels")?.set_member("Orientation", Com::I4(0))
@@ -306,7 +306,7 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
     }
     set_category_labels_low(&chart, &plotted);
     quiet(|| {
-        let axis = get_with(&chart, "Axes", &[Com::I4(2), Com::I4(1)])?;
+        let axis = chart.call_member("Axes", &[Com::I4(2), Com::I4(1)])?;
         if flag(op, "zeroBaseline") {
             axis.set_member("MinimumScale", Com::I4(0))?;
         }
@@ -336,10 +336,10 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
     // The quiet plot and the one lit bar, as the portable writer draws them: gridlines:false, valueAxis:false, highlight (a 0-based
     // index or a category's text) in the series colour with the rest in mutedColor.
     if equals_bool(&prop(op, "gridlines"), false) {
-        quiet(|| get_with(&chart, "Axes", &[Com::I4(2), Com::I4(1)])?.set_member("HasMajorGridlines", Com::Bool(false)));
+        quiet(|| chart.call_member("Axes", &[Com::I4(2), Com::I4(1)])?.set_member("HasMajorGridlines", Com::Bool(false)));
     }
     if equals_bool(&prop(op, "valueAxis"), false) {
-        quiet(|| get_with(&chart, "Axes", &[Com::I4(2), Com::I4(1)])?.call_member("Delete", &[]));
+        quiet(|| chart.call_member("Axes", &[Com::I4(2), Com::I4(1)])?.call_member("Delete", &[]));
     }
     if present(op, "highlight") && !text_of(op, "highlight").is_empty() && series_count == 1 && !slices {
         highlight_point(op, &chart, &palette, points)?;
