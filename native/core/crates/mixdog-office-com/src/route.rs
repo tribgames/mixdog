@@ -12,7 +12,7 @@ use serde_json::Value;
 
 /// The formats served by the Rust host: Word documents and Excel workbooks (one-shot calls and sessions; `detect` follows
 /// `docx`). Both pass the live suites on a real Word and Excel. A PowerPoint deck is served by the PowerShell host.
-pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx"];
+pub(crate) const RUST_HOST_FORMATS: &[&str] = &["docx", "xlsx", "pptx"];
 
 /// The format whose host serves `detect`.
 const DETECT_FOLLOWS: &str = "docx";

@@ -12,7 +12,7 @@ use super::i4;
 
 /// Where a background window is moved to before it is hidden, and how often it is hidden again while it stays visible.
 const HIDDEN_POSITION: i32 = -32000;
-const HIDE_ATTEMPTS: u32 = 20;
+const HIDE_ATTEMPTS: u32 = 60;
 const HIDE_PAUSE_MS: u32 = 25;
 
 /// `try { [long]$value.Member } catch { 0 }`.
@@ -44,12 +44,14 @@ pub(crate) fn ensure_chart_window(env: &Env<'_>, presentation: &Com, allow_ui_ac
         window.set_member("Top", i4(HIDDEN_POSITION))?;
         window.set_member("WindowState", i4(2))
     });
-    let mut handle = handle_of(&window, "HWND");
-    if handle == 0 {
-        handle = handle_of(&app, "HWND");
-    }
+    // The handle to hide is the application's frame window (the document window is its child, and a frame that stays visible
+    // shows the document): the application's own is read first, the window's where the application gives none.
+    let mut handle = handle_of(&app, "HWND");
     if handle == 0 {
         handle = handle_of(&app, "Hwnd");
+    }
+    if handle == 0 {
+        handle = handle_of(&window, "HWND");
     }
     if handle == 0 {
         attempt(|| window.call_member("Close", &[]).map(|_| ()));
