@@ -42,3 +42,48 @@ the office track) calls: `tabular::{create, snapshot, apply_batch, validate, iss
 mixdog-fsio, a `&dyn mixdog_office_base::write_note::WriteNote` (the call's ledger: noted before every write) and JSON operations and
 options, and answer JSON values with Node's exact key order and texts; `Format::from_name("csv" | "tsv")` picks the format and
 `tabular::csv_cell` is `csvCell` of office-actions-read.mjs for the PDF table export.
+
+
+## Corrective implementation (pending fresh Node recording and compiled review)
+
+The guessed 120,000-item spread cap is removed. Array.from's ToLength/ordinary
+Array length bound remains. insert_empty reserves the full Vec capacity with
+try_reserve, appends default empty entries, then rotates the existing suffix;
+there is no argument spread, intermediate insertion array or quadratic sequence
+of middle inserts. A failed reservation returns Invalid array length before that
+vector changes; an error anywhere in a batch leaves the file and WriteNote untouched.
+
+The original V8 argument-stack failure is contextual, not a portable data bound.
+Bounded original-expression probes accepted 120001 and 122000 arguments and threw
+Maximum call stack size exceeded at 125000 on this Node run. No replacement guessed
+cap is introduced. Above the tested old-supported range, this stackless backend
+can accept operations the original spread would fail; exact engine-stack resource
+failure parity is NOT claimed. Heap/resource exhaustion is likewise not a stable
+cross-runtime semantic threshold. Do not label those extended counts Node-verified.
+
+snapshot/issues now distinguish explicit Value::Null (the original TypeErrors on
+'sheet'/'range') from omitted options. Callers MUST represent omitted options with
+an empty JSON object, not Null. Reads still happen before option-property access,
+so an absent file wins with ENOENT. Twin run_step makes this distinction.
+
+New deterministic regression tests:
+- inserts_above_the_old_guessed_cap_keep_every_existing_cell (120001/122000 rows and columns)
+- explicit_null_options_fail_after_reading_and_omitted_options_are_an_object
+- bom_only_and_failed_batch_preserve_bytes_and_write_note_order
+The note captures actual pre-write bytes; failed batches make no note call.
+
+The Node recorder now includes bounded insertion, omitted/null, missing-file,
+BOM-only and failed-batch scenarios. Long file outputs now carry SHA-256 plus
+length. The existing four length-only wide-row read steps are replayed against
+their complete initial bytes, so old fixtures do not retain a length-only escape.
+
+IMPORTANT: the worktree already had a deleted tracked
+benchmarks/rust-core/recorders/lib/common.mjs before this corrective task. That
+unrelated deletion is preserved and was not restored/staged/reset. Therefore the
+updated recorder was NOT executed and existing golden.json/MANIFEST.json are
+unchanged; no new oracle outputs have been fabricated. Root must run the updated
+recorder from its full integration tree and refresh the set/root manifest hashes
+and totalBytes. The old index size above describes the old recorded set only.
+
+No Cargo/build/Rust test/app/commit was run. After registration, dependencies and
+fresh recording, run the unit regressions and twin_tabular offline, then clippy.

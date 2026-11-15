@@ -28,11 +28,6 @@ use serde_json::{Value, json};
 /// The widest sheet a validation accepts.
 const MAX_COLUMNS: usize = XLSX_MAX_COLUMNS as usize;
 
-/// Rows or columns one `insert_*` operation may add. JavaScript spread the new items into `splice`'s arguments, which
-/// overflowed the stack a little above this and answered a catchable error; here the same refusal keeps a hostile
-/// count from allocating without bound.
-const SPREAD_LIMIT: usize = 120_000;
-
 /// `Array.from({ length })` refuses a length above 2^32 - 1.
 const ARRAY_LENGTH_LIMIT: f64 = 4_294_967_295.0;
 
@@ -308,8 +303,10 @@ fn splice_count(length: usize, start: usize, count: f64) -> usize {
     count.clamp(0.0, (length - start) as f64) as usize
 }
 
-/// `Array.from({ length: count }, ...)` spread into a `splice`: how many items it makes, or the error it raised.
-fn spread_length(count: f64) -> Result<usize, String> {
+/// Array.from's ToLength and ordinary Array length bound. V8's incidental
+/// argument-stack limit is not a stable data limit and must not reject counts
+/// the old backend handled. Actual insertion uses a fallible heap reservation.
+fn insertion_length(count: f64) -> Result<usize, String> {
     let length = if count.is_nan() { 0.0 } else { count.trunc() };
     if length <= 0.0 {
         return Ok(0);
@@ -317,10 +314,18 @@ fn spread_length(count: f64) -> Result<usize, String> {
     if length > ARRAY_LENGTH_LIMIT {
         return Err("Invalid array length".to_owned());
     }
-    if length > SPREAD_LIMIT as f64 {
-        return Err("Maximum call stack size exceeded".to_owned());
-    }
     Ok(length as usize)
+}
+
+/// Append empty entries after reserving the complete capacity, then rotate the
+/// old suffix into place. No argument spread, intermediate collection or repeated
+/// middle insertion is needed. Failure occurs before changing this vector.
+fn insert_empty<T: Default>(values: &mut Vec<T>, start: usize, count: usize) -> Result<(), String> {
+    values.try_reserve(count).map_err(|_| "Invalid array length".to_owned())?;
+    let length = values.len() + count; // try_reserve checked capacity overflow.
+    values.resize_with(length, T::default);
+    values[start..].rotate_right(count);
+    Ok(())
 }
 
 // ---- cells -----------------------------------------------------------------------------------------------------
@@ -362,6 +367,7 @@ fn cell_ref(row: usize, column: usize) -> String {
 
 /// `snapshotTabular`: the file as one sheet of populated cells. `options` is the tool's object: `sheet` (must name
 /// the file's sheet), `range` (A1), and `paged: true` with `offset` and `limit` for a page of populated cells.
+/// Pass an empty object for omitted Node options; explicit null remains a TypeError.
 pub fn snapshot<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Value) -> Result<Value, String> {
     let rows = read_delimited(proof, path, format)?.rows;
     snapshot_rows(path, format, &rows, options)
@@ -369,6 +375,7 @@ pub fn snapshot<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &
 
 fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> Result<Value, String> {
     let name = sheet_name(path, format);
+    if options.is_null() { return Err("Cannot read properties of null (reading 'sheet')".to_owned()); }
     if let Some(sheet) = options.get("sheet").filter(|sheet| truthy(sheet)) {
         if js_to_lowercase(&value_to_string(sheet)) != js_to_lowercase(&name) {
             return Err(format!("{} sheet not found: {}", format.upper(), value_to_string(sheet)));
@@ -522,8 +529,8 @@ fn apply_operation(rows: &mut Rows, format: Format, operation: &Value) -> Result
             let row = to_number_of(field("row"));
             let count = number_or(field("count"), 1.0);
             let start = splice_start(rows.len(), row - 1.0);
-            let added = spread_length(count)?;
-            rows.splice(start..start, std::iter::repeat_n(Vec::new(), added));
+            let added = insertion_length(count)?;
+            insert_empty(rows, start, added)?;
             Ok(json!({ "op": op, "changed": true, "row": json_number(row), "count": json_number(count) }))
         }
         "delete_rows" => {
@@ -540,8 +547,8 @@ fn apply_operation(rows: &mut Rows, format: Format, operation: &Value) -> Result
             for row in rows.iter_mut() {
                 let start = splice_start(row.len(), column);
                 if op == "insert_columns" {
-                    let added = spread_length(count)?;
-                    row.splice(start..start, std::iter::repeat_n(String::new(), added));
+                    let added = insertion_length(count)?;
+                    insert_empty(row, start, added)?;
                 } else {
                     let end = start + splice_count(row.len(), start, count);
                     row.drain(start..end);
@@ -620,6 +627,7 @@ fn expected_columns(widths: &[usize]) -> usize {
 pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Value) -> Result<Value, String> {
     let text = read_text(proof, path)?;
     let rows = parse_delimited(&text, format.delimiter());
+    if options.is_null() { return Err("Cannot read properties of null (reading 'range')".to_owned()); }
     let bounds = bounds_of(options.get("range"))?;
     let widths: Vec<usize> = rows.iter().map(Vec::len).collect();
     // The file's shape is the width its rows agree on, not the widest row it holds: measured against the maximum, one
@@ -760,8 +768,8 @@ mod tests {
         assert_eq!(splice_count(3, 1, f64::NAN), 0);
         assert_eq!(splice_count(3, 1, 9.0), 2);
         assert_eq!(splice_count(3, 1, -2.0), 0);
-        assert_eq!(spread_length(f64::INFINITY), Err("Invalid array length".to_owned()));
-        assert_eq!(spread_length(-3.0), Ok(0));
+        assert_eq!(insertion_length(f64::INFINITY), Err("Invalid array length".to_owned()));
+        assert_eq!(insertion_length(-3.0), Ok(0));
     }
 
     #[test]
@@ -937,7 +945,7 @@ mod tests {
             (checked["ok"].as_bool(), checked["invalidEncoding"].as_bool(), checked["nulBytes"].as_u64()),
             (Some(false), Some(true), Some(1))
         );
-        let report = issues(&Unlaned, &path, Format::Csv, &Value::Null).expect("issues");
+        let report = issues(&Unlaned, &path, Format::Csv, &json!({})).expect("issues");
         assert_eq!(report["ok"], false);
         assert_eq!(report["issues"][0]["code"], "invalid_utf8");
         assert_eq!(report["issues"][1]["message"], "File contains 1 NUL byte(s).");
@@ -945,4 +953,59 @@ mod tests {
         let error = snapshot(&Unlaned, &missing, Format::Csv, &Value::Null).expect_err("missing");
         assert!(error.starts_with("ENOENT: no such file or directory, open '"));
     }
+
+    #[test]
+    fn inserts_above_the_old_guessed_cap_keep_every_existing_cell() {
+        for count in [120_001, 122_000] {
+            let mut rows = strings(&[&["first"], &["last"]]);
+            apply_operation(&mut rows, Format::Csv, &json!({"op":"insert_rows","row":2,"count":count})).unwrap();
+            assert_eq!(rows.len(), count + 2);
+            assert_eq!(rows.first().unwrap(), &["first"]);
+            assert_eq!(rows.last().unwrap(), &["last"]);
+            assert!(rows[1..=count].iter().all(Vec::is_empty));
+            let mut rows = strings(&[&["first", "last"]]);
+            apply_operation(&mut rows, Format::Csv, &json!({"op":"insert_columns","column":2,"count":count})).unwrap();
+            assert_eq!(rows[0].len(), count + 2);
+            assert_eq!(rows[0][0], "first");
+            assert_eq!(rows[0][count+1], "last");
+            assert!(rows[0][1..=count].iter().all(String::is_empty));
+        }
+    }
+
+    #[test]
+    fn explicit_null_options_fail_after_reading_and_omitted_options_are_an_object() {
+        let dir = dir();
+        let path = file(&dir, "options.csv", b"a,b\r\n");
+        assert!(snapshot(&Unlaned, &path, Format::Csv, &json!({})).is_ok());
+        assert!(issues(&Unlaned, &path, Format::Csv, &json!({})).is_ok());
+        assert_eq!(snapshot(&Unlaned, &path, Format::Csv, &Value::Null).unwrap_err(), "Cannot read properties of null (reading 'sheet')");
+        assert_eq!(issues(&Unlaned, &path, Format::Csv, &Value::Null).unwrap_err(), "Cannot read properties of null (reading 'range')");
+        let absent = dir.path().join("absent.csv");
+        assert!(snapshot(&Unlaned, &absent, Format::Csv, &Value::Null).unwrap_err().starts_with("ENOENT:"));
+        assert!(issues(&Unlaned, &absent, Format::Csv, &Value::Null).unwrap_err().starts_with("ENOENT:"));
+    }
+
+    #[test]
+    fn bom_only_and_failed_batch_preserve_bytes_and_write_note_order() {
+        struct Capture(std::sync::Mutex<Vec<Vec<u8>>>);
+        impl WriteNote for Capture {
+            fn note_write(&self, path: &Path) { self.0.lock().unwrap().push(mixdog_fsio::read(&Unlaned, path).unwrap()); }
+        }
+        let dir = dir();
+        let path = file(&dir, "bom.csv", "\u{FEFF}".as_bytes());
+        let note = Capture(std::sync::Mutex::new(Vec::new()));
+        let before = bytes(&path);
+        let failed = [json!({"op":"set_cell","cell":"A1","value":"changed"}), json!({"op":"unknown"})];
+        assert!(apply_batch(&Unlaned, &note, &path, Format::Csv, &failed).is_err());
+        assert_eq!(bytes(&path), before);
+        assert!(note.0.lock().unwrap().is_empty(), "failed batches must not report a write");
+        apply_batch(&Unlaned, &note, &path, Format::Csv, &[json!({"op":"append_row","values":["가"]})]).unwrap();
+        assert_eq!(*note.0.lock().unwrap(), vec![before]);
+        assert_eq!(bytes(&path), "\u{FEFF}가\r\n".as_bytes());
+        apply_batch(&Unlaned, &note, &path, Format::Csv, &[json!({"op":"delete_rows","row":1})]).unwrap();
+        assert_eq!(bytes(&path), "\u{FEFF}".as_bytes());
+        assert_eq!(note.0.lock().unwrap().len(), 2);
+        assert_eq!(note.0.lock().unwrap()[1], "\u{FEFF}가\r\n".as_bytes());
+    }
+
 }

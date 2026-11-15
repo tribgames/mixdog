@@ -8,11 +8,12 @@
 // A scenario is { name, file, format, initial, steps }. `initial` is the file's bytes as hex (null: the file does not
 // exist). A step is { kind: 'create' | 'snapshot' | 'apply' | 'validate' | 'issues', ... }; after each step the
 // recording holds `result` (the answer's exact JSON text) or `error` (the message), and `fileHex` (the file's bytes
-// then, null when there is none; `fileLength` instead when the file is long). Every file lives in a temporary directory, which the recording names `<dir>`: the
+// then, null when there is none; `fileLength` and `fileSha256` instead when the file is long). Every file lives in a temporary directory, which the recording names `<dir>`: the
 // text of a result has `<dir>/` where the directory and a separator were, so a replay on any platform compares equal.
 // The corpus is constants: the output is byte-stable.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, productIdentity, resolveTree, writeSetManifest } from './lib/common.mjs';
 
@@ -218,6 +219,27 @@ scenarios.push({ name: 'one column too wide', file: 'data.csv', format: 'csv', i
 csv('an empty file validates', '', [validate, issues({}), snapshot({})]);
 csv('issues on a blank row', 'a\r\n\r\nb\r\n', [issues({})]);
 
+// Corrective cases: bounded insertions the old backend supports, explicit null
+// versus omitted options, and BOM-only/failed-batch byte preservation.
+for (const count of [120001, 122000]) {
+  csv(`insert_rows ${count} preserves existing rows`, 'first\r\nlast\r\n', [
+    apply({op:'insert_rows',row:2,count}), snapshot({paged:true,limit:2}),
+  ]);
+  csv(`insert_columns ${count} preserves existing cells`, 'first,last\r\n', [
+    apply({op:'insert_columns',column:2,count}), snapshot({paged:true,limit:2}), validate,
+  ]);
+}
+csv('explicit null options differ from omitted options', 'a,b\r\n', [
+  snapshot(), issues(), snapshot(null), issues(null),
+]);
+scenario('read error precedes null options', 'absent.csv', 'csv', null, [snapshot(null), issues(null)]);
+csv('BOM-only survives edit and deleting every row', BOM, [
+  snapshot(), apply({op:'append_row',values:['가']}), apply({op:'delete_rows',row:1}), snapshot(),
+]);
+csv('failed batch does not publish earlier mutations', BOM+'first,last\r\n', [
+  apply({op:'set_cell',cell:'A1',value:'changed'},{op:'unknown'}), snapshot(),
+]);
+
 // ---- the run ----
 // A file of one row of `columns` columns, the cells counting up from 0; a scenario's `initial` may be { wide: columns }.
 const wideRow = (columns) => `${Array.from({ length: columns }, (_, i) => i).join(',')}\r\n`;
@@ -252,9 +274,11 @@ try {
         entry.error = normalise(String(error?.message ?? error), dir);
       }
       const content = existsSync(file) ? readFileSync(file).toString('hex') : null;
-      // A long file is recorded by its length: the steps that read it leave it as it was.
-      if (content !== null && content.length > 4000) entry.fileLength = content.length / 2;
-      else entry.fileHex = content;
+      // Preserve byte equality evidence for large files too, including insertions.
+      if (content !== null && content.length > 4000) {
+        entry.fileLength = content.length / 2;
+        entry.fileSha256 = createHash('sha256').update(Buffer.from(content, 'hex')).digest('hex');
+      } else entry.fileHex = content;
       steps.push(entry);
     }
     recorded.push({ name: item.name, file: item.file, format: item.format, initial: item.initial, steps });

@@ -13,6 +13,7 @@ use mixdog_office::tabular::{self, Format};
 use mixdog_office_base::twin;
 use mixdog_office_base::write_note::NoWriteNote;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -51,7 +52,9 @@ fn file_hex(path: &Path) -> Option<String> {
 
 fn run_step(step: &Value, path: &Path, format: Format) -> Result<String, String> {
     let kind = step["kind"].as_str().expect("kind");
-    let options = step.get("options").unwrap_or(&Value::Null);
+    // Node's omitted/default argument is {}, not explicit null.
+    let omitted = serde_json::json!({});
+    let options = step.get("options").unwrap_or(&omitted);
     match kind {
         "create" => tabular::create(&Unlaned, &NoWriteNote, path).map(|()| "null".to_owned()),
         "snapshot" => tabular::snapshot(&Unlaned, path, format, options).map(|value| json_stringify(&value)),
@@ -94,6 +97,15 @@ fn replay(scenario: &Value) {
             Some(length) => {
                 let bytes = mixdog_fsio::read(&Unlaned, &path).expect("the file");
                 assert_eq!(bytes.len() as u64, length.as_u64().expect("length"), "{at}: the file's length");
+                if let Some(expected) = step.get("fileSha256") {
+                    assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected.as_str().unwrap(), "{at}: all file bytes");
+                } else {
+                    // The old corpus has four wide-row read-only steps. Compare
+                    // their full original content instead of trusting length alone.
+                    assert!(matches!(step["kind"].as_str(), Some("snapshot" | "validate" | "issues")), "{at}: regenerate long write cases with SHA-256");
+                    let columns = scenario["initial"]["wide"].as_u64().expect("recorded wide initial content") as usize;
+                    assert_eq!(bytes, wide_row(columns).into_bytes(), "{at}: original wide-row content");
+                }
             }
             None => assert_eq!(file_hex(&path).map(Value::from).unwrap_or(Value::Null), step["fileHex"], "{at}: the file's bytes"),
         }
