@@ -135,11 +135,6 @@ fn message_body(slot: &Slot<Value>, resolve: &mut ResolveBody<'_>) -> Result<Val
     }
 }
 
-/// The catalog contribution of a message body slot.
-fn message_row(slot: &Slot<Value>, resolve: &mut ResolveBody<'_>) -> Result<MessageRow, String> {
-    Ok(MessageRow::of(&message_body(slot, resolve)?))
-}
-
 /// The kind and op of a record. `resolve` reads out-of-line message bodies.
 pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameKind, Option<ProjectedOp>), String> {
     Ok(match record {
