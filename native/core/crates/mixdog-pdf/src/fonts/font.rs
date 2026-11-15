@@ -1884,6 +1884,8 @@ struct LoaderState {
     keep_alive: Vec<Arc<Dict>>,
     /// `PartialEvaluator.fallbackFontDict`: made once, so that its font is.
     fallback_dict: Option<Arc<Dict>>,
+    /// `systemFontCache`: the names a substitute system font was made for (each took one font id).
+    system_fonts: std::collections::HashSet<String>,
 }
 
 /// What `loadFont` is told besides the font: where it is called from.
@@ -1900,6 +1902,7 @@ pub struct LoadContext<'a> {
 pub struct FontLoader {
     doc_id: String,
     ignore_errors: bool,
+    use_system_fonts: bool,
     next_font_id: AtomicU32,
     state: Mutex<LoaderState>,
 }
@@ -1920,8 +1923,51 @@ impl FontLoader {
         FontLoader {
             doc_id: doc_id.to_owned(),
             ignore_errors,
+            use_system_fonts: true,
             next_font_id: AtomicU32::new(0),
             state: Mutex::new(LoaderState::default()),
+        }
+    }
+
+    /// Whether a font that has no program of its own is given a substitute system font (`useSystemFonts`, on unless
+    /// the document is opened without it): the substitute takes a font id of its own, once per name.
+    pub fn with_system_fonts(mut self, use_system_fonts: bool) -> Self {
+        self.use_system_fonts = use_system_fonts;
+        self
+    }
+
+    /// `getFontSubstitution`'s id: a font read without a program of its own (no descriptor, or a descriptor with no
+    /// `FontFile`) takes the next font id for the substitute system font, once for each name.
+    fn take_substitute_id(&self, xref: &Xref, pre: &PreEvaluated) {
+        if !self.use_system_fonts || pre.ty == "Type3" || pre.composite {
+            return;
+        }
+        let has_program = match &pre.descriptor {
+            Obj::Dict(descriptor) => ["FontFile", "FontFile2", "FontFile3"]
+                .iter()
+                .any(|key| xref.get(descriptor, key).map(|file| truthy(&file)).unwrap_or(false)),
+            _ => false,
+        };
+        if has_program {
+            return;
+        }
+        let Ok(Obj::Name(base_font)) = xref.get(&pre.dict, "BaseFont") else {
+            return;
+        };
+        let mut name: &str = &base_font;
+        if (pre.ty == "TrueType" || pre.ty == "Type1")
+            && name.len() > 7
+            && name.as_bytes()[6] == b'+'
+            && name.as_bytes()[..6].iter().all(u8::is_ascii_uppercase)
+        {
+            name = &name[7..];
+        }
+        if name.starts_with("InvalidPDFjsFont_") {
+            return;
+        }
+        let key = normalize_font_name(name);
+        if lock(&self.state).system_fonts.insert(key) {
+            self.create_font_id();
         }
     }
 
@@ -2014,6 +2060,7 @@ impl FontLoader {
             return Ok(alias);
         }
         let loaded_name = format!("g_{}_{font_id}", self.doc_id);
+        self.take_substitute_id(xref, &pre);
         let translated =
             match translate_font(xref, &pre, &loaded_name).and_then(|mut translated| {
                 if translated.is_type3_font {
@@ -2287,7 +2334,8 @@ mod tests {
         assert_eq!(courier.chars_to_glyphs(b"i")[0].width, 600.0);
         let times = load(&loader, &document, 5);
         assert_eq!(times.font().expect("a font").fallback_name, "serif");
-        assert_eq!(times.loaded_name, "g_d0_f2");
+        // Courier-Bold's substitute system font took f2.
+        assert_eq!(times.loaded_name, "g_d0_f3");
     }
 
     #[test]
