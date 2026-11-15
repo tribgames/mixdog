@@ -22,6 +22,13 @@
 //   every other answer was an empty value or a refusal ("unavailable in UI capture") and is now whatever the core
 //   answers from its empty profile.
 //
+// DECISION (reused submission id): the old capture host was a fake that answered submitNewTask itself, without the
+// receipt gate, so a screenshot script could submit twice under one clientSubmissionId and get two tasks. The capture
+// window now runs the real core, and the receipt gate (mixdog-core-session new_task.rs) is the product's own
+// behaviour: a request that arrives twice under one id starts one task, and other content under the id is refused.
+// That fake-host leniency is not carried over: it was a property of a test double, the capture scripts submit with a
+// fresh id each time, and a second gate in the capture profile would be the fork the owner forbids.
+//
 // assertions (capture-assertions.ts): readDesktopAssertions, readLightThemeAssertions, readMobileClosedAssertions,
 // readMobileOpenAssertions, readModalStackAssertions, readPhoneSettingsAssertions and readSettingsPlacement read the
 // renderer's DOM and measure rects; the core feeds them only the rows the renderer paints (sessions, settings), which the
