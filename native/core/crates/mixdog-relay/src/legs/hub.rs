@@ -457,7 +457,7 @@ pub(super) fn announce_phone(hub: &Arc<Hub>, device_id: &str, conn: &Conn, timin
     if !phone.live() {
         return;
     }
-    send_json(&conn.socket, &client_open(&phone.id, phone.browser_client_id.as_deref()));
+    send_json(&*conn.socket, &client_open(&phone.id, phone.browser_client_id.as_deref()));
     let target = WatchTarget { device_id: device_id.to_owned(), client_id: phone.id.clone(), generation: conn.generation };
     let live = phone.live();
     await_desktop_turn(hub, target, &mut phone.watch, live, timing, Turn::Challenge);
@@ -776,7 +776,7 @@ impl Hub {
         if !entry.conn.socket.is_open() {
             return false;
         }
-        send_json(&entry.conn.socket, payload);
+        send_json(&*entry.conn.socket, payload);
         true
     }
 
@@ -998,7 +998,7 @@ impl PhoneHandle {
                 let mut phone = entry.clients.remove(position);
                 phone.attached = false;
                 phone.watch.end();
-                send_json(&entry.conn.socket, &json!({ "type": "client-close", "clientId": self.client_id }));
+                send_json(&*entry.conn.socket, &json!({ "type": "client-close", "clientId": self.client_id }));
             }
         }
         let lived_ms = i64::try_from(self.shared.opened_at.elapsed().as_millis()).unwrap_or(i64::MAX);

@@ -89,11 +89,11 @@ pub fn sweep_terminated_leg() -> Line {
 pub const HEARD_LIVE: &str = "desktop leg is live";
 pub const HEARD_PROBE_ANSWERED: &str = "desktop leg answered its probe";
 
-pub fn slow_phone_handshake(turn: u64, heard: &str) -> Line {
+pub fn slow_phone_handshake(turn: impl std::fmt::Display, heard: &str) -> Line {
     out(format!("[relay] slow phone handshake turn={turn}; {heard}, leaving the leg up"))
 }
 
-pub fn desktop_leg_missed_handshake_turn(turn: u64) -> Line {
+pub fn desktop_leg_missed_handshake_turn(turn: impl std::fmt::Display) -> Line {
     out(format!("[relay] desktop leg missed a phone handshake turn={turn} and its probe; closing it"))
 }
 
