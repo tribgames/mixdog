@@ -17,6 +17,7 @@ pub mod custom;
 pub mod google;
 pub mod grok;
 pub mod hosted;
+pub(crate) mod idle;
 #[cfg(test)]
 pub(crate) mod case_replay;
 #[cfg(test)]
