@@ -9,7 +9,7 @@ use serde_json::Value;
 use super::{Answer, EntryState, HookEntry, HookHub, MAX_HOOK_BODY_BYTES};
 use crate::close_codes::{SUPERSEDED, SUPERSEDED_REASON};
 use crate::js;
-use crate::legs::ingress::{IngressLeg, LegKind};
+use crate::legs::ingress::{IngressLeg, IngressLimits, LegKind};
 use crate::logline;
 use crate::ws::{WebSocket, WsEvent, WsEvents};
 
@@ -132,7 +132,9 @@ impl HookHub {
     /// `runHookLeg`: serve one agent leg until its socket closes. Call it right after the upgrade, with the socket and its
     /// events. A leg of the same device that is already live is superseded: closed 4000 and its parked requests fail 502.
     pub async fn run_leg(self: &Arc<Self>, device_id: &str, socket: WebSocket, mut events: WsEvents) {
-        let ingress = IngressLeg::install(&self.pool, &socket, LegKind::Hook, self.options.ingress);
+        // `{ ...ingress, limit: MAX_HOOK_BODY_BYTES }`: whatever numbers the server gives, a hook leg's own limit is 1 MiB.
+        let limits = IngressLimits { limit: MAX_HOOK_BODY_BYTES, ..self.options.ingress };
+        let ingress = IngressLeg::install(&self.pool, &socket, LegKind::Hook, limits);
         let entry = Arc::new(HookEntry {
             socket,
             state: std::sync::Mutex::new(EntryState::default()),
