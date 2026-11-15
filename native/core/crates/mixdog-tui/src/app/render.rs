@@ -155,6 +155,7 @@ impl AppState {
         };
         let queued: &[Value] = state.get("queued").and_then(Value::as_array).map_or(&[], Vec::as_slice);
         let spinner: &[Line] = &[];
+        let footer_line = self.statusline_line().to_owned();
         let props = AppViewProps {
             columns: columns_used,
             rows: rows_used,
@@ -169,7 +170,7 @@ impl AppState {
             tui_ready: self.chrome.is_ready(),
             spinner,
             queued,
-            footer: "",
+            footer: &footer_line,
             workflow: state.get("workflow").filter(|workflow| workflow.is_object()),
         };
         let mut grid = Grid::new(columns, rows);

@@ -17,6 +17,7 @@
 pub mod files;
 pub mod host;
 pub mod io;
+pub mod process;
 pub mod render;
 pub mod schedule;
 pub mod text;

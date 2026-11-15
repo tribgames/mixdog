@@ -63,6 +63,8 @@ pub struct TuiOptions {
     pub worktree: Option<Value>,
     /// A stored session to resume.
     pub resume: Option<String>,
+    /// The footer's renderer (`initialStatusLine` and the hook of `StatusLine`); none paints no statusline text.
+    pub statusline: Option<crate::footer::StatuslineRenderer>,
 }
 
 /// The two lines printed when stdin is not a terminal.
@@ -289,6 +291,9 @@ fn run_session(
     let reader = start_reader(tx.clone());
     app.chrome.update(usize::from(columns), usize::from(rows));
     app.mount();
+    if let Some(renderer) = options.statusline.clone() {
+        app.set_statusline(renderer, None);
+    }
     profile.log("render:mounted", &[("ms", elapsed_ms(started))]);
 
     let mut driver = Driver::new(app, clock, env, restorer.clone(), Arc::clone(&store), runtime.handle().clone(), tx, (columns, rows), cleanup.clone());
@@ -419,6 +424,7 @@ impl Driver {
             }
         };
         consider(self.app.next_deadline());
+        consider(self.app.statusline_wake_in_ms().map(|wait| now + wait.ceil() as u64));
         consider(self.frame_due);
         let until = |instant: Instant| u64::try_from(instant.saturating_duration_since(Instant::now()).as_millis()).unwrap_or(0);
         consider(self.decoder.next_deadline().map(|at| now + until(at)));
@@ -490,6 +496,9 @@ impl Driver {
             self.apply_size();
         }
         self.app.on_timers();
+        if self.app.statusline_turn(usize::from(self.size.0), usize::from(self.size.1)) {
+            self.dirty = true;
+        }
         if self.app.background_pending() {
             self.app.run_background();
             self.dirty = true;

@@ -408,7 +408,10 @@ pub fn system_text(hresult: i32) -> Option<String> {
 pub fn to_variant(value: &Value) -> Result<OwnedVariant, ComError> {
     let variant = match value {
         Value::Empty => Variant::empty(),
-        Value::Null => Variant::with(VT_NULL, VariantData { record: [0; 2] }),
+        // An argument that is `$null` in the PowerShell host: .NET hands a null object to a late-bound call as VT_EMPTY (VT_NULL is
+        // `DBNull`, which no call of the hosts passes). Word refuses VT_NULL where it takes nothing ("Type mismatch" of
+        // Hyperlinks.Add's screen tip).
+        Value::Null => Variant::empty(),
         Value::Missing => Variant::with(VT_ERROR, VariantData { scode: DISP_E_PARAMNOTFOUND }),
         Value::Bool(v) => Variant::with(VT_BOOL, VariantData { boolean: if *v { -1 } else { 0 } }),
         Value::I1(v) => Variant::with(VT_I1, VariantData { b: *v as u8 }),

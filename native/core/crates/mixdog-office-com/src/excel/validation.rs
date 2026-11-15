@@ -26,7 +26,9 @@ const MAX_COLUMNS: i32 = 64;
 /// cells hold different ones: Excel answers a mixed range's validation with nothing rather than an error.
 pub(super) fn validation_rule(range: &Com) -> Result<Option<String>> {
     let validation = range.member("Validation")?;
-    let kind = validation.member("Type")?;
+    // Excel refuses the type of a range whose cells hold different rules, and of a cell that holds none (0x800A03EC). The
+    // PowerShell host read a property that could not be got as nothing, which is what "no one rule" is here.
+    let Ok(kind) = validation.member("Type") else { return Ok(None) };
     if is_null_or_dbnull(&kind) {
         return Ok(None);
     }

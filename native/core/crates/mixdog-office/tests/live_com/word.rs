@@ -327,9 +327,24 @@ fn word_a_background_word_session_writes_the_header_the_picture_and_the_page_num
     assert!(matches(r#"<w:headerReference w:type="default""#, "", &document));
     assert!(!document.contains("<w:titlePg/>"));
     // The picture follows the heading it was appended after, not the document start.
+    // Word writes a Korean phrase as several runs (the East Asian font hint ends at the space), so the text is read without its
+    // markup. Node's `indexOf` answered -1 for a split phrase and the comparison held without looking.
     let drawing = document.find("<w:drawing>").expect("a picture");
-    assert!(document.find("그림 앞 제목").expect("the heading") < drawing, "picture before its heading");
-    assert!(document.find("본문 첫 단락").expect("the body") < drawing, "picture before the body");
+    let before: String = {
+        let mut text = String::new();
+        let mut in_tag = false;
+        for c in document[..drawing].chars() {
+            match c {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                c if !in_tag => text.push(c),
+                _ => {}
+            }
+        }
+        text
+    };
+    assert!(before.contains("그림 앞 제목"), "picture before its heading: {before}");
+    assert!(before.contains("본문 첫 단락"), "picture before the body: {before}");
     let footers: Vec<String> = package.names().into_iter().filter(|name| matches(r"^word/footer\d*\.xml$", "", name)).map(|name| package.text(&name)).collect();
     let numbered = footers.iter().find(|xml| xml.contains("PAGE")).expect("a footer carries the PAGE field");
     assert!(!matches(r"NUMPAGES|Page ", "", numbered));
