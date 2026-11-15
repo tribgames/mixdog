@@ -1,0 +1,26 @@
+# nr-office-live-com-suite: the Microsoft Office live suite (tests/live_com of mixdog-office; Windows with Office only)
+
+Written without cargo: nothing below has been compiled or run (rustfmt parsed the five files). It is a test target only: no module, protocol
+method or service is added, so nothing is removed from SERVICE_PENDING in compose_flip.rs.
+
+## native/core/crates/mixdog-office/Cargo.toml
+[dev-dependencies]: the line `tokio = { workspace = true, features = ["rt"] }` becomes (the live suite drives the engine from a multi-thread
+runtime, because the engine parks the thread a call runs on while the Office transport's tasks run on the others):
+
+    tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+
+The suite also names `mixdog_core_api` (the `BrowserEndpoint` it leases a headless browser through); that is the `mixdog-core-api` line the
+nr-office-engine-author-actions.wire fragment already adds to [dependencies]. Every other crate it names (mixdog-fonts, mixdog-fsio, mixdog-js,
+mixdog-office-author, mixdog-office-base, mixdog-office-com, mixdog-office-design, mixdog-office-pdf, mixdog-office-quality, mixdog-ooxml,
+mixdog-pdf, mixdog-raster, mixdog-rt with `test-support`, serde_json, tempfile) is already a [dependencies] or [dev-dependencies] line. The modules it
+reaches (`mixdog_office::engine`, `::batch`, `::snapshot::contract`) come from the earlier fragments of the track.
+
+## native/core/Cargo.lock, native/core/crates/mixdog-workspace-hack/Cargo.toml
+Nothing: no new package, and `rt-multi-thread` is already a feature of tokio in the graph (mixdog-office-com's dev-dependencies).
+
+## How the suite runs (for the verify step)
+- It needs the Rust session host: `cargo build -p mixdog-cli` first (`mixdogd.exe` beside the test binaries), or `MIXDOG_TEST_MIXDOGD` naming it.
+- `MIXDOG_TEST_LIVE_OFFICE=1`, then per profile: `cargo test -p mixdog-office --offline --test live_com -- --ignored <filter>` with the filter
+  `excel::`, `word::`, `powerpoint::`, `other::author_`, `other::attach_`, `other::contract_` or `other::compat_` (no filter is the `all` profile).
+  The tests take a lock of their own and run one at a time.
+- `other::author_` starts an installed Chrome or Edge headless (PUPPETEER_EXECUTABLE_PATH names another).
