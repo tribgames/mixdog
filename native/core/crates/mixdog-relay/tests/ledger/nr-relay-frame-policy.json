@@ -1,0 +1,62 @@
+[
+  {
+    "node": "apps/relay/security.test.mjs::routing ids share one predicate across store, HTTP, and binary frames",
+    "rust": "legs_policy::routing_id_predicate_shared_with_the_binary_frame"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::binary relay envelopes preserve routing metadata without base64",
+    "rust": "legs_policy::binary_relay_envelopes_preserve_routing_metadata_without_base64"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::frame admission bounds every leg without stalling its neighbours",
+    "rust": "legs_policy::frame_admission_bounds_every_leg_without_stalling_its_neighbours"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::frame admission bounds every leg without stalling its neighbours (sendToPhone half)",
+    "rust": "legs_policy::a_congested_phone_is_dropped_hinted_or_cut_and_its_sibling_is_untouched"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a desktop leg is held to the capacity it declares, not to configuration",
+    "rust": "legs_policy::a_desktop_leg_is_held_to_the_capacity_it_declares_not_to_configuration"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a declared text-frame leg carries text in the envelope that cannot inflate",
+    "rust": "legs_policy::a_declared_text_frame_leg_carries_text_in_the_envelope_that_cannot_inflate"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::capacity configuration is clamped on both inputs and normalises nonsense",
+    "rust": "legs_policy::capacity_configuration_is_clamped_on_both_inputs_and_normalises_nonsense"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a nonsense configured capacity is normalised once, and published equals enforced",
+    "rust": "legs_policy::published_equals_enforced_and_a_nonsense_configuration_is_normalised_once"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a critical fan-out defers what the box cannot carry and closes no healthy leg",
+    "rust": "legs_policy::a_critical_fan_out_defers_what_the_box_cannot_carry_and_closes_no_healthy_leg"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a nested clientId in the payload never attributes a refusal",
+    "rust": "legs_policy::a_nested_client_id_in_the_payload_never_attributes_a_refusal"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::a refusal names the client the router itself would have used",
+    "rust": "legs_policy::a_refusal_names_the_client_the_router_itself_would_have_used"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::no padding length lets a decoy id outrank the id that routes",
+    "rust": "legs_policy::no_padding_length_lets_a_decoy_id_outrank_the_routed_id"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::attribution costs one pass over the frame, whatever shape it is",
+    "rust": "legs_policy::attribution_costs_one_pass_over_the_frame_whatever_shape_it_is"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an oversize desktop frame is answered on that leg and names the client",
+    "rust": "legs_policy::a_binary_refusal_is_named_by_the_decoder_that_routes_it"
+  },
+  {
+    "node": "apps/relay/security.test.mjs::an oversize frame is a payload error both phone kinds surface",
+    "rust": "legs_policy::oversize_notices_are_the_bytes_node_writes"
+  }
+]
