@@ -109,6 +109,11 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time", "test-util", "process"] }
 
 [[test]]
+name = "twin_perf"
+path = "tests/twin_perf.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "legs_phone"
 path = "tests/legs_phone.rs"
 required-features = ["test-support"]
