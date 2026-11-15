@@ -1,0 +1,4 @@
+# t18-office-com: nothing for a hot file. The three office-com editor fragments (excel, ppt, word) held only edits inside
+# mixdog-office-com (module lines, drivers table, test targets), all applied; no workspace member, dependency or Cargo.lock change.
+# Left for the lead's call: the shared helpers chart_type_code, set_chart_title_face, ink_on_fill and provenance_text still have one copy per editor
+# (excel, ppt, word) with different value types and error texts; Excel-ColumnLetters is now one (excel::cells::column_letters).

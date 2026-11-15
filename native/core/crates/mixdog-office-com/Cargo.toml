@@ -156,3 +156,27 @@ path = "tests/word_read.rs"
 [[test]]
 name = "word_read_live"
 path = "tests/word_read_live.rs"
+
+[[test]]
+name = "excel_edit"
+path = "tests/excel_edit.rs"
+
+[[test]]
+name = "excel_edit_live"
+path = "tests/excel_edit_live.rs"
+
+[[test]]
+name = "ppt_edit"
+path = "tests/ppt_edit.rs"
+
+[[test]]
+name = "ppt_edit_live"
+path = "tests/ppt_edit_live.rs"
+
+[[test]]
+name = "word_edit"
+path = "tests/word_edit.rs"
+
+[[test]]
+name = "word_edit_live"
+path = "tests/word_edit_live.rs"

@@ -45,17 +45,7 @@ use super::walk;
 const OPEN_ATTEMPTS: u32 = 100;
 const OPEN_PAUSE_MS: u32 = 100;
 
-/// `Excel-ColumnLetters`: `A` for 1, `AA` for 27.
-fn column_letters(column: i32) -> String {
-    let mut column = column;
-    let mut letters = String::new();
-    while column > 0 {
-        column -= 1;
-        letters.insert(0, char::from(b'A' + (column % 26) as u8));
-        column /= 26;
-    }
-    letters
-}
+use crate::excel::cells::column_letters;
 
 /// `Excel-ProcessIds`: the ids of the running Excel processes.
 pub(crate) fn excel_process_ids(env: &Env<'_>) -> Vec<i32> {

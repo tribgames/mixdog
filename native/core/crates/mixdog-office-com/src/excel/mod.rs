@@ -12,7 +12,7 @@
 //! Every COM call is made in the order the script makes it, so a replay of a recorded call log matches.
 
 pub(crate) mod cells;
-pub(crate) mod edit;
+pub mod edit;
 mod issues;
 pub(crate) mod numfmt;
 mod page;
