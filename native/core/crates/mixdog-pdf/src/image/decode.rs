@@ -563,7 +563,19 @@ impl PdfImage {
                 let jpeg = JpegImage::parse(data, transform)?;
                 let draw_width = options.draw_width.unwrap_or(self.width);
                 let draw_height = options.draw_height.unwrap_or(self.height);
-                buffer_length(&[draw_width, draw_height, jpeg.num_components().max(1), 4])?;
+                // The largest buffer `getData` allocates: the interleaved components, or the RGB(A) widening.
+                let output_channels = if options.force_rgba {
+                    4
+                } else if options.force_rgb {
+                    3
+                } else {
+                    1
+                };
+                buffer_length(&[
+                    draw_width,
+                    draw_height,
+                    jpeg.num_components().max(output_channels),
+                ])?;
                 Ok(truncate(jpeg.get_data(
                     draw_width,
                     draw_height,
