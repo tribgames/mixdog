@@ -49,6 +49,8 @@ impl AppState {
         deadlines.extend(self.prompt.hint.dismiss_at());
         deadlines.extend(self.prompt.exit.next_wake());
         deadlines.extend(self.catalog_prefetch_due_ms);
+        deadlines.extend(self.spinner_tick_due);
+        deadlines.extend(self.zoom_deadline());
         deadlines.extend(self.oauth_watches.iter().map(|watch| watch.due_ms));
         deadlines.extend(self.extensions.as_ref().and_then(|extensions| extensions.login.poll_due_at()));
         if self.background_pending() {
@@ -65,6 +67,7 @@ impl AppState {
             || !self.catalog_jobs.is_empty()
             || !self.prefetches.is_empty()
             || !self.usage_requests.is_empty()
+            || self.welcome_pending.is_some()
             || self.catalog_prefetch_due_ms.is_some_and(|due| self.clock.now() >= due)
     }
 
@@ -74,6 +77,13 @@ impl AppState {
         self.enter_latch.tick(now);
         self.surface.tick(now);
         self.prompt.hint.tick(now);
+        if self.spinner_tick_due.is_some_and(|due| now >= due) {
+            // The spinner animates off the clock: the frame is what moves it.
+            self.spinner_tick_due = None;
+            self.frame_requested = true;
+        }
+        self.zoom_restore_due();
+        self.finish_paste_jobs();
         self.poll_oauth_watches(now);
         if self.extensions.as_ref().and_then(|extensions| extensions.login.poll_due_at()).is_some_and(|due| now >= due) {
             self.with_extensions(|extensions, host| extensions.login.poll(host));
@@ -126,6 +136,8 @@ impl AppState {
             open_auth_step(self);
         } else if let Some(job) = self.catalog_jobs.pop_front() {
             run_catalog_refresh(self, job);
+        } else if self.welcome_pending.is_some() {
+            self.run_welcome_probe();
         } else if let Some(wants) = self.prefetches.pop_front() {
             if wants.provider_models {
                 let result = self.call_store("listProviderModels", json!([]));
@@ -151,6 +163,7 @@ impl AppState {
     /// `/btw` panel's session sync). The store's [`super::store::AppStore::tick`] published it.
     pub fn on_state_published(&mut self) {
         let state = self.store.state();
+        self.sync_welcome_hint();
         let setup = state.get("setupChanged").cloned().unwrap_or(Value::Null);
         if setup != self.setup_changed_seen {
             self.setup_changed_seen = setup.clone();

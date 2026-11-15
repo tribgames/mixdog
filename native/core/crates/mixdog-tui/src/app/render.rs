@@ -6,11 +6,10 @@ use mixdog_term::paint::Painter;
 use mixdog_tui_widgets::Line;
 use mixdog_tui_widgets::palette::SlashCommand as WidgetCommand;
 use mixdog_tui_widgets::sign_in_url::CopyStatus;
-use mixdog_tui_widgets::text_entry::TextEntryDraft;
 use serde_json::{Map, Value, json};
 
 use super::AppState;
-use crate::slash::host::TextPrompt;
+use crate::slash::host::{PromptSurface, TextPrompt};
 use crate::surface::layout::{
     BtwPanel, HintText, PickerLayout, QueuedCommand, ShellLayoutInput, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail,
     compute_shell_layout,
@@ -22,7 +21,7 @@ use crate::transcript::window::heights::{HeightParams, item_id, item_kind};
 use crate::transcript::window::render_window::{WindowTuning, transcript_render_window};
 use crate::transcript::window::row_index::Items;
 use crate::transcript::window::visible_items::{overlay_hint_placement, visible_transcript_items};
-use crate::view::panel::{PaletteSlot, PanelSlots, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker};
+use crate::view::panel::{PaletteSlot, PanelSlots, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker, settings_entry_layout_rows};
 use crate::view::rows::{MountInput, mount_rows};
 use crate::view::{AppViewProps, render_app};
 
@@ -100,6 +99,10 @@ impl AppState {
         let palette_selected = self.palette_selection(&palette);
         let picker = self.surface.picker().cloned();
         let btw_panel = self.btw.panel().cloned();
+        self.sync_text_entry();
+        let (provider_draft, provider_copy) = self.text_entry_view(PromptSurface::Provider);
+        let (settings_draft, settings_copy) = self.text_entry_view(PromptSurface::Settings);
+        let settings_rows = self.settings_prompt.as_ref().map_or(0, |prompt| settings_entry_layout_rows(&prompt_value(prompt), &settings_draft, frame_columns));
         let input = ShellLayoutInput {
             provider_prompt: self.provider_prompt.as_ref().map(entry_prompt),
             settings_prompt: self.settings_prompt.as_ref().map(entry_prompt),
@@ -115,11 +118,11 @@ impl AppState {
             frame_columns,
             prompt_hint: self.prompt.hint.text().to_owned(),
             prompt_hint_tone: format!("{:?}", self.prompt.hint.tone()).to_lowercase(),
-            text_entry_layout_rows: 0,
+            text_entry_layout_rows: settings_rows,
             onboarding_active: self.onboarding_active,
-            conditional_welcome_prompt_hint: String::new(),
-            welcome_prompt_hint_dismissed: true,
-            welcome_prompt_hint: String::new(),
+            conditional_welcome_prompt_hint: self.welcome.conditional().to_owned(),
+            welcome_prompt_hint_dismissed: self.welcome.dismissed(),
+            welcome_prompt_hint: self.welcome.tip().to_owned(),
             panel_transition_epoch: self.surface.epoch().current(),
             prompt_layout_value: self.prompt_layout_value.clone(),
             prompt_content_columns: frame_columns.saturating_sub(4).max(1),
@@ -186,13 +189,14 @@ impl AppState {
         if let Some(props) = picker_props.as_mut() {
             fit_picker(props, frame_columns, &layout);
         }
+        let approval_pending = state.get("toolApproval").is_some_and(Value::is_object);
+        let spinner_lines = self.spinner_rows(&state, layout.prompt_meta_visible, layout.prompt_spinner_columns, approval_pending);
         let provider_value = self.provider_prompt.as_ref().map(prompt_value);
         let settings_value = self.settings_prompt.as_ref().map(prompt_value);
-        let entry_draft = TextEntryDraft::default();
         let panels = PanelSlots {
             picker: picker_props.as_ref().map(|props| PickerSlot { props, selected, confirm_focus, status: CopyStatus::Idle }),
-            provider_prompt: provider_value.as_ref().map(|prompt| TextEntrySlot { prompt, draft: &entry_draft, status: CopyStatus::Idle }),
-            settings_prompt: settings_value.as_ref().map(|prompt| TextEntrySlot { prompt, draft: &entry_draft, status: CopyStatus::Idle }),
+            provider_prompt: provider_value.as_ref().map(|prompt| TextEntrySlot { prompt, draft: &provider_draft, status: provider_copy }),
+            settings_prompt: settings_value.as_ref().map(|prompt| TextEntrySlot { prompt, draft: &settings_draft, status: settings_copy }),
             ..PanelSlots::default()
         };
         let palette_commands: Vec<WidgetCommand> = palette.slash_commands.iter().map(widget_command).collect();
@@ -209,7 +213,7 @@ impl AppState {
             ..panels
         };
         let queued: &[Value] = state.get("queued").and_then(Value::as_array).map_or(&[], Vec::as_slice);
-        let spinner: &[Line] = &[];
+        let spinner: &[Line] = &spinner_lines;
         let footer_line = self.statusline_line().to_owned();
         let props = AppViewProps {
             columns: columns_used,
@@ -252,7 +256,9 @@ impl AppState {
         }
         // The grid as the layout drew it serves the word and line bounds of a click; the highlight goes on a copy the writer takes.
         self.rendered_grid = Some(grid.clone());
-        self.render_selection.apply(&mut grid, &[]);
+        let soft_wrap = std::mem::take(&mut grid.soft_wrap);
+        self.render_selection.apply(&mut grid, &soft_wrap);
+        grid.soft_wrap = soft_wrap;
         // Writes the surface made since the last frame are what this frame shows.
         let _ = self.surface.take_events();
         (grid, frame.cursor)

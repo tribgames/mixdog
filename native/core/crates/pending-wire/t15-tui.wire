@@ -2,4 +2,3 @@
 
 ## Still open
 - mixdog-workspace-hack: run the refresh once for the members mixdog-tui and mixdog-repl.
-- In-crate (mixdog-tui): the application's AppCtx::store_call must add the session threadId to toggleVoice, or the install runs without visible progress (mixdog-tui/src/app/slash_host.rs store_call and pickers/settings/toggles.rs call "toggleVoice" with the target only; not verified that the session threadId is added further down).

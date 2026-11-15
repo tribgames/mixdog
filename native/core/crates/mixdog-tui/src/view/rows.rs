@@ -13,7 +13,7 @@ use std::sync::Arc;
 use mixdog_term::frame::{Rect, Style};
 use mixdog_term::paint::Painter;
 use mixdog_tui_widgets::Line;
-use mixdog_tui_widgets::transcript::{ItemCtx, render_item};
+use mixdog_tui_widgets::transcript::{ItemCtx, render_item_flagged};
 
 use super::bands::{paint_hint_cell, paint_welcome_hint_row};
 use crate::surface::layout::ShellLayout;
@@ -40,6 +40,8 @@ pub struct MountInput<'a> {
 #[derive(Clone, Debug, Default)]
 pub struct MountedRows {
     pub items: Vec<Arc<Vec<Line>>>,
+    /// Per item, per line: the line continues the one above because a text wrapped there (empty: no line does).
+    pub soft_wrap: Vec<Arc<Vec<bool>>>,
     /// The rows of the items after the window, kept as a spacer under the items.
     pub bottom_spacer_rows: usize,
     /// How far the column is pushed down from the tail, in rows.
@@ -54,13 +56,14 @@ pub fn mount_rows(heights: &mut ItemHeights, input: &MountInput<'_>) -> MountedR
     let params = HeightParams { columns: input.frame_columns, tool_output_expanded: input.tool_output_expanded };
     let end = input.window.end_index.min(input.items.len());
     let mut items = Vec::with_capacity(end.saturating_sub(input.window.start_index));
+    let mut soft_wrap = Vec::with_capacity(items.capacity());
     for (offset, at) in (input.window.start_index..end).enumerate() {
         let Some(item) = input.items.get(at) else { continue };
         let prev_kind = input.items.prev_kind(at);
         let attach_hint = input.overlay.on_last_item && input.overlay.attach_item_index == Some(offset);
         let live_tail = input.overlay.tail_pinned && input.streaming_tail_id.is_some() && item_id(item).as_deref() == input.streaming_tail_id;
         let streaming_window_rows = if live_tail { input.layout.transcript_content_height + WindowTuning::current().tail_overscan_rows } else { 0 };
-        let lines = if attach_hint {
+        let (lines, flags) = if attach_hint {
             let ctx = ItemCtx {
                 columns: input.frame_columns,
                 prev_kind: prev_kind.map(str::to_owned),
@@ -71,13 +74,15 @@ pub fn mount_rows(heights: &mut ItemHeights, input: &MountInput<'_>) -> MountedR
                 streaming_window_rows,
                 now_ms: input.now_ms,
             };
-            Arc::new(render_item(item, &ctx))
+            let (lines, flags) = render_item_flagged(item, &ctx);
+            (Arc::new(lines), Arc::new(flags))
         } else {
-            heights.lines(item, prev_kind, &params, streaming_window_rows, input.now_ms)
+            heights.lines_flagged(item, prev_kind, &params, streaming_window_rows, input.now_ms)
         };
         items.push(lines);
+        soft_wrap.push(flags);
     }
-    MountedRows { items, bottom_spacer_rows: input.window.bottom_spacer_rows, scroll_offset: input.window.effective_scroll_offset }
+    MountedRows { items, soft_wrap, bottom_spacer_rows: input.window.bottom_spacer_rows, scroll_offset: input.window.effective_scroll_offset }
 }
 
 /// `guardHintWidth || transientStatusWidth || 24`: the width of the hint cell on the item that carries the hint.
@@ -186,9 +191,13 @@ fn paint_item_column(painter: &mut Painter, box_top: i32, box_height: usize, fra
     }
     let column_bottom = box_top + box_height as i32 + rows.scroll_offset as i32;
     let mut y = column_bottom - (drawn + rows.bottom_spacer_rows) as i32;
-    for lines in &rows.items {
-        for line in lines.iter() {
+    for (at, lines) in rows.items.iter().enumerate() {
+        let flags = rows.soft_wrap.get(at);
+        for (k, line) in lines.iter().enumerate() {
             painter.line(0, y, &line.0, Style::default());
+            if flags.is_some_and(|flags| flags.get(k).copied().unwrap_or(false)) && y >= i32::from(clip.y) && y < i32::from(clip.y) + i32::from(clip.height) {
+                painter.mark_soft_wrap(y);
+            }
             y += 1;
         }
     }

@@ -154,8 +154,9 @@ fn the_wizard_launches_once_and_only_when_onboarding_is_not_completed() {
     h.app.mount();
     assert!(h.app.onboarding_active());
     while h.app.run_background() {}
-    // The first step reads the provider setup once; a second mount did not launch another wizard.
-    assert_eq!(h.calls_named("getProviderSetup").len(), 1);
+    // The first step reads the provider setup once and the welcome hint's probe reads it once (`useWelcomePromptHint`); a second
+    // mount did not launch another wizard.
+    assert_eq!(h.calls_named("getProviderSetup").len(), 2);
     assert!(h.app.surface.picker().is_some());
 }
 

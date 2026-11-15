@@ -18,6 +18,7 @@ impl AppState {
             return;
         }
         self.mounted = true;
+        self.sync_welcome_hint();
         let verdict = self.options.onboarding_completed;
         let completed = resolve_onboarding_completed(verdict, || {
             self.store.has_method("getOnboardingStatus").then(|| self.call_store("getOnboardingStatus", json!([])))
