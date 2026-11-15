@@ -515,8 +515,9 @@ fn skills_status_options(value: Option<&Value>) -> Result<(), (String, String)> 
         return Ok(());
     };
     allowed_keys(options, SKILLS_STATUS_OPTION_KEYS, "skills status options")?;
-    // The service reads `projectPath` first and `cwd` only without one.
-    if !options.contains_key("projectPath") && options.contains_key("cwd") {
+    // The service reads `projectPath` first and `cwd` only without one. A null `cwd` is no folder: Node's `statusCwd`
+    // refused it, and the service would read it as absent, so it is held to the Project rule below.
+    if !options.contains_key("projectPath") && options.get("cwd").is_some_and(|cwd| !cwd.is_null()) {
         return Ok(());
     }
     let path = "/options/projectPath";
@@ -637,6 +638,10 @@ mod tests {
         assert_eq!(
             run("skills/skillsStatus", &options(serde_json::json!({ "projectPath": "work/proj", "cwd": "/work/proj" }))),
             refused("/options/projectPath", "projectPath is invalid.")
+        );
+        assert_eq!(
+            run("skills/skillsStatus", &options(serde_json::json!({ "cwd": null }))),
+            refused("/options/projectPath", "projectPath must be a string.")
         );
         assert_eq!(
             run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "/work/proj", "force": true }))),
