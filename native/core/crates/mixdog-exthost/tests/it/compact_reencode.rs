@@ -17,7 +17,7 @@ use serde_json::Value;
 
 #[allow(clippy::disallowed_methods, reason = "test setup: reads the recorded golden fixture")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_large_png_is_reencoded_to_nodes_bytes_and_note() {
+async fn a_large_png_is_reencoded_to_nodes_picture_and_note() {
     let pool = Arc::new(
         ExtHostPool::new(ExtHostConfig {
             program: super::composer_resize::worker_binary(),
