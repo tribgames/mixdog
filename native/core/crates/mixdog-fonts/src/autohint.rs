@@ -451,21 +451,21 @@ fn widths_of(face: &ttf_parser::Face<'_>, upem: i64, standard: char) -> (Vec<i64
 
 fn widths_of_axis(face: &ttf_parser::Face<'_>, upem: i64, standard: char, horizontal: bool) -> (Vec<i64>, i64) {
     let mut stem_widths: Vec<i64> = Vec::new();
-    if let Some(glyph) = face.glyph_index(standard) {
-        if let Some(mut contours) = raw_outline(face, glyph.0) {
-            if horizontal {
-                for point in contours.iter_mut().flatten() { (point.x, point.y) = (-point.y, point.x); }
-            }
-            let truetype = is_truetype_orientation(&contours);
-            let mut hints = Hints::load(&contours, upem, truetype);
-            hints.compute_segments();
-            hints.link_segments(0);
-            for (index, segment) in hints.segments.iter().enumerate() {
-                if let Some(link) = segment.link {
-                    if hints.segments[link].link == Some(index) && link > index {
-                        stem_widths.push((segment.pos - hints.segments[link].pos).abs());
-                    }
-                }
+    if let Some(glyph) = face.glyph_index(standard)
+        && let Some(mut contours) = raw_outline(face, glyph.0)
+    {
+        if horizontal {
+            for point in contours.iter_mut().flatten() { (point.x, point.y) = (-point.y, point.x); }
+        }
+        let truetype = is_truetype_orientation(&contours);
+        let mut hints = Hints::load(&contours, upem, truetype);
+        hints.compute_segments();
+        hints.link_segments(0);
+        for (index, segment) in hints.segments.iter().enumerate() {
+            if let Some(link) = segment.link
+                && hints.segments[link].link == Some(index) && link > index
+            {
+                stem_widths.push((segment.pos - hints.segments[link].pos).abs());
             }
         }
     }
@@ -566,7 +566,7 @@ fn direction(dx: i64, dy: i64) -> i8 {
 fn hypot_approx(x: i64, y: i64) -> i64 {
     let (x, y) = (x.abs(), y.abs());
     let (long, short) = if x > y { (x, y) } else { (y, x) };
-    long + (3 * short >> 3)
+    long + ((3 * short) >> 3)
 }
 
 fn corner_is_flat(in_x: i64, in_y: i64, out_x: i64, out_y: i64) -> bool {
@@ -795,11 +795,11 @@ impl Hints {
             }
         }
         for index in 0..count {
-            if let Some(other) = self.segments[index].link {
-                if self.segments[other].link != Some(index) {
-                    self.segments[index].link = None;
-                    self.segments[index].serif = self.segments[other].link;
-                }
+            if let Some(other) = self.segments[index].link
+                && self.segments[other].link != Some(index)
+            {
+                self.segments[index].link = None;
+                self.segments[index].serif = self.segments[other].link;
             }
         }
     }
@@ -874,12 +874,12 @@ impl Hints {
             }
         }
         for a in 0..count {
-            if let Some(b) = self.segments[a].link {
-                if self.segments[b].link != Some(a) {
-                    self.segments[a].link = None;
-                    if self.segments[b].score < dist_threshold || self.segments[a].score < self.segments[b].score * 4 {
-                        self.segments[a].serif = self.segments[b].link;
-                    }
+            if let Some(b) = self.segments[a].link
+                && self.segments[b].link != Some(a)
+            {
+                self.segments[a].link = None;
+                if self.segments[b].score < dist_threshold || self.segments[a].score < self.segments[b].score * 4 {
+                    self.segments[a].serif = self.segments[b].link;
                 }
             }
         }
@@ -1046,20 +1046,20 @@ impl Hints {
             let mut edge2 = self.edges[index].link;
             if self.edges[index].blue.is_some() {
                 edge1 = Some(index);
-            } else if let Some(other) = edge2 {
-                if self.edges[other].blue.is_some() {
-                    edge1 = Some(other);
-                    edge2 = Some(index);
-                }
+            } else if let Some(other) = edge2
+                && self.edges[other].blue.is_some()
+            {
+                edge1 = Some(other);
+                edge2 = Some(index);
             }
             let Some(edge1) = edge1 else { continue };
             self.edges[edge1].pos = fit_of(&self.edges[edge1]);
             self.edges[edge1].done = true;
-            if let Some(edge2) = edge2 {
-                if self.edges[edge2].blue.is_none() {
-                    self.align_linked(edge1, edge2);
-                    self.edges[edge2].done = true;
-                }
+            if let Some(edge2) = edge2
+                && self.edges[edge2].blue.is_none()
+            {
+                self.align_linked(edge1, edge2);
+                self.edges[edge2].done = true;
             }
             if anchor.is_none() {
                 anchor = Some(index);
