@@ -601,14 +601,14 @@ async fn a_post_is_mailed_through_smtp_with_the_headers_and_attachments_of_the_r
     let mut png = vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     png.extend_from_slice(&[7u8; 56]);
     let body = json!({
-        "id": uid(20), "kind": "idea", "message": "please add it", "replyTo": "me@example.org",
+        "id": uid(20), "kind": "suggestion", "message": "please add it", "replyTo": "me@example.org",
         "attachments": [{ "name": "shot.png", "mimeType": "image/png", "data": STANDARD.encode(&png) }],
     });
     let reply = post(addr, &body).await;
     assert_eq!(reply.status, 202, "{reply:?}");
     wait_until("the message reaches the server", || !server.seen.messages.lock().unwrap().is_empty()).await;
     let message = server.seen.messages.lock().unwrap()[0].clone();
-    assert!(message.contains(&format!("Subject: [Mixdog feedback] idea {}\r\n", uid(20))), "{message}");
+    assert!(message.contains(&format!("Subject: [Mixdog feedback] suggestion {}\r\n", uid(20))), "{message}");
     assert!(message.contains("\r\nFrom: bot@example.com\r\n") || message.starts_with("From: bot@example.com\r\n"), "{message}");
     assert!(message.contains("To: support@mixdog.ai\r\n"), "{message}");
     assert!(message.contains("Reply-To: me@example.org\r\n"), "{message}");
