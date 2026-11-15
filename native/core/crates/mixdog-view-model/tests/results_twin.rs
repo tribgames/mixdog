@@ -18,7 +18,7 @@ use serde_json::Value;
 use serde_json::json;
 
 fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/results.json")).expect("the golden is JSON")
+    serde_json::from_str(&mixdog_js::json_well_formed_str(mixdog_testkit::fixture!("tests/goldens/results.json"))).expect("the golden is JSON")
 }
 
 /// The recorded output. An output Node recorded as an exception fails the test: it would otherwise go uncompared.
