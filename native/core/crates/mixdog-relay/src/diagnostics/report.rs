@@ -163,7 +163,7 @@ impl Drop for SocketDiagnostics {
 
 /// The relay's report: every 30 s to the relay's log, measured by the scheduling-lag probe. Call inside the relay's runtime.
 pub fn start_socket_diagnostics(snapshot: Snapshot) -> SocketDiagnostics {
-    start_socket_diagnostics_with(snapshot, SOCKET_REPORT_INTERVAL, Box::new(|line| logline::emit(line)), Box::new(LagProbe::new()))
+    start_socket_diagnostics_with(snapshot, SOCKET_REPORT_INTERVAL, Box::new(logline::emit), Box::new(LagProbe::new()))
 }
 
 /// [`start_socket_diagnostics`] with its interval, its writer and its probe given.
