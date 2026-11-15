@@ -283,6 +283,7 @@ ttf-parser = "=0.25.1"
 tiny-skia = "=0.11.4"
 rustybuzz = "=0.20.1"
 unicode-script = "0.5"
+unicode-bidi = "0.3"
 rayon = "1" # not in Codex; WP-GRAPH-GIT parallel graph parse (same major as mixdog-graph)
 pulldown-cmark = { version = "0.13", default-features = false }
 rcgen = "0.14" # dev only: throwaway TLS certificates for fake-server tests

@@ -13,6 +13,7 @@ mixdog-fsio = { workspace = true }
 rustybuzz = { workspace = true }
 sha2 = { workspace = true }
 ttf-parser = { workspace = true }
+unicode-bidi = { workspace = true }
 unicode-script = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 

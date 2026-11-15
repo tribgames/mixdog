@@ -5218,6 +5218,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "ttf-parser",
+ "unicode-bidi",
  "unicode-script",
 ]
 
