@@ -81,16 +81,48 @@ fn pdf_doc_char(byte: u8) -> char {
     }
 }
 
-/// pdf-lib's `decodeText`: UTF-16BE when the bytes start with the byte order mark, else PDFDocEncoding.
+/// pdf-lib's `decodeText`: UTF-16 when the bytes start with a byte order mark (big-endian `FE FF` or little-endian
+/// `FF FE`), else PDFDocEncoding. As pdf-lib's `utf16Decode`: a high surrogate takes the next unit with it whatever
+/// it is, a unit that does not pair is U+FFFD, and so is an odd byte at the end.
 pub fn decode_text_string(bytes: &[u8]) -> String {
-    if let [0xfe, 0xff, rest @ ..] = bytes {
-        let units: Vec<u16> = rest
-            .chunks(2)
-            .map(|pair| u16::from_be_bytes([pair[0], pair.get(1).copied().unwrap_or(0)]))
-            .collect();
-        return String::from_utf16_lossy(&units);
+    let little_endian = match bytes {
+        [0xfe, 0xff, ..] => false,
+        [0xff, 0xfe, ..] => true,
+        _ => return bytes.iter().map(|b| pdf_doc_char(*b)).collect(),
+    };
+    let body = &bytes[2..];
+    let units: Vec<u16> = body
+        .chunks_exact(2)
+        .map(|pair| {
+            if little_endian {
+                u16::from_le_bytes([pair[0], pair[1]])
+            } else {
+                u16::from_be_bytes([pair[0], pair[1]])
+            }
+        })
+        .collect();
+    let mut text = String::with_capacity(units.len());
+    let mut at = 0;
+    while at < units.len() {
+        let first = units[at];
+        at += 1;
+        let decoded = match first {
+            0xd800..=0xdbff => match units.get(at) {
+                Some(&second) => {
+                    at += 1;
+                    char::decode_utf16([first, second]).next().and_then(Result::ok)
+                }
+                None => None,
+            },
+            0xdc00..=0xdfff => None,
+            _ => char::from_u32(u32::from(first)),
+        };
+        text.push(decoded.unwrap_or(char::REPLACEMENT_CHARACTER));
     }
-    bytes.iter().map(|b| pdf_doc_char(*b)).collect()
+    if body.len() % 2 == 1 {
+        text.push(char::REPLACEMENT_CHARACTER);
+    }
+    text
 }
 
 /// `PDFString.fromDate`: `D:YYYYMMDDHHmmSSZ` in UTC, for a time in seconds since the Unix epoch.
