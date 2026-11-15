@@ -1,0 +1,79 @@
+# nr-office-author-measure-docs: the Word and Excel HTML measurement and the PDF print route of crate mixdog-office-author.
+
+The code is in native/core/crates/mixdog-office-author/src/{measure_docx,measure_xlsx,pdf_print}.rs, the page functions in
+assets/page/{docx-html-measure,xlsx-html-measure,pdf-html-charts}.js and the twin test in tests/twin_measure_docs.rs. It was
+not compiled by this task (no cargo run): the edits below to files this task does not own are needed before it can be.
+
+## native/core/crates/mixdog-office-author/src/lib.rs
+
+After `pub mod measure_deck;` add (and extend the crate doc by one line saying `measure_docx`, `measure_xlsx` and
+`pdf_print` are the Word flow reading, the Excel sheet reading and the PDF print route of the HTML documents):
+
+    pub mod measure_docx;
+    pub mod measure_xlsx;
+    pub mod pdf_print;
+
+## native/core/crates/mixdog-office-author/Cargo.toml
+
+[dependencies]: add, after `mixdog-js = { workspace = true }`:
+
+    mixdog-pdf = { workspace = true }
+
+(`pdf_print` loads the browser's PDF with `mixdog_pdf::write::PdfDocument` to repair outline titles and apply the document
+properties; the twin test reads the finished PDF with `mixdog_pdf::document::Document`. mixdog-pdf is already a
+[workspace.dependencies] entry and a member; it does not depend on mixdog-office-author, so there is no cycle.)
+
+## native/core/Cargo.lock
+
+Package `mixdog-office-author`: add the dependency `mixdog-pdf` (already a package of the lock; nothing else changes:
+`cargo update -w` offline).
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Nothing to add by hand: no new external crate and no new feature. Run the hakari check after the manifest edit and take its
+output if it asks for a line.
+
+## native/core/fixtures/MANIFEST.json (the index of the fixture sets)
+
+Add this entry in its place in the list sorted by `set` (after `office-measure-deck`):
+
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-measure-docs.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-measure-docs/MANIFEST.json",
+      "manifestSha256": "ab331f881a9db6f2b6c8116753ce965830852d0f6f0dbb4ad57ae2dc475e789a",
+      "recorder": "benchmarks/rust-core/recorders/record-office-measure-docs.mjs",
+      "set": "office-measure-docs",
+      "totalBytes": 114788
+    },
+
+(The set was recorded from the product tree at C:/Project/mixdog, which is not an exact commit export, so its manifest
+`product.commit` is null, like the other office sets. native/core/fixtures/office-measure-docs/ is in the commit of this
+task: it is written at its path in the worktree and added with `git add --sparse`.)
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service.
+
+## What the later tasks take from this one
+
+- nr-office-author-docx-build (`docx_html_runner`): `measure_docx::measure_docx_html(endpoint, lanes, note, html,
+  DocxMeasureOptions::new(source_path, print_path, scratch))` is Node's `work()` of `runDocxHtmlAuthoring` up to its
+  `laid` value: it writes the HTML, lays it out at the printable width of the `@page` sheet, reads `extractDocxFlow`,
+  photographs the pictures into `scratch` (`DocxLayout.captures`, capture number to file), prints the reference PDF to
+  `print_path` and answers `{ area, flow, captures, chart_warnings, title }`. The runner keeps what Node kept around it
+  (the output folder, `rm(output)`, the scratch folder's lifetime, `renderPdfPages(print)`, the build, the logs).
+  `measure_docx_page` is the same on a page the runner has already opened.
+- nr-office-author-xlsx-build (`xlsx_html_runner`): `measure_xlsx::measure_xlsx_page(page, lanes, note, source_path,
+  scratch)` is the measuring half of Node's `work()` (viewport 1920 x 1200 at 2x, goto, icons, fonts, `extractXlsxSheets`,
+  pictures photographed); it answers `XlsxMeasure { measure, captures }`. What follows in Node's `work()` is the runner's:
+  `fillRangeCharts`, `drawDataCharts` (`pdf_print::draw_data_charts(page)`), the section extents and one screenshot of
+  each sheet, then `page.title()`. `measure_xlsx_html` runs the measuring half alone (browser lease, deadline).
+- nr-office-engine-author-actions (pdf route): `pdf_print::print_html_pdf(endpoint, tokens, html, output,
+  PrintOptions { source_path, properties, frame, timeout, cancel })` is `printHtmlPdf`; it answers the same JSON
+  (`{ ok: true, output, bytes, pageCount, area, charts?, warnings, elapsedMs }`, or `html_failure` with `layout` findings)
+  and returns `Err(RunError::Cancelled)` only for a cancellation. `pdf_print::frame_canvas(page)` is `frameCanvas` (the
+  canvas for the deck measure's `prepare`), `pdf_print::pdf_html_source_path(target)` is `pdfHtmlSourcePath`,
+  `printable_area` / `read_printable_area` / `printable_viewport` are `printableArea` / `readPageRule` and the viewport the
+  docx route sets. `print_html_pdf` takes the lane tokens (not `AuthorLanes`) because it has to remove the old output file
+  (`rm(output, { force: true })`) and `AuthorLanes` has no file removal.
