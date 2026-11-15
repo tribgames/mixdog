@@ -17,7 +17,7 @@ type OpenOf<K extends UiOpenRequestedParams['kind']> = Omit<Extract<UiOpenReques
 export interface OpenRequestedTargets {
   /** `browser-open-requested`: to the main window as `DESKTOP_IPC.browserOpenRequested`. */
   browser(request: OpenOf<'browser'>): void;
-  /** `terminal-run-requested`: to the main window as `DESKTOP_IPC.terminalRunRequested`. */
+  /** The terminal run reveal: renderer windows receive it on their own core link; main does nothing with it. */
   terminal(request: OpenOf<'terminal'>): void;
   /** The visualize open: to the main window as `DESKTOP_IPC.visualizeChanged`. */
   visualize(event: OpenOf<'visualize'>): void;

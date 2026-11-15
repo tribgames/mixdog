@@ -557,7 +557,7 @@ impl MemoryStack {
         let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
         let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move {
             let _settled = Settled { stack: me.clone(), number };
-            let outcome = me.run_opening(&cancel).await;
+            let outcome = me.clone().run_opening(&cancel).await;
             if let Some(ended) = me.opening_ended.get() {
                 ended();
             }

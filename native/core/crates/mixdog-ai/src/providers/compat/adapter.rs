@@ -284,7 +284,7 @@ impl ProviderAdapter for CompatAdapter {
         let mut decoder = self.codec.decoder(&request);
         let mut events = decoder.feed(&chunk)?;
         events.extend(decoder.finish()?);
-        Ok(Box::new(CompatStream { body: None, decoder, queue: super::nonstream::whole(events).into(), failed: None }))
+        Ok(Box::new(CompatStream { body: None, decoder, queue: super::nonstream::whole(events).into(), failed: None, idle: IdleWatch::off() }))
     }
 
     /// `[<provider>] stream failed (<code, else message, else unknown>); recovered via non-streaming request`. The

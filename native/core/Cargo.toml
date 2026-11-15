@@ -220,7 +220,7 @@ base64 = "0.22.1"
 bytes = "1.10.1"
 chrono = "0.4.43"
 deadpool-postgres = "0.14" # not in Codex (it uses sqlx); memory store pool
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30"] } # not in Codex; embedding inference, ONNX Runtime 1.30 loaded at run time
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30", "directml"] } # not in Codex; embedding inference, ONNX Runtime 1.30 loaded at run time
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] } # not in Codex; memory + session_search over Postgres
 unicode-normalization = "0.1" # NFKC for the embedding tokenizer normalizer and import folding
 unicode-segmentation = "1" # grapheme clusters for the Goal title clip (Intl.Segmenter)
