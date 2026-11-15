@@ -11,7 +11,9 @@
 //! there are no heap total, heap limit, external or array-buffer fields and no post-GC minimum.
 //!
 //! The stall sampler is on while `<data dir>/lag-profile.on` exists (a file the user creates by hand; nothing in Mixdog writes
-//! it) and is read at every window, so creating or removing the file starts or stops it without a restart. A window whose lag
+//! it). The file is read once and again only after the data directory reports a change to it (the watch the daemon's discovery
+//! uses, `notify`), as Node re-read it on a directory-watch event: a daemon at rest does not look for it, and creating or
+//! removing the file starts or stops the sampler at once, without a restart. A window whose lag
 //! was bad (p99 or max of a second or more) is kept in `<data dir>/profiles/daemon-lag-<time>.json` (the newest ten) with a
 //! summary line in `daemon.log`. V8's CPU profiler has no native counterpart that needs no debug symbols or a second tool, so
 //! a kept window holds what the runtime can say about itself: the window's lag, the in-flight work and the state `context`
@@ -171,6 +173,10 @@ pub trait ProfileStore: Send + Sync + 'static {
     /// The names in the profile directory.
     fn list(&self, lane: &InLane<MaintenanceIo>) -> io::Result<Vec<String>>;
     fn remove(&self, lane: &InLane<MaintenanceIo>, name: &str) -> io::Result<()>;
+    /// The folder whose changes can create or remove the flag file; `None` where nothing can be watched.
+    fn watch_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The data directory's flag and `profiles` folder.
@@ -205,6 +211,10 @@ impl ProfileStore for DiskProfileStore {
 
     fn remove(&self, lane: &InLane<MaintenanceIo>, name: &str) -> io::Result<()> {
         mixdog_statefile::remove_file(lane, &self.dir().join(name))
+    }
+
+    fn watch_dir(&self) -> Option<PathBuf> {
+        Some(self.data_dir.clone())
     }
 }
 
@@ -243,6 +253,9 @@ struct Sampler {
     pending: AtomicBool,
     /// `enabled` and `lastFailure`.
     state: Mutex<(bool, String)>,
+    /// Whether the flag file was there when it was last read, and whether it may have changed since (true until the first read).
+    flag: Mutex<bool>,
+    flag_stale: AtomicBool,
 }
 
 impl Sampler {
@@ -256,6 +269,15 @@ impl Sampler {
         job.unwrap_or(SamplerOutcome::Failed)
     }
 
+    /// The flag file's presence: read from the store only for the first window and after a change was reported.
+    fn flag_present(&self, lane: &InLane<MaintenanceIo>) -> bool {
+        let mut known = self.flag.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.flag_stale.swap(false, Ordering::AcqRel) {
+            *known = self.store.flag_present(lane);
+        }
+        *known
+    }
+
     fn fail(&self, stage: &str, error: &dyn std::fmt::Display, log: &(dyn Fn(&str) + Send + Sync)) {
         let message = format!("{stage}: {error}");
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -267,7 +289,7 @@ impl Sampler {
     }
 
     fn pass(&self, lane: &InLane<MaintenanceIo>, at_ms: i64, lag: LagWindow, work: WorkCounts, log: &(dyn Fn(&str) + Send + Sync)) -> SamplerOutcome {
-        let present = self.store.flag_present(lane);
+        let present = self.flag_present(lane);
         {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let was = std::mem::replace(&mut state.0, present);
@@ -337,14 +359,16 @@ pub struct Telemetry {
     seams: Seams,
     activity: AtomicBool,
     sampler: Arc<Sampler>,
+    /// The watch on the folder of the flag file, held for as long as the loop runs.
+    watch: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
 impl Telemetry {
     /// `store`, `lane` and `cancel` are the sampler's (the data directory, the maintenance lane, the daemon's run token);
     /// `context` is what a kept window adds (`|| Value::Null` for nothing).
     pub fn new(seams: Seams, store: Arc<dyn ProfileStore>, profile_dir: PathBuf, lane: MaintenanceIo, cancel: CancellationToken, context: Context) -> Arc<Self> {
-        let sampler = Arc::new(Sampler { store, lane, cancel, context, profile_dir, pending: AtomicBool::new(false), state: Mutex::new((false, String::new())) });
-        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler })
+        let sampler = Arc::new(Sampler { store, lane, cancel, context, profile_dir, pending: AtomicBool::new(false), state: Mutex::new((false, String::new())), flag: Mutex::new(false), flag_stale: AtomicBool::new(true) });
+        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, watch: Mutex::new(None) })
     }
 
     /// `emit('boot')`: the line written once when the daemon is ready, with or without activity. It leaves the activity of
@@ -374,6 +398,37 @@ impl Telemetry {
         tokio::spawn(async move { this.sample(at_ms, lag, work).await });
     }
 
+    /// The flag file may have been created or removed: the next pass reads it again.
+    pub fn flag_changed(&self) {
+        self.sampler.flag_stale.store(true, Ordering::Release);
+    }
+
+    /// Starts watching the folder of the flag file: a change to the file re-reads it and runs a sampler pass at once (so
+    /// "enabled" or "disabled" is said when the file appears or goes, as Node said it on the watch event). Without a watch
+    /// the file is read once, at the start, and said so.
+    fn watch_flag(self: &Arc<Self>) {
+        use notify::Watcher;
+        let Some(dir) = self.sampler.store.watch_dir() else { return };
+        let (weak, runtime) = (Arc::downgrade(self), tokio::runtime::Handle::current());
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let concerns_flag = match &event {
+                Ok(event) => event.paths.iter().any(|path| path.file_name().is_some_and(|name| name == LAG_PROFILE_FLAG_FILE)),
+                Err(_) => true,
+            };
+            if !concerns_flag {
+                return;
+            }
+            let Some(this) = weak.upgrade() else { return };
+            this.flag_changed();
+            let (at_ms, work) = ((this.seams.now_ms)(), (this.seams.work)());
+            runtime.spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
+        });
+        match watcher.and_then(|mut watcher| watcher.watch(&dir, notify::RecursiveMode::NonRecursive).map(|()| watcher)) {
+            Ok(watcher) => *self.watch.lock().unwrap_or_else(PoisonError::into_inner) = Some(watcher),
+            Err(error) => (self.seams.log)(&format!("lag-profile: the data folder cannot be watched, so the flag file is read only at start: {error}")),
+        }
+    }
+
     /// The sampler's pass for one window.
     pub async fn sample(&self, at_ms: i64, lag: LagWindow, work: WorkCounts) -> SamplerOutcome {
         self.sampler.window(at_ms, lag, work, Arc::clone(&self.seams.log)).await
@@ -383,6 +438,7 @@ impl Telemetry {
     /// [`LAG_PROBE`] the lateness of the timer is recorded and every [`INTERVAL`] the window is closed. Its timer is unrefed, as
     /// Node's was. Ends when `cancel` is cancelled.
     pub async fn run(self: Arc<Self>, cancel: CancellationToken) {
+        self.watch_flag();
         let this = Arc::clone(&self);
         let work = (self.seams.work)();
         let at_ms = (self.seams.now_ms)();
@@ -402,6 +458,7 @@ impl Telemetry {
                 next_window = now + INTERVAL;
             }
         }
+        drop(self.watch.lock().unwrap_or_else(PoisonError::into_inner).take());
     }
 }
 
@@ -554,11 +611,14 @@ mod tests {
         let f = fixture();
         let at = 1_793_925_139_716;
         f.store.flag.store(true, Ordering::SeqCst);
+        f.telemetry.flag_changed();
         assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
         assert_eq!(lines(&f), ["lag-profile enabled dir=data/profiles"]);
         assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
         assert_eq!(lines(&f).len(), 1, "enabled is said once");
         f.store.flag.store(false, Ordering::SeqCst);
+        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded, "nothing reported the change: the file is not read again");
+        f.telemetry.flag_changed();
         assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
         assert_eq!(lines(&f).last().unwrap(), "lag-profile disabled");
         assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
