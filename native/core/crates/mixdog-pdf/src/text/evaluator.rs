@@ -73,25 +73,24 @@ impl Type3CharProcs for Type3Scan<'_> {
                 }
                 CharProcFirstOp::WidthAndBounds(bounds)
             }
-            Some(Op::Param(ParamOp::SetCharWidth, _)) => CharProcFirstOp::Width {
-                path_bounds: list
-                    .ops()
-                    .iter()
-                    .skip(1)
-                    .filter_map(|op| match op {
-                        Op::ConstructPath { path, .. } => Some(path.as_ref().map_or(
-                            [
-                                f64::INFINITY,
-                                f64::INFINITY,
-                                f64::NEG_INFINITY,
-                                f64::NEG_INFINITY,
-                            ],
-                            |path| path.min_max.map(f64::from),
-                        )),
-                        _ => None,
-                    })
-                    .collect(),
-            },
+            Some(Op::Param(ParamOp::SetCharWidth, _)) => {
+                // `#guessType3FontBBox` starts the box, then spreads each path's `minMax` into it; a path painted
+                // with no segments has none, the spread throws and the paths after it count no more. A box of NaN
+                // starts the box and leaves it as it is (`min` and `max` keep the other operand).
+                let mut path_bounds = Vec::new();
+                for op in list.ops().iter().skip(1) {
+                    if let Op::ConstructPath { path, .. } = op {
+                        match path {
+                            Some(path) => path_bounds.push(path.min_max.map(f64::from)),
+                            None => {
+                                path_bounds.push([f64::NAN; 4]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                CharProcFirstOp::Width { path_bounds }
+            }
             _ => CharProcFirstOp::Other,
         }
     }
