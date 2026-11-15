@@ -921,21 +921,75 @@ pub(super) mod tests {
         future
     }
 
-    fn sha_hex(bytes: &[u8]) -> String {
-        use sha2::{Digest, Sha256};
-        Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    /// The Rust worker the real-worker test starts: `ext_worker_dev` of `mixdog-exthost-worker` (built with its feature
+    /// `test-support`, e.g. `cargo build -p mixdog-exthost-worker --features test-support --bin ext_worker_dev`). Cargo names a
+    /// binary only to the tests of its own package, so it is found next to this test binary's `deps` directory.
+    fn worker_binary() -> PathBuf {
+        let exe = std::env::current_exe().expect("the test binary's path");
+        let dir = exe.parent().and_then(Path::parent).expect("the target directory");
+        let worker = dir.join(format!("ext_worker_dev{}", std::env::consts::EXE_SUFFIX));
+        assert!(worker.is_file(), "the Rust worker is not built: {}", worker.display());
+        worker
     }
 
-    /// The real sharp worker: the cached bytes are Node's `encodeStill` (the expected sizes and
-    /// hashes are the ones the host's own test records for this 64x48 gradient).
+    /// The mean of every cell of a 32x32 grid over RGBA pixels, rounded.
+    fn thumbnail(rgba: &[u8], width: u32, height: u32) -> Vec<f64> {
+        const CELLS: usize = 32;
+        let (w, h) = (width as usize, height as usize);
+        let mut out = vec![0f64; CELLS * CELLS * 4];
+        for cy in 0..CELLS {
+            let (y0, y1) = (cy * h / CELLS, h.min(((cy + 1) * h / CELLS).max(cy * h / CELLS + 1)));
+            for cx in 0..CELLS {
+                let (x0, x1) = (cx * w / CELLS, w.min(((cx + 1) * w / CELLS).max(cx * w / CELLS + 1)));
+                let mut sums = [0f64; 4];
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        for (channel, sum) in sums.iter_mut().enumerate() {
+                            *sum += f64::from(rgba[(y * w + x) * 4 + channel]);
+                        }
+                    }
+                }
+                let count = ((y1 - y0) * (x1 - x0)) as f64;
+                for (channel, sum) in sums.iter().enumerate() {
+                    out[(cy * CELLS + cx) * 4 + channel] = (sum / count).round();
+                }
+            }
+        }
+        out
+    }
+
+    /// `ours` is the same picture as `theirs` (bytes sharp produced) under the rules of `mixdog-imaging`'s twin
+    /// (`tests/node_twin.rs`): both decode to the same size, and their 32x32 area-averaged thumbnails are within PSNR 38 dB
+    /// and a mean difference of 2.0.
+    fn same_picture(name: &str, ours: &[u8], theirs: &[u8]) {
+        use mixdog_imaging::{DECODE_PIXEL_LIMIT, decode};
+        let a = decode(ours, DECODE_PIXEL_LIMIT).unwrap_or_else(|error| panic!("{name}: our output does not decode: {error}"));
+        let b = decode(theirs, DECODE_PIXEL_LIMIT).unwrap_or_else(|error| panic!("{name}: sharp's output does not decode: {error}"));
+        assert_eq!((a.width, a.height), (b.width, b.height), "{name}: decoded size");
+        let (x, y) = (thumbnail(&a.raster.to_rgba(), a.width, a.height), thumbnail(&b.raster.to_rgba(), b.width, b.height));
+        let (mut squares, mut absolute) = (0f64, 0f64);
+        for (p, q) in x.iter().zip(&y) {
+            squares += (p - q) * (p - q);
+            absolute += (p - q).abs();
+        }
+        let mse = squares / x.len() as f64;
+        let psnr = if mse == 0.0 { f64::INFINITY } else { 10.0 * (255.0f64 * 255.0 / mse).log10() };
+        let mad = absolute / x.len() as f64;
+        assert!(psnr >= 38.0 && mad <= 2.0, "{name}: pixels differ (PSNR {psnr:.1} dB, mean difference {mad:.2})");
+    }
+
+    /// The real Rust worker: the cached bytes are the same picture as the WebP Node's `encodeStill` (sharp) made of this 64x48
+    /// gradient, recorded once by `record-gradient-renditions.mjs` beside this file (222 and 258 bytes). The recorded bytes are
+    /// libwebp's through libvips, so they are compared under the twin's rules (class, mime and dimensions exact, pixels by
+    /// PSNR), not byte for byte.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn the_real_sharp_host_makes_nodes_webp_for_both_variants() {
+    async fn the_real_worker_makes_nodes_webp_for_both_variants() {
+        use base64::Engine as _;
         use mixdog_exthost::{ExtHostConfig, ExtHostPool, RenderBrowserConfig};
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
         let pool = Arc::new(
             ExtHostPool::new(ExtHostConfig {
-                program: "node".into(),
-                args: vec![root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+                program: worker_binary(),
+                args: Vec::new(),
                 electron: false,
                 workers: 1,
                 pending_cap: 64,
@@ -952,14 +1006,16 @@ pub(super) mod tests {
         let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(pool.clone())), mixdog_rt::testing::tokens().durability_io, dir.path().join("renditions"));
         let thread = ThreadId::from("t");
 
-        for (variant, id, len, sha) in [
-            (RenditionVariant::Thumb, "thumb-id", 222, "d380e48dd72a6df4e76e627f9f998b2ddf48422be3cf8ad3ddf15b3ae007f1c6"),
-            (RenditionVariant::Display, "display-id", 258, "3b548906e0a790213c3f51289a9a30cf03a40c2388feb69e656356333206e1ed"),
+        for (variant, id, recorded) in [
+            (RenditionVariant::Thumb, "thumb-id", "UklGRtYAAABXRUJQVlA4IMoAAABQBgCdASpAADAAPp1Cm0g/pCKhMAgD8BOJZmzkgMT1LALEBsAEkqE+QP4Dl99vRZ13+eUf//7qv//6gAD+8RBx/nC7CUa//BAa1cBu8+xXhoi5r0SjVUuhq4BmdfyvIsJEZNDhFtlLEY2HVj9bgH/5MLodSO3jmbVWBUrRtndBR3eAcPAP8XFsJM4IicXs7QQsZV1otg4LjX6+WWg3sQf8mF0OpHcj6APYhkiyg46ZKEmUhd8CkGSr6bGJgunQwJm2gejtrHc0gAAA"),
+            (RenditionVariant::Display, "display-id", "UklGRvoAAABXRUJQVlA4IO4AAAAQBwCdASpAADAAPmEqkEUwIqGYBAEABgSzNYTVgHm+/YdHyvmgWAQX8HC1y+JN5V6J3Zb//+jePJpZkKeP3FjFAAD+/ibKtBfnzl9/89UNS8vATxxd7BnSDO0iG6Luka6j73F5hfJdYtv9th3VgloyUVtUWjo1mYKdVTLwsYG8YZ7XM4UrBp7HhHJn13EXXueFpYS/NGXG1ChV8xXO0rwYJYTRgcPY9mRKaW7AgADE29D3uJbNGRMBLV4oVKPoQltAgJqgLSvU05ek6szpvnCBDOUkNx/Pn/1ae+bHlvN55HHbna/0VQMTvdFoAAAA"),
         ] {
             let made = within(renditions.ensure(&thread, id, source.clone(), variant, true)).await.unwrap().unwrap();
-            assert_eq!((made.mime, made.bytes), ("image/webp", len), "{id}");
+            assert_eq!(made.mime, "image/webp", "{id}");
             assert_eq!(made.path, dir.path().join("renditions").join(variant_name(variant)).join(format!("{id}.webp")));
-            assert_eq!(sha_hex(&std::fs::read(&made.path).unwrap()), sha, "{id}");
+            let written = std::fs::read(&made.path).unwrap();
+            assert_eq!(made.bytes, written.len() as u64, "{id}");
+            same_picture(id, &written, &base64::engine::general_purpose::STANDARD.decode(recorded).unwrap());
             // The cache answers the second ask; it is the same file.
             assert_eq!(within(renditions.ensure(&thread, id, source.clone(), variant, false)).await.unwrap(), Some(made));
         }
