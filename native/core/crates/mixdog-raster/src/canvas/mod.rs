@@ -157,6 +157,75 @@ fn build_paint<'a>(state: &State, style: &'a Style) -> Option<Paint<'a>> {
     Some(paint)
 }
 
+/// The pixels of a smoothed pattern over a device box, sampled the way Skia samples it: the bicubic filter (Mitchell, the taps of
+/// `SkRasterPipeline`'s `bicubic_n3x` to `bicubic_p3x` with the weights `bicubic_near` and `bicubic_far`) averages the straight colour and
+/// the alpha apart, and the colour is premultiplied after. The result is a premultiplied layer the box's size and the left/top of the box.
+fn straight_layer(state: &State, style: &Style, pixmap_size: (u32, u32), device: Rect, expand: f32) -> Option<(Pixmap, i32, i32)> {
+    let Style::Pattern(pattern) = style else { return None };
+    let picture = match (pattern.straight.as_deref(), state.smoothing) {
+        (Some(picture), true) => picture,
+        _ => return None,
+    };
+    let left = ((device.left() - expand).floor().max(0.0)) as i32;
+    let top = ((device.top() - expand).floor().max(0.0)) as i32;
+    let right = ((device.right() + expand).ceil().min(pixmap_size.0 as f32)) as i32;
+    let bottom = ((device.bottom() + expand).ceil().min(pixmap_size.1 as f32)) as i32;
+    if right <= left || bottom <= top {
+        return None;
+    }
+    let (width, height) = ((right - left) as u32, (bottom - top) as u32);
+    let repeat = pattern.repetition != Repetition::NoRepeat;
+    let inverse = state.transform.pre_concat(pattern.transform).invert()?;
+    let near = |t: f32| ((-21.0 / 18.0 * t + 27.0 / 18.0) * t + 9.0 / 18.0) * t + 1.0 / 18.0;
+    let far = |t: f32| (7.0 / 18.0 * t - 6.0 / 18.0) * t * t;
+    let index = |coordinate: f32, size: usize| -> usize {
+        let at = coordinate.floor() as i64;
+        if repeat { at.rem_euclid(size as i64) as usize } else { at.clamp(0, size as i64 - 1) as usize }
+    };
+    let mut layer = Pixmap::new(width, height)?;
+    let data = layer.data_mut();
+    for row in 0..height as usize {
+        for column in 0..width as usize {
+            let mut point = [tiny_skia::Point::from_xy((left as usize + column) as f32 + 0.5, (top as usize + row) as f32 + 0.5)];
+            inverse.map_points(&mut point);
+            let (u, v) = (point[0].x, point[0].y);
+            let (fx, fy) = ((u + 0.5) - (u + 0.5).floor(), (v + 0.5) - (v + 0.5).floor());
+            let wx = [far(1.0 - fx), near(1.0 - fx), near(fx), far(fx)];
+            let wy = [far(1.0 - fy), near(1.0 - fy), near(fy), far(fy)];
+            let (mut colour, mut alpha) = ([0.0f32; 3], 0.0f32);
+            for (j, wy) in wy.iter().enumerate() {
+                let y = index(v - 1.5 + j as f32, picture.height);
+                for (i, wx) in wx.iter().enumerate() {
+                    let x = index(u - 1.5 + i as f32, picture.width);
+                    let weight = wx * wy;
+                    let at = y * picture.width + x;
+                    alpha += weight * picture.alpha[at];
+                    for channel in 0..3 {
+                        colour[channel] += weight * picture.colour[at * 3 + channel];
+                    }
+                }
+            }
+            let alpha = alpha.clamp(0.0, 1.0);
+            let out = &mut data[(row * width as usize + column) * 4..][..4];
+            for channel in 0..3 {
+                out[channel] = ((colour[channel].clamp(0.0, 1.0) * alpha * 255.0) + 0.5) as u8;
+            }
+            out[3] = (alpha * 255.0 + 0.5) as u8;
+        }
+    }
+    Some((layer, left, top))
+}
+
+/// The paint with the shader that lays `layer` (at `left`, `top` on the device) where the draw puts its pixels: `draw` is the transform the
+/// draw call applies to the shader.
+fn layer_shader<'a>(layer: &'a Pixmap, left: i32, top: i32, global_alpha: f32, draw: Transform) -> Shader<'a> {
+    let mut shader = Pattern::new(layer.as_ref(), SpreadMode::Pad, FilterQuality::Nearest, global_alpha, Transform::from_translate(left as f32, top as f32));
+    if let Some(inverse) = draw.invert() {
+        shader.transform(inverse);
+    }
+    shader
+}
+
 /// The mask a draw is cut to: the clip, and for a pattern that does not repeat both ways its cell.
 enum DrawMask<'a> {
     Unmasked,
@@ -211,11 +280,15 @@ fn fill_rect_user(pixmap: &mut Pixmap, state: &State, rect: Rect) {
 /// Fills `path` given in the user space of `state.transform`.
 fn fill_user(pixmap: &mut Pixmap, state: &State, ink: Ink, path: &Path, rule: FillRule) {
     let style = style_of(state, ink);
-    let Some(paint) = build_paint(state, style) else { return };
+    let Some(mut paint) = build_paint(state, style) else { return };
     let Some(mask) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
     let Some(device) = path.clone().transform(state.transform) else { return };
-    let mut paint = paint;
-    paint.shader.transform(state.transform);
+    let layer = straight_layer(state, style, (pixmap.width(), pixmap.height()), device.bounds(), 2.0);
+    if let Some((layer, left, top)) = &layer {
+        paint.shader = layer_shader(layer, *left, *top, state.global_alpha, Transform::identity());
+    } else {
+        paint.shader.transform(state.transform);
+    }
     fill_analytic(pixmap, &paint, &device, rule, mask.get());
 }
 
@@ -310,6 +383,11 @@ fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::Devic
             }
         }
     }
+    let layer = Rect::from_ltrb(left as f32, top as f32, right as f32, bottom as f32)
+        .and_then(|area| straight_layer(state, style, (pixmap.width(), pixmap.height()), area, 0.0));
+    if let Some((layer, at_left, at_top)) = &layer {
+        paint.shader = layer_shader(layer, *at_left, *at_top, state.global_alpha, Transform::identity());
+    }
     // The paint goes over a copy of the pixels under the glyphs, which then replaces them.
     let Some(rows) = tiny_skia::IntRect::from_xywh(left as i32, top as i32, area_width as u32, area_height as u32) else { return };
     let Some(mut scratch) = pixmap.clone_rect(rows) else { return };
@@ -335,6 +413,10 @@ fn fill_device(pixmap: &mut Pixmap, state: &State, path: &Path, rule: FillRule) 
     let Some(mut paint) = build_paint(state, &state.fill) else { return };
     paint.shader.transform(state.transform);
     let Some(mask) = draw_mask(state, &state.fill, pixmap.width(), pixmap.height()) else { return };
+    let layer = straight_layer(state, &state.fill, (pixmap.width(), pixmap.height()), path.bounds(), 2.0);
+    if let Some((layer, left, top)) = &layer {
+        paint.shader = layer_shader(layer, *left, *top, state.global_alpha, Transform::identity());
+    }
     fill_analytic(pixmap, &paint, path, rule, mask.get());
 }
 
@@ -351,8 +433,15 @@ fn make_stroke(state: &State) -> Stroke {
 /// Strokes `path` given in user space: the width and the dashes are in user units and the transform bends them.
 fn stroke_user(pixmap: &mut Pixmap, state: &State, path: &Path) {
     let style = style_of(state, Ink::Stroke);
-    let Some(paint) = build_paint(state, style) else { return };
+    let Some(mut paint) = build_paint(state, style) else { return };
     let Some(mask) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
+    // The stroke reaches at most half the width times the miter limit past the path, in user units, and a pixel for the edge.
+    let reach = state.line_width * state.miter_limit.max(1.0).max(std::f32::consts::SQRT_2);
+    let scale = state.transform.sx.abs().max(state.transform.sy.abs()).max(state.transform.kx.abs()).max(state.transform.ky.abs()).max(1.0);
+    let layer = path.bounds().transform(state.transform).and_then(|device| straight_layer(state, style, (pixmap.width(), pixmap.height()), device, reach * scale + 2.0));
+    if let Some((layer, left, top)) = &layer {
+        paint.shader = layer_shader(layer, *left, *top, state.global_alpha, state.transform);
+    }
     pixmap.stroke_path(path, &paint, &make_stroke(state), state.transform, mask.get());
 }
 
