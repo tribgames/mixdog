@@ -1,0 +1,30 @@
+# nr-relay-twin-harness
+
+## Cargo and workspace edits
+
+None. The `twin` test target, `required-features = ["test-support"]`, the `relay_twin_host` binary and every crate the
+runner uses (base64, flate2, httparse, mixdog-fsio, p256 with ecdsa, regex, rustls with ring, serde, serde_json, sha2,
+rcgen and tempfile as dev dependencies) are already in native/core/crates/mixdog-relay/Cargo.toml and Cargo.lock.
+compose_flip.rs SERVICE_PENDING: no name is added or removed by this task.
+
+## What nr-relay-server must do (it owns src/bin/relay_twin_host.rs)
+
+1. Remove `#[ignore = "relay assembled by nr-relay-server"]` from `twin_scenarios` and `twin_crossover` in
+   tests/twin/main.rs once the host serves; that edit belongs to the lead after the wave (main.rs is this task's file).
+2. The Rust host must accept the contract of tests/twin/node/relay-host.mjs unchanged, because proc.rs starts it with
+   the same single JSON argument as the Node host (`relay_twin_host '<json>'`): the knob names of the header there
+   (`dataDir`, `rendererDir`, `rendererReleasesDir`, `tlsCert`, `tlsKey`, the limits, `feedbackEnv`, `nativePushEnv`,
+   `turnEnv`, `feedbackOptions`) and the host keys `fakes` and `mobileRelease`; port 0; the line
+   `[relay] <http|https> listening on :<port> (renderer: <dir>|none)` on stdout (proc.rs reads the port from it); every
+   fake call as `[twin] <json>` on stdout with the shapes of that header; closing the relay and exiting 0 when stdin
+   ends; `[relay] failed to start: <message>` on stderr and exit 1 on a start failure. A `[twin] {"versions":...}` line
+   is optional (proc.rs drops it).
+3. Both relays print their operator lines through logline.rs; the runner compares stdout and stderr lines per stream.
+
+## Scenario authors (later twin tasks)
+
+Suites go under tests/twin/scenarios/<suite>/<id>.json (format: tests/twin/scenario.rs header). Timestamps placed in
+files must be more than 400 days from the run. Pair codes, claim ids, tickets and tokens a scenario needs later are
+taken with a `capture` so the normaliser shows them as `<$name>`. ES256 JWT checks need `keys.vapid_public`; other
+algorithms are refused by the normaliser (a later web-push twin must decrypt aes128gcm bodies itself: the harness keeps
+only their length).

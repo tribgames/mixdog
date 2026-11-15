@@ -1,0 +1,19 @@
+{
+  "id": "restart_keeps_serving",
+  "description": "the relay restarted over the same DATA_DIR answers the same",
+  "steps": [
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200
+    },
+    {
+      "do": "restart"
+    },
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}

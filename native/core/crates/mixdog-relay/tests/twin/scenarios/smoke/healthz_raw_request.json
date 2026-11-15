@@ -1,0 +1,17 @@
+{
+  "id": "healthz_raw_request",
+  "description": "the same request written as raw bytes, and a HEAD of it",
+  "steps": [
+    {
+      "do": "http",
+      "raw": "GET /healthz HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n",
+      "expect_status": 200
+    },
+    {
+      "do": "http",
+      "method": "HEAD",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}

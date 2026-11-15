@@ -1,0 +1,19 @@
+{
+  "id": "crossover_healthz",
+  "description": "the other runtime started on the data directory the first one left answers the same",
+  "steps": [
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200
+    },
+    {
+      "do": "crossover"
+    },
+    {
+      "do": "http",
+      "path": "/healthz",
+      "expect_status": 200
+    }
+  ]
+}
