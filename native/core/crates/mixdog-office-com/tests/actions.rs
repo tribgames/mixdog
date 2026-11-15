@@ -109,6 +109,10 @@ impl Log {
         self.push(json!({"obj": id, "kind": "put", "member": member, "flags": 4, "args": [], "value": value, "result": empty()}));
     }
 
+    fn end_of_enumeration(&mut self, id: u64) {
+        self.push(json!({"obj": id, "kind": "enum-next", "member": "", "flags": 0, "args": [], "result": null}));
+    }
+
     fn next(&mut self, id: u64, result: Json) {
         self.push(json!({"obj": id, "kind": "enum-next", "member": "", "flags": 0, "args": [], "result": result}));
     }
@@ -121,7 +125,7 @@ impl Log {
     fn find_word_document(&mut self, path: &str) {
         self.get(1, "Documents", obj(2));
         self.next(2, obj(3));
-        self.next(2, null());
+        self.end_of_enumeration(2);
         self.get(3, "FullName", s(path));
     }
 }
@@ -289,7 +293,7 @@ fn a_live_request_for_a_document_the_application_does_not_hold_is_refused() {
     let path = full_path_in_temp("absent.docx");
     let mut log = Log::default();
     log.get(1, "Documents", obj(2));
-    log.next(2, null());
+    log.end_of_enumeration(2);
     let fake = log.fake();
     let mut handler = one_shot(word_drivers(&[], &[]), Some(fake.object(1)));
     let (mut out, _, _) = emitter();
@@ -473,7 +477,7 @@ fn a_workbook_is_restored_from_its_checkpoint_sheet_by_sheet_with_alerts_put_bac
     log.get(3, "Worksheets", obj(20));
     log.next(20, obj(21));
     log.next(20, obj(22));
-    log.next(20, null());
+    log.end_of_enumeration(20);
     log.get(3, "Worksheets", obj(20));
     log.call(20, "Add", vec![], obj(23));
     log.put(23, "Name", s("__MixdogRestoref4c30000"));
@@ -481,7 +485,7 @@ fn a_workbook_is_restored_from_its_checkpoint_sheet_by_sheet_with_alerts_put_bac
     log.call(22, "Delete", vec![], empty());
     log.get(11, "Worksheets", obj(30));
     log.next(30, obj(31));
-    log.next(30, null());
+    log.end_of_enumeration(30);
     log.get(3, "Worksheets", obj(20));
     log.get(3, "Worksheets", obj(20));
     log.get(20, "Count", i4(1));
@@ -538,7 +542,7 @@ fn a_workbook_render_fits_only_the_sheets_without_a_fit_of_their_own_and_puts_ea
     log.get(1, "Worksheets", obj(2));
     log.next(2, obj(3));
     log.next(2, obj(4));
-    log.next(2, null());
+    log.end_of_enumeration(2);
     // Sheet 3 has a zoom of 100 and is fitted one page wide; sheet 4 declares a fit (Zoom is False) and is left alone.
     log.get(3, "PageSetup", obj(5));
     log.get(5, "Zoom", i4(100));

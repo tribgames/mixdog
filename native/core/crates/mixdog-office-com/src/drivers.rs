@@ -8,7 +8,11 @@ use crate::format::FormatEditor;
 use crate::format::FormatReader;
 
 /// The readers: one line per format, `("docx", &crate::word::Reader)`.
-static READERS: &[(&str, &dyn FormatReader)] = &[];
+static READERS: &[(&str, &dyn FormatReader)] = &[
+    ("docx", &crate::word::Reader),
+    ("xlsx", &crate::excel::Reader),
+    ("pptx", &crate::ppt::Reader),
+];
 
 /// The editors: one line per format, `("docx", &crate::word::Editor)`.
 static EDITORS: &[(&str, &dyn FormatEditor)] = &[];

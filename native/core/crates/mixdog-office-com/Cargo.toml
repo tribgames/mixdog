@@ -132,3 +132,27 @@ path = "tests/actions.rs"
 [[test]]
 name = "actions_live"
 path = "tests/actions_live.rs"
+
+[[test]]
+name = "excel_read"
+path = "tests/excel_read.rs"
+
+[[test]]
+name = "excel_read_live"
+path = "tests/excel_read_live.rs"
+
+[[test]]
+name = "ppt_read"
+path = "tests/ppt_read.rs"
+
+[[test]]
+name = "ppt_read_live"
+path = "tests/ppt_read_live.rs"
+
+[[test]]
+name = "word_read"
+path = "tests/word_read.rs"
+
+[[test]]
+name = "word_read_live"
+path = "tests/word_read_live.rs"
