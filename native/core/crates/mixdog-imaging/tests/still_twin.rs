@@ -8,7 +8,8 @@
 //! `image.resize` re-encodes: the mime type, the sizes, whether the bytes come back untouched, and the same pixels.
 //!
 //! Not compared: the pixels of a CMYK JPEG with no ICC profile (libvips converts it through a built-in profile no Rust
-//! crate carries), and the SVG bytes, which sharp renders and the decoder answers as unsupported by owner decision.
+//! crate carries). An AVIF input is compared like every other: sharp takes it and no AVIF decoder is available, so those
+//! cases fail and say so.
 
 use std::path::PathBuf;
 
@@ -114,9 +115,6 @@ fn still_case(case: &Value) -> Result<(), String> {
     }
     let got = encode_still(&input(input_name), spec);
     let expect = &case["expect"];
-    if case["divergence"] == "avif-svg" {
-        return if got.is_none() { Ok(()) } else { Err(format!("{name}: an AVIF or SVG input was taken")) };
-    }
     match (text(expect, "class"), got) {
         ("none", None) => Ok(()),
         ("ok", Some(still)) => {

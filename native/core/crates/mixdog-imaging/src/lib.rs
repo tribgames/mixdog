@@ -255,10 +255,10 @@ mod tests {
         let small = resize_image_buffer(&png(100, 100, false), "png", ResizeOptions::default()).unwrap().unwrap();
         assert_eq!((small.dimensions.display_width, small.dimensions.display_height, small.branch), (200, 200, Branch::Rendition));
         let wide = resize_image_buffer(&png(2000, 100, false), "png", ResizeOptions::default()).unwrap().unwrap();
-        assert_eq!((wide.dimensions.original_width, wide.dimensions.display_width, wide.dimensions.display_height), (2000, 1568, 78));
+        assert_eq!((wide.dimensions.original_width, wide.dimensions.display_width, wide.dimensions.display_height), (2000, 1560, 78));
         assert_eq!(wide.mime, "image/png");
         let back = decode(&wide.data, DECODE_PIXEL_LIMIT).unwrap();
-        assert_eq!((back.width, back.height), (1568, 78));
+        assert_eq!((back.width, back.height), (1560, 78));
     }
 
     #[test]
@@ -266,7 +266,7 @@ mod tests {
         let bytes = png(1800, 600, false);
         let anthropic = resize_image_buffer(&bytes, "png", ResizeOptions { profile: Profile::Anthropic, ..ResizeOptions::default() }).unwrap().unwrap();
         let openai = resize_image_buffer(&bytes, "png", ResizeOptions { profile: Profile::OpenAi, ..ResizeOptions::default() }).unwrap().unwrap();
-        assert_eq!(anthropic.dimensions.display_width, 1568);
+        assert_eq!(anthropic.dimensions.display_width, 1566, "1800x600 is boxed at 1568x522, and the picture inside the box is 1566 wide");
         assert_eq!(openai.branch, Branch::Original, "1800x600 is inside OpenAI's 2048 edge and 1536 patches");
     }
 
