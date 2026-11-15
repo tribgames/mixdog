@@ -46,6 +46,8 @@ use crate::RasterError;
 use crate::ops::Kernel;
 use crate::ops::resize_exact;
 
+mod cairo_pen;
+
 /// sharp's default SVG density.
 pub const DEFAULT_DENSITY: f64 = 72.0;
 
@@ -1052,10 +1054,9 @@ fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8
         let Some((stroke, Some(paint))) = &stroke else { return };
         let styled = stroke.to_tiny_skia();
         let resolution = device_scale.max(f64::EPSILON) as f32;
-        // A line thinner than one sub-row of the scan converter (1/15 of a pixel) leaves no coverage in cairo: recorded for a 1 unit hairline
-        // drawn at a fortieth of a pixel, which cairo does not draw at all.
-        let device_width = f64::from(styled.width) * f64::from(transform.sx * transform.sy - transform.kx * transform.ky).abs().sqrt();
-        if device_width < 1.0 / GRID_Y as f64 {
+        // Cairo's compositor drops a one-vertex transformed pen before stroking.
+        // Thin strokes which survive that test still participate in scan conversion.
+        if cairo_pen::stroke_is_empty(f64::from(styled.width), [transform.sx, transform.ky, transform.kx, transform.sy].map(f64::from)) {
             return;
         }
         // The stroker is given the curve already cut into lines (at 0.1 pixel), dashed, and offsets those.
@@ -1441,7 +1442,27 @@ mod tests {
     }
 
     #[test]
-    fn a_line_thinner_than_a_sub_row_of_the_scan_converter_leaves_nothing() {
+    fn thin_diagonal_strokes_that_cairo_keeps_match_the_original_node_picture() {
+        // Original sharp 0.35.5 / Cairo 1.18.6 / librsvg 2.63.2, density 72.
+        // Provenance and a reproducible recorder accompany the PNG in tests/oracles.
+        let mut paths = String::new();
+        for x in (-120..=120).step_by(4) {
+            paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
+        }
+        let page = svg("width=\"128\" height=\"128\"", &format!(
+            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
+        ));
+        let actual = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
+        let recorded = Image::decode(include_bytes!("../tests/oracles/svg-thin-0.05.png")).expect("Node PNG");
+        let comparison = mixdog_office_base::twin::pixels::compare(
+            mixdog_office_base::twin::pixels::Picture::new(actual.width(), actual.height(), actual.rgba()),
+            mixdog_office_base::twin::pixels::Picture::new(recorded.width(), recorded.height(), recorded.rgba()),
+        );
+        comparison.verdict().unwrap_or_else(|why| panic!("{why}"));
+    }
+
+    #[test]
+    fn a_collapsed_pen_leaves_nothing_but_the_normal_size_draws() {
         let page = svg("width=\"40\" height=\"24\" viewBox=\"0 0 40 24\"", "<path d=\"M0 24 L40 0\" stroke=\"#d33\" stroke-width=\"1\"/>");
         let thin = rasterize_to(&SvgFonts::none(), &page, 180.0, 2, 1).unwrap();
         assert!(thin.rgba().chunks_exact(4).all(|pixel| pixel[3] == 0), "{:?}", thin.rgba());
