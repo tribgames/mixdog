@@ -28,6 +28,6 @@
     }
   ],
   "deliberateDifferences": [
-    "golden.json: the Skill body of skill-creator carries `${MIXDOG_SKILL_NODE} \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"` where the Node reference (C:Projectmixdog) has `node \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"`; edited by hand, deliberately (the shipped text names the bundled launcher word, not a Node on PATH)"
+    "golden.json: the Skill body of skill-creator carries `${MIXDOG_SKILL_NODE} \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"` where the Node reference (C:/Project/mixdog) has `node \"${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs\" \"<skill-directory>\"`; edited by hand, deliberately (the shipped text names the bundled launcher word, not a Node on PATH)"
   ]
 }
