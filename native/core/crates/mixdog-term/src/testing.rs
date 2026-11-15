@@ -296,6 +296,52 @@ impl Screen {
         }
     }
 
+    /// ICH (`insert`) and DCH: the cells from the cursor to the row's end move right or left, the gap is blank.
+    fn shift_cells(&mut self, count: u16, insert: bool) {
+        let (cx, cy) = (self.cx, self.cy);
+        let width = self.width();
+        let count = count.min(width.saturating_sub(cx));
+        self.pending_wrap = false;
+        let blank = self.erased();
+        let row = self.active_mut().row_mut(cy);
+        let (from, count) = (usize::from(cx), usize::from(count));
+        if insert {
+            row[from..].rotate_right(count);
+            for cell in &mut row[from..from + count] {
+                *cell = blank.clone();
+            }
+        } else {
+            row[from..].rotate_left(count);
+            let len = row.len();
+            for cell in &mut row[len - count..] {
+                *cell = blank.clone();
+            }
+        }
+    }
+
+    /// IL (`insert`) and DL: the rows from the cursor row down move down or up, the gap is blank rows.
+    fn shift_rows(&mut self, count: u16, insert: bool) {
+        let (cy, height, width) = (self.cy, self.height(), usize::from(self.width()));
+        let count = usize::from(count.min(height.saturating_sub(cy)));
+        self.cx = 0;
+        self.pending_wrap = false;
+        let blank = self.erased();
+        let grid = self.active_mut();
+        let from = usize::from(cy) * width;
+        if insert {
+            grid.cells[from..].rotate_right(count * width);
+            for cell in &mut grid.cells[from..from + count * width] {
+                *cell = blank.clone();
+            }
+        } else {
+            grid.cells[from..].rotate_left(count * width);
+            let len = grid.cells.len();
+            for cell in &mut grid.cells[len - count * width..] {
+                *cell = blank.clone();
+            }
+        }
+    }
+
     fn switch_screen(&mut self, alt: bool, save: bool) {
         if alt == self.use_alt {
             return;
@@ -462,6 +508,16 @@ impl Perform for Screen {
                     _ => {}
                 }
             }
+            // The terminal's own cell edits (a pseudo-terminal's console host redraws with them): erase characters, insert and delete
+            // characters in the row, insert and delete rows from the cursor row down.
+            ('X', []) => {
+                let (cx, cy) = (self.cx, self.cy);
+                self.erase_cells(cy, cx, cx.saturating_add(first(params, 1)));
+            }
+            ('@', []) => self.shift_cells(first(params, 1), true),
+            ('P', []) => self.shift_cells(first(params, 1), false),
+            ('L', []) => self.shift_rows(first(params, 1), true),
+            ('M', []) => self.shift_rows(first(params, 1), false),
             ('m', []) => {
                 let flat: Vec<u16> = params.iter().flat_map(|p| p.iter().copied()).collect();
                 apply_sgr(&mut self.style, &flat);

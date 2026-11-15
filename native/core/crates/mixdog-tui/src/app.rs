@@ -19,11 +19,11 @@ pub mod actions;
 pub mod boot;
 pub mod clock;
 pub mod ext_host;
+pub mod input;
 pub mod keys;
 pub mod model_host;
 pub mod panels_host;
 pub mod picker;
-pub mod prompt;
 pub mod provider_host;
 pub mod render;
 pub mod settings_host;
@@ -36,7 +36,10 @@ pub mod timers;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use mixdog_term::frame::Grid;
+use mixdog_term::selection::SelectionState;
 use mixdog_tui_widgets::picker::state::PickerState;
+use mixdog_tui_widgets::question::QuestionState;
 use serde_json::Value;
 
 use self::clock::Clock;
@@ -55,7 +58,11 @@ use crate::pickers::extensions::disabled_skills::SkillSet;
 use crate::pickers::model::catalog::{CatalogRefresh, ModelCatalogCaches};
 use crate::pickers::provider::{OnboardingState, Prefetch, ProviderSetup};
 use crate::pickers::settings::{PickerController, SettingsState};
+use crate::handlers::state::PublishedOverride;
+use crate::mouse::{Mouse, MouseConfig};
 use crate::slash::host::{Opener, TextPrompt, Tone};
+use crate::slash::workflow_cycle::CycleGuard;
+use crate::transcript::scroll::coalesce::ScrollCoalescer;
 use crate::slash::ui_open::UiOpenGate;
 use crate::surface::latch::EnterLatch;
 use crate::surface::layout::ShellRefs;
@@ -183,6 +190,31 @@ pub struct AppState {
     pub(crate) mounted: bool,
     /// The footer under the prompt ([`AppState::set_statusline`]); none paints no line.
     pub(crate) statusline: Option<statusline::AppStatusline>,
+    /// The mouse and selection state, taken out for the length of a call into it ([`input`]).
+    pub(crate) mouse: Option<Mouse>,
+    /// The render selection of the terminal layer and the last frame as the layout drew it (before the highlight).
+    pub(crate) render_selection: SelectionState,
+    pub(crate) rendered_grid: Option<Grid>,
+    pub(crate) scroll_coalescer: ScrollCoalescer,
+    /// The selected row of the slash palette (`slashIndex`) and the skills of the `$name` palette.
+    pub(crate) slash_index: usize,
+    pub(crate) mention_skills: Vec<Value>,
+    pub(crate) mention_was_active: bool,
+    pub(crate) tab_guard: CycleGuard,
+    /// The draft publication the editor applied last, and the editor's draft while a handler asks for it mid-key.
+    pub(crate) override_applied: Option<PublishedOverride>,
+    pub(crate) live_draft: Option<Draft>,
+    /// The tool approval panel: the highlighted row and the approval it belongs to, the question panel's state.
+    pub(crate) approval_selected: usize,
+    pub(crate) approval_for: Option<String>,
+    pub(crate) question_for: Option<String>,
+    pub(crate) question_state: Option<QuestionState>,
+    /// A handler or a timer changed what the frame shows.
+    pub(crate) frame_requested: bool,
+    /// The total rows of the last committed transcript (`transcriptTotalRowsRef`).
+    pub(crate) prev_total_rows: usize,
+    /// The session the transcript window was laid out for.
+    pub(crate) window_session: String,
 }
 
 impl AppState {
@@ -239,6 +271,23 @@ impl AppState {
             repaint_requested: false,
             mounted: false,
             statusline: None,
+            mouse: Some(Mouse::new(MouseConfig::from_env(usize::from(mixdog_tui_widgets::statusline::STATUSLINE_BAND_ROWS)))),
+            render_selection: SelectionState::default(),
+            rendered_grid: None,
+            scroll_coalescer: ScrollCoalescer::default(),
+            slash_index: 0,
+            mention_skills: Vec::new(),
+            mention_was_active: false,
+            tab_guard: CycleGuard::default(),
+            override_applied: None,
+            live_draft: None,
+            approval_selected: 0,
+            approval_for: None,
+            question_for: None,
+            question_state: None,
+            frame_requested: false,
+            prev_total_rows: 0,
+            window_session: String::new(),
         }
     }
 
