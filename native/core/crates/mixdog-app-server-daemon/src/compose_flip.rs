@@ -1353,6 +1353,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::domain_seams::channel_stack::ServerListener::new(webhook_service.clone(), tunnels)),
     ));
     let channel_runtime = mixdog_services::channels::runtime::ChannelRuntime::new(scheduler, schedules.clone(), webhook_automation, channel_agent_runtime);
+    // `<data>/channels/status-snapshot.json` (cron next fire, deferred count, relay hook URL), written while the scheduler is armed.
+    channel_runtime.bind_status_snapshot(mixdog_services::channels::status_snapshot::StatusSnapshot::new(channel_runtime.scheduler().clone(), public_base.clone(), channel_clock.clone(), b.data_dir.join("channels").join("status-snapshot.json"), b.tokens.durability_io));
     // The channels' config hot reload (Node's worker `configReloadWatch`): an edit of `channels` or `voice`, from any process, reloads the runtime.
     let channel_config_follow = mixdog_core_config::config::ChannelConfigFollow::start(config.clone(), channel_runtime.clone());
     let channel_admin = mixdog_services::channels::ChannelAdmin::new(mixdog_services::channels::AdminDeps {
@@ -1822,7 +1824,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     progress: Some(notices.sink(MemoryStartNotices::DATABASE)),
                 };
                 let installed = pg::ensure_runtime(&options, &cancel).await;
-                notices.clear(MemoryStartNotices::DATABASE);
                 installed.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
             })
         });
@@ -1886,6 +1887,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     })
     .await
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
+    // The database notice covers the whole opening, `initdb` and the postmaster included: it goes when the opening ends (done, failed or cancelled), not when the download does.
+    memory.on_opening_end({
+        let notices = start_notices.clone();
+        Arc::new(move || notices.clear(MemoryStartNotices::DATABASE))
+    });
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
     b.acquired.on_release("memory", {
         let memory = memory.clone();

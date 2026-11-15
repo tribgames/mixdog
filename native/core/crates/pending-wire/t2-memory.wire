@@ -1,0 +1,30 @@
+# t2-memory: what the wiring has to apply. Nothing below is compiled until the lead applies it.
+
+## native/core/Cargo.toml (workspace dependency `ort`)
+
+The embedding engine asks ONNX Runtime for the DirectML execution provider (`ort::ep::DirectML`, Node's
+embedding-worker.mjs loadExtractor: `dml` when MIXDOG_MEMORY_EMBED_DEVICE is dml or gpu, or when the profile device is auto on
+Windows). That type exists only with the `directml` feature of ort. Change the line
+
+    ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30"] }
+
+to
+
+    ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30", "directml"] }
+
+Checked in the local registry cache (ort-2.0.0-rc.15, ort-sys-2.0.0-rc.15): `directml = ["ort-sys/directml"]` and
+ort-sys `directml = []`; no new crate, so Cargo.lock does not change (`--locked` stays valid). With `load-dynamic` ort-sys does not
+download anything for a feature; the DirectML API is looked up in the loaded onnxruntime library at run time
+(`GetExecutionProviderApi("DML")`), and a library without it fails the session build with ort's own error (the worker did the same).
+mixdog-workspace-hack: nothing to add by hand (take what the hakari check asks for).
+
+## native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+
+Already edited by this task (the wave allows it), nothing to paste: the channel runtime binds the status-snapshot writer
+(`ChannelRuntime::bind_status_snapshot`) and the memory stack's `on_opening_end` clears the database first-start notice when the
+whole opening (install, initdb, postmaster, schemas) ends. SERVICE_PENDING: no name is added or removed by this task.
+
+## Protocol rows
+
+None. The memory daemon HTTP routes have no caller outside the code that is replaced in process (listed in the task result with the
+proof); no protocol method is added.

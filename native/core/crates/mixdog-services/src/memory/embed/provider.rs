@@ -143,11 +143,11 @@ impl EmbeddingProvider {
         let model = js_trim(&self.config.model_id);
         // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
         let current = self.current();
-        let dims = match current.get() {
-            Some(Ok(embedder)) => Some(embedder.dims()),
-            _ => config::known_dims(model),
+        let (dims, device) = match current.get() {
+            Some(Ok(embedder)) => (Some(embedder.dims()), embedder.device()),
+            _ => (config::known_dims(model), ""),
         };
-        info_of(model, self.config.dtype.as_deref(), dims, self.is_ready())
+        info_of(model, self.config.dtype.as_deref(), dims, device)
     }
 
     /// An install is running or waiting for its turn.
@@ -159,7 +159,7 @@ impl EmbeddingProvider {
     /// (nothing loaded, `supported` true wherever onnxruntime ships a binding), where the provider does not exist.
     pub fn info_unbuilt(model_id: &str, dtype: Option<&str>) -> Value {
         let model = js_trim(model_id);
-        info_of(model, dtype, config::known_dims(model), false)
+        info_of(model, dtype, config::known_dims(model), "")
     }
     /// `getEmbeddingModelId()`.
     pub fn model_id(&self) -> &str {
@@ -314,12 +314,12 @@ impl EmbeddingProvider {
     }
 }
 
-fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: bool) -> Value {
+fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, device: &str) -> Value {
     json!({
         "model": model,
         "dtype": config::normalize_dtype(model, dtype),
         "dimensions": dimensions,
-        "device": if ready { "cpu" } else { "" },
+        "device": device,
         "engine": "Transformers.js · ONNX Runtime",
         "supported": onnx_runtime_supported(),
     })
