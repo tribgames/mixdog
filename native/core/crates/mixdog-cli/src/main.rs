@@ -14,7 +14,7 @@ use std::sync::Arc;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
 use mixdog_exthost::ExtDocumentText;
 use mixdog_exthost::ExtHostConfig;
-use mixdog_exthost::ExtHostPool;
+use mixdog_exthost::RoutedExtPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_migrate::run::cli::MigrateArgs;
@@ -59,6 +59,10 @@ enum Command {
         #[arg(long)]
         explicit: bool,
     },
+    /// The extension-host worker: the process the core's extension host pool starts; it prints READY on its frame pipe and
+    /// serves document calls until the pool says bye. Started by the core, never by a user.
+    #[command(name = "ext-worker", hide = true)]
+    ExtWorker,
 }
 
 #[derive(Args)]
@@ -152,6 +156,7 @@ fn main() -> ExitCode {
         Command::EffortJudgeHost { dir, ort_library, explicit } => {
             ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
         }
+        Command::ExtWorker => mixdog_exthost_worker::ext_worker_main(),
     }
 }
 
@@ -180,7 +185,7 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     let runtime = executors.handle(TaskClass::Work);
     let pool = {
         let _context = runtime.enter();
-        ExtHostPool::new(ExtHostConfig {
+        let script = ExtHostConfig {
             program: js.program,
             args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
             electron: js.electron,
@@ -192,7 +197,9 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
                 profile_root: roots.data.join("render-browser"),
                 no_sandbox: false,
             },
-        })
+        };
+        let worker = ExtHostConfig { program: js.core_program, args: vec!["ext-worker".into()], electron: false, ..script.clone() };
+        RoutedExtPool::new(worker, script, mixdog_app_server_daemon::compose::native_ext_methods())
     };
     let pool = match pool {
         Ok(pool) => Arc::new(pool),
