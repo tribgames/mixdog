@@ -4,6 +4,9 @@
 //! (one refreshed credential, one resend), which is part of getting one
 //! request accepted.
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type SettingLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
+
 use crate::transport::deadlines::GEMINI_MODELS;
 use crate::transport::deadlines::MODEL_STREAM_FETCH;
 use std::collections::VecDeque;
@@ -87,7 +90,7 @@ pub struct GoogleAdapter {
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
     preconnect: Option<Preconnect>,
     /// The process environment the stream windows resolve from (`resolveTimeoutMs`).
-    var: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    var: Arc<SettingLookup>,
     /// The credential values this adapter's requests were sent with (the key, the bearer token), so a refusal that
     /// echoes one is read with it redacted. Each is the value a request carried, kept after a refresh replaces it.
     carried: Mutex<Vec<String>>,
@@ -176,7 +179,7 @@ impl GoogleAdapter {
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
     /// (`send`, `gemini.mjs:651`).
     /// The settings the adapter reads (its first-byte and idle windows) from `var` instead of the process environment.
-    pub fn with_settings(mut self, var: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>) -> Self {
+    pub fn with_settings(mut self, var: Arc<SettingLookup>) -> Self {
         self.var = var;
         self
     }
@@ -252,6 +255,7 @@ impl GoogleAdapter {
     }
 
     /// A request built for one account must not run under another's.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn check_identity(&self, authorization: &Authorization) -> Result<(), ProviderError> {
         if authorization.identity == self.identity {
             return Ok(());
@@ -322,10 +326,12 @@ impl GoogleAdapter {
     }
 
     /// One authorized send, with the single credential-recovery resend of a 401.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn dispatch(&self, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
         self.dispatch_on(&*self.http, wire).await
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn dispatch_on(&self, http: &dyn HttpSend, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
@@ -342,6 +348,7 @@ impl GoogleAdapter {
 
     /// One listing fetch: no credential recovery and no resend. Node's listing
     /// calls take whatever credential is current and report what comes back.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn fetch_listing(&self, wire: &WireRequest) -> Result<Vec<u8>, ProviderError> {
         let authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
@@ -647,6 +654,7 @@ impl GoogleAdapter {
     }
 
     /// The key the request is sent with, for the families that read one per send (`_getApiKey()`).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current_key(&self) -> Result<Option<String>, ProviderError> {
         match &self.reload {
             Some(source) => Ok(Some(source.key().await?)),
@@ -655,6 +663,7 @@ impl GoogleAdapter {
     }
 
     /// The HTTP request of a Claude send: the API-key route's Messages body, its images fitted first.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn claude_fitted(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
         let wire = self.codec.claude_wire(request, model, global)?;
         match &self.images {
@@ -665,6 +674,7 @@ impl GoogleAdapter {
 
     /// `_doSend` up to the first answer: the cache to attach (made under `key`), the generate call, the replay
     /// without a cache the server refused, and the global location for a region that lacks the model.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
         let mut queue = VecDeque::new();
         // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
@@ -729,6 +739,7 @@ impl GoogleAdapter {
         Ok(Exchanged { response, queue, global })
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn attempt_served(&self, mut request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
         let key = self.current_key().await?;
         let mut sent = self.exchange(&request, key.as_deref()).await?;

@@ -134,6 +134,7 @@ pub struct QuotaExhausted {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "Forward canonical ProviderError by value without an extra error allocation or changing public constructors")]
 pub enum Cause {
     /// The provider's own error.
     Provider(ProviderError),
@@ -620,6 +621,7 @@ impl AccountRotation {
 
     /// A cooldown-only eligible set whose earliest cooldown ends inside the
     /// remaining wait budget is waited out; otherwise the send fails.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn wait_out_cooldown_or_fail<T: Send>(
         &self,
         provider: &str,
@@ -771,6 +773,7 @@ impl AccountRotation {
     }
 
     /// Walks the eligible accounts until one answers.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn pool_send<T: Send>(
         &self,
         provider: &str,

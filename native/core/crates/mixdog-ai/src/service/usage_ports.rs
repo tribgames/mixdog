@@ -199,7 +199,7 @@ impl ProviderUsageSource {
 
     /// The clock the OpenCode Go token expiry is judged by.
     pub fn with_pace(accounts: AccountStore, http: Arc<dyn HttpSend>, pace: Arc<dyn Pace>) -> Self {
-        Self { accounts, http, held: Mutex::new(HashMap::new()), pace, muse: Mutex::new(HashMap::new()), jitter: Arc::new(|| rand::random::<f64>()), versions: None }
+        Self { accounts, http, held: Mutex::new(HashMap::new()), pace, muse: Mutex::new(HashMap::new()), jitter: Arc::new(rand::random::<f64>), versions: None }
     }
 
     /// The process's client versions: Antigravity's requests carry the hub version they discover

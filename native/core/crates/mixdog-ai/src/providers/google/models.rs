@@ -91,6 +91,7 @@ pub struct GeminiPage {
     pub next: Option<String>,
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn gemini_page(body: &[u8]) -> Result<GeminiPage, ProviderError> {
     let data: Value = serde_json::from_slice(body).map_err(|e| unreadable(format!("gemini model listing is not JSON: {e}")))?;
     Ok(GeminiPage {
@@ -625,6 +626,7 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
 
 /// The answer of `fetchAvailableModels` as records. A gateway that lists no
 /// chat model is a failed listing, never an empty one.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn antigravity_records(body: &[u8], traits: &dyn ModelTraits) -> Result<Vec<ModelRecord>, ProviderError> {
     let data: Value = serde_json::from_slice(body)
         .map_err(|e| unreadable(format!("[antigravity-oauth] fetchAvailableModels is not JSON: {e}")))?;

@@ -7,6 +7,9 @@
 //! sending the same request once more on the next wire the model is served on (`sendOnRoute`), and reports the
 //! session's new route ([`StreamEvent::WireRerouted`]).
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type MessagesCeilingLookup = dyn Fn(&str) -> Option<u32> + Send + Sync;
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -213,7 +216,7 @@ pub struct GatewayAdapter {
     session_header: bool,
     /// The Messages wire's output ceiling for a model (`config.modelMaxOutputTokens(model)`), handed to the Anthropic
     /// request builder when the caller named none (`gatewayMessagesOpts`).
-    messages_ceiling: Option<Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>>,
+    messages_ceiling: Option<Arc<MessagesCeilingLookup>>,
 }
 
 impl GatewayAdapter {
@@ -227,7 +230,7 @@ impl GatewayAdapter {
         request.options.send_identity.wire().and_then(Wire::parse)
     }
 
-    pub fn with_messages_ceiling(mut self, ceiling: Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>) -> Self {
+    pub fn with_messages_ceiling(mut self, ceiling: Arc<MessagesCeilingLookup>) -> Self {
         self.messages_ceiling = Some(ceiling);
         self
     }
@@ -247,6 +250,7 @@ impl GatewayAdapter {
     /// `sendWireRoute`: the session's pin when it names this provider and model and the model is still offered on
     /// it, else a fresh resolution (a send carrying tools counts as an agent/tool request). With the route, the
     /// rerouted pin it stands on, if any; `None` for a fixed wire.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn route_of(&self, request: &ModelRequest) -> Result<(Wire, Option<Value>, Option<WireRoute>), ProviderError> {
         let routing = match self.pick {
             WirePick::Fixed(wire) => return Ok((wire, None, None)),
@@ -281,6 +285,7 @@ impl GatewayAdapter {
     }
 
     /// One attempt on `wire`, with the send's own headers.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
         request.options.send_identity.set_wire(wire.as_str());

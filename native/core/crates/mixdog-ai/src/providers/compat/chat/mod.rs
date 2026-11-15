@@ -147,6 +147,7 @@ impl CompatChatCodec {
             .trim_end_matches('/')
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn headers(&self, request: &ModelRequest) -> Result<Vec<(String, String)>, ProviderError> {
         let mut headers: Vec<(String, String)> = vec![
             ("content-type".into(), "application/json".into()),

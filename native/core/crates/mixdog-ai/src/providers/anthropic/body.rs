@@ -219,6 +219,7 @@ enum Tier {
     Env,
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn system_items(request: &ModelRequest) -> Result<Vec<(String, Tier)>, ProviderError> {
     let mut items = Vec::new();
     for message in request.messages.iter().filter(|m| m.role == Role::System) {
@@ -676,6 +677,7 @@ fn manual_budget(request: &ModelRequest) -> Option<u64> {
 
 /// `effort` is the turn's effort: the request's, or the projection's initial
 /// one when updates carry the changes after it.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn reasoning(
     cfg: &BodyConfig<'_>,
     request: &ModelRequest,
@@ -739,6 +741,7 @@ fn reasoning(
 // Assembly
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result<BuiltBody, ProviderError> {
     let parameters = request.options.model_parameters.as_ref();
     let cache = cfg.cache.with_overrides(parameters).ordered();
@@ -790,7 +793,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
             None => mark_message_tail(&mut messages, ttl),
             Some(count) => {
-                let prefix = history.get(..count).map(&lower);
+                let prefix = history.get(..count).map(lower);
                 mark_shared_prefix(&mut messages, prefix, ttl);
             }
         }

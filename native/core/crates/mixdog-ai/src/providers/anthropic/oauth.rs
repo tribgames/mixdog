@@ -139,6 +139,7 @@ fn file_error(cause: &dyn std::fmt::Display) -> ProviderError {
 
 /// The stored credential, or `None` when signed out. An unreadable file is
 /// an error, never a logout.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, ProviderError> {
     match file.load::<Document>().await {
         Probe::Present(document) => {
@@ -152,6 +153,7 @@ async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, Provi
 
 /// Writes `next` only if the stored pair still equals `from`; returns whether
 /// it was written. Another process may have refreshed meanwhile.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) -> Result<bool, ProviderError> {
     file.keep(&[&next.access_token, &next.refresh_token]);
     let expected = from.clone();
@@ -175,6 +177,7 @@ async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) ->
 }
 
 /// Marks the stored grant dead; tokens stay intact.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn mark_reauth_required(file: &CredentialFile, stored: &StoredOAuth) -> Result<(), ProviderError> {
     let mut dead = stored.clone();
     dead.reauth_required = Some(true);
@@ -261,6 +264,7 @@ pub fn authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> String
 
 /// How the token endpoint failed.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "Forward canonical ProviderError from the token endpoint without a second allocation for this private classifier")]
 enum TokenFailure {
     /// The grant is dead: the user must sign in again.
     Dead,
@@ -327,6 +331,7 @@ fn token_identity(response: &Value) -> Option<Value> {
 }
 
 /// A successful token response applied to the credential it replaces.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn apply_token_response(
     previous: &StoredOAuth,
     response: &Value,
@@ -389,6 +394,7 @@ fn token_failure(status: u16, body: &[u8]) -> TokenFailure {
 
 /// One POST to the token endpoint and its parse into the credential that
 /// replaces `previous`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 async fn token_call(
     http: &dyn HttpSend,
     request: WireRequest,
@@ -433,6 +439,7 @@ struct RefreshParts {
 }
 
 impl RefreshParts {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn stored(&self) -> Result<StoredOAuth, ProviderError> {
         match load_stored(&self.file).await? {
             Some(stored) if !stored.access_token.is_empty() => Ok(stored),
@@ -442,6 +449,7 @@ impl RefreshParts {
 
     /// `lease_ms`: refresh unless the token outlasts that window (`preflightAnthropicOAuthCredentials`), instead
     /// of the usual skew.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn refresh(self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         // Reload first: another process may already have rotated the pair.
         let stored = self.stored().await?;
@@ -515,6 +523,7 @@ impl OAuthSession {
         self
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn stored(&self) -> Result<StoredOAuth, ProviderError> {
         self.parts.stored().await
     }
@@ -525,6 +534,7 @@ impl OAuthSession {
     }
 
     /// A usable access token, refreshing first when it is near expiry.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn access_token(&self) -> Result<String, ProviderError> {
         let stored = self.stored().await?;
         if stored.reauth_required == Some(true) {
@@ -538,14 +548,17 @@ impl OAuthSession {
 
     /// A token after the server rejected `rejected`: refreshes unless another
     /// caller already replaced it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn token_after_rejection(&self, rejected: &str) -> Result<String, ProviderError> {
         self.refresh(Some(rejected.to_owned())).await
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn refresh(&self, rejected: Option<String>) -> Result<String, ProviderError> {
         self.refresh_for(rejected, None).await
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn refresh_for(&self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         let parts = self.parts.clone();
         self.parts
@@ -559,6 +572,7 @@ impl OAuthSession {
     /// `lease_ms` more (no recorded expiry counts as short), whatever the usual skew says; the refreshed pair is
     /// persisted before this returns. Errors when signed out, when the grant is dead, or when the endpoint grants less
     /// than the lease. Returns the persisted credential's expiry (epoch ms) and whether a refresh ran.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn ensure_lease(&self, lease_ms: u64) -> Result<LeaseOutcome, ProviderError> {
         let before = self.stored().await?;
         if before.reauth_required == Some(true) {

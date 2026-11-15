@@ -386,10 +386,8 @@ fn create_body(body: &Value) -> Value {
 fn replay_body(body: &Value, state: &State) -> Value {
     let Value::Object(mut wire) = continue_body(body, state) else { unreachable!("continue_body builds an object") };
     let full = object(body);
-    for key in ["messages"] {
-        if let Some(value) = full.get(key) {
-            wire.insert(key.into(), value.clone());
-        }
+    if let Some(value) = full.get("messages") {
+        wire.insert("messages".into(), value.clone());
     }
     wire.insert("thread".into(), json!({ "type": "create" }));
     for key in ["system", "tools"] {

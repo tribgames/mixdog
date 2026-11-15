@@ -102,6 +102,7 @@ fn fingerprint(parts: &[&str]) -> String {
     hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, String), ProviderError> {
     if !value.is_object() {
         return Err(invalid(format!("The credentials in {path} are invalid.")));
@@ -147,6 +148,7 @@ fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, S
 }
 
 /// One ADC file (`path` names it in messages and in the identity).
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn parse_adc(raw: &str, path: &str) -> Result<Credential, ProviderError> {
     let value: Value = serde_json::from_str(raw)
         .map_err(|_| invalid(format!("The credentials file {path} is not valid JSON.")))?;
@@ -190,6 +192,7 @@ pub fn parse_adc(raw: &str, path: &str) -> Result<Credential, ProviderError> {
 }
 
 /// A stored service-account key (settings), which must name its project.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn parse_service_account(raw: &str) -> Result<Credential, ProviderError> {
     let value: Value =
         serde_json::from_str(raw).map_err(|_| invalid("Vertex AI service-account JSON is invalid."))?;
@@ -221,6 +224,7 @@ pub fn resolve_project(credential: &Credential, env: &dyn Fn(&str) -> Option<Str
 }
 
 /// `https://{host}/v1/projects/{project}/locations/{location}`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn project_base(project: &str, location: &str) -> Result<String, ProviderError> {
     let valid_location = location.len() <= 63
         && location.chars().next().is_some_and(|c| c.is_ascii_lowercase())
@@ -241,6 +245,7 @@ pub fn project_base(project: &str, location: &str) -> Result<String, ProviderErr
     Ok(format!("https://{host}/v1/projects/{project}/locations/{location}"))
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn pem_der(pem: &str) -> Result<(Vec<u8>, bool), ProviderError> {
     let pkcs1 = pem.contains("BEGIN RSA PRIVATE KEY");
     let body: String = pem.lines().filter(|l| !l.starts_with("-----")).flat_map(|l| l.trim().chars()).collect();
@@ -249,6 +254,7 @@ fn pem_der(pem: &str) -> Result<(Vec<u8>, bool), ProviderError> {
 }
 
 /// The RS256 assertion for the `jwt-bearer` grant.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn jwt_assertion(client_email: &str, private_key: &str, now_secs: u64) -> Result<String, ProviderError> {
     let encode = |v: &Value| URL_SAFE_NO_PAD.encode(v.to_string());
     let input = format!(
@@ -303,6 +309,7 @@ impl VertexAuth {
             .map(|m| m.token.clone())
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn post(&self, url: &str, headers: Vec<(String, String)>, body: Vec<u8>, what: &str) -> Result<Vec<u8>, ProviderError> {
         let response = self
             .http
@@ -329,6 +336,7 @@ impl VertexAuth {
         if (200..300).contains(&status) { Ok(reply.body) } else { Err(token_failure(status, &reply.body, what)) }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn grant_token(&self, grant: &Grant) -> Result<TokenGrant, ProviderError> {
         // Spelled as Node's fetch call writes it (`vertex-ai-auth`), which the wire keeps.
         let form_header = vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
@@ -357,6 +365,7 @@ impl VertexAuth {
         Ok(token)
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn mint(&self) -> Result<Minted, ProviderError> {
         let now = (self.now_ms)();
         match &self.credential.kind {

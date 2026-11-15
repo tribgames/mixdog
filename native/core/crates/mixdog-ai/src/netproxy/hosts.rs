@@ -115,10 +115,10 @@ impl Rule {
         if self.family() == family {
             return bits(address, family).is_some_and(|a| self.holds(a));
         }
-        if family == Family::V6 && self.family() == Family::V4 {
-            if let Some(mapped) = Ipv6Addr::from_str(address).ok().and_then(|a| a.to_ipv4_mapped()) {
-                return self.holds(u128::from(u32::from(mapped)));
-            }
+        if family == Family::V6 && self.family() == Family::V4
+            && let Some(mapped) = Ipv6Addr::from_str(address).ok().and_then(|a| a.to_ipv4_mapped())
+        {
+            return self.holds(u128::from(u32::from(mapped)));
         }
         false
     }

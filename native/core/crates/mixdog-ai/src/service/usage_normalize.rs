@@ -79,7 +79,7 @@ pub fn reset_at_ms(value: Option<&Value>, fallback_seconds: Option<&Value>, now_
         return Some(if n < 10_000_000_000.0 { n * 1000.0 } else { n });
     }
     let secs = num_or(fallback_seconds, 0.0);
-    (secs > 0.0).then(|| now_ms as f64 + secs * 1000.0)
+    if secs > 0.0 { Some(now_ms as f64 + secs * 1000.0) } else { None }
 }
 
 fn label_for_duration(seconds: f64, fallback: &str) -> String {
@@ -368,10 +368,10 @@ fn balance_from_anthropic_spend(spend: Option<&Value>) -> Value {
         return result((cap_units - used).max(0.0), used);
     }
     let limit = spend.get("limit");
-    if let (Some(lim), Some(used)) = (minor_to_units(limit), used) {
-        if num(limit.and_then(|l| l.get("amount_minor")), None).is_some_and(|m| m > 0.0) {
-            return result((lim - used).max(0.0), used);
-        }
+    if let (Some(lim), Some(used)) = (minor_to_units(limit), used)
+        && num(limit.and_then(|l| l.get("amount_minor")), None).is_some_and(|m| m > 0.0)
+    {
+        return result((lim - used).max(0.0), used);
     }
     Value::Null
 }
@@ -487,21 +487,21 @@ pub fn normalize_anthropic_usage(data: &Value, source: &str, now_ms: i64) -> Opt
     .into_iter()
     .flatten()
     .collect();
-    if windows.is_empty() {
-        if let Some(Value::Array(limits)) = data.get("limits") {
-            windows = limits
-                .iter()
-                .filter(|x| truthy(Some(x)))
-                .filter(|x| !truthy(x.get("scope").and_then(|s| s.get("model"))) && !truthy(x.get("scope").and_then(|s| s.get("surface"))))
-                .filter_map(|x| {
-                    let pct = obj(vec![
-                        ("percent", x.get("percent").cloned().unwrap_or(Value::Null)),
-                        ("resets_at", x.get("resets_at").cloned().unwrap_or(Value::Null)),
-                    ]);
-                    window_from_percent(&limit_window_label(x), Some(&pct), source, now_ms)
-                })
-                .collect();
-        }
+    if windows.is_empty()
+        && let Some(Value::Array(limits)) = data.get("limits")
+    {
+        windows = limits
+            .iter()
+            .filter(|x| truthy(Some(x)))
+            .filter(|x| !truthy(x.get("scope").and_then(|s| s.get("model"))) && !truthy(x.get("scope").and_then(|s| s.get("surface"))))
+            .filter_map(|x| {
+                let pct = obj(vec![
+                    ("percent", x.get("percent").cloned().unwrap_or(Value::Null)),
+                    ("resets_at", x.get("resets_at").cloned().unwrap_or(Value::Null)),
+                ]);
+                window_from_percent(&limit_window_label(x), Some(&pct), source, now_ms)
+            })
+            .collect();
     }
     windows.extend(scoped_anthropic_windows(data, source, now_ms));
     windows.extend(anthropic_extra_usage_window(data.get("extra_usage"), now_ms));
@@ -541,10 +541,10 @@ pub fn grok_billing_cadence(config: &Value, now_ms: i64) -> Option<(&'static str
     }
     let start = reset_at_ms(first(config, &["billingPeriodStart", "billing_period_start"]), None, now_ms);
     let end = reset_at_ms(first(config, &["billingPeriodEnd", "billing_period_end"]), None, now_ms);
-    if let (Some(s), Some(e)) = (start, end) {
-        if e > s && e - s <= 10.0 * 86_400_000.0 {
-            return Some(("W", "weekly"));
-        }
+    if let (Some(s), Some(e)) = (start, end)
+        && e > s && e - s <= 10.0 * 86_400_000.0
+    {
+        return Some(("W", "weekly"));
     }
     Some(("M", "monthly"))
 }
@@ -557,7 +557,7 @@ fn val(v: Option<&Value>) -> Option<&Value> {
     }
 }
 
-fn val_chain<'a>(v: Option<&'a Value>) -> Option<&'a Value> {
+fn val_chain(v: Option<&Value>) -> Option<&Value> {
     v.filter(|x| !x.is_null())
 }
 

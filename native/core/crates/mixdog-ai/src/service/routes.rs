@@ -5,6 +5,9 @@
 //! catalog rows. The host feeds them the config, the main route and the
 //! loaded catalog rows.
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type LighterModelRules = (fn(&Value, &str) -> bool, fn(&str, &str) -> std::cmp::Ordering);
+
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use serde_json::Map;
@@ -265,10 +268,10 @@ fn openai_unsupported(id: &str) -> bool {
         return true;
     }
     // ^gpt-(?:3|4(?:$|-))
-    if let Some(rest) = id.strip_prefix("gpt-") {
-        if rest.starts_with('3') || (rest.starts_with('4') && (rest.len() == 1 || rest[1..].starts_with('-'))) {
-            return true;
-        }
+    if let Some(rest) = id.strip_prefix("gpt-")
+        && (rest.starts_with('3') || (rest.starts_with('4') && (rest.len() == 1 || rest[1..].starts_with('-'))))
+    {
+        return true;
     }
     // ^o[12](?:-|$)
     if ["o1", "o2"].iter().any(|o| starts_word(id, o)) {
@@ -569,7 +572,7 @@ fn compare_gpt_version(a: &str, b: &str) -> std::cmp::Ordering {
 /// catalog of a subscription provider lists. API-key providers bill per token
 /// and get no lighter step.
 pub fn lighter_subscription_model(provider: &str, catalog: &[Value]) -> Option<String> {
-    let (matches, compare): (fn(&Value, &str) -> bool, fn(&str, &str) -> std::cmp::Ordering) = match provider {
+    let (matches, compare): LighterModelRules = match provider {
         "anthropic-oauth" => (|row, _| row.get("family").and_then(Value::as_str) == Some("haiku"), compare_anthropic_version),
         "openai-oauth" => (|_, id| id.contains("-luna") && gpt_version(id).is_some(), compare_gpt_version),
         _ => return None,

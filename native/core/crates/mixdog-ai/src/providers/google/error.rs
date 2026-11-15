@@ -188,10 +188,10 @@ pub fn contract(details: Option<&Value>, google_status: Option<&Value>, message:
     let mut zero_limit = false;
     for entry in list {
         let kind = entry.get("@type").and_then(Value::as_str).unwrap_or("");
-        if kind.ends_with(".RetryInfo") || entry.get("retryDelay").is_some() {
-            if retry_after_ms.is_none() {
-                retry_after_ms = advice_ms(entry.get("retryDelay"));
-            }
+        if (kind.ends_with(".RetryInfo") || entry.get("retryDelay").is_some())
+            && retry_after_ms.is_none()
+        {
+            retry_after_ms = advice_ms(entry.get("retryDelay"));
         }
         if kind.ends_with(".QuotaFailure") || entry.get("violations").is_some_and(Value::is_array) {
             let violations = entry.get("violations").filter(|v| js_truthy(v)).and_then(Value::as_array);

@@ -65,6 +65,7 @@ fn starts_with_ignore_case(text: &str, prefix: &str) -> bool {
 
 /// `vertexRoute(model)`: `publishers/P/models/M` or `P/M`, else a `gemini-`, `claude-` or `grok-` id; Anthropic answers
 /// rawPredict, Google generateContent except its open models (a `-maas` id or a listed one), every other publisher MaaS.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn vertex_model(model: &str) -> Result<VertexModel, ProviderError> {
     let raw = mixdog_js::js_trim(model);
     if raw.is_empty() {
@@ -136,6 +137,7 @@ fn apply_effort(body: &mut serde_json::Map<String, Value>, request: &ModelReques
 }
 
 /// The HTTP request of an open-model send to the location base `base`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn wire(request: &ModelRequest, model: &VertexModel, base: &str) -> Result<WireRequest, ProviderError> {
     let sent = engine_request(request, model);
     let mut wire = engine(base).encode(&sent)?;

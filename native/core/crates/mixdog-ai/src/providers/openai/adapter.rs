@@ -13,6 +13,9 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
+// Private names for existing callback/result shapes; representations are unchanged.
+type SettingLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
+
 use crate::providers::idle::IdleWatch;
 use crate::providers::idle::Stalled;
 use crate::transport::deadlines::openai_http_response;
@@ -155,7 +158,7 @@ struct Sources {
     now: Box<dyn Fn() -> u64 + Send + Sync>,
     request_id: Box<dyn Fn() -> String + Send + Sync>,
     /// Node's `process.env`: the process environment unless a recording gives its own.
-    var: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    var: Box<SettingLookup>,
 }
 
 impl Default for Sources {
@@ -895,6 +898,7 @@ impl OpenAiAdapter {
 // Stream
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::large_enum_variant, reason = "Keep the live WebSocket checkout and pending frame inline rather than add an allocation to every stream")]
 enum Source {
     Http(Box<dyn BodyStream>),
     Ws {
@@ -1003,12 +1007,11 @@ impl ResponsesStream {
             return;
         };
         let names = |needle: &[u8]| unit.windows(needle.len()).any(|w| w == needle);
-        if names(b"response.created") || names(b"response.completed") || names(b"response.done") {
-            if let Ok(frame) = serde_json::from_slice::<Value>(unit)
-                && let Some(id) = frame.get("response").and_then(|r| r.get("id")).and_then(Value::as_str).filter(|i| !i.is_empty())
-            {
-                anchor.response_id = Some(id.to_owned());
-            }
+        if (names(b"response.created") || names(b"response.completed") || names(b"response.done"))
+            && let Ok(frame) = serde_json::from_slice::<Value>(unit)
+            && let Some(id) = frame.get("response").and_then(|r| r.get("id")).and_then(Value::as_str).filter(|i| !i.is_empty())
+        {
+            anchor.response_id = Some(id.to_owned());
         }
     }
 

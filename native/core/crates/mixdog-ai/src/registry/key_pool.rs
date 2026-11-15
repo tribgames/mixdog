@@ -421,7 +421,7 @@ impl ModelStream for KeyStream {
     }
 
     fn delivery(&self) -> DeliveryState {
-        lock(&self.queue).delivery.clone()
+        lock(&self.queue).delivery
     }
 
     fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {

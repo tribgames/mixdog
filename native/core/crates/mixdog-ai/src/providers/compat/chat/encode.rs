@@ -45,6 +45,7 @@ fn pdf_not_prepared(label: &str) -> ProviderError {
     ))
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
     Ok(match part {
         ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(text)),
@@ -91,6 +92,7 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
     })
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn lower_parts(parts: &[ContentPart]) -> Result<Vec<JsonValue>, ProviderError> {
     let mut out = Vec::with_capacity(parts.len());
     for part in parts {
@@ -112,6 +114,7 @@ fn joined_text(parts: &[JsonValue]) -> String {
 
 /// Message content: a string stays a string; a user's parts stay a list
 /// (images and files ride in it); every other role takes the joined text.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn content_value(role: Role, content: &Content) -> Result<JsonValue, ProviderError> {
     match content {
         Content::Text(text) => Ok(JsonValue::String(text.clone())),
@@ -133,6 +136,7 @@ const TOOL_MEDIA_NOTE: &str = "[tool result included media content in the follow
 
 /// A tool result's text, and its media for the user message that follows the
 /// run of tool messages (a tool message carries text only).
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn split_tool_content(content: &Content) -> Result<(String, Vec<JsonValue>), ProviderError> {
     match content {
         Content::Text(text) => Ok((text.clone(), Vec::new())),
@@ -226,6 +230,7 @@ fn attach_reasoning(
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn lower_messages(
     dialect: &ChatDialect,
     owner: &ProviderId,
@@ -305,6 +310,7 @@ fn tools_value(tools: &[ToolDefinition]) -> JsonValue {
 }
 
 /// The request body of one Chat Completions attempt.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn build_body(
     profile: &CompatProfile,
     owner: &ProviderId,
@@ -336,6 +342,7 @@ pub fn build_body(
 /// The text of every message this dialect sends as `system` (a `developer`
 /// message counts unless the dialect keeps the role), as the lowering writes
 /// it. The xAI Responses cache prefix is identified by these.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn system_texts(dialect: &ChatDialect, messages: &[Message]) -> Result<Vec<String>, ProviderError> {
     let mut texts = Vec::new();
     for message in messages.iter().filter(|m| role_name(m.role, dialect) == "system") {

@@ -59,7 +59,7 @@ pub(crate) fn js_number(x: f64) -> String {
     } else if -6 < n && n <= 0 {
         format!("0.{}{digits}", "0".repeat(-n as usize))
     } else {
-        let sign = if n - 1 >= 0 { '+' } else { '-' };
+        let sign = if n > 0 { '+' } else { '-' };
         let e = (n - 1).abs();
         if k == 1 { format!("{digits}e{sign}{e}") } else { format!("{}.{}e{sign}{e}", &digits[..1], &digits[1..]) }
     }
@@ -530,13 +530,13 @@ fn preferred_branch(branches: &[Value]) -> Option<usize> {
 fn normalize_property_schema(schema: &Value) -> Js<Value> {
     let Some(map) = schema.as_object() else { return Ok(schema.clone()) };
     let branches: Vec<Value> = ["anyOf", "oneOf"].iter().flat_map(|key| map.get(*key).and_then(Value::as_array).cloned().unwrap_or_default()).collect();
-    if !branches.is_empty() {
-        if let Some(kept) = preferred_branch(&branches) {
-            let siblings = without(map, &["anyOf", "oneOf"]);
-            let merged = Value::Object(spread(branches[kept].as_object().cloned().unwrap_or_default(), &siblings));
-            let dropped: Vec<&Value> = branches.iter().enumerate().filter(|(i, _)| *i != kept).map(|(_, b)| b).collect();
-            return normalize_property_schema(&project_dropped_branches(merged, &dropped)?);
-        }
+    if !branches.is_empty()
+        && let Some(kept) = preferred_branch(&branches)
+    {
+        let siblings = without(map, &["anyOf", "oneOf"]);
+        let merged = Value::Object(spread(branches[kept].as_object().cloned().unwrap_or_default(), &siblings));
+        let dropped: Vec<&Value> = branches.iter().enumerate().filter(|(i, _)| *i != kept).map(|(_, b)| b).collect();
+        return normalize_property_schema(&project_dropped_branches(merged, &dropped)?);
     }
     let mut result = map.clone();
     for key in SCHEMA_MAP_KEYWORDS {
