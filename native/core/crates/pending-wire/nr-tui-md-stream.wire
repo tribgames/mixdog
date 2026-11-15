@@ -1,0 +1,36 @@
+nr-tui-md-stream: what the wiring applies
+
+1. native/core/crates/mixdog-markdown-ansi/src/render.rs, `lex_markdown`: the `if options.trim_partial_fences {` branch
+   currently ends with `return Arc::new(lex(content).tokens);`. Replace that line with
+       return Arc::new(crate::stream::lex_streaming_tail(content));
+   (`lexMarkdown(content, { trimPartialFences: true })` of render-ansi.mjs: the open top-level fence is not lexed, it is one
+   `plain` code token built from the raw fence text; the partial closing fence of the last code token is cut; the tokens are
+   lexed fresh and never cached.) The import `use crate::lexer::{Token, TokenKind, lex};` still needs `lex` for the cached
+   path below it. This is the "left for nr-tui-md-stream" item of nr-tui-md-format.wire. `tests/stream_twin.rs` already
+   compares `lex_streaming_tail` to the recorded `renderTokenAnsiSegments(.., { trimPartialFences: true })` tokens.
+
+2. No Cargo change: the crate's dependencies (mixdog-js, mixdog-termtext, mixdog-tui-style, regress, serde, and the dev
+   dependencies serde_json and sha2) are the ones the lexer and format tasks already wired. `mixdog_termtext::grapheme`,
+   `mixdog_js::{js_trim, js_trim_end, js_to_lowercase, is_js_space, utf16_len}` and `mixdog_tui_style::color::{Style, Styler,
+   strip_ansi, visible_width}` are used as they are.
+
+3. New public surface (nothing consumes it yet; the TUI's streaming view, the REPL and the row measurement are later tasks):
+   - stream: `resolve_streaming_markdown_parts(text, Option<&str> stream_key) -> Arc<StreamingParts>` (plain, open_fence,
+     stable_prefix, stable_chunks, unstable_suffix, unstable_for_render), `streaming_stable_chunks`, `streaming_layout_text`,
+     `window_plain_streaming_text(text, columns, max_rows, key)`, `find_open_fence_start(text, key) -> Option<OpenFence>`,
+     `trim_partial_closing_fences(&mut [Token])`, `lex_streaming_tail(text) -> Vec<Token>`, the reset functions
+     (`reset_streaming_markdown_stable_prefix`, `reset_all_streaming_markdown_stable_prefixes`, `reset_open_fence_scan`,
+     `reset_all_open_fence_scans`) and `build_stream_final_patch(raw, rendered, columns) -> Option<StreamFinalPatch>`.
+   - heal: `heal_streaming_markdown_tail`, `heal_streaming_markdown_tail_with(text, Option<&dyn Fn(&str) -> bool>)` (the
+     optional `isPendingLocalPath` grammar of the renderer), `balance_streaming_markdown`.
+   - repl_render: `render_repl_markdown(text, width) -> String` (colour decision of the process) and
+     `render_repl_markdown_with(text, width, Styler)`. The stub's `Vec<String>` of lines was changed to the String
+     `renderMarkdown` returns (the finalizer splits it on newlines).
+
+4. Offsets in `stream` are byte offsets of the text (Node's are UTF-16 units; the twin converts).
+
+5. The per-stream caches of `stream.rs` use a private ordered map (`Keyed`) because they also drop a key and clear, which
+   `lru::Lru` (nr-tui-md-format's file) has no method for. If the lead prefers one type, add `remove(&Q)` and `clear()` to
+   `Lru` and replace `Keyed` in stream.rs (a mechanical edit: get/touch/remove/clear have the same meaning).
+
+6. Not compiled (the lead compiles the wave): no cargo was run for this task.
