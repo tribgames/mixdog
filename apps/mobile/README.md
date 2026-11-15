@@ -78,7 +78,10 @@ which calls `openHostPicker` to return to the pairing screen.
 
 ```
 npm ci
-npm run check          # typecheck + unit tests + native config checks + web build
+npm run check          # shell typecheck + unit tests + native config checks + web build
+npm run check:source   # the same without the web build (what the Android release runs: sync:android builds it)
+npm run test:e2e       # phone <-> relay over the Rust relay binary (cargo build -p mixdog-relay first)
+npm run typecheck      # the whole source, phone-boot.ts included (needs apps/desktop installed, for react)
 npm run sync:android   # build web, cap sync android
 npm run apk:debug      # needs the Android SDK
 npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
@@ -99,6 +102,9 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
   run (`version`, `publish`, `draft`, `ref`). Builds a signed release APK and
   attaches it to the GitHub Release `mobile-vX.Y.Z` (created non-"latest" so the
   desktop updater is unaffected; tag and manual runs create a hidden draft).
+  It is the one workflow that runs `check:source` before a signed build (the
+  Release Gate runs the same check and the relay end to end test on every change
+  under `apps/mobile`; Deploy releases only a gated commit).
 - `.github/workflows/mobile-ios.yml` — Deploy, tag `mobile-vX.Y.Z` or manual run.
   Signs with the one long-lived Apple Distribution certificate from the
   `IOS_DIST_P12_*` secrets (imported into a temporary keychain), fetches or
@@ -106,6 +112,8 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
   key (`scripts/ios-ci-signing.py`), archives and uploads to TestFlight. Runs
   never create or revoke certificates; they warn 30 days before the certificate
   expires and fail once it has (see *Renewing the iOS distribution certificate*).
+  It runs only `verify:native` before the build: the typecheck and tests run once,
+  on Linux, in the Android workflow and the gate, not again on a macOS runner.
   Build number = UTC `YYYYMMDDHHMM` of the run (rises
   across Deploy, tag, manual runs and re-runs). Release builds use production
   APNs (`aps-environment` = `production`); Debug builds use `development` and the

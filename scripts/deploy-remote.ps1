@@ -7,9 +7,12 @@
   Renderer and relay fingerprints are independent:
     - unchanged inputs skip build, stage, and upload
     - relay-only changes reuse the installed VPS renderer
-    - the relay is the Linux mixdog-relay binary of the mixdogd-build run whose
-      relay sources equal the local tree; without such a run only the renderer
-      is deployed and the relay change is left for the release
+    - the relay is the Linux mixdog-relay binary of a CI run whose relay sources
+      equal the local tree: a successful run of mixdogd-build.yml (dispatched by
+      hand), of deploy.yml (its release calls mixdogd-build, so the artifact
+      belongs to the Deploy run) or of linux-desktop-verify.yml, within the 2 days
+      the artifact is kept; without such a run only the renderer is deployed and
+      the relay change is left for the release
     - fresh local renderer output is reused
     - FastDirect builds only stale local targets while upload runs
   The FastDirect swap stays LAST: its detached worker restarts the daemon
@@ -40,10 +43,25 @@ $deployPlanner = Join-Path $relayDir 'scripts\deploy-plan.mjs'
 $deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
 $deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
 
+# The commit a CI run built. mixdogd-build and linux-desktop-verify build the
+# commit they ran on. A Deploy run builds the release commit it pushes after it
+# started ("mixdog vX.Y.Z" on the default branch, whose version bump also changes
+# native/core/Cargo.toml and Cargo.lock), not the commit it was dispatched on.
+function Get-RunBuiltSha($run) {
+    if ($run.workflowName -ne 'Deploy') { return [string]$run.headSha }
+    $since = ([datetime]$run.createdAt).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $release = git log --first-parent --reverse --format=%H "--since=$since" '--grep=^mixdog v' "$($run.headSha)..origin/main" 2>$null |
+        Select-Object -First 1
+    if ($release) { return [string]$release }
+    return $null
+}
+
 # The Linux relay binary the VPS runs: the mixdog-relay-x86_64-unknown-linux-gnu
-# artifact of a successful mixdogd-build run whose relay sources (what the binary
-# is built from: relayInputs of apps/relay/scripts/deploy-plan.mjs without deploy/)
-# equal the local tree. Returns the folder holding it, or $null.
+# artifact of a successful CI run whose relay sources (what the binary is built
+# from: relayInputs of apps/relay/scripts/deploy-plan.mjs without deploy/) equal
+# the local tree. The artifact of a called workflow belongs to the caller's run,
+# so a Deploy run is searched as well as the hand-dispatched mixdogd-build runs.
+# Returns the folder holding it, or $null.
 function Get-RelayBinaryDir([string]$cacheDir) {
     $sources = @('native/core/crates/mixdog-relay', 'native/core/crates/mixdog-js',
         'native/core/crates/mixdog-fsio', 'native/core/crates/mixdog-rt',
@@ -53,12 +71,18 @@ function Get-RelayBinaryDir([string]$cacheDir) {
     Push-Location $repo
     try {
         if (git ls-files --others --exclude-standard -- @sources) { return $null }
-        $runs = & gh run list --workflow mixdogd-build.yml --status success --limit 30 `
-            --json databaseId,headSha 2>$null | ConvertFrom-Json
-        foreach ($run in $runs) {
-            git cat-file -e "$($run.headSha)^{commit}" 2>$null
+        git fetch --quiet origin main 2>$null
+        $runs = @()
+        foreach ($workflow in 'mixdogd-build.yml', 'deploy.yml', 'linux-desktop-verify.yml') {
+            $runs += @(& gh run list --workflow $workflow --status success --limit 15 `
+                --json databaseId,headSha,createdAt,workflowName 2>$null | ConvertFrom-Json)
+        }
+        foreach ($run in ($runs | Sort-Object { [datetime]$_.createdAt } -Descending)) {
+            $builtSha = Get-RunBuiltSha $run
+            if (-not $builtSha) { continue }
+            git cat-file -e "$builtSha^{commit}" 2>$null
             if ($LASTEXITCODE -ne 0) { continue }
-            git diff --quiet $run.headSha -- @sources
+            git diff --quiet $builtSha -- @sources
             if ($LASTEXITCODE -ne 0) { continue }
             $target = Join-Path $cacheDir "relay-binary-$($run.databaseId)"
             if (-not (Test-Path (Join-Path $target 'mixdog-relay'))) {
@@ -87,8 +111,11 @@ if ($deployPlan.relayChanged -or $deployPlan.rendererChanged) {
 }
 if ($deployPlan.relayChanged -and -not $relayBinaryDir) {
     $relayDeployed = $false
-    Write-Warning ('no successful mixdogd-build run has relay sources equal to this tree: the relay ' +
-        'change is not deployed (push, let mixdogd-build finish, and deploy again); the renderer is.')
+    Write-Warning ('no successful CI run (mixdogd-build, deploy or linux-desktop-verify) built relay sources ' +
+        'equal to this tree whose artifact is still kept (2 days): the relay change is not deployed. Commit and ' +
+        'push the relay sources (an uncommitted or unpushed change can never match a run), start ' +
+        '"gh workflow run mixdogd-build.yml -f ref=<pushed sha>", wait for it to finish, and deploy again; ' +
+        'the renderer is deployed.')
     $deployPlan.relayChanged = $false
     $deployPlan.deploy = [bool]$deployPlan.rendererChanged
 }

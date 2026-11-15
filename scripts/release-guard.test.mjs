@@ -136,5 +136,6 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   assert.deepEqual(guard.on.release.types, ['published', 'edited', 'released']);
   assert.ok('workflow_dispatch' in guard.on && guard.on.schedule.length === 1);
   assert.deepEqual(guard.permissions, { contents: 'write', issues: 'write' });
-  assert.match(await read('patch-release.yml'), /overwrite_files: true\s+#[^\n]*\n\s+make_latest: false/);
+  // The one native tool still released on its own publishes without taking Latest.
+  assert.match(await read('graph-release.yml'), /-F draft=false -f make_latest=false/);
 });
