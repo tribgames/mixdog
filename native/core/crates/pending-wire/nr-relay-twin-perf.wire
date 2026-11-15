@@ -1,0 +1,27 @@
+# nr-relay-twin-perf
+
+## Cargo and workspace edits
+
+File: native/core/crates/mixdog-relay/Cargo.toml. Anchor: the `[[test]]` blocks (after `name = "twin"`). Add:
+
+```toml
+[[test]]
+name = "twin_perf"
+path = "tests/twin_perf.rs"
+required-features = ["test-support"]
+```
+
+Without it the target is built without the `test-support` feature, `relay_twin_host` is not built and
+`env!("CARGO_BIN_EXE_relay_twin_host")` in tests/twin/proc.rs does not resolve.
+
+No new crate: base64, futures, serde_json, sha2, tokio (rt, rt-multi-thread, net, time, io-util, sync, macros),
+tokio-tungstenite (handshake) and mixdog-rt are dependencies of mixdog-relay already; mixdog-testkit and tempfile are its
+dev-dependencies. Cargo.lock: no change.
+
+compose_flip.rs SERVICE_PENDING: no name is added or removed by this task.
+
+## Run
+
+`cargo nextest run -p mixdog-relay --release --features test-support --offline -E 'binary(twin_perf)' --run-ignored only --success-output immediate`
+(see tests/twin_perf/README.md). The three unit tests of load.rs, and the two of twin_perf.rs that pin the verdict and the
+median, run without `--run-ignored`.
