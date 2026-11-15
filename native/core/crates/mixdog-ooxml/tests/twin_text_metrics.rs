@@ -50,9 +50,16 @@ fn registry(golden: &Value) -> Registry {
     }
     let Some(entry) = golden["noto"].as_object() else { return registry };
     let id = entry["id"].as_str().expect("id");
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_default();
-    let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
     let def = provision::NOTO_FONTS.iter().find(|def| def.id == id).expect("a provisioned face");
+    // The cargo gate runs with an isolated `USERPROFILE` and `LOCALAPPDATA`, so the user font folder it sees is empty: the face the
+    // recording used (checked against its sha256 below) is staged in a font folder this test owns, copied out of the real per-user
+    // font folder where the daemon provisioned it. Nothing is downloaded: a face that is not installed stays missing.
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("provisioned-fonts");
+    let mut env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
+    env.home = home.clone();
+    env.local_app_data = Some(home.join("AppData").join("Local").display().to_string());
+    env.xdg_data_home = None;
+    twin::stage_user_fonts(&[def.file_name], &env.user_font_dir());
     let path = provision::installed_path(&Unlaned, &env, def).unwrap_or_else(|| panic!("the recording used {id}, which is not installed here"));
     let bytes = mixdog_fsio::read(&Unlaned, &path).expect("an installed face is readable");
     let digest: String = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();

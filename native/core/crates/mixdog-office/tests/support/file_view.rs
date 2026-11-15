@@ -4,7 +4,8 @@
 //!   of a form; with `properties` also the document properties without the dates (title, author, subject, keywords, creator, producer;
 //!   where the writer names itself, as the recorder's pdf-lib does, the mark is `<writer>`: this writer names itself otherwise, and what a
 //!   caller set is still compared);
-//! - a PNG by its width, height and the sha256 of its decoded 8-bit RGBA pixels.
+//! - a PNG by its width, height and the sha256 of its decoded 8-bit RGBA pixels; `twin_e2e.rs` also keeps the PNG itself (`data`, base64) so
+//!   two renders of a page are compared as a picture by the shared rule of `twin::pixels` (the rasterisers anti-alias an edge differently).
 
 use std::sync::Arc;
 
@@ -88,4 +89,16 @@ pub fn png_fingerprint(bytes: &[u8]) -> Value {
         }
         Err(_) => json!({ "png": { "unreadable": true } }),
     }
+}
+
+/// A PNG as `twin_e2e.rs` compares it: its description and the PNG itself (`data`, base64), which the recorder keeps beside the
+/// description (`record-office-e2e.mjs`). A PNG that does not decode has no `data`.
+pub fn png_fingerprint_with_pixels(bytes: &[u8]) -> Value {
+    let mut described = png_fingerprint(bytes);
+    if let Some(png) = described["png"].as_object_mut()
+        && !png.contains_key("unreadable")
+    {
+        png.insert("data".to_owned(), Value::from(mixdog_office_base::twin::base64_encode(bytes)));
+    }
+    described
 }

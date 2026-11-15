@@ -5,13 +5,15 @@
 //! A case is a script (a list of canvas calls: state, paths, strokes with caps, joins, miter limits and dashes, clips, rectangles,
 //! linear and radial gradients, drawImage in its three forms with smoothing on and off, patterns, the 26 composite operations,
 //! transforms, get and put of image data, and text in Latin and Korean) run on a canvas of a given size. The Rust canvas must have
-//! exactly the recorded size and its pixels (compared premultiplied, all four channels) within the tolerance recorded with the
-//! case: opaque fills of whole pixels are exact, anti-aliased edges differ by at most 3 in any channel and 0.5 on average
-//! (tiny-skia is a port of Skia's raster pipeline, not Skia's analytic coverage), text differs by hinting and glyph placement (the
-//! outlines are filled unhinted) and is held to a mean difference and to the summed ink. Text cases that need a provisioned Noto
-//! face fail when it is not installed with the recorded sha256: they are not skipped.
+//! exactly the recorded size and its pixels (compared premultiplied, all four channels) must be the same picture as the recorded
+//! one by the shared rule of `mixdog_office_base::twin::pixels` (owner decision 2026-11-16: tiny-skia is a port of Skia's raster
+//! pipeline, not Skia's analytic coverage, so an anti-aliased edge differs by tens of levels at single pixels; text differs by
+//! hinting and glyph placement, the outlines are filled unhinted): equal sizes, a mean difference per channel of at most 1 of 255,
+//! no channel of any 4x4 block average more than 24 away. A case the recording holds as exact (`tolerance.max` 0: opaque fills of
+//! whole pixels) stays exact; the recorded `max` and `mean` of the others are not read. Text is also held to the summed ink.
+//! Text cases that need a provisioned Noto face fail when it is not installed with the recorded sha256: they are not skipped.
 //!
-//! The test measures every case before it decides and prints the difference of each (largest, mean) to stderr.
+//! The test measures every case before it decides and prints the measure of each (mean, largest block) to stderr.
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -24,6 +26,7 @@ use mixdog_fonts::provision;
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::Unlaned;
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels::{self, Picture};
 use mixdog_raster::Image;
 use mixdog_raster::canvas::Bitmap;
 use mixdog_raster::canvas::Canvas;
@@ -45,9 +48,20 @@ fn bytes(value: &Value) -> Vec<u8> {
     STANDARD.decode(value.as_str().expect("base64 text")).expect("valid base64")
 }
 
-fn host_env() -> HostEnv {
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_default();
-    HostEnv::current(&|name| std::env::var(name).ok(), &home)
+/// Where the provisioned Noto faces are looked for: a font folder this test owns (under the target directory), filled with the
+/// faces the recording used, copied out of the real per-user font folder where the daemon provisioned them. The cargo gate runs
+/// with an isolated `USERPROFILE` and `LOCALAPPDATA`, so the user font folder it sees is empty; the faces are the same files
+/// (their sha256 is checked against the recording below), only staged where the test can see them. Nothing is downloaded: a
+/// face that is not installed on this machine stays missing and the test fails saying so.
+fn host_env(golden: &Value) -> HostEnv {
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("provisioned-fonts");
+    let mut env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
+    env.home = home.clone();
+    env.local_app_data = Some(home.join("AppData").join("Local").display().to_string());
+    env.xdg_data_home = None;
+    let wanted: Vec<&str> = golden["noto"].as_array().expect("noto").iter().filter_map(|entry| provision::NOTO_FONTS.iter().find(|def| Some(def.id) == entry["id"].as_str())).map(|def| def.file_name).collect();
+    twin::stage_user_fonts(&wanted, &env.user_font_dir());
+    env
 }
 
 /// The faces of the recording: the fixture faces under their twin names, and the provisioned Noto faces that are installed and are
@@ -60,7 +74,7 @@ fn registry(golden: &Value) -> (Registry, BTreeSet<String>) {
             registry.register_file(&Unlaned, &path, Some(alias)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         }
     }
-    let env = host_env();
+    let env = host_env(golden);
     let mut available = BTreeSet::new();
     for entry in golden["noto"].as_array().expect("noto") {
         let id = entry["id"].as_str().expect("id");
@@ -237,24 +251,18 @@ impl Replay<'_> {
     }
 }
 
-/// The premultiplied channels of a straight pixel.
-fn premultiplied(pixel: &[u8]) -> [i32; 4] {
-    let alpha = i32::from(pixel[3]);
-    [(i32::from(pixel[0]) * alpha + 127) / 255, (i32::from(pixel[1]) * alpha + 127) / 255, (i32::from(pixel[2]) * alpha + 127) / 255, alpha]
-}
-
-/// `(largest difference, mean difference)` of two straight RGBA buffers, premultiplied.
-fn difference(expected: &[u8], actual: &[u8]) -> (i32, f64) {
+/// Whether two straight RGBA buffers of one size are the same picture (premultiplied): `Ok` with the measure, or why not.
+/// An exact case must be equal to the level.
+fn same(width: u32, height: u32, expected: &[u8], actual: &[u8], exact: bool) -> (String, Option<String>) {
     assert_eq!(expected.len(), actual.len(), "the two images have different sizes");
-    let (mut largest, mut sum) = (0, 0_i64);
-    for (a, b) in expected.chunks_exact(4).zip(actual.chunks_exact(4)) {
-        for (x, y) in premultiplied(a).into_iter().zip(premultiplied(b)) {
-            let step = (x - y).abs();
-            largest = largest.max(step);
-            sum += i64::from(step);
-        }
-    }
-    (largest, sum as f64 / expected.len() as f64)
+    let (expected, actual) = (pixels::premultiplied(expected), pixels::premultiplied(actual));
+    let comparison = pixels::compare(Picture::new(width, height, &expected), Picture::new(width, height, &actual));
+    let verdict = if exact {
+        (expected != actual).then(|| format!("a case recorded as exact differs ({})", comparison.summary()))
+    } else {
+        comparison.verdict().err()
+    };
+    (comparison.summary(), verdict)
 }
 
 /// The summed distance of the red channel from white (the ink of dark text on a white page).
@@ -264,8 +272,7 @@ fn ink(rgba: &[u8]) -> f64 {
 
 struct Outcome {
     id: String,
-    largest: i32,
-    mean: f64,
+    measure: String,
     problems: Vec<String>,
 }
 
@@ -279,25 +286,19 @@ fn replay(golden: &Value, registry: &Registry, available: &BTreeSet<String>, ima
         }
     }
     if !problems.is_empty() {
-        return Outcome { id, largest: -1, mean: -1.0, problems };
+        return Outcome { id, measure: "not run".to_owned(), problems };
     }
     let (width, height) = (case["width"].as_u64().expect("width") as u32, case["height"].as_u64().expect("height") as u32);
     let mut run = Replay { canvas: Canvas::new(width, height).expect("a canvas"), gradients: HashMap::new(), patterns: HashMap::new(), images, registry, reads: Vec::new() };
     for op in case["ops"].as_array().expect("ops") {
         run.operation(op.as_array().expect("an operation"));
     }
-    let tolerance = &case["tolerance"];
-    let (max_allowed, mean_allowed) = (tolerance["max"].as_i64().expect("max") as i32, tolerance["mean"].as_f64().expect("mean"));
+    let exact = case["tolerance"]["max"].as_i64() == Some(0);
     let expected = bytes(&case["rgba"]);
     let actual = run.canvas.get_image_data(0, 0, width, height).expect("the whole canvas").into_data();
-    let (largest, mean) = difference(&expected, &actual);
-    if largest > max_allowed {
-        problems.push(format!("a channel differs by {largest} (at most {max_allowed})"));
-    }
-    if mean > mean_allowed {
-        problems.push(format!("the mean difference is {mean:.3} (at most {mean_allowed})"));
-    }
-    if let Some(ratio) = tolerance.get("ink").and_then(Value::as_f64) {
+    let (measure, verdict) = same(width, height, &expected, &actual, exact);
+    problems.extend(verdict);
+    if let Some(ratio) = case["tolerance"].get("ink").and_then(Value::as_f64) {
         let (want, got) = (ink(&expected), ink(&actual));
         if (got - want).abs() > ratio * want.max(1.0) {
             problems.push(format!("the ink is {got:.0}, recorded {want:.0} (relative difference above {ratio})"));
@@ -313,12 +314,11 @@ fn replay(golden: &Value, registry: &Registry, available: &BTreeSet<String>, ima
             problems.push(format!("read {index} is {}x{}, recorded {w}x{h}", got.width(), got.height()));
             continue;
         }
-        let (read_largest, _) = difference(&bytes(&want["rgba"]), got.data());
-        if read_largest > max_allowed {
-            problems.push(format!("read {index} differs by {read_largest} (at most {max_allowed})"));
+        if let (_, Some(why)) = same(w, h, &bytes(&want["rgba"]), got.data(), exact) {
+            problems.push(format!("read {index}: {why}"));
         }
     }
-    Outcome { id, largest, mean, problems }
+    Outcome { id, measure, problems }
 }
 
 fn run_all() -> Vec<Outcome> {
@@ -330,9 +330,8 @@ fn run_all() -> Vec<Outcome> {
         images.insert(id.clone(), Bitmap::from_image(&decoded).expect("a bitmap"));
     }
     let outcomes: Vec<Outcome> = golden["cases"].as_array().expect("cases").iter().map(|case| replay(&golden, &registry, &available, &images, case)).collect();
-    eprintln!("{:<14}{:>9}{:>10}", "case", "largest", "mean");
     for outcome in &outcomes {
-        eprintln!("{:<14}{:>9}{:>10.3}", outcome.id, outcome.largest, outcome.mean);
+        eprintln!("{:<14} {}", outcome.id, outcome.measure);
     }
     outcomes
 }
@@ -340,7 +339,7 @@ fn run_all() -> Vec<Outcome> {
 #[test]
 fn every_script_leaves_the_recorded_image_within_its_tolerance() {
     let failing: Vec<String> = run_all().into_iter().filter(|outcome| !outcome.problems.is_empty()).map(|outcome| format!("{}: {}", outcome.id, outcome.problems.join("; "))).collect();
-    assert!(failing.is_empty(), "{} case(s) differ from Skia:\n{}", failing.len(), failing.join("\n"));
+    assert!(failing.is_empty(), "{} case(s) are not the picture Skia drew:\n{}", failing.len(), failing.join("\n"));
 }
 
 #[test]

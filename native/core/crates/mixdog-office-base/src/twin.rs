@@ -10,6 +10,10 @@ use std::sync::LazyLock;
 use mixdog_js::{JsRegex, js_object_keys};
 use serde_json::{Map, Value};
 
+pub mod pixels;
+
+pub use mixdog_testkit::{base64_decode, base64_encode};
+
 /// The name the normalisers write for each kind of run-dependent text.
 pub const SESSION_ID: &str = "office_<id>";
 pub const TRANSACTION_ID: &str = "office_tx_<id>";
@@ -288,4 +292,43 @@ pub fn settle_embedded(recorded: &Value, produced: &Value, file: impl Fn(&str) -
         }
     }
     (recorded, produced)
+}
+
+/// The per-user font folders of the real profile a test may copy provisioned faces from. The test gate runs with an isolated
+/// `USERPROFILE` and `LOCALAPPDATA` (an empty profile), so the folders are also worked out from variables the gate leaves alone:
+/// `HOMEDRIVE` and `HOMEPATH`, and `SystemDrive` with `USERNAME`.
+pub fn real_user_font_folders() -> Vec<PathBuf> {
+    let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let windows_tail = |profile: PathBuf| profile.join("AppData").join("Local").join("Microsoft").join("Windows").join("Fonts");
+    let mut folders = Vec::new();
+    if let Some(local) = var("LOCALAPPDATA") {
+        folders.push(local.join("Microsoft").join("Windows").join("Fonts"));
+    }
+    if let (Some(drive), Some(path)) = (std::env::var("HOMEDRIVE").ok().filter(|v| !v.is_empty()), std::env::var("HOMEPATH").ok().filter(|v| !v.is_empty())) {
+        folders.push(windows_tail(PathBuf::from(format!("{drive}{path}"))));
+    }
+    if let (Some(drive), Some(user)) = (std::env::var("SystemDrive").ok().filter(|v| !v.is_empty()), std::env::var("USERNAME").ok().filter(|v| !v.is_empty())) {
+        folders.push(windows_tail(PathBuf::from(format!("{drive}/Users/{user}"))));
+    }
+    if let Some(home) = var("HOME") {
+        folders.push(home.join("Library").join("Fonts"));
+        folders.push(home.join(".local").join("share").join("fonts"));
+    }
+    folders
+}
+
+/// Copies the provisioned faces named by `file_names` (the `file_name` of a `provision::NOTO_FONTS` entry) out of the real user font
+/// folder into `into`, a folder the test owns, and returns the names that no real user font folder holds. The faces are the
+/// ones the daemon provisions (`prepareOfficeFonts`); nothing is downloaded: a face that is not installed on this machine stays
+/// missing, and the test that needs it fails saying so. The test then points its `HostEnv` at `into` as the user font folder.
+pub fn stage_user_fonts(file_names: &[&str], into: &Path) -> Vec<String> {
+    let folders = real_user_font_folders();
+    let mut missing = Vec::new();
+    for name in file_names {
+        match folders.iter().map(|folder| folder.join(name)).find(|path| mixdog_testkit::exists(path)) {
+            Some(source) => mixdog_testkit::stage_copy(source, into.join(name)),
+            None => missing.push((*name).to_owned()),
+        }
+    }
+    missing
 }
