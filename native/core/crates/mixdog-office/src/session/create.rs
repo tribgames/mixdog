@@ -11,6 +11,7 @@
 //! - A PDF is written from blocks, CSV and TSV start empty, Word, Excel and PowerPoint start as a portable package, or as a
 //!   document Microsoft Office creates.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use mixdog_fsio::WriteLane;
@@ -190,6 +191,31 @@ pub fn initial_office_operations(args: &Value) -> Vec<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
+}
+
+/// The call's arguments as the rest of `createSession` reads them: the contract engine rewrote the initial operations in place
+/// (`args.operations`, or `args.design.operations` when those were the ones taken), so the design context and the design request
+/// the session keeps see the rewritten form.
+fn with_rewritten_operations<'a>(args: &'a Value, operations: &[Value]) -> Cow<'a, Value> {
+    let pointer = if filled_list(args.get("operations")) {
+        "/operations"
+    } else if args.pointer("/design/operations").is_some_and(Value::is_array) {
+        "/design/operations"
+    } else {
+        return Cow::Borrowed(args);
+    };
+    if args
+        .pointer(pointer)
+        .and_then(Value::as_array)
+        .is_some_and(|written| written.as_slice() == operations)
+    {
+        return Cow::Borrowed(args);
+    }
+    let mut rewritten = args.clone();
+    if let Some(slot) = rewritten.pointer_mut(pointer) {
+        *slot = Value::Array(operations.to_vec());
+    }
+    Cow::Owned(rewritten)
 }
 
 /// `firstListed(direct, designed)`: `design` is where authoring intent and content go for every other format, so blocks named
@@ -543,6 +569,8 @@ pub async fn create_session<L: WriteLane, H: OfficeHost, C: SessionCloser>(
     assert_create_content_fields(format, args)?;
     let mut operations = initial_office_operations(args);
     assert_office_operation_contracts(format, "", &mut operations)?;
+    let rewritten = with_rewritten_operations(args, &operations);
+    let args = &*rewritten;
     // Whether this call brings the file into being decides what a failed create may clean up afterwards: a file it wrote itself,
     // never one already there.
     let target_existed = exists(proof, &target);
@@ -765,6 +793,24 @@ mod tests {
             vec![json!(2)]
         );
         assert!(initial_office_operations(&json!({ "design": { "operations": "x" } })).is_empty());
+    }
+
+    #[test]
+    fn the_rest_of_create_reads_the_operations_the_contract_engine_rewrote() {
+        let rewritten = [json!({ "op": "compose_document" })];
+        let direct = json!({ "operations": [{ "op": " compose_document " }], "design": { "operations": [1] } });
+        assert_eq!(
+            *with_rewritten_operations(&direct, &rewritten),
+            json!({ "operations": [{ "op": "compose_document" }], "design": { "operations": [1] } })
+        );
+        let designed = json!({ "operations": [], "design": { "operations": [{ "op": " compose_document " }] } });
+        assert_eq!(
+            *with_rewritten_operations(&designed, &rewritten),
+            json!({ "operations": [], "design": { "operations": [{ "op": "compose_document" }] } })
+        );
+        let unchanged = json!({ "operations": [{ "op": "compose_document" }] });
+        assert!(matches!(with_rewritten_operations(&unchanged, &rewritten), Cow::Borrowed(_)));
+        assert!(matches!(with_rewritten_operations(&json!({}), &[]), Cow::Borrowed(_)));
     }
 
     #[test]
