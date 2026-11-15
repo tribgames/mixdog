@@ -38,7 +38,8 @@ use mixdog_office_author::brief::{html_brief_script, parse_authoring_brief, revi
 use mixdog_office_base::ledger::{CallLedger, ChangeSide, FileChange};
 use mixdog_office_base::twin;
 use mixdog_office_com::{OfficeCom, OfficeComConfig};
-use mixdog_office_design::library::{Environment, Fetch, FetchRequest, FetchResponse, LibraryConfig, TemplateIndexer, iso_string, library_paths, read_json, write_json_atomic};
+use mixdog_office_design::library::{Environment, Fetch, FetchRequest, FetchResponse, TemplateIndexer};
+use mixdog_office_design::templates::OfficeTemplateIndexer;
 use mixdog_office_pdf::content_ops::ContentOperations;
 use mixdog_office_quality::document_brief::BriefReadings;
 use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
@@ -93,7 +94,7 @@ struct Machinery;
 
 impl BatchHost for Machinery {
     fn pdf_operations(&self, _data_dir: &Path, cancel: Option<CancellationToken>) -> ContentOperations {
-        ContentOperations::new(FontEnv::default(), SvgFonts::none(), None, cancel)
+        ContentOperations::new(FontEnv::host(), SvgFonts::none(), None, cancel)
     }
 
     fn chart_picture(&self, _block: &Value, _width: f64, _pdf: &Path) -> impl Future<Output = Result<String, String>> {
@@ -110,33 +111,6 @@ struct NoNetwork;
 impl Fetch for NoNetwork {
     fn get(&self, request: &FetchRequest<'_>) -> Result<FetchResponse, String> {
         Err(format!("the script has no network: {}", request.url))
-    }
-}
-
-/// What `indexOfficeTemplates` writes when no template directory holds a template.
-struct EmptyIndexer;
-
-impl<L: mixdog_fsio::WriteLane> TemplateIndexer<L> for EmptyIndexer {
-    fn index(&self, lane: &InLane<L>, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
-        let paths = library_paths(env, data_dir);
-        mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| error.to_string())?;
-        let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
-        let revision = mixdog_office_base::values::sha256("[]");
-        let changed = previous.get("revision") != Some(&Value::String(revision.clone()));
-        let index = json!({
-            "schemaVersion": 1,
-            "indexedAt": iso_string(env.now()),
-            "revision": revision,
-            "directories": config.template_directories,
-            "templates": [],
-        });
-        if changed || !previous.get("revision").is_some_and(mixdog_office_base::values::truthy) {
-            write_json_atomic(lane, &paths.template_index, &index)?;
-        }
-        let mut answer = index;
-        answer["changed"] = Value::Bool(changed);
-        answer["count"] = Value::from(0);
-        Ok(answer)
     }
 }
 
@@ -200,7 +174,7 @@ impl Platform for World {
     }
 
     fn indexer(&self) -> &dyn TemplateIndexer<MaintenanceIo> {
-        &EmptyIndexer
+        &OfficeTemplateIndexer
     }
 
     fn validator(&self) -> &ValidatorEnvironment {
@@ -218,22 +192,16 @@ fn world(dir: &Path, data: &Path) -> World {
         office: OfficeCom::new(OfficeComConfig::new(data.to_path_buf(), tokens.clone())),
         tokens,
         fonts: Arc::new(FontRegistry::new()),
-        font_env: FontEnv::default(),
+        font_env: FontEnv::host(),
         svg_fonts: SvgFonts::none(),
+        // Node reads the design library's environment from the process (the template folders of an Office installation, the user's
+        // own, MIXDOG_OFFICE_TEMPLATE_DIRS and the pack settings) and its packaged templates beside its source; the same files are the
+        // assets of mixdog-office-design.
         environment: Environment {
-            library_config: String::new(),
-            pack_url: String::new(),
-            pack_key_id: String::new(),
-            pack_public_key: String::new(),
-            template_dirs: String::new(),
-            windows: cfg!(windows),
-            program_files: String::new(),
-            program_files_x86: String::new(),
-            app_data: String::new(),
-            home: dir.display().to_string(),
             cwd: dir.to_path_buf(),
-            bundled_templates: PathBuf::new(),
+            bundled_templates: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-office-design/assets/templates"),
             now_ms: Arc::new(|| CLOCK),
+            ..Environment::process()
         },
         // The recorder sets MIXDOG_OOXML_VALIDATOR_DISABLED before it loads the tool.
         validator: ValidatorEnvironment { disabled: true, ..ValidatorEnvironment::from_process() },
