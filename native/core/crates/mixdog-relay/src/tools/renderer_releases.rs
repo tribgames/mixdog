@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use mixdog_fsio::Unlaned;
-use mixdog_js::JsonSyntaxError;
+use mixdog_js::{JsonSyntaxError, nodepath};
 use serde_json::{Value, json};
 
 use crate::js;
@@ -81,6 +81,11 @@ impl PrepareOutcome {
             "dropped": self.dropped,
         })
     }
+}
+
+/// `path.resolve(path)`: an empty path is the process directory, `..` is collapsed as Node does.
+fn resolve(path: &Path) -> PathBuf {
+    PathBuf::from(nodepath::resolve_host(&[&*path.to_string_lossy()]))
 }
 
 /// `rmSync(path, { recursive: true, force: true })`: a link is removed, never entered.
@@ -200,7 +205,7 @@ fn write_index_atomic(releases_dir: &Path, index: &ReleaseIndex) -> Result<(), R
 
 /// `prepareReleases`: register, adopt and collect inside the releases directory.
 pub fn prepare_releases(options: &PrepareOptions) -> Result<PrepareOutcome, ReleasesToolError> {
-    let releases_dir = std::path::absolute(&options.releases_dir)?;
+    let releases_dir = resolve(&options.releases_dir);
     mixdog_fsio::create_dir_all(&Unlaned, &releases_dir)?;
     let mut index = ReleaseIndex::read(&releases_dir)?.unwrap_or_default();
     // First run on a relay that predates side-by-side releases: the renderer it is serving right now becomes the fallback for
@@ -288,12 +293,9 @@ pub fn run(args: &[String]) -> Result<String, ReleasesToolError> {
         return Err(message(format!("Unknown renderer-releases action: {action}")));
     }
     let devices = read_reporting_devices(args.get("devices").copied().map(Path::new))?;
-    let renderer_dir = std::path::absolute(required(&args, "renderer")?)?;
+    let renderer_dir = resolve(Path::new(required(&args, "renderer")?));
     let releases_dir = PathBuf::from(required(&args, "releases")?);
-    let legacy_dir = match args.get("legacy").copied().filter(|legacy| !legacy.is_empty()) {
-        Some(legacy) => Some(std::path::absolute(legacy)?),
-        None => None,
-    };
+    let legacy_dir = args.get("legacy").copied().filter(|legacy| !legacy.is_empty()).map(|legacy| resolve(Path::new(legacy)));
     let outcome = prepare_releases(&PrepareOptions {
         releases_dir,
         renderer_dir,
