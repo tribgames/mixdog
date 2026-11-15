@@ -56,12 +56,12 @@ enum Frame {
     Read(Box<Framed>),
 }
 
-fn html_failed_result(target: &str, error: &Value, elapsed: Option<&Value>) -> Value {
+fn html_failed_result(target: &str, error: Option<&Value>, elapsed: Option<&Value>) -> Value {
     let mut result = Map::new();
     result.insert("ok".into(), json!(false));
     result.insert("reason".into(), json!("html_failed"));
     result.insert("output".into(), json!(target));
-    if !error.is_null() {
+    if let Some(error) = error {
         result.insert("error".into(), error.clone());
     }
     if let Some(elapsed) = elapsed {
@@ -81,7 +81,7 @@ async fn frame_designed_pages_in<H: AuthorHost>(host: &H, html: &str, target: &s
     };
     throw_if_authoring_cancelled(call.signal, None)?;
     if run.get("ok") != Some(&Value::Bool(true)) {
-        return Ok(Frame::Refused(html_failed_result(target, run.get("error").unwrap_or(&Value::Null), run.get("elapsedMs"))));
+        return Ok(Frame::Refused(html_failed_result(target, run.get("error"), run.get("elapsedMs"))));
     }
     if run.get("geometry").and_then(Value::as_array).is_some_and(|pages| !pages.is_empty()) {
         return Ok(Frame::Refused(geometry_gate_result(target, &run)));
@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn a_failed_frame_names_the_html_and_has_no_logs() {
-        let answer = html_failed_result("/work/a.pdf", &json!({ "message": "bad" }), Some(&json!(7)));
+        let answer = html_failed_result("/work/a.pdf", Some(&json!({ "message": "bad" })), Some(&json!(7)));
         assert_eq!(
             answer,
             json!({ "ok": false, "reason": "html_failed", "output": "/work/a.pdf", "error": { "message": "bad" }, "elapsedMs": 7, "nextAction": "Fix the HTML the error names and call author again." })
