@@ -221,7 +221,8 @@ fn word_block_order<'a>(document: &'a Value, paragraphs: &'a [Value], tables: &'
             .collect()
     };
     if blocks.iter().all(|(_, start)| start.is_finite()) {
-        blocks.sort_by(|left, right| left.1.total_cmp(&right.1));
+        // `left.start - right.start`: -0 and 0 are equal and keep their order, which `total_cmp` would not.
+        blocks.sort_by(|left, right| left.1.partial_cmp(&right.1).unwrap_or(std::cmp::Ordering::Equal));
     }
     blocks.into_iter().map(|(block, _)| block).collect()
 }
