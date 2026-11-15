@@ -15,6 +15,10 @@
 //! files of the folder the call created, changed or removed equal the recording. The clock is fixed.
 //! Re-recording is `twin_live_dispatch` (ignored: it runs Node).
 
+#[path = "support/file_view.rs"]
+#[allow(dead_code)]
+mod file_view;
+
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -33,16 +37,11 @@ use mixdog_office_base::twin;
 use mixdog_office_com::{OfficeCom, OfficeComConfig};
 use mixdog_office_design::library::{Environment, Fetch, FetchRequest, FetchResponse, TemplateIndexer};
 use mixdog_office_design::templates::OfficeTemplateIndexer;
-use mixdog_office_pdf::forms::PdfForm;
-use mixdog_office_pdf::{LayoutOptions, PdfSource, extract_pdf_text_layout};
 use mixdog_office_pdf::content_ops::ContentOperations;
 use mixdog_office_quality::document_brief::BriefReadings;
 use mixdog_ooxml::ooxml_validator::Environment as ValidatorEnvironment;
 use mixdog_ooxml::zipio::Package;
-use mixdog_pdf::Guard;
-use mixdog_pdf::codec_glue::CodecFilters;
 use mixdog_pdf::embed::FontEnv;
-use mixdog_pdf::write::{LoadOptions, PdfDocument};
 use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::{CancellationToken, LaneTokens};
 use serde_json::{Map, Value, json};
@@ -383,47 +382,11 @@ fn without_stamps(xml: &str) -> String {
     out
 }
 
-/// `Math.floor(value * 1000 + 0.5) / 1000`, as the JSON number JavaScript writes it (a whole number has no fraction).
-fn milli(value: f64) -> Value {
-    let rounded = (value * 1000.0 + 0.5).floor() / 1000.0;
-    if rounded.fract() == 0.0 && rounded.abs() < 9e15 { Value::from(rounded as i64) } else { Value::from(rounded) }
-}
-
-/// A PDF as the golden holds it: per page its size and the text items a reader finds (positions to the thousandth of a point, as the
-/// PDF writer's twin compares them), and the fields of a form. This engine's PDF writer does not write Node's bytes.
-fn pdf_fingerprint(bytes: &[u8]) -> Value {
-    let file = tempfile::Builder::new().suffix(".pdf").tempfile().expect("a temporary file");
-    mixdog_fsio::write(&Unlaned, file.path(), bytes).expect("the PDF is written");
-    let options = LayoutOptions { shapes: false, ..LayoutOptions::default() };
-    let layout = match extract_pdf_text_layout(&Unlaned, PdfSource::Path(file.path()), &options) {
-        Ok(layout) => layout,
-        Err(error) => return json!({ "pdf": { "unreadable": error.message } }),
-    };
-    let pages: Vec<Value> = layout
-        .pages
-        .iter()
-        .map(|page| {
-            json!({
-                "width": milli(page.width),
-                "height": milli(page.height),
-                "items": page.items.iter().map(|item| json!({ "text": item.text, "x": milli(item.x), "top": milli(item.top), "width": milli(item.width), "height": milli(item.height) })).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    let load = LoadOptions { ignore_encryption: false, filters: Arc::new(CodecFilters), guard: Guard::unbounded() };
-    let fields = PdfDocument::load(bytes.to_vec(), &load).ok().and_then(|mut document| PdfForm::new().describe_fields(&mut document).ok()).filter(|fields| !fields.is_empty());
-    let mut pdf = json!({ "pages": pages });
-    if let Some(fields) = fields {
-        pdf["fields"] = Value::Array(fields);
-    }
-    json!({ "pdf": pdf })
-}
-
 /// A file as the golden holds it: a PDF by what a reader finds in it, a package by its parts (the stamps of the package's properties,
 /// which are the clock's, left out), else its bytes.
 fn fingerprint(bytes: &[u8]) -> Value {
-    if bytes.starts_with(b"%PDF-") {
-        return pdf_fingerprint(bytes);
+    if file_view::is_pdf(bytes) {
+        return file_view::pdf_fingerprint(bytes, false);
     }
     if bytes.starts_with(b"PK\x03\x04")
         && let Ok(package) = Package::load(bytes)
