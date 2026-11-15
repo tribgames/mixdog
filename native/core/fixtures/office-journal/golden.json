@@ -1,0 +1,948 @@
+{
+  "note": "Recorded from the Node office journal and write ledger; tests/twin_journal.rs and tests/twin_ledger.rs replay it.",
+  "platform": "win32",
+  "dataDir": {
+    "home": "<root>/home",
+    "cases": [
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "<root>/data-a"
+        },
+        "dir": "<root>/data-a"
+      },
+      {
+        "env": {
+          "MIXDOG_HOME": "<root>/home-b"
+        },
+        "dir": "<root>/home-b/data"
+      },
+      {
+        "env": {},
+        "dir": "<root>/home/.mixdog/data"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "",
+          "MIXDOG_HOME": ""
+        },
+        "dir": "<root>/home/.mixdog/data"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "",
+          "MIXDOG_HOME": "<root>/home-c"
+        },
+        "dir": "<root>/home-c/data"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "rel/dir"
+        },
+        "dir": "<root>/cwd/rel/dir"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "<root>/a/../b/./c"
+        },
+        "dir": "<root>/b/c"
+      },
+      {
+        "env": {
+          "MIXDOG_HOME": "<root>/h/../h2"
+        },
+        "dir": "<root>/h2/data"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "<root>/data-a/"
+        },
+        "dir": "<root>/data-a"
+      },
+      {
+        "env": {
+          "MIXDOG_DATA_DIR": "<root>/data-a",
+          "MIXDOG_HOME": "<root>/home-b"
+        },
+        "dir": "<root>/data-a"
+      }
+    ]
+  },
+  "journal": {
+    "written": [
+      {
+        "record": {
+          "version": 1,
+          "id": "office_tx_0000000000000001",
+          "updatedAt": "2026-03-01T10:20:30.456Z",
+          "session": {
+            "id": "office_0000000000000001",
+            "path": "C:\\work\\a b.docx",
+            "format": "docx"
+          },
+          "transaction": {
+            "id": "office_tx_0000000000000001",
+            "state": "open",
+            "revision": 3
+          }
+        },
+        "text": "{\n  \"version\": 1,\n  \"id\": \"office_tx_0000000000000001\",\n  \"updatedAt\": \"2026-03-01T10:20:30.456Z\",\n  \"session\": {\n    \"id\": \"office_0000000000000001\",\n    \"path\": \"C:\\\\work\\\\a b.docx\",\n    \"format\": \"docx\"\n  },\n  \"transaction\": {\n    \"id\": \"office_tx_0000000000000001\",\n    \"state\": \"open\",\n    \"revision\": 3\n  }\n}\n"
+      },
+      {
+        "record": {
+          "version": 1,
+          "id": "office_tx_0000000000000002",
+          "startedAt": "2026-03-02T00:00:00.000Z",
+          "session": {
+            "id": "office_0000000000000002",
+            "title": "한글 é 😀 \"quoted\" \\ back"
+          },
+          "transaction": {
+            "id": "office_tx_0000000000000002",
+            "ops": [
+              1,
+              2.5,
+              null,
+              true,
+              {
+                "nested": [],
+                "empty": {}
+              }
+            ]
+          }
+        },
+        "text": "{\n  \"version\": 1,\n  \"id\": \"office_tx_0000000000000002\",\n  \"startedAt\": \"2026-03-02T00:00:00.000Z\",\n  \"session\": {\n    \"id\": \"office_0000000000000002\",\n    \"title\": \"한글 é 😀 \\\"quoted\\\" \\\\ back\"\n  },\n  \"transaction\": {\n    \"id\": \"office_tx_0000000000000002\",\n    \"ops\": [\n      1,\n      2.5,\n      null,\n      true,\n      {\n        \"nested\": [],\n        \"empty\": {}\n      }\n    ]\n  }\n}\n"
+      },
+      {
+        "record": {
+          "id": "plain",
+          "note": "a record with only an id"
+        },
+        "text": "{\n  \"id\": \"plain\",\n  \"note\": \"a record with only an id\"\n}\n"
+      }
+    ],
+    "reads": [
+      {
+        "name": "missing",
+        "bytes": null,
+        "value": null
+      },
+      {
+        "name": "nul-filled",
+        "bytes": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "value": null
+      },
+      {
+        "name": "empty",
+        "bytes": "",
+        "value": null
+      },
+      {
+        "name": "blanks",
+        "bytes": "ICAK",
+        "value": null
+      },
+      {
+        "name": "invalid",
+        "bytes": "eyJpZCI6ICJpbnZhbGlkIiw=",
+        "value": null
+      },
+      {
+        "name": "bom",
+        "bytes": "77u/eyJpZCI6ImJvbSIsInVwZGF0ZWRBdCI6IjIwMjYtMDMtMDFUMDA6MDA6MDAuMDAwWiJ9",
+        "value": {
+          "id": "bom",
+          "updatedAt": "2026-03-01T00:00:00.000Z"
+        }
+      },
+      {
+        "name": "null-literal",
+        "bytes": "bnVsbA==",
+        "value": null
+      },
+      {
+        "name": "array",
+        "bytes": "WzEsMl0=",
+        "value": [
+          1,
+          2
+        ]
+      },
+      {
+        "name": "valid",
+        "bytes": "eyJ2ZXJzaW9uIjoxLCJpZCI6InZhbGlkIiwic2Vzc2lvbiI6eyJpZCI6InMifSwidHJhbnNhY3Rpb24iOnsiaWQiOiJ0In19Cg==",
+        "value": {
+          "version": 1,
+          "id": "valid",
+          "session": {
+            "id": "s"
+          },
+          "transaction": {
+            "id": "t"
+          }
+        }
+      },
+      {
+        "name": "invalid-utf8",
+        "bytes": "eyJpZCI6ImJhZC11dGY4IiwidGV4dCI6Iv/+In0=",
+        "value": {
+          "id": "bad-utf8",
+          "text": "��"
+        }
+      }
+    ],
+    "listing": {
+      "files": [
+        {
+          "name": "a.json",
+          "bytes": "eyJpZCI6ImEiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "b.json",
+          "bytes": "eyJpZCI6ImIiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA1VDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "c.json",
+          "bytes": "eyJpZCI6ImMifQ=="
+        },
+        {
+          "name": "d.json",
+          "bytes": "Z2FyYmFnZQ=="
+        },
+        {
+          "name": "e.txt",
+          "bytes": "eyJpZCI6ImUiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA5VDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "f.json",
+          "bytes": "77u/eyJpZCI6ImYiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA5VDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "g.json",
+          "bytes": "bnVsbA=="
+        },
+        {
+          "name": "h.json",
+          "bytes": "NQ=="
+        },
+        {
+          "name": "i.json",
+          "bytes": "eyJpZCI6ImkiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "j.json",
+          "bytes": "eyJpZCI6ImoiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA1VDAwOjAwOjAwLjAwMFoiLCJzdGFydGVkQXQiOiIyMDI3LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "k.json",
+          "bytes": "eyJpZCI6ImsiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA1VDAwOjAwOjAwLjAwMFoifQ=="
+        },
+        {
+          "name": "l.json",
+          "bytes": "eyJpZCI6ImwiLCJ1cGRhdGVkQXQiOiIyMDI2LTAzLTA1VDAwOjAwOjAwWiJ9"
+        },
+        {
+          "name": "dir.json",
+          "dir": true
+        }
+      ],
+      "records": [
+        {
+          "id": "l",
+          "updatedAt": "2026-03-05T00:00:00Z"
+        },
+        {
+          "id": "b",
+          "updatedAt": "2026-03-05T00:00:00.000Z"
+        },
+        {
+          "id": "j",
+          "updatedAt": "2026-03-05T00:00:00.000Z",
+          "startedAt": "2027-01-01T00:00:00.000Z"
+        },
+        {
+          "id": "k",
+          "updatedAt": "2026-03-05T00:00:00.000Z"
+        },
+        {
+          "id": "a",
+          "updatedAt": "2026-03-01T00:00:00.000Z"
+        },
+        {
+          "id": "i",
+          "updatedAt": "2026-03-01T00:00:00.000Z"
+        },
+        {
+          "id": "c"
+        },
+        5
+      ],
+      "remaining": [
+        "office-transactions/a.json",
+        "office-transactions/b.json",
+        "office-transactions/c.json",
+        "office-transactions/d.json",
+        "office-transactions/e.txt",
+        "office-transactions/f.json",
+        "office-transactions/g.json",
+        "office-transactions/h.json",
+        "office-transactions/i.json",
+        "office-transactions/j.json",
+        "office-transactions/k.json",
+        "office-transactions/l.json"
+      ]
+    },
+    "retention": {
+      "spec": {
+        "records": [
+          {
+            "id": "fresh",
+            "field": "updatedAt",
+            "ageDays": 1,
+            "checkpoint": true,
+            "baselinePdf": true
+          },
+          {
+            "id": "recent",
+            "field": "updatedAt",
+            "ageDays": 3
+          },
+          {
+            "id": "month",
+            "field": "updatedAt",
+            "ageDays": 29,
+            "checkpoint": true
+          },
+          {
+            "id": "old",
+            "field": "updatedAt",
+            "ageDays": 31,
+            "checkpoint": true,
+            "baselinePdf": true
+          },
+          {
+            "id": "older",
+            "field": "updatedAt",
+            "ageDays": 45,
+            "baselinePdf": true
+          },
+          {
+            "id": "started-old",
+            "field": "startedAt",
+            "ageDays": 45,
+            "checkpoint": true
+          },
+          {
+            "id": "started-new",
+            "field": "startedAt",
+            "ageDays": 2
+          },
+          {
+            "id": "unstamped-old",
+            "field": null,
+            "ageDays": 40,
+            "mtimeAgeDays": 40,
+            "checkpoint": true
+          },
+          {
+            "id": "unstamped-new",
+            "field": null,
+            "ageDays": 0,
+            "mtimeAgeDays": 2
+          }
+        ],
+        "raw": [
+          {
+            "name": "invalid-old.json",
+            "text": "not json",
+            "mtimeAgeDays": 40
+          },
+          {
+            "name": "invalid-new.json",
+            "text": "not json",
+            "mtimeAgeDays": 2
+          },
+          {
+            "name": "bom-old.json",
+            "text": "﻿{\"id\":\"bom-old\",\"updatedAt\":\"2026-03-01T00:00:00.000Z\"}",
+            "mtimeAgeDays": 40
+          },
+          {
+            "name": "nul-old.json",
+            "nul": 32,
+            "mtimeAgeDays": 35
+          },
+          {
+            "name": "note.txt",
+            "text": "not a journal",
+            "mtimeAgeDays": 90
+          }
+        ]
+      },
+      "withCleanup": {
+        "kept": [
+          "fresh",
+          "recent",
+          "month",
+          "started-new",
+          "unstamped-new"
+        ],
+        "remaining": [
+          "data/office-transactions/fresh.json",
+          "data/office-transactions/invalid-new.json",
+          "data/office-transactions/month.json",
+          "data/office-transactions/note.txt",
+          "data/office-transactions/recent.json",
+          "data/office-transactions/started-new.json",
+          "data/office-transactions/unstamped-new.json",
+          "side/fresh.checkpoint",
+          "side/fresh.pdf",
+          "side/month.checkpoint"
+        ]
+      },
+      "withoutCleanup": {
+        "kept": [
+          "fresh",
+          "recent",
+          "month",
+          "old",
+          "older",
+          "started-new",
+          "started-old",
+          "unstamped-new",
+          "unstamped-old"
+        ],
+        "remaining": [
+          "data/office-transactions/bom-old.json",
+          "data/office-transactions/fresh.json",
+          "data/office-transactions/invalid-new.json",
+          "data/office-transactions/invalid-old.json",
+          "data/office-transactions/month.json",
+          "data/office-transactions/note.txt",
+          "data/office-transactions/nul-old.json",
+          "data/office-transactions/old.json",
+          "data/office-transactions/older.json",
+          "data/office-transactions/recent.json",
+          "data/office-transactions/started-new.json",
+          "data/office-transactions/started-old.json",
+          "data/office-transactions/unstamped-new.json",
+          "data/office-transactions/unstamped-old.json",
+          "side/fresh.checkpoint",
+          "side/fresh.pdf",
+          "side/month.checkpoint",
+          "side/old.checkpoint",
+          "side/old.pdf",
+          "side/older.pdf",
+          "side/started-old.checkpoint",
+          "side/unstamped-old.checkpoint"
+        ]
+      }
+    }
+  },
+  "ledger": {
+    "scenarios": [
+      {
+        "name": "create-edit-remove",
+        "ops": [
+          {
+            "op": "put",
+            "at": "work/edit.docx",
+            "text": "old"
+          },
+          {
+            "op": "put",
+            "at": "work/gone.docx",
+            "text": "bye"
+          },
+          {
+            "op": "note",
+            "abs": "work/new.docx"
+          },
+          {
+            "op": "note",
+            "abs": "work/edit.docx"
+          },
+          {
+            "op": "note",
+            "abs": "work/gone.docx"
+          },
+          {
+            "op": "put",
+            "at": "work/new.docx",
+            "text": "created"
+          },
+          {
+            "op": "put",
+            "at": "work/edit.docx",
+            "text": "edited"
+          },
+          {
+            "op": "rm",
+            "at": "work/gone.docx"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/new.docx",
+            "before": null,
+            "after": {
+              "bytes": 7,
+              "sha256": "406effb1e9c59672c66a598c2b21e331b23b16c54024e96d6df3e7c173549791",
+              "text": "created"
+            }
+          },
+          {
+            "path": "work/edit.docx",
+            "before": {
+              "bytes": 3,
+              "sha256": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+              "text": "old"
+            },
+            "after": {
+              "bytes": 6,
+              "sha256": "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
+              "text": "edited"
+            }
+          },
+          {
+            "path": "work/gone.docx",
+            "before": {
+              "bytes": 3,
+              "sha256": "b49f425a7e1f9cff3856329ada223f2f9d368f15a00cf48df16ca95986137fe8",
+              "text": "bye"
+            },
+            "after": null
+          }
+        ]
+      },
+      {
+        "name": "unchanged-and-never-created",
+        "ops": [
+          {
+            "op": "put",
+            "at": "work/same.docx",
+            "text": "same"
+          },
+          {
+            "op": "note",
+            "abs": "work/same.docx"
+          },
+          {
+            "op": "note",
+            "abs": "work/never.docx"
+          },
+          {
+            "op": "put",
+            "at": "work/same.docx",
+            "text": "same"
+          }
+        ],
+        "changes": []
+      },
+      {
+        "name": "data-folder-and-temp-folder",
+        "ops": [
+          {
+            "op": "put",
+            "at": "data/journal.json",
+            "text": "x"
+          },
+          {
+            "op": "put",
+            "at": "scratch/tmp.bin",
+            "text": "x"
+          },
+          {
+            "op": "note",
+            "abs": "data/journal.json"
+          },
+          {
+            "op": "note",
+            "abs": "scratch/tmp.bin"
+          },
+          {
+            "op": "put",
+            "at": "data/journal.json",
+            "text": "y"
+          },
+          {
+            "op": "put",
+            "at": "scratch/tmp.bin",
+            "text": "y"
+          },
+          {
+            "op": "put",
+            "at": "work/inside-temp.docx",
+            "text": "a"
+          },
+          {
+            "op": "note",
+            "abs": "work/inside-temp.docx"
+          },
+          {
+            "op": "put",
+            "at": "work/inside-temp.docx",
+            "text": "b"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/inside-temp.docx",
+            "before": {
+              "bytes": 1,
+              "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+              "text": "a"
+            },
+            "after": {
+              "bytes": 1,
+              "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+              "text": "b"
+            }
+          }
+        ]
+      },
+      {
+        "name": "directory-is-not-recorded",
+        "ops": [
+          {
+            "op": "mkdir",
+            "at": "work/folder"
+          },
+          {
+            "op": "note",
+            "abs": "work/folder"
+          },
+          {
+            "op": "rmdir",
+            "at": "work/folder"
+          },
+          {
+            "op": "note",
+            "abs": "work/folder"
+          },
+          {
+            "op": "put",
+            "at": "work/folder",
+            "text": "now a file"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/folder",
+            "before": null,
+            "after": {
+              "bytes": 10,
+              "sha256": "92af885f330ed4b19948c1dd44dbed553840556063d5061346be12d7a06476d0",
+              "text": "now a file"
+            }
+          }
+        ]
+      },
+      {
+        "name": "padded-relative-and-repeated-paths",
+        "ops": [
+          {
+            "op": "put",
+            "at": "work/a.docx",
+            "text": "one"
+          },
+          {
+            "op": "note",
+            "rel": "  a.docx "
+          },
+          {
+            "op": "put",
+            "at": "work/a.docx",
+            "text": "two"
+          },
+          {
+            "op": "note",
+            "abs": "work/a.docx"
+          },
+          {
+            "op": "note",
+            "rel": "   "
+          },
+          {
+            "op": "note",
+            "rel": "sub/../a.docx"
+          },
+          {
+            "op": "put",
+            "at": "work/a.docx",
+            "text": "three"
+          },
+          {
+            "op": "put",
+            "at": "work/sub/b.docx",
+            "text": "b1"
+          },
+          {
+            "op": "note",
+            "rel": "./sub/b.docx"
+          },
+          {
+            "op": "put",
+            "at": "work/sub/b.docx",
+            "text": "b2"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/a.docx",
+            "before": {
+              "bytes": 3,
+              "sha256": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed",
+              "text": "one"
+            },
+            "after": {
+              "bytes": 5,
+              "sha256": "8b5b9db0c13db24256c829aa364aa90c6d2eba318b9232a4ab9313b954d3555f",
+              "text": "three"
+            }
+          },
+          {
+            "path": "work/sub/b.docx",
+            "before": {
+              "bytes": 2,
+              "sha256": "7dc96f776c8423e57a2785489a3f9c43fb6e756876d6ad9a9cac4aa4e72ec193",
+              "text": "b1"
+            },
+            "after": {
+              "bytes": 2,
+              "sha256": "4814d92093ac8a0f4a2163ab87dee509ba306a58f5888be0edcb2fcd0712028b",
+              "text": "b2"
+            }
+          }
+        ]
+      },
+      {
+        "name": "binary-bytes-are-kept",
+        "ops": [
+          {
+            "op": "put",
+            "at": "work/data.bin",
+            "hex": "00010200ff"
+          },
+          {
+            "op": "note",
+            "abs": "work/data.bin"
+          },
+          {
+            "op": "put",
+            "at": "work/data.bin",
+            "hex": "00010200fe"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/data.bin",
+            "before": {
+              "bytes": 5,
+              "sha256": "ef7e301027f931dfba06c7ded4ef305797f43cc115a664f9af9b57d08c3172c2",
+              "text": "\u0000\u0001\u0002\u0000ÿ"
+            },
+            "after": {
+              "bytes": 5,
+              "sha256": "11e4b9f53d2c160ffc3e2790a2005dd2709828ede2b6a9b328f2375a9930099a",
+              "text": "\u0000\u0001\u0002\u0000þ"
+            }
+          }
+        ]
+      },
+      {
+        "name": "oversized-files",
+        "ops": [
+          {
+            "op": "sparse",
+            "at": "work/big-same.bin",
+            "size": 68157440
+          },
+          {
+            "op": "sparse",
+            "at": "work/big-grows.bin",
+            "size": 68157440
+          },
+          {
+            "op": "put",
+            "at": "work/small-then-big.bin",
+            "text": "tiny"
+          },
+          {
+            "op": "note",
+            "abs": "work/big-same.bin"
+          },
+          {
+            "op": "note",
+            "abs": "work/big-grows.bin"
+          },
+          {
+            "op": "note",
+            "abs": "work/small-then-big.bin"
+          },
+          {
+            "op": "sparse",
+            "at": "work/big-grows.bin",
+            "size": 69206016
+          },
+          {
+            "op": "sparse",
+            "at": "work/small-then-big.bin",
+            "size": 68157440
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/big-grows.bin",
+            "before": {
+              "omitted": true,
+              "size": 68157440,
+              "reason": "oversized"
+            },
+            "after": {
+              "omitted": true,
+              "size": 69206016,
+              "reason": "oversized"
+            }
+          },
+          {
+            "path": "work/small-then-big.bin",
+            "before": {
+              "bytes": 4,
+              "sha256": "8950abfda7b727630760dd35bcf5c3daa7631aff223a90f7728c0d2521dde10c",
+              "text": "tiny"
+            },
+            "after": {
+              "omitted": true,
+              "size": 68157440,
+              "reason": "oversized"
+            }
+          }
+        ]
+      },
+      {
+        "name": "snapshot-budget",
+        "ops": [
+          {
+            "op": "sparse",
+            "at": "work/one.bin",
+            "size": 62914560
+          },
+          {
+            "op": "sparse",
+            "at": "work/two.bin",
+            "size": 62914560
+          },
+          {
+            "op": "sparse",
+            "at": "work/three.bin",
+            "size": 20971520
+          },
+          {
+            "op": "put",
+            "at": "work/small.docx",
+            "text": "small"
+          },
+          {
+            "op": "note",
+            "abs": "work/one.bin"
+          },
+          {
+            "op": "note",
+            "abs": "work/two.bin"
+          },
+          {
+            "op": "note",
+            "abs": "work/three.bin"
+          },
+          {
+            "op": "note",
+            "abs": "work/small.docx"
+          },
+          {
+            "op": "append",
+            "at": "work/one.bin",
+            "text": "x"
+          },
+          {
+            "op": "append",
+            "at": "work/three.bin",
+            "text": "x"
+          },
+          {
+            "op": "put",
+            "at": "work/small.docx",
+            "text": "smaller"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/one.bin",
+            "before": {
+              "bytes": 62914560,
+              "sha256": "cf5ac69ca412f9b3b1a8b8de27d368c5c05ed4b1b6aa40e6c38d9cbf23711342"
+            },
+            "after": {
+              "bytes": 62914561,
+              "sha256": "09ea9dca3414c133f65f75c52387e7dc3aab39d2c4892c9f45b5220db44c1b0f"
+            }
+          },
+          {
+            "path": "work/three.bin",
+            "before": {
+              "omitted": true,
+              "size": 20971520,
+              "reason": "budget"
+            },
+            "after": {
+              "bytes": 20971521,
+              "sha256": "bfe236e74bb11b1fb07bc517a448b38f49b1791da59467cc44c45177e627a88a"
+            }
+          },
+          {
+            "path": "work/small.docx",
+            "before": {
+              "bytes": 5,
+              "sha256": "81db8ebbbbc69c6c6ad4a6aa92b76e0c08af547da236b9e2c9dbe1d8285a8130",
+              "text": "small"
+            },
+            "after": {
+              "bytes": 7,
+              "sha256": "e823da61abfbd317f8fd39727af67cead1a5f82ce52e11be72a1efa1be34c5cf",
+              "text": "smaller"
+            }
+          }
+        ]
+      },
+      {
+        "name": "case-different-paths",
+        "caseFolding": true,
+        "ops": [
+          {
+            "op": "note",
+            "abs": "work/case.docx"
+          },
+          {
+            "op": "note",
+            "abs": "work/CASE.DOCX"
+          },
+          {
+            "op": "put",
+            "at": "work/Case.docx",
+            "text": "made"
+          }
+        ],
+        "changes": [
+          {
+            "path": "work/case.docx",
+            "before": null,
+            "after": {
+              "bytes": 4,
+              "sha256": "ea0890697a77af0a2e054cccec587c8a42feb5cf38e778c6c6e2a96bfb945c0b",
+              "text": "made"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

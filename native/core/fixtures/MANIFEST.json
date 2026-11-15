@@ -677,6 +677,15 @@
       "totalBytes": 1995156
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-journal.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-journal/MANIFEST.json",
+      "manifestSha256": "3067bb9f3a805ca551a8882b3242b2889f2ee95a99bcddd805194ed50d9c9505",
+      "recorder": "benchmarks/rust-core/recorders/record-office-journal.mjs",
+      "set": "office-journal",
+      "totalBytes": 24598
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-math/MANIFEST.json",
