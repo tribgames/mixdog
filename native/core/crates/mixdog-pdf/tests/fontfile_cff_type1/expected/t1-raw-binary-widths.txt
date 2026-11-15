@@ -1,0 +1,15 @@
+#length1=351
+#composite=false
+#firstChar=60
+#lastChar=100
+#widths=65:999
+numGlyphs=12
+charset=.notdef,.notdef,A,B,C,a,b,flexg,aacute,bad,empty,big
+glyphs=.notdef:250:0:1;A:600:50:1;B:650:50:1;C:700:70:1;a:800:10:1;b:750:0:1;flexg:900:10:1;aacute:700:0:1;bad:333:0:1;empty:0:0:0;big:2000:-20:1
+seacs=8:5,20,65,66
+builtIn=50:C,65:A,66:B,97:a
+widths=65:999,66:650,97:800
+fontMatrix=0.001,0,0,0.001,0,0
+ascent=900
+descent=-200
+hasGlyph=1111111111010
