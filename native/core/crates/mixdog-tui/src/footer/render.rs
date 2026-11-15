@@ -248,6 +248,12 @@ fn l2_spinner_frame(now: f64) -> &'static str {
     WORKER_SPINNER_FRAMES[((now / L2_SPINNER_FRAME_MS).floor() % WORKER_SPINNER_FRAMES.len() as f64) as usize]
 }
 
+impl std::fmt::Debug for StatuslineRenderer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("StatuslineRenderer")
+    }
+}
+
 impl StatuslineRenderer {
     /// The route section of the process: Node keeps it in a module, so it outlives any footer built over it and a SESS spend counts
     /// from the first call that saw the route. A renderer that replaces another one takes it over with `adopt_route_section`.

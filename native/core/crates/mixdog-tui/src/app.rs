@@ -28,6 +28,7 @@ pub mod provider_host;
 pub mod render;
 pub mod settings_host;
 pub mod slash_host;
+pub mod statusline;
 pub mod store;
 pub mod theme;
 pub mod timers;
@@ -180,6 +181,8 @@ pub struct AppState {
     pub(crate) repaint_requested: bool,
     /// Set by [`AppState::mount`].
     pub(crate) mounted: bool,
+    /// The footer under the prompt ([`AppState::set_statusline`]); none paints no line.
+    pub(crate) statusline: Option<statusline::AppStatusline>,
 }
 
 impl AppState {
@@ -235,6 +238,7 @@ impl AppState {
             follow_requested: false,
             repaint_requested: false,
             mounted: false,
+            statusline: None,
         }
     }
 

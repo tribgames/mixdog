@@ -390,7 +390,6 @@ fn excel_a_fit_by_width_alone_leaves_the_printed_length_free_as_the_portable_fil
     };
     // Excel had kept the height at its default of one page and shrunk a 92-row log onto it.
     let expected = json!({ "Sheet1": [1.0, 0.0], "Report": [1.0, 1.0] });
-    assert_eq!(number(&read("background")["Sheet1"][0]), 1.0);
     assert_eq!(read("background"), expected);
     assert_eq!(read("portable"), expected);
 }

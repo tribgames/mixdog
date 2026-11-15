@@ -31,7 +31,13 @@ pub fn run_child() {
     let Ok(raw) = std::env::var(CHILD_ENV) else { return };
     let spec: Value = serde_json::from_str(&raw).expect("the child's options are JSON");
     let text = |name: &str| spec[name].as_str().map(str::to_owned);
-    let options = mixdog_tui::run::TuiOptions { cwd: text("cwd"), provider: text("provider"), model: text("model"), ..Default::default() };
+    let options = mixdog_tui::run::TuiOptions {
+        cwd: text("cwd"),
+        provider: text("provider"),
+        model: text("model"),
+        statusline: Some(mixdog_tui::footer::process::process_renderer()),
+        ..Default::default()
+    };
     let code = mixdog_tui::run::run_tui(options);
     assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS), "the terminal UI ended with a failure");
 }
