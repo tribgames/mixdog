@@ -9,11 +9,11 @@
 //!
 //! Tolerance, and why: sizes, error sentences, the density a logo is drawn at and the declared size are equal exactly (the recorded error text of
 //! an XML syntax error is libxml's, which is not reproduced: only its `Input buffer has corrupt header` start is). Pixels, compared
-//! premultiplied in all four channels, differ by at most the case's recorded `tolerance.max` and by `tolerance.mean` on average: 4 and 0.6
-//! where the drawing is whole pixels (cairo and tiny-skia agree on a solid fill of whole pixels and differ in the last level on a blend), and
-//! more at the largest step where edges are anti-aliased (cairo and tiny-skia cover a curved edge with different sub-pixel samples) or a
-//! gradient is ramped. Text is not in the recording (sharp draws it with fontconfig's faces, which a recording cannot pin); the faces of the
-//! font registry are checked separately.
+//! premultiplied in all four channels, must be the same picture as the recorded one by the shared rule of
+//! `mixdog_office_base::twin::pixels` (owner decision 2026-11-16: cairo and tiny-skia cover a curved edge with different sub-pixel
+//! samples and ramp a gradient their own way): equal sizes, a mean difference per channel of at most 1 of 255, no channel of any 4x4
+//! block average more than 24 away. The `tolerance` recorded with a case is not read. Text is not in the recording (sharp draws it with
+//! fontconfig's faces, which a recording cannot pin); the faces of the font registry are checked separately.
 //!
 //! The test measures every step before it decides and prints the difference of each (largest, mean) to stderr.
 
@@ -24,31 +24,12 @@ use base64::engine::general_purpose::STANDARD;
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::Unlaned;
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels::{self, Picture};
 use mixdog_raster::Image;
 use mixdog_raster::RasterError;
 use mixdog_raster::svg;
 use mixdog_raster::svg::SvgFonts;
 use serde_json::Value;
-
-fn premultiplied(image: &Image) -> Vec<u8> {
-    image
-        .rgba()
-        .chunks_exact(4)
-        .flat_map(|pixel| {
-            let alpha = u32::from(pixel[3]);
-            let scaled = |channel: u8| ((u32::from(channel) * alpha + 127) / 255) as u8;
-            [scaled(pixel[0]), scaled(pixel[1]), scaled(pixel[2]), pixel[3]]
-        })
-        .collect()
-}
-
-/// The largest and the mean absolute difference of two images of one size.
-fn difference(expected: &Image, actual: &Image) -> (u8, f64) {
-    let (a, b) = (premultiplied(expected), premultiplied(actual));
-    let largest = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
-    let total: u64 = a.iter().zip(&b).map(|(x, y)| u64::from(x.abs_diff(*y))).sum();
-    (largest, total as f64 / a.len() as f64)
-}
 
 fn unsigned(step: &Value, key: &str) -> u32 {
     step[key].as_u64().unwrap_or_else(|| panic!("`{key}` is missing")) as u32
@@ -64,7 +45,7 @@ fn error_matches(recorded: &str, ours: &RasterError) -> bool {
 }
 
 /// Compares one step; the failures are pushed to `problems`.
-fn check_step(fonts: &SvgFonts, case: &str, svg_text: &str, step: &Value, tolerance: (u8, f64), problems: &mut Vec<String>) {
+fn check_step(fonts: &SvgFonts, case: &str, svg_text: &str, step: &Value, problems: &mut Vec<String>) {
     let op = step["op"].as_str().expect("op");
     let density = step["density"].as_f64();
     let default_density = density.unwrap_or(svg::DEFAULT_DENSITY);
@@ -76,10 +57,11 @@ fn check_step(fonts: &SvgFonts, case: &str, svg_text: &str, step: &Value, tolera
             problems.push(format!("{label}: size {}x{} but recorded {}x{}", actual.width(), actual.height(), expected.width(), expected.height()));
             return;
         }
-        let (largest, mean) = difference(expected, actual);
-        eprintln!("{label}: largest {largest}, mean {mean:.3}");
-        if largest > tolerance.0 || mean > tolerance.1 {
-            problems.push(format!("{label}: pixels differ by {largest} (allowed {}), mean {mean:.3} (allowed {})", tolerance.0, tolerance.1));
+        let (a, b) = (pixels::premultiplied(expected.rgba()), pixels::premultiplied(actual.rgba()));
+        let comparison = pixels::compare(Picture::new(expected.width(), expected.height(), &a), Picture::new(actual.width(), actual.height(), &b));
+        eprintln!("{label}: {}", comparison.summary());
+        if let Err(why) = comparison.verdict() {
+            problems.push(format!("{label}: {why}"));
         }
     };
     if let Some(recorded) = step.get("error").and_then(Value::as_str) {
@@ -139,12 +121,11 @@ fn every_svg_has_the_recorded_size_and_pixels_within_its_tolerance() {
     let mut problems = Vec::new();
     for case in cases {
         let name = case["name"].as_str().expect("name");
-        let tolerance = (case["tolerance"]["max"].as_u64().expect("max") as u8, case["tolerance"]["mean"].as_f64().expect("mean"));
         for step in case["steps"].as_array().expect("steps") {
-            check_step(&fonts, name, case["svg"].as_str().expect("svg"), step, tolerance, &mut problems);
+            check_step(&fonts, name, case["svg"].as_str().expect("svg"), step, &mut problems);
         }
     }
-    assert!(problems.is_empty(), "{} steps differ:\n{}", problems.len(), problems.join("\n"));
+    assert!(problems.is_empty(), "{} steps are not the recorded picture or answer:\n{}", problems.len(), problems.join("\n"));
 }
 
 fn lisu_registry() -> Registry {

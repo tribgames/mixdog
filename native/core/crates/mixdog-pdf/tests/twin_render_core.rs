@@ -4,8 +4,9 @@
 //! with every line state and dash, clipping, images and image masks, forms, optional content, page rotation and crop
 //! boxes; no text, shading, pattern or transparency: those belong to the font bridge and the paint stage) drawn by
 //! pdf.js at one or more scales. The Rust rasteriser opens the same bytes and must give a canvas of exactly the recorded
-//! size whose pixels are within the recorded tolerance: no channel more than `max` away (anti-aliased edges), and a mean
-//! difference per channel of at most `mean` over the page.
+//! size which is the same picture as the recorded one by the shared rule of `mixdog_office_base::twin::pixels` (owner decision
+//! 2026-11-16: the rasterisers anti-alias an edge differently): equal sizes, a mean difference per channel of at most 1 of 255 over
+//! the page, and no channel of any 4x4 block average more than 24 away. The `tolerance` the recording carries is not read.
 //!
 //! The test measures every render before it decides and, for a render outside the tolerance, writes a per-page diff
 //! image (the absolute difference of the channels, in grey, 255 where the sizes differ) to the target directory
@@ -15,6 +16,7 @@
 use std::path::PathBuf;
 
 use mixdog_office_base::twin;
+use mixdog_office_base::twin::pixels::{self, Picture};
 use mixdog_pdf::document::{Document, OpenOptions};
 use mixdog_pdf::render::{RenderOptions, render_page};
 use mixdog_raster::Image;
@@ -27,26 +29,6 @@ fn unhex(text: &str) -> Vec<u8> {
     (0..text.len() / 2)
         .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex"))
         .collect()
-}
-
-/// How far the Rust page is from the recorded one: the largest channel difference and the mean over every channel.
-struct Difference {
-    max: u8,
-    mean: f64,
-}
-
-fn compare(ours: &[u8], theirs: &[u8]) -> Difference {
-    let mut max = 0u8;
-    let mut sum = 0u64;
-    for (a, b) in ours.iter().zip(theirs) {
-        let d = a.abs_diff(*b);
-        max = max.max(d);
-        sum += u64::from(d);
-    }
-    Difference {
-        max,
-        mean: sum as f64 / ours.len().max(1) as f64,
-    }
 }
 
 fn diff_directory() -> PathBuf {
@@ -71,8 +53,6 @@ fn write_diff(name: &str, scale: f64, width: u32, height: u32, ours: &[u8], thei
 }
 
 fn replay(golden: &Value) {
-    let tolerance_max = golden["tolerance"]["max"].as_u64().expect("tolerance.max") as u8;
-    let tolerance_mean = golden["tolerance"]["mean"].as_f64().expect("tolerance.mean");
     let mut failures = Vec::new();
     let mut rendered = 0;
     for case in golden["cases"].as_array().expect("cases") {
@@ -106,26 +86,18 @@ fn replay(golden: &Value) {
                 "{name} at {scale}: the recorded PNG is the recorded size"
             );
             let pixels = ours.rgba().expect("pixels");
-            let difference = compare(&pixels, theirs.rgba());
-            eprintln!(
-                "{name} at {scale}: largest {} mean {:.4}",
-                difference.max, difference.mean
-            );
-            if difference.max > tolerance_max || difference.mean > tolerance_mean {
+            let comparison = pixels::compare(Picture::new(want_width, want_height, &pixels), Picture::new(want_width, want_height, theirs.rgba()));
+            eprintln!("{name} at {scale}: {}", comparison.summary());
+            if let Err(why) = comparison.verdict() {
                 let diff = write_diff(name, scale, want_width, want_height, &pixels, theirs.rgba());
-                failures.push(format!(
-                    "{name} at {scale}: largest {} (allowed {tolerance_max}), mean {:.4} (allowed {tolerance_mean}); diff image {}",
-                    difference.max,
-                    difference.mean,
-                    diff.display()
-                ));
+                failures.push(format!("{name} at {scale}: {why}; diff image {}", diff.display()));
             }
         }
     }
     assert!(rendered > 0, "the recording holds no render");
     assert!(
         failures.is_empty(),
-        "renders outside the tolerance:\n{}",
+        "renders that are not the recorded picture:\n{}",
         failures.join("\n")
     );
 }

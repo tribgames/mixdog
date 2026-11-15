@@ -9,7 +9,7 @@
 // (3) after the last call the files the scenario names, and (4) with data:true the journal JSON of the data folder. The wall time of
 // each scenario is recorded too: the Rust replay may not take longer in total.
 //
-//   node benchmarks/rust-core/recorders/record-office-e2e.mjs --tree <product tree with node_modules>
+//   node benchmarks/rust-core/recorders/record-office-e2e.mjs --tree <exact export of NODE_COMMIT with node_modules>
 //
 // What is normalised, and nothing else (the replay applies the same rules):
 //  - the call's folder is `<dir>`, the data folder `<data>`, the system temporary folder `<tmp>`, and every separator is a `/`;
@@ -22,8 +22,10 @@
 //    entry names (in order) and the sha256 of each entry's uncompressed bytes, never by its compressed bytes (the deflate of two
 //    libraries differs); an entry that is itself a zip (a chart's workbook) is its own entries, stamps settled the same way;
 //  - a PDF is what a reader finds in it (lib/office-files.mjs: page sizes, text items with positions to the thousandth, form fields, the
-//    document properties without the dates), never its bytes (two PDF writers share no object layout); a PNG is its width, height and
-//    the sha256 of its decoded RGBA pixels (two encoders share no chunks or deflate);
+//    document properties without the dates), never its bytes (two PDF writers share no object layout); a PNG is its width, height, the
+//    sha256 of its decoded RGBA pixels (two encoders share no chunks or deflate) and `data`, the PNG Node wrote (base64): the replay compares
+//    the pixels of the two PNGs as a picture, by the shared rule of `twin::pixels` (the rasterisers anti-alias an edge differently), and
+//    checks that `data` decodes to the pixels the sha256 names;
 //  - in a data-folder JSON file, ISO timestamps and the numbers under keys ending At, Ms or Time.
 // The text of an answer is otherwise compared as written, so key order is compared too.
 import { createHash } from 'node:crypto';
@@ -32,14 +34,15 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createOfficeFileReader, isPdf, isPng } from './lib/office-files.mjs';
-import { FIXTURES_ROOT, importFrom, parseArgs, productIdentity, resolveTree, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, exactProductIdentity, importFrom, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
 const RECORDER = 'benchmarks/rust-core/recorders/record-office-e2e.mjs';
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = productIdentity(tree);
+const NODE_COMMIT = 'dbfaf98fdb82113209d84d9b943ce8c3c06a98cc';
+const identity = exactProductIdentity(tree, NODE_COMMIT);
 const JSZip = createRequire(path.join(tree, 'package.json'))('jszip');
 
 const { pdfFingerprint, pngFingerprint } = await createOfficeFileReader(tree);
@@ -105,7 +108,10 @@ const isZip = (bytes) => bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 
  *  pixels, anything else exactly. */
 const describeBytes = async (bytes) => {
   if (isPdf(bytes)) return await pdfFingerprint(bytes, { properties: true });
-  if (isPng(bytes)) return await pngFingerprint(bytes);
+  if (isPng(bytes)) {
+    const described = await pngFingerprint(bytes);
+    return described.png.unreadable ? described : { png: { ...described.png, data: bytes.toString('base64') } };
+  }
   if (isZip(bytes)) {
     const zip = await JSZip.loadAsync(bytes);
     const entries = [];
