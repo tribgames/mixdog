@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::ports::{AgentRuntime, AutomationServices};
+use super::status_snapshot::StatusSnapshot;
 use super::tools::ChannelLifecycle;
 use crate::scheduler::{Schedule, ScheduleError, ScheduleRecords, ScheduleStatus, Scheduler};
 
@@ -92,6 +93,8 @@ pub struct ChannelRuntime {
     start_wake: tokio::sync::Notify,
     /// `notifyRemoteAcquired()`: told each time the bridge connects ([`Self::on_bridge_connected`]).
     connected: std::sync::OnceLock<Arc<dyn Fn() + Send + Sync>>,
+    /// `<data>/channels/status-snapshot.json`: written while the scheduler is armed, removed when it stops.
+    snapshot: std::sync::OnceLock<Arc<StatusSnapshot>>,
 }
 
 /// Publishes how reload `ticket` ended, for the older reloads that answer with it: its result, or
@@ -158,6 +161,7 @@ impl ChannelRuntime {
             busy: std::sync::OnceLock::new(),
             start_wake: tokio::sync::Notify::new(),
             connected: std::sync::OnceLock::new(),
+            snapshot: std::sync::OnceLock::new(),
         })
     }
 
@@ -172,6 +176,17 @@ impl ChannelRuntime {
     #[cfg(any(test, feature = "test-support"))]
     pub fn record_applied_reloads(&self, log: Arc<Mutex<Vec<u64>>>) {
         *self.applied.lock().unwrap() = Some(log);
+    }
+
+    /// Binds the writer of the cross-process status snapshot (`startSnapshotWriter` / `stopSnapshotWriter`).
+    pub fn bind_status_snapshot(&self, snapshot: Arc<StatusSnapshot>) {
+        let _ = self.snapshot.set(snapshot);
+    }
+
+    fn start_status_snapshot(&self) {
+        if let Some(snapshot) = self.snapshot.get() {
+            snapshot.start();
+        }
     }
 
     /// Binds the busy probe the deferred start parks on (a turn running, a session being created).
@@ -317,6 +332,7 @@ impl ChannelRuntime {
         let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
         self.scheduler.load(rows);
         self.scheduler.start();
+        self.start_status_snapshot();
         // Node's `syncWebhookAndEventRuntime()` is synchronous: the runtime counts as up as the sync is
         // launched, before the listener has bound (`automation-start.mjs:30-42`).
         self.state.lock().unwrap().automation_running = true;
@@ -332,6 +348,7 @@ impl ChannelRuntime {
             let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
             self.scheduler.load(rows);
             self.scheduler.start();
+            self.start_status_snapshot();
         }
         let synced = self.services.sync(false).await;
         self.state.lock().unwrap().automation_running = true;
@@ -486,6 +503,9 @@ impl ChannelLifecycle for ChannelRuntime {
             return Ok(());
         };
         self.scheduler.stop();
+        if let Some(snapshot) = self.snapshot.get() {
+            snapshot.stop().await;
+        }
         self.services.stop().await;
         {
             let mut st = self.state.lock().unwrap();
