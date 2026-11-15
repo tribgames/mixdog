@@ -1,0 +1,44 @@
+# nr-office-engine-contracts: the operation contract engine and describe of the office engine (mixdog-office::contracts, mixdog-office::describe), the xlsx validation rule and the docx style definitions (mixdog-office-base)
+
+## native/core/crates/mixdog-office/src/lib.rs
+After `pub mod capabilities;` add (keep the other modules as they are):
+
+    pub mod contracts;
+    pub mod describe;
+
+(the module doc may add: "[`contracts`] checks a batch of operations against the capability tables and rewrites the spellings it accepts in place; [`describe`] answers the `describe` action.")
+
+## native/core/crates/mixdog-office-base/src/lib.rs
+After `pub mod data_dir;` add:
+
+    pub mod docx_style_defs;
+
+and after `pub mod write_note;` add:
+
+    pub mod xlsx_validation;
+
+(the module doc's list of what the crate holds may add `normalizeXlsxValidation` of `xlsx-contract.mjs` and `docxStyleDefinitions` of `portable-docx-operations.mjs`.)
+
+## native/core/crates/mixdog-office/Cargo.toml
+`[dependencies]`, next to `mixdog-office-base = { workspace = true }`:
+
+    mixdog-office-design = { workspace = true }
+
+(`mixdog-office-design = { path = "crates/mixdog-office-design" }` is already in native/core/Cargo.toml `[workspace.dependencies]`; the crate does not depend on mixdog-office, so there is no cycle.)
+Cargo.lock: the `mixdog-office` package's `dependencies` list gains "mixdog-office-design" (alphabetical, after "mixdog-office-base"). No other new edge: mixdog-office-base uses only mixdog-js (JsRegex, js_object_keys, js_to_lowercase, value_to_string), serde_json and its own modules; mixdog-office uses mixdog-js, mixdog-office-base, mixdog-office-design, serde_json and indexmap, which it already has. The twin test uses mixdog-office-base's `twin` (dev-dependency with `test-support`, already present) and `serde_json`.
+mixdog-workspace-hack needs no change.
+
+## native/core/fixtures/MANIFEST.json
+Add the set to `sets` (keep the alphabetical order by `set`; "office-contracts" sorts before "office-crypto" and after "office-colour" or wherever the file's neighbours put it):
+
+    { "command": "node benchmarks/rust-core/recorders/record-office-contracts.mjs --tree <tree>", "fileCount": 1,
+      "manifest": "office-contracts/MANIFEST.json", "manifestSha256": <sha256 of native/core/fixtures/office-contracts/MANIFEST.json as committed>,
+      "recorder": "benchmarks/rust-core/recorders/record-office-contracts.mjs", "set": "office-contracts", "totalBytes": 1193572 }
+
+(at the time of writing the manifest's sha256 is c96426a6cdb7327ba5579341079fc74a693cc828143fc3d8cbf7d1cf3c58c2e3; recompute it from the committed file. The recorder imports benchmarks/rust-core/recorders/lib/common.mjs, which this task did not touch.)
+
+## compose_flip.rs SERVICE_PENDING
+Nothing: this task registers no protocol method and no service. The engine is a library the office tool's service (a later task of the track) calls: `mixdog_office::contracts::assert_office_operation_contracts(format, backend, &mut operations)` before the backends see a batch, and `mixdog_office::describe::describe_office_capabilities(&DescribeRequest { format, backend, target, operation })` for the `describe` action. The caller maps an extension such as `xlsm` to its format first, as `executeOfficeTool` does.
+
+## Used later (not wired here)
+`mixdog_office_base::xlsx_validation::normalize_xlsx_validation` and `mixdog_office_base::docx_style_defs::docx_style_definitions` are what the xlsx and docx engines call; the same code runs in the contract check.
