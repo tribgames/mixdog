@@ -726,7 +726,7 @@ pub fn import_slides_into_presentation<P: ReadProof>(
     after: Option<&Value>,
 ) -> Result<Value, String> {
     let bytes = mixdog_fsio::read(proof, Path::new(source_path)).map_err(|error| os_message(&error, "open", Path::new(source_path)))?;
-    let source = Package::load_unchecked(&bytes)?;
+    let source = Package::load_unchecked_raw_error(&bytes)?;
     let source_slides = presentation_slides(&source);
     if source_slides.is_empty() {
         return Err("import_slides source has no slides".to_owned());

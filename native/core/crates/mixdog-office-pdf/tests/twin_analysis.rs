@@ -240,6 +240,20 @@ fn layouts_tables_and_searches_equal_the_recording() {
         if let Some(layout) = &base {
             searches_match(name, layout, &case["searches"]);
         }
+        // The recorder opens a document for each outline and each image extraction of a case before the next case's
+        // layouts, and a font's loaded name carries the number of the document in the process (`g_d15_f1`): these opens
+        // are made here too, in the recorder's order, so the numbers are the recorded ones (their results are compared
+        // by the outline and the image tests).
+        for run in case.get("outline").and_then(Value::as_array).into_iter().flatten() {
+            let max = run["maxEntries"].as_u64().expect("maxEntries") as usize;
+            extract_pdf_outline(&Unlaned, PdfSource::Bytes(&pdf), max).expect("an outline");
+        }
+        if case.get("images").is_some() {
+            for pages in [None, Some(vec![2.0])] {
+                let options = ImageOptions { pages, cancel: None };
+                extract_pdf_images(&Unlaned, PdfSource::Bytes(&pdf), &options).expect("an extraction");
+            }
+        }
     }
 }
 
