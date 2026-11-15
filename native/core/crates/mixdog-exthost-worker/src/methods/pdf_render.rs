@@ -10,10 +10,9 @@ use std::sync::{Arc, OnceLock};
 
 use mixdog_fonts::discovery::{HostEnv, scan};
 use mixdog_fonts::registry::Registry as FontRegistry;
-use mixdog_fsio::Unlaned;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_office_pdf::{AnalysisError, RenderPagesOptions, render_pdf_pages};
-use mixdog_rt::LaneTokens;
+use mixdog_rt::{CancellationToken, LaneToken, LaneTokens};
 use mixdog_rt::exec::{Executors, RtConfig, boot};
 use serde_json::Value;
 
@@ -49,18 +48,21 @@ pub(super) fn lanes() -> Result<LaneTokens, CodedError> {
     }
 }
 
-/// The system fonts the repainted page numbers and the sheet labels are set with, scanned once and shared.
-pub(super) async fn fonts() -> Result<Arc<FontRegistry>, CodedError> {
+/// The system fonts the repainted page numbers and the sheet labels are set with, scanned once (on the interactive I/O lane) and
+/// shared.
+pub(super) async fn fonts(lanes: LaneTokens, cancel: &CancellationToken) -> Result<Arc<FontRegistry>, CodedError> {
     if let Some(known) = FONTS.get() {
         return Ok(Arc::clone(known));
     }
-    let scanned = tokio::task::spawn_blocking(|| {
-        let home = std::env::home_dir().unwrap_or_default();
-        let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
-        Arc::new(scan(&Unlaned, &env).registry)
-    })
-    .await
-    .map_err(|error| CodedError::failed(format!("the font scan failed: {error}")))?;
+    let lost = |error: String| if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) };
+    let home = std::env::home_dir().unwrap_or_default();
+    let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
+    let job = lanes
+        .interactive_io
+        .submit_wait(cancel, move |lane| Arc::new(scan(lane, &env).registry))
+        .await
+        .map_err(|error| lost(error.to_string()))?;
+    let scanned = job.await.map_err(|error| lost(error.to_string()))?;
     Ok(Arc::clone(FONTS.get_or_init(|| scanned)))
 }
 
@@ -89,7 +91,7 @@ fn pages(value: Option<&Value>) -> Option<Vec<f64>> {
     }
 }
 
-fn render_options(params: &Value, cancel: &mixdog_rt::CancellationToken) -> RenderPagesOptions {
+fn render_options(params: &Value, cancel: &CancellationToken) -> RenderPagesOptions {
     let defaults = RenderPagesOptions::default();
     RenderPagesOptions {
         pages: pages(params.get("pages")),
@@ -103,7 +105,7 @@ fn render_options(params: &Value, cancel: &mixdog_rt::CancellationToken) -> Rend
 async fn render(ctx: CallCtx) -> HandlerResult {
     let file: PathBuf = ctx.approved_path(&js_string(ctx.params.get("path")), "")?;
     let lanes = lanes()?;
-    let registry = fonts().await?;
+    let registry = fonts(lanes, &ctx.cancel).await?;
     let options = render_options(&ctx.params, &ctx.cancel);
     let rendered = render_pdf_pages(lanes, registry, Arc::new(NoWriteNote), &file, options).await.map_err(|error| failure(&ctx, &error))?;
     let mut value = rendered.to_json();
@@ -127,7 +129,7 @@ mod tests {
 
     #[test]
     fn a_missing_or_null_option_is_its_default() {
-        let cancel = mixdog_rt::CancellationToken::new();
+        let cancel = CancellationToken::new();
         let options = render_options(&json!({"maxWidth": null}), &cancel);
         assert_eq!((options.max_width, options.maximum_scale, options.write_images), (1400.0, 2.0, false));
         assert!(options.pages.is_none());

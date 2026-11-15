@@ -26,7 +26,7 @@ and in the doc comment of that function name `pdf.render` and `pdf.ocr` among th
     mixdog-office-pdf = { workspace = true }
 
 `mixdog-rt` is already a dependency (the code uses `mixdog_rt::exec::{boot, RtConfig, Executors}`, which need no feature) and
-`mixdog-office-base` and `mixdog-fsio` too. tokio already has `rt` (spawn_blocking). Add the test target after `pdf_twin`:
+`mixdog-office-base` and `mixdog-fsio` too (the font scan runs on the interactive I/O lane with `mixdog_fsio`'s lane proof). Add the test target after `pdf_twin`:
 
     [[test]]
     name = "pdf_render_ocr"
@@ -49,7 +49,7 @@ task. Once this is applied the Node worker is not called for `pdf.*`.
 ## Behaviour the lead should know
 
 - A worker process has no daemon to hand it lane tokens: the first `pdf.render` or `pdf.ocr` boots `mixdog_rt::exec::boot(RtConfig::detect())`
-  (kept until the process ends) and scans the system fonts once (`mixdog_fonts::discovery::scan`), both in pdf_render.rs.
+  (kept until the process ends) and scans the system fonts once (`mixdog_fonts::discovery::scan`, a job on the interactive I/O lane), both in pdf_render.rs.
   Nothing else in the worker boots lanes. If a later task makes the worker boot lanes at start, `lanes()` there becomes a read of those tokens.
 - `pdf.ocr` needs the OCR engine pin (`ENGINE_ASSETS` of mixdog-office-pdf's ocr/install.rs, see nr-office-pdf-ocr.wire): until it
   is filled recognition answers that OCR is not available on this platform, as the library says.
