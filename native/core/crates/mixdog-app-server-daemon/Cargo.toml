@@ -15,6 +15,7 @@ replay-controls = ["mixdog-app-server/replay-controls", "mixdog-core-session/tes
 test-hooks = []
 
 [dependencies]
+notify = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
