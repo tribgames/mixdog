@@ -5,13 +5,7 @@ use super::*;
 fn discovery(instance_id: &str, state: CoreState) -> Discovery {
     Discovery {
         pid: std::process::id(),
-        endpoints: Endpoints {
-            session: SessionEndpoint {
-                port: 4100,
-                token: "tok".into(),
-            },
-            model_proxy: None,
-        },
+        endpoints: Endpoints { session: SessionEndpoint { port: 4100, token: "tok".into() }, model_proxy: None },
         core: CoreSection {
             version: "1.4.6".into(),
             build: "abc".into(),
@@ -30,8 +24,7 @@ fn discovery(instance_id: &str, state: CoreState) -> Discovery {
 fn published_shape_is_a_superset_1_4_5_readers_parse() {
     let root = tempfile::tempdir().unwrap();
     publish(root.path(), &discovery("inst-1", CoreState::Serving)).unwrap();
-    let value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
     assert_eq!(value["pid"], std::process::id());
     assert_eq!(value["endpoints"]["session"]["port"], 4100);
     assert_eq!(value["endpoints"]["session"]["token"], "tok");
@@ -42,14 +35,9 @@ fn published_shape_is_a_superset_1_4_5_readers_parse() {
     assert!(value["core"].get("blocked").is_none());
 
     publish(root.path(), &discovery("inst-1", CoreState::Draining)).unwrap();
-    let value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
     assert!(value["core"].get("rpc").is_none(), "draining removes rpc");
-    assert_eq!(
-        std::fs::read_dir(root.path()).unwrap().count(),
-        1,
-        "no staging file left"
-    );
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1, "no staging file left");
 }
 
 #[test]
@@ -76,22 +64,22 @@ fn denied() -> io::Error {
 /// (`src/win/error.c` `uv_translate_sys_error` on Windows, the errno itself on POSIX). `Some(true)` is EPERM/EACCES.
 #[cfg(windows)]
 const RETRY_TABLE: &[(i32, Option<bool>)] = &[
-    (5, Some(true)),      // ERROR_ACCESS_DENIED -> EPERM
-    (1314, Some(true)),   // ERROR_PRIVILEGE_NOT_HELD -> EPERM
-    (740, Some(true)),    // ERROR_ELEVATION_REQUIRED -> EACCES
-    (1920, Some(true)),   // ERROR_CANT_ACCESS_FILE -> EACCES
-    (10013, Some(true)),  // WSAEACCES -> EACCES
-    (32, Some(false)),    // ERROR_SHARING_VIOLATION -> EBUSY
-    (33, Some(false)),    // ERROR_LOCK_VIOLATION -> EBUSY
-    (231, Some(false)),   // ERROR_PIPE_BUSY -> EBUSY
-    (183, Some(false)),   // ERROR_ALREADY_EXISTS -> EEXIST
-    (80, Some(false)),    // ERROR_FILE_EXISTS -> EEXIST
-    (170, None),          // ERROR_BUSY -> UNKNOWN: not retried
-    (2, None),            // ERROR_FILE_NOT_FOUND -> ENOENT
-    (3, None),            // ERROR_PATH_NOT_FOUND -> ENOENT
-    (19, None),           // ERROR_WRITE_PROTECT -> EROFS
-    (17, None),           // ERROR_NOT_SAME_DEVICE -> EXDEV
-    (112, None),          // ERROR_DISK_FULL -> ENOSPC
+    (5, Some(true)),     // ERROR_ACCESS_DENIED -> EPERM
+    (1314, Some(true)),  // ERROR_PRIVILEGE_NOT_HELD -> EPERM
+    (740, Some(true)),   // ERROR_ELEVATION_REQUIRED -> EACCES
+    (1920, Some(true)),  // ERROR_CANT_ACCESS_FILE -> EACCES
+    (10013, Some(true)), // WSAEACCES -> EACCES
+    (32, Some(false)),   // ERROR_SHARING_VIOLATION -> EBUSY
+    (33, Some(false)),   // ERROR_LOCK_VIOLATION -> EBUSY
+    (231, Some(false)),  // ERROR_PIPE_BUSY -> EBUSY
+    (183, Some(false)),  // ERROR_ALREADY_EXISTS -> EEXIST
+    (80, Some(false)),   // ERROR_FILE_EXISTS -> EEXIST
+    (170, None),         // ERROR_BUSY -> UNKNOWN: not retried
+    (2, None),           // ERROR_FILE_NOT_FOUND -> ENOENT
+    (3, None),           // ERROR_PATH_NOT_FOUND -> ENOENT
+    (19, None),          // ERROR_WRITE_PROTECT -> EROFS
+    (17, None),          // ERROR_NOT_SAME_DEVICE -> EXDEV
+    (112, None),         // ERROR_DISK_FULL -> ENOSPC
 ];
 
 #[cfg(unix)]
@@ -111,11 +99,7 @@ const RETRY_TABLE: &[(i32, Option<bool>)] = &[
 fn only_the_os_errors_node_retries_are_retried() {
     for &(code, expected) in RETRY_TABLE {
         let class = sys::retry_class(code);
-        assert_eq!(
-            class,
-            expected.map(|access| if access { Retry::Access } else { Retry::Other }),
-            "OS error {code}"
-        );
+        assert_eq!(class, expected.map(|access| if access { Retry::Access } else { Retry::Other }), "OS error {code}");
     }
 }
 
@@ -170,7 +154,8 @@ impl Scripted {
 fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it_lands() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(4);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+        .unwrap();
 
     assert_eq!(script.attempts.get(), 5);
     let pauses = script.pauses.borrow();
@@ -189,7 +174,9 @@ fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it
 fn a_replace_that_keeps_failing_makes_every_attempt_of_the_schedule_then_reports_the_error() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(usize::MAX);
-    let error = publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap_err();
+    let error =
+        publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+            .unwrap_err();
 
     assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     assert_eq!(script.attempts.get(), 24, "Node: one attempt more than the 23 backoffs");
@@ -203,7 +190,8 @@ fn an_error_that_cannot_clear_is_not_retried() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(usize::MAX);
     let missing = || io::Error::from(io::ErrorKind::NotFound);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause()).unwrap_err();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause())
+        .unwrap_err();
     assert_eq!(script.attempts.get(), 1);
     assert!(script.pauses.borrow().is_empty());
 
@@ -214,7 +202,8 @@ fn an_error_that_cannot_clear_is_not_retried() {
     permissions.set_readonly(true);
     std::fs::set_permissions(&target, permissions).unwrap();
     let script = Scripted::new(usize::MAX);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap_err();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
+        .unwrap_err();
     assert_eq!(script.attempts.get(), 1);
 }
 
@@ -226,18 +215,8 @@ fn discovery_is_owner_only() {
     let runtime = root.path().join("runtime");
     ensure_private_root(&runtime).unwrap();
     publish(&runtime, &discovery("inst-1", CoreState::Booting)).unwrap();
-    assert_eq!(
-        std::fs::metadata(path(&runtime))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
-    assert_eq!(
-        std::fs::metadata(&runtime).unwrap().permissions().mode() & 0o777,
-        0o700
-    );
+    assert_eq!(std::fs::metadata(path(&runtime)).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(std::fs::metadata(&runtime).unwrap().permissions().mode() & 0o777, 0o700);
 }
 
 #[test]
@@ -248,12 +227,7 @@ fn runtime_root_is_named_as_1_4_5_names_it() {
         #[cfg(windows)]
         assert_eq!(root.file_name().unwrap(), "mixdog");
         #[cfg(unix)]
-        assert!(
-            root.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("mixdog-")
-        );
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("mixdog-"));
     }
 }
 
@@ -300,31 +274,71 @@ fn a_serving_core_publishes_a_deleted_discovery_file_again_and_a_second_client_a
     }
 }
 
-#[test]
-fn a_deleted_runtime_root_is_made_again_with_the_file() {
-    let parent = tempfile::tempdir().unwrap();
-    let root = parent.path().join("runtime");
-    ensure_private_root(&root).unwrap();
-    let owned = OwnedDiscovery::start_with(root.clone(), std::time::Duration::from_millis(5));
-    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
-    {
-        // Held so the watcher cannot write into the directory while it is being removed.
-        let _watcher_waits = owned.held.lock().unwrap();
-        std::fs::remove_dir_all(&root).unwrap();
-    }
-    wait_until("the discovery file to come back", || path(&root).is_file());
+// Acknowledged only after the watcher installed/rebound watches and completed its actual recheck.
+fn await_recheck(owned: &OwnedDiscovery) {
+    let (done, completion) = std::sync::mpsc::channel();
+    owned.events.send(WatchSignal::Rechecked(done)).unwrap();
+    completion.recv_timeout(std::time::Duration::from_secs(10)).expect("watcher recheck completion");
 }
 
 #[test]
-fn the_state_published_last_is_the_one_put_back() {
+fn a_pathless_rescan_event_requests_a_recheck_and_restores_discovery() {
+    let root = tempfile::tempdir().unwrap();
+    let document = running_discovery("inst-1", CoreState::Serving);
+    publish(root.path(), &document).unwrap();
+    std::fs::remove_file(path(root.path())).unwrap();
+    let mut held = Held { document: Some(document), failing: false };
+    let (events, inbox) = std::sync::mpsc::channel();
+    // No OS watcher exists in this test: only the injected callback can request the recheck.
+    signal_watch_event(root.path(), &events, Ok(notify::Event::new(notify::EventKind::Other)));
+    assert!(matches!(inbox.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+    let rescan = notify::Event::new(notify::EventKind::Other).set_flag(notify::event::Flag::Rescan);
+    assert!(rescan.paths.is_empty());
+    signal_watch_event(root.path(), &events, Ok(rescan));
+    assert!(matches!(inbox.try_recv().unwrap(), WatchSignal::Changed));
+    republish_if_changed(root.path(), &mut held);
+    assert!(names_instance(&std::fs::read(path(root.path())).unwrap(), "inst-1"));
+}
+
+#[test]
+fn a_deleted_runtime_root_and_parent_are_made_again_after_initial_recheck() {
+    let outside = tempfile::tempdir().unwrap();
+    let parent = outside.path().join("parent");
+    let root = parent.join("runtime");
+    ensure_private_root(&root).unwrap();
+    let owned = OwnedDiscovery::start_with(root.clone(), std::time::Duration::from_millis(5));
+    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
+    await_recheck(&owned);
+    {
+        let _watcher_waits = owned.held.lock().unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    wait_until("root deletion recovery from filesystem event", || path(&root).is_file());
+    await_recheck(&owned);
+    {
+        let _watcher_waits = owned.held.lock().unwrap();
+        std::fs::remove_dir_all(&parent).unwrap();
+        std::fs::create_dir(&parent).unwrap();
+    }
+    wait_until("parent replacement recovery from filesystem event", || path(&root).is_file());
+    await_recheck(&owned);
+    // Prove the recreated root itself is followed after reconnecting.
+    std::fs::remove_file(path(&root)).unwrap();
+    wait_until("reconnected root observes a later file deletion", || path(&root).is_file());
+    assert!(names_instance(&std::fs::read(path(&root)).unwrap(), "inst-1"));
+}
+
+#[test]
+fn migrating_is_kept_and_draining_stops_republication() {
     let root = tempfile::tempdir().unwrap();
     let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
-    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
+    owned.publish(&running_discovery("inst-1", CoreState::Migrating)).unwrap();
+    std::fs::remove_file(path(root.path())).unwrap();
+    wait_until("migrating discovery", || path(root.path()).is_file());
     owned.publish(&running_discovery("inst-1", CoreState::Draining)).unwrap();
     std::fs::remove_file(path(root.path())).unwrap();
-    wait_until("the discovery file to come back", || path(root.path()).is_file());
-    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
-    assert_eq!(value["core"]["state"], "draining");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!path(root.path()).exists());
 }
 
 #[test]
@@ -335,4 +349,141 @@ fn a_released_core_does_not_put_its_file_back() {
     assert!(owned.release("inst-1").unwrap());
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists());
+}
+
+#[test]
+fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    let document = running_discovery("owner", CoreState::Serving);
+    owned.publish(&document).unwrap();
+    for bytes in [b"{}".as_slice(), b"{broken", b"{\"pid\":0}", b"null"] {
+        std::fs::write(path(root.path()), bytes).unwrap();
+        wait_until("overwritten discovery", || {
+            std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner"))
+        });
+    }
+    let bytes = format!("{{\"pid\":\"{}\",\"other\":\"\\ud800\"}}", document.pid);
+    std::fs::write(path(root.path()), &bytes).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(std::fs::read_to_string(path(root.path())).unwrap(), bytes);
+}
+
+#[test]
+fn a_blocked_contender_does_not_compete_with_the_owner_or_restore_a_deleted_file() {
+    let root = tempfile::tempdir().unwrap();
+    let owner = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    let contender = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    let real = running_discovery("owner", CoreState::Serving);
+    owner.publish(&real).unwrap();
+    let mut blocked = real.clone();
+    blocked.pid += 1;
+    blocked.core.instance_id = "blocked".into();
+    blocked.core.state = CoreState::Blocked;
+    contender.publish(&blocked).unwrap();
+    wait_until("owner reclaim", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
+    std::fs::remove_file(path(root.path())).unwrap();
+    wait_until("owner republish", || {
+        std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner"))
+    });
+    owner.release("owner").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!path(root.path()).exists(), "blocked contender must not take the discovery file");
+}
+
+#[test]
+fn dropping_the_watch_cannot_resurrect_discovery() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    owned.publish(&running_discovery("owner", CoreState::Serving)).unwrap();
+    drop(owned);
+    std::fs::remove_file(path(root.path())).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!path(root.path()).exists());
+}
+
+/// Invoked only by the isolated launcher integration below. This is a test
+/// process publishing fake endpoints, not a daemon/core/profile.
+#[test]
+#[ignore = "private helper for ensure_core_reattaches_after_discovery_republication"]
+fn discovery_owned_child() {
+    let Some(root) = std::env::var_os("MIXDOG_DISCOVERY_TEST_ROOT") else { return };
+    let root = PathBuf::from(root);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let owned = OwnedDiscovery::start(root.clone());
+    let document = running_discovery("isolated-owned-child", CoreState::Serving);
+    let mut published = false;
+    while std::time::Instant::now() < deadline && !root.join("stop").exists() {
+        if !published && root.join("start").exists() {
+            owned.publish(&document).unwrap();
+            published = true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    owned.release(&document.core.instance_id).unwrap();
+}
+
+/// Opt-in root validation: the actual ensureCore function launches the fake
+/// owned child through its injected launch port, then attaches again after
+/// deleting/recovering daemon.json. Neither launchCore nor a real core is used.
+#[test]
+#[ignore = "runs an owned test child and Node against an isolated temporary runtime"]
+#[allow(clippy::disallowed_types, reason = "only owned, self-terminating test helpers; no product process")]
+fn ensure_core_reattaches_after_discovery_republication() {
+    use std::process::{Command, Stdio};
+    let root = tempfile::tempdir().unwrap();
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "discovery::tests::discovery_owned_child", "--ignored", "--nocapture"])
+        .env("MIXDOG_DISCOVERY_TEST_ROOT", root.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().expect("owned test child");
+    let expected_pid = child.id();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
+    let script = r#"
+import {pathToFileURL} from 'node:url';
+import {readFile,writeFile,unlink} from 'node:fs/promises';
+import {join} from 'node:path';
+const {ensureCore}=await import(pathToFileURL(process.env.MIXDOG_DISCOVERY_TEST_ENSURE));
+const root=process.env.MIXDOG_DISCOVERY_TEST_ROOT;
+const file=join(root,'daemon.json');
+let launches=0;
+const readDiscovery=async()=>{try{const d=JSON.parse(await readFile(file,'utf8'));return {pid:d.pid,state:d.core.state,rpcPort:d.core.rpc?.port,blocked:d.core.blocked};}catch(e){if(e.code==='ENOENT')return null;throw e;}};
+const launch=async()=>{if(++launches!==1)throw Error('a second core was launched');await writeFile(join(root,'start'),'');return null;};
+try {
+ const first=await ensureCore({readDiscovery,launch,readyTimeoutMs:5000});
+ await unlink(file);
+ const deadline=Date.now()+5000;
+ while(!(await readDiscovery())) {if(Date.now()>deadline)throw Error('discovery was not restored');await new Promise(r=>setTimeout(r,10));}
+ const second=await ensureCore({readDiscovery,launch,readyTimeoutMs:2000});
+ if(first.pid!==second.pid||first.pid!==Number(process.env.MIXDOG_DISCOVERY_TEST_PID)||launches!==1||second.state!=='serving')throw Error('same-PID attach failed');
+ console.log(JSON.stringify({pid:second.pid,launches,state:second.state}));
+} finally {await writeFile(join(root,'stop'),'');}
+"#;
+    let mut node = Command::new("node");
+    node.args(["--input-type=module", "--eval", script])
+        .env("MIXDOG_DISCOVERY_TEST_ROOT", root.path())
+        .env("MIXDOG_DISCOVERY_TEST_PID", expected_pid.to_string())
+        .env("MIXDOG_DISCOVERY_TEST_ENSURE", repo.join("packages/protocol-client/src/launch/ensure-core.mjs"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        node.creation_flags(0x08000000);
+    }
+    let result = node.output();
+    // The helper returns on this marker, including a failed Node start. No process is killed.
+    std::fs::write(root.path().join("stop"), b"").unwrap();
+    let child_status = child.wait().unwrap();
+    let output = result.expect("Node harness");
+    assert!(child_status.success(), "owned helper failed");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["pid"], expected_pid);
+    assert_eq!(answer["launches"], 1);
 }
