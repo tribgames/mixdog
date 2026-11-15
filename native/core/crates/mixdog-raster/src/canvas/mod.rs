@@ -48,6 +48,7 @@ use tiny_skia::Stroke;
 use tiny_skia::StrokeDash;
 use tiny_skia::Transform;
 
+mod analytic;
 mod glyph;
 pub mod image_data;
 pub mod paint;
@@ -198,12 +199,64 @@ fn style_of(state: &State, ink: Ink) -> &Style {
     }
 }
 
+/// Fills a rectangle given in user space the way `drawRect` does (the exact area of each pixel it covers, nothing held to a
+/// quarter of a pixel as the edges of a path are).
+fn fill_rect_user(pixmap: &mut Pixmap, state: &State, rect: Rect) {
+    let style = style_of(state, Ink::Fill);
+    let Some(paint) = build_paint(state, style) else { return };
+    let Some(mask) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
+    pixmap.fill_path(&PathBuilder::from_rect(rect), &paint, FillRule::Winding, state.transform, mask.get());
+}
+
 /// Fills `path` given in the user space of `state.transform`.
 fn fill_user(pixmap: &mut Pixmap, state: &State, ink: Ink, path: &Path, rule: FillRule) {
     let style = style_of(state, ink);
     let Some(paint) = build_paint(state, style) else { return };
     let Some(mask) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
-    pixmap.fill_path(path, &paint, rule, state.transform, mask.get());
+    let Some(device) = path.clone().transform(state.transform) else { return };
+    let mut paint = paint;
+    paint.shader.transform(state.transform);
+    fill_analytic(pixmap, &paint, &device, rule, mask.get());
+}
+
+thread_local! {
+    /// The coverage of the fill in progress, a canvas-sized mask kept between fills (only the pixels a fill touched are cleared).
+    static COVERAGE: std::cell::RefCell<Option<Mask>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Fills `path` (device points) with Skia's analytic anti-aliasing (`analytic`): the exact area of each pixel is the coverage,
+/// cut by `cut` (the clip) and used as the mask of one fill of the paint over the pixels the path touches.
+fn fill_analytic(pixmap: &mut Pixmap, paint: &Paint, path: &Path, rule: FillRule, cut: Option<&Mask>) {
+    if !paint.anti_alias {
+        pixmap.fill_path(path, paint, rule, Transform::identity(), cut);
+        return;
+    }
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let Some(raster) = analytic::coverage(path, rule, width as usize, height as usize) else { return };
+    let Some(area) = Rect::from_ltrb(raster.left as f32, raster.top as f32, (raster.left + raster.width) as f32, (raster.top + raster.height) as f32) else { return };
+    COVERAGE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.as_ref().is_none_or(|mask| mask.width() != width || mask.height() != height) {
+            *slot = Mask::new(width, height);
+        }
+        let Some(mask) = slot.as_mut() else { return };
+        let stride = width as usize;
+        for row in 0..raster.height {
+            let at = (raster.top + row) * stride + raster.left;
+            let line = &mut mask.data_mut()[at..at + raster.width];
+            line.copy_from_slice(&raster.data[row * raster.width..(row + 1) * raster.width]);
+            if let Some(cut) = cut {
+                for (value, keep) in line.iter_mut().zip(&cut.data()[at..at + raster.width]) {
+                    *value = multiply(*value, *keep);
+                }
+            }
+        }
+        pixmap.fill_rect(area, paint, Transform::identity(), Some(&*mask));
+        for row in 0..raster.height {
+            let at = (raster.top + row) * stride + raster.left;
+            mask.data_mut()[at..at + raster.width].fill(0);
+        }
+    });
 }
 
 /// Paints text: the outlines of the glyphs on the device. The coverage is the area FreeType's rasteriser leaves for the glyphs
@@ -274,7 +327,7 @@ fn fill_device(pixmap: &mut Pixmap, state: &State, path: &Path, rule: FillRule) 
     let Some(mut paint) = build_paint(state, &state.fill) else { return };
     paint.shader.transform(state.transform);
     let Some(mask) = draw_mask(state, &state.fill, pixmap.width(), pixmap.height()) else { return };
-    pixmap.fill_path(path, &paint, rule, Transform::identity(), mask.get());
+    fill_analytic(pixmap, &paint, path, rule, mask.get());
 }
 
 fn make_stroke(state: &State) -> Stroke {
@@ -667,7 +720,7 @@ impl Canvas {
         }
         let (x, y, width, height) = normalised(x, y, width, height);
         if let Some(rect) = Rect::from_xywh(x, y, width, height) {
-            self.draw_with(|pixmap, state| fill_user(pixmap, state, Ink::Fill, &PathBuilder::from_rect(rect), FillRule::Winding));
+            self.draw_with(|pixmap, state| fill_rect_user(pixmap, state, rect));
         }
     }
 
