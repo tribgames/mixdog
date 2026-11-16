@@ -37,6 +37,7 @@
     "LICENSES/",
     "scripts/",
     "!scripts/**/target/**",
+    "!scripts/gen-session-method-args.mjs",
     "!scripts/bench/",
     "!scripts/recall-bench-*.txt",
     "!scripts/*-test.mjs",
