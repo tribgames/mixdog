@@ -971,6 +971,7 @@ impl ProxyRunner {
     /// `modelProxy/run`: one call of a server core, on this PC's provider of the same name. `allowed` is the
     /// list the asking host may use (`ModelProxyRunParams::allowed_providers`); a provider outside it is neither
     /// named in the config answer nor reachable by any call.
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     pub async fn run(&self, call: w::ProxyCall, allowed: Option<&[String]>, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
         // A call given up reads nothing of this PC's (`signal.throwIfAborted()`, model-proxy-host.ts `execute`).
         if cancel.is_cancelled() {
@@ -1064,6 +1065,7 @@ impl ProxyRunner {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     async fn adapter(&self, name: &str) -> Result<Arc<dyn p::ProviderAdapter>, w::ProxyFailure> {
         self.providers
             .adapter(name)
@@ -1096,6 +1098,7 @@ fn execution_error(error: ProxyError) -> SendError {
 /// A proxied send, the server end of `ModelBroker::send`: the stored attachments the request
 /// carries are inlined (newest first, under one byte budget), the call goes to the PC, and the
 /// events of each attempt reach `sink`. Returns the attempts the PC's broker made.
+#[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
 pub async fn remote_send(
     transport: &dyn ModelProxyTransport,
     attachments: &dyn AttachmentReader,
@@ -1140,6 +1143,7 @@ pub struct ProxyListing<T: ModelProxyTransport> {
 }
 
 impl<T: ModelProxyTransport> ProxyListing<T> {
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     async fn ask(&self, refresh: bool) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
         let call = serde_json::to_value(w::ProxyCall::ListModels { provider: self.provider.clone(), refresh })
             .map_err(|e| transient(&e.to_string(), p::DeliveryState::NotSent))?;
@@ -1156,6 +1160,7 @@ impl<T: ModelProxyTransport> ProxyListing<T> {
     }
 
     /// `listModels`: the PC's cached catalog.
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     pub async fn cached(&self) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
         self.ask(false).await
     }
