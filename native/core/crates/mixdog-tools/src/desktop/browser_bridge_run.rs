@@ -172,6 +172,7 @@ impl BridgeApprovals {
 
     /// A schedule or webhook run (and the work it started) never asks: saving the routine was the user's grant. The bot that owns
     /// the run still blocks (an operator `confirm` always asks and a payment is refused, both in `ask`).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
     async fn unattended(&self, prompt: &BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
         let owner = js_trim(&prompt.unattended_agent);
         if owner.is_empty() {
@@ -417,7 +418,7 @@ impl BrowserBridgeRun {
     async fn dispatch(&self, command: &Map<String, Value>, session: &str, run: u64, cancel: &CancellationToken) -> Outcome {
         let mut input = command.clone();
         for key in RUNTIME_FIELDS {
-            input.remove(key);
+            input.shift_remove(key);
         }
         if command.contains_key("internalStep") {
             return Err(Fail::plain("internalStep is not a bridge input"));

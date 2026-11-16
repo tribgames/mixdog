@@ -130,13 +130,13 @@ pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
     let ComputerInputs { env, paths, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, cancel } = inputs;
     presence.helper_resolvable.store(paths.resolve(NativeTool::Computer).await.is_some(), Ordering::SeqCst);
     let host_blobs: Arc<dyn ComputerBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
-    let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs));
+    let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs), tokens.interactive_io);
     let pool = paths.computer_sessions(manager.clone(), wrap, publisher, settings).await;
     if let Some(pool) = &pool {
         // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
         pool.attach_desktop(presence.host.clone());
     }
-    follow_gnome_extension(config, manager, cancel);
+    follow_gnome_extension(config, manager, tokens.interactive_io, cancel);
     #[cfg(feature = "test-hooks")]
     let dev = pool.as_ref().and_then(|pool| crate::dev_computer::DevComputerRun::if_enabled(&*env, pool.clone(), pool.clone(), blobs, tokens));
     #[cfg(not(feature = "test-hooks"))]
@@ -165,7 +165,7 @@ impl Composed {
 
 /// GNOME window control comes from Mixdog's own shell extension: it is kept installed and enabled exactly while Computer Use is on
 /// (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
-fn follow_gnome_extension(config: Config, manager: Arc<dyn ProcessManager>, cancel: CancellationToken) {
+fn follow_gnome_extension(config: Config, manager: Arc<dyn ProcessManager>, io: InteractiveIo, cancel: CancellationToken) {
     tokio::spawn(async move {
         use mixdog_tools::desktop::computer_gnome_extension::apply_gnome_extension;
         use mixdog_tools::desktop::computer_gnome_extension::bundled_dir;
@@ -175,7 +175,8 @@ fn follow_gnome_extension(config: Config, manager: Arc<dyn ProcessManager>, canc
         loop {
             let enabled = config.desktop_settings().computer_control;
             let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
-            apply_gnome_extension(manager.clone(), enabled, &env, bundled_dir(&env, &exe_dir).as_deref(), &cancel).await;
+            let bundled = bundled_dir(io, &env, &exe_dir).await;
+            apply_gnome_extension(manager.clone(), io, enabled, &env, bundled.as_deref(), &cancel).await;
             if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
                 break;
             }

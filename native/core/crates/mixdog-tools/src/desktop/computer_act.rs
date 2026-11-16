@@ -522,7 +522,8 @@ impl ProcessComputerBackend {
             row.insert("stage".into(), json!("cursor_preparation"));
             row.insert("code".into(), json!(prepared.code()));
             row.insert("ok".into(), json!(prepared.code() == "ready"));
-            files.diagnose(&self.config.session_id, &row);
+            let (files, session) = (files.clone(), self.config.session_id.clone());
+            let _ = super::computer_io::run(self.io, move || files.diagnose(&session, &row)).await;
         }
         if cancel.is_cancelled() { Err(ComputerError::Cancelled) } else { Ok(()) }
     }

@@ -159,11 +159,11 @@ fn input_report(probe: &Probe) -> Map<String, Value> {
     report.insert("ready".into(), json!(ready));
     report.insert("observer_ready".into(), json!(flag("observer_ready")));
     report.insert("desktop_ready".into(), json!(flag("desktop_ready")));
-    if !ready && ok {
-        if let Some((cause, reason)) = observer_cause(result) {
-            report.insert("cause".into(), json!(cause));
-            report.insert("reason".into(), json!(reason));
-        }
+    if !ready && ok
+        && let Some((cause, reason)) = observer_cause(result)
+    {
+        report.insert("cause".into(), json!(cause));
+        report.insert("reason".into(), json!(reason));
     }
     report.insert("input_held".into(), match result.get("held") {
         Some(held @ Value::Bool(_)) => held.clone(),

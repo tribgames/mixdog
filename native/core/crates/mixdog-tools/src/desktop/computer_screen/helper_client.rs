@@ -15,6 +15,11 @@
 //!   while no other connect has taken its place. (Node at b6f10295a let a late close of an earlier socket end the
 //!   current session; fixed on both sides, `node-fix-helper-stale-socket.patch`.)
 
+// Private names for unchanged callback/state shapes.
+type ConnectedPipe = Result<(Arc<dyn HelperPipe>, ClientSession), String>;
+type PendingDial = (Box<dyn FnOnce() + Send>, oneshot::Sender<()>);
+type DialLink = dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync;
+
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -79,7 +84,7 @@ pub(super) trait PipeEvents: Send + Sync {
 /// A connect under way: the authenticated pipe and the helper's hello once it is made, and how to give it up before
 /// (Node's `connection.end()` during the handshake). A connection made after it was given up is dropped with `done`.
 pub(super) struct Dialing {
-    pub done: BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>>,
+    pub done: BoxFuture<ConnectedPipe>,
     pub abort: Box<dyn FnOnce() + Send>,
 }
 
@@ -97,7 +102,7 @@ struct State {
     /// Set from the start of a connect until the connection ends.
     connecting: bool,
     /// The connect under way: how to give it up, and its wait, told when it is given up.
-    dialing: Option<(Box<dyn FnOnce() + Send>, oneshot::Sender<()>)>,
+    dialing: Option<PendingDial>,
     /// The number of the latest connect: while `connecting`, the client's connection.
     dials: u64,
     pipe: Option<Arc<dyn HelperPipe>>,
@@ -306,6 +311,7 @@ impl HelperClient {
     }
 
     /// The authenticated session, `None` when not connected.
+    #[cfg(test)]
     pub(super) fn client_session(&self) -> Option<ClientSession> {
         self.inner.state().session.clone()
     }
@@ -413,7 +419,7 @@ impl HelperService for HelperClient {
                 state.connecting = false;
                 drop(state);
                 abort();
-                drop(give_up.send(()));
+                let _ = give_up.send(());
                 return;
             }
             state.pipe.clone()
@@ -451,7 +457,7 @@ impl HelperService for HelperClient {
 /// and the pipe handle with it, when the pipe is ended, when the client is gone, or when the connect was given up.
 pub(super) struct LinkConnector {
     available: Arc<dyn Fn() -> bool + Send + Sync>,
-    dial: Arc<dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync>,
+    dial: Arc<DialLink>,
     timers: Arc<dyn Timers>,
 }
 
@@ -512,7 +518,7 @@ impl LinkConnector {
 
     /// Test only: a connector over `dial`, which runs on the owner thread as the real handshake does.
     #[cfg(test)]
-    pub(super) fn with(dial: Arc<dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync>, timers: Arc<dyn Timers>) -> Self {
+    pub(super) fn with(dial: Arc<DialLink>, timers: Arc<dyn Timers>) -> Self {
         Self { available: Arc::new(|| true), dial, timers }
     }
 }

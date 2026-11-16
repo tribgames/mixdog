@@ -392,7 +392,13 @@ fn receipt_path(ledger: &Path) -> PathBuf {
     ledger.with_extension("receipt")
 }
 
+#[allow(clippy::disallowed_methods, reason = "Only called from the awaited resident InteractiveIo filesystem job")]
+fn create_ledger_folder(folder: &Path) { let _ = std::fs::create_dir_all(folder); }
+#[allow(clippy::disallowed_methods, reason = "Only called from an awaited recovery InteractiveIo job after cleanup confirmed")]
+fn remove_recovered_file(path: &Path) { let _ = std::fs::remove_file(path); }
+
 /// Whether no process has `path` open: a receipt a live helper keeps open is not a leftover.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Production caller is the awaited sweep_leftover_ledgers InteractiveIo filesystem job")]
 fn unclaimed(path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -407,6 +413,7 @@ fn unclaimed(path: &Path) -> bool {
 
 /// The receipts in `folder` that a dead core left holding something, with the input marker their name carries. A receipt that
 /// holds nothing (its header words, state and count, are zero) is removed here; one still open somewhere is left alone.
+#[allow(clippy::disallowed_methods, reason = "Production caller is the awaited sweep_leftover_ledgers InteractiveIo filesystem job")]
 fn leftover_receipts(folder: &Path) -> Vec<(PathBuf, Option<u32>)> {
     let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
     let mut found = Vec::new();
@@ -427,6 +434,16 @@ fn leftover_receipts(folder: &Path) -> Vec<(PathBuf, Option<u32>)> {
     found
 }
 
+/// The caller holds the sweep permit. A queued/rejected/dropped scan must not
+/// mark this data directory swept: no recovery has run yet. After a scan finishes,
+/// claim before the first replay await, preserving the old replay-cancellation rule.
+async fn scan_before_claim<T>(paths: &Mutex<std::collections::HashSet<PathBuf>>, path: &Path, scan: impl std::future::Future<Output = Result<T, String>>) -> Option<T> {
+    if locked(paths).contains(path) { return None; }
+    let scanned = scan.await.ok()?;
+    locked(paths).insert(path.to_path_buf());
+    Some(scanned)
+}
+
 /// The process id in the name of a script an older build published for its PowerShell host (`computer-host-<pid>-<hex>.ps1`).
 fn retired_script_pid(name: &str) -> Option<u32> {
     let (pid, tail) = name.strip_prefix("computer-host-")?.strip_suffix(".ps1")?.split_once('-')?;
@@ -438,6 +455,7 @@ fn retired_script_pid(name: &str) -> Option<u32> {
 /// Removes what the retired PowerShell host left in the data folder (`host-script.ts` `removeOrphanedScripts` and its cache
 /// pruning, which no longer run): scripts whose process is gone, and the compiled-assembly cache `host-cache`. A script of a
 /// process that still lives, and a file something still holds, stay.
+#[allow(clippy::disallowed_methods, reason = "Production caller is the awaited sweep_leftover_ledgers InteractiveIo filesystem job")]
 fn sweep_retired_host_files(data: &Path) {
     for entry in std::fs::read_dir(data).into_iter().flatten().filter_map(Result::ok) {
         let name = entry.file_name();
@@ -548,7 +566,8 @@ pub struct ProcessComputerBackend {
     /// The windows this session has been told about, which the next command names the newcomers to.
     pub(super) arrivals: computer_settle::Arrivals,
     /// The run history, failure bundles and frame files under the data directory; `None` without one.
-    pub(super) files: Option<DataFiles>,
+    pub(super) files: Option<Arc<DataFiles>>,
+    pub(super) io: Option<mixdog_rt::InteractiveIo>,
     /// The `capture_attempts` a failed capture's helper reply carried, kept for the run record of the command that failed
     /// (`attachCaptureAttempts`, `captureAttemptsFromError`); taken by `keep_record`.
     failed_capture_attempts: Mutex<Option<Value>>,
@@ -632,20 +651,31 @@ impl ProcessComputerBackend {
 
     fn close_execution(&self) -> bool {
         let was_open = self.executing.swap(false, Ordering::SeqCst);
-        if was_open {
-            if let Some(observer) = &self.observer {
-                observer.ended();
-            }
+        if was_open
+            && let Some(observer) = &self.observer
+        {
+            observer.ended();
         }
         was_open
     }
 
     /// The helper runs under `manager`; it starts on the first action and restarts after a
     /// timeout or cancellation.
+    #[cfg(not(test))]
+    pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>, io: mixdog_rt::InteractiveIo) -> Self {
+        Self::create(config, manager, Some(io))
+    }
+
+    #[cfg(test)]
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
+        Self::create(config, manager, None)
+    }
+
+    fn create(config: ComputerConfig, manager: Arc<dyn ProcessManager>, io: Option<mixdog_rt::InteractiveIo>) -> Self {
         Self {
             observer: None,
-            files: config.data_dir.as_deref().map(DataFiles::under),
+            files: config.data_dir.as_deref().map(|dir| Arc::new(DataFiles::under(dir))),
+            io,
             config,
             manager,
             host: Mutex::new(None),
@@ -885,9 +915,9 @@ impl ProcessComputerBackend {
 
     /// The resident helper, which reads requests from stdin. The ledger's folder is made first (`newPath` in
     /// `worker-ledgers.ts`): the helper opens the ledger without creating folders, and holds nothing it cannot record.
-    fn resident(&self, bounds: Option<(String, String)>) -> Result<SpawnRequest, ComputerError> {
+    async fn resident(&self, bounds: Option<(String, String)>) -> Result<SpawnRequest, ComputerError> {
         if let Some(folder) = self.config.data_dir.as_deref().map(computer_env::ledger_folder) {
-            let _ = std::fs::create_dir_all(folder);
+            let _ = super::computer_io::run(self.io, move || create_ledger_folder(&folder)).await;
         }
         self.request(Vec::new(), true, bounds.into_iter().collect())
     }
@@ -914,7 +944,7 @@ impl ProcessComputerBackend {
         self.sweep_leftover_ledgers().await;
         // A new process is refused while the cap of live ones is reached (`assertComputerWorkerCapacity`, `worker-pool.ts:182`).
         self.shared.live.assert_room()?;
-        let request = self.resident(self.desktop_bounds().await)?;
+        let request = self.resident(self.desktop_bounds().await).await?;
         let handle = request.handle.clone();
         let live = self.shared.live.hold();
         let spawned = self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
@@ -1059,16 +1089,23 @@ impl ProcessComputerBackend {
     /// process, before the first helper starts: later ledgers there belong to helpers of this process. One that was not
     /// confirmed stays for the next start.
     async fn sweep_leftover_ledgers(&self) {
-        static SWEPT: std::sync::OnceLock<tokio::sync::Mutex<std::collections::HashSet<PathBuf>>> = std::sync::OnceLock::new();
+        struct Sweeps { paths: Mutex<std::collections::HashSet<PathBuf>>, turn: Arc<tokio::sync::Semaphore> }
+        static SWEPT: std::sync::OnceLock<Sweeps> = std::sync::OnceLock::new();
         let Some(data) = self.config.data_dir.as_deref() else { return };
-        let mut swept = SWEPT.get_or_init(Default::default).lock().await;
-        if !swept.insert(data.to_path_buf()) {
-            return;
-        }
-        sweep_retired_host_files(data);
-        let folder = computer_env::ledger_folder(data);
-        let mut receipts = leftover_receipts(&folder);
-        for (path, marker) in computer_env::leftover_ledgers(&folder) {
+        let swept = SWEPT.get_or_init(|| Sweeps { paths: Mutex::default(), turn: Arc::new(tokio::sync::Semaphore::new(1)) });
+        let turn = Arc::new(swept.turn.clone().acquire_owned().await.expect("the private sweep gate is never closed"));
+        let scan_turn = turn.clone();
+        let path = data.to_path_buf();
+        let data = path.clone();
+        let Some((mut receipts, ledgers)) = scan_before_claim(&swept.paths, &path, super::computer_io::run(self.io, move || {
+            // A dropped scan future cannot release serialization while its file
+            // job is still running; the next sweep waits for these operations.
+            let _turn = scan_turn;
+            sweep_retired_host_files(&data);
+            let folder = computer_env::ledger_folder(&data);
+            (leftover_receipts(&folder), computer_env::leftover_ledgers(&folder))
+        })).await else { return };
+        for (path, marker) in ledgers {
             let mut abort = vec![("MIXDOG_ABORT_LEDGERS".to_owned(), path.to_string_lossy().into_owned())];
             let receipt = receipt_path(&path);
             let kept = receipts.iter().position(|(found, _)| *found == receipt).map(|at| receipts.remove(at).0);
@@ -1076,16 +1113,16 @@ impl ProcessComputerBackend {
                 abort.push((RECEIPT_FILE_ENV.to_owned(), receipt.to_string_lossy().into_owned()));
             }
             if self.replay(abort, marker).await {
-                let _ = std::fs::remove_file(&path);
-                if let Some(receipt) = kept {
-                    let _ = std::fs::remove_file(receipt);
-                }
+                let _ = super::computer_io::run(self.io, move || {
+                    remove_recovered_file(&path);
+                    if let Some(receipt) = kept { remove_recovered_file(&receipt); }
+                }).await;
             }
         }
         // What a core that died with a key held left, whose window ledger is gone or never was.
         for (path, marker) in receipts {
             if self.replay(vec![(RECEIPT_FILE_ENV.to_owned(), path.to_string_lossy().into_owned())], marker).await {
-                let _ = std::fs::remove_file(&path);
+                let _ = super::computer_io::run(self.io, move || remove_recovered_file(&path)).await;
             }
         }
     }
@@ -1511,7 +1548,7 @@ impl ProcessComputerBackend {
         let started = Instant::now();
         *locked(&self.failed_capture_attempts) = None;
         let outcome = self.run_command(command, asked_mode, note, &cancel).await;
-        self.keep_record(&logged, started, &outcome);
+        self.keep_record_io(&logged, started, &outcome).await;
         outcome
     }
 
@@ -1521,10 +1558,10 @@ impl ProcessComputerBackend {
         self.bound.store(true, Ordering::SeqCst);
         self.shared.lane.claim(&self.config.session_id);
         let observe_only = self.observe_only();
-        if !self.executing.swap(true, Ordering::SeqCst) {
-            if let Some(observer) = &self.observer {
-                observer.began(observe_only);
-            }
+        if !self.executing.swap(true, Ordering::SeqCst)
+            && let Some(observer) = &self.observer
+        {
+            observer.began(observe_only);
         }
         // The host's admission (`command-admission.ts` `assertCommandPreconditions`) checks the live setting first.
         computer_policy::admit(&command, observe_only, &self.frames)?;
@@ -1565,7 +1602,7 @@ impl ProcessComputerBackend {
             "sequence" => self.act(command, cancel).await,
             "capture" => self.capture(command, asked_mode, cancel).await,
             "zoom" => self.zoom(command, cancel).await,
-            "list_history" => Ok(vec![ToolPart::Text(self.history(&issued).to_string())]),
+            "list_history" => Ok(vec![ToolPart::Text(self.history(&issued).await.to_string())]),
             "wait_for_user" => control.wait_for_user(self, &command, cancel).await,
             "fill_saved_login" => Err(unsupported("saved_login needs the desktop host's secret store")),
             "verify" => computer_verify::run(self, command, cancel).await,
@@ -1593,20 +1630,17 @@ impl ProcessComputerBackend {
 
     /// `list kind="history"`: the session's most recent run records, newest last (`readComputerRunRecords`); a backend with no data
     /// directory keeps none.
-    fn history(&self, command: &Map<String, Value>) -> Value {
-        match &self.files {
-            Some(files) => files.runs.history(&self.config.session_id, history_limit(command.get("limit"))),
-            None => json!({ "history": [], "returned": 0 }),
-        }
+    async fn history(&self, command: &Map<String, Value>) -> Value {
+        let Some(files) = self.files.clone() else { return json!({ "history": [], "returned": 0 }) };
+        let (session, limit) = (self.config.session_id.clone(), history_limit(command.get("limit")));
+        super::computer_io::run(self.io, move || files.runs.history(&session, limit)).await.unwrap_or_else(|_| json!({ "history": [], "returned": 0 }))
     }
 
     /// The line a finished command leaves in the run history and the row it adds to the session's failure bundle
     /// (`appendComputerRunRecord`, `recordDiagnostic` of `command-attempt.ts`). Neither ever decides the command's outcome.
-    fn keep_record(&self, command: &Map<String, Value>, started: Instant, outcome: &Result<Vec<ToolPart>, ComputerError>) {
-        let Some(files) = &self.files else { return };
-        let session = &self.config.session_id;
+    fn record_parts(&self, command: &Map<String, Value>, started: Instant, outcome: &Result<Vec<ToolPart>, ComputerError>) -> (Map<String, Value>, &'static str) {
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-        let (record, stage) = match outcome {
+        match outcome {
             Ok(parts) => {
                 let reply = parts.iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).unwrap_or_default();
                 (run_record(command, elapsed_ms, Some(&RunReply { text: reply, capture_attempts: None })), "completed")
@@ -1623,11 +1657,29 @@ impl ProcessComputerBackend {
                 }
                 (record, "execution")
             }
-        };
-        files.runs.append(session, record.clone());
+        }
+    }
+
+    #[cfg(test)]
+    fn keep_record(&self, command: &Map<String, Value>, started: Instant, outcome: &Result<Vec<ToolPart>, ComputerError>) {
+        let Some(files) = &self.files else { return };
+        let (record, stage) = self.record_parts(command, started, outcome);
+        files.runs.append(&self.config.session_id, record.clone());
         let mut row = record;
         row.insert("stage".into(), json!(stage));
-        files.diagnose(session, &row);
+        files.diagnose(&self.config.session_id, &row);
+    }
+
+    async fn keep_record_io(&self, command: &Map<String, Value>, started: Instant, outcome: &Result<Vec<ToolPart>, ComputerError>) {
+        let Some(files) = self.files.clone() else { return };
+        let (record, stage) = self.record_parts(command, started, outcome);
+        let session = self.config.session_id.clone();
+        let _ = super::computer_io::run(self.io, move || {
+            files.runs.append(&session, record.clone());
+            let mut row = record;
+            row.insert("stage".into(), json!(stage));
+            files.diagnose(&session, &row);
+        }).await;
     }
 
     /// `zoom`: a region of the latest frame, cut from the display the frame was taken of (read through the desktop) or from the
@@ -1640,7 +1692,7 @@ impl ProcessComputerBackend {
         } else {
             computer_zoom::zoom(self, command.clone(), cancel).await?
         };
-        self.keep_image(&command, &mut parts);
+        self.keep_image(&command, &mut parts).await;
         Ok(parts)
     }
 
@@ -1651,16 +1703,22 @@ impl ProcessComputerBackend {
 
     /// `image_output: "file"` (`persistCaptureImage`, `frameReply`): the frame's pixels move to a file the host names beside the
     /// run, and the reply says where. A frame that cannot be written stays in the reply.
-    pub(super) fn keep_image(&self, command: &Map<String, Value>, parts: &mut Vec<ToolPart>) {
+    pub(super) async fn keep_image(&self, command: &Map<String, Value>, parts: &mut Vec<ToolPart>) {
         if text(command, "image_output") != "file" {
             return;
         }
         let Some(files) = &self.files else { return };
         let Some(at) = parts.iter().position(|part| matches!(part, ToolPart::Image { data: ImageData::Bytes(_), .. })) else { return };
-        let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = &parts[at] else { return };
         let Some(frame_id) = parts.iter().find_map(|part| if let ToolPart::Text(shown) = part { frame_id_of(shown) } else { None }) else { return };
-        let Ok(path) = files.images.write(&self.config.session_id, &frame_id, bytes, mime) else { return };
+        let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = &mut parts[at] else { return };
         let (mime, size) = (mime.clone(), bytes.len());
+        let result = {
+            let frame = super::computer_io::FrameBytes::new(bytes);
+            let pixels = frame.share();
+            let (files, session, name, mime) = (files.clone(), self.config.session_id.clone(), frame_id.clone(), mime.clone());
+            super::computer_io::run(self.io, move || files.images.write(&session, &name, pixels.as_slice(), &mime)).await
+        };
+        let Ok(Ok(path)) = result else { return };
         parts.remove(at);
         for part in parts.iter_mut() {
             let ToolPart::Text(shown) = part else { continue };
@@ -1708,6 +1766,30 @@ mod tests {
     /// The text the model reads for a helper that cannot start is Node's, recorded from the real
     /// `child_process.spawn` (`record-computer-spawn-error.mjs`): a missing file and a missing
     /// directory are asynchronous ENOENT with the path; a file that is not an executable is
+    /// A dropped or refused queued scan remains eligible for recovery.
+    #[test]
+    fn a_dropped_or_rejected_pre_recovery_scan_does_not_claim_the_directory() {
+        use std::future::{Future, pending, ready};
+        use std::task::{Context, Poll, Waker};
+        let paths = Mutex::new(std::collections::HashSet::new());
+        let path = Path::new("owned-scan-fixture");
+        let mut context = Context::from_waker(Waker::noop());
+        let mut cancelled = Box::pin(scan_before_claim(&paths, path, pending::<Result<(), String>>()));
+        assert!(matches!(cancelled.as_mut().poll(&mut context), Poll::Pending));
+        drop(cancelled);
+        assert!(!locked(&paths).contains(path));
+        let mut rejected = Box::pin(scan_before_claim(&paths, path, ready(Err::<(), _>("lane admission failed".to_owned()))));
+        assert!(matches!(rejected.as_mut().poll(&mut context), Poll::Ready(None)));
+        drop(rejected);
+        assert!(!locked(&paths).contains(path));
+        let mut scanned = Box::pin(scan_before_claim(&paths, path, ready(Ok::<_, String>(()))));
+        assert!(matches!(scanned.as_mut().poll(&mut context), Poll::Ready(Some(()))));
+        drop(scanned);
+        // Once replay can start, cancellation must keep the same once-per-folder
+        // claim the old synchronous scan established before its first replay await.
+        assert!(locked(&paths).contains(path));
+    }
+
     /// Windows' EFTYPE, thrown without one (the recording is Windows').
     #[test]
     fn a_helper_that_cannot_start_is_worded_as_nodes_spawn_error() {
