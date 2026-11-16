@@ -7,6 +7,50 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { GENERATION, backupProblems, checksFor, findApp, loadVector, markerProblems, missingIds, runChecks, subsetProblems, upgradeEnvironment, vectorDigest } from './upgrade-145.mjs';
+
+test('desktop consumer applies separated false defaults and rejects true or missing config', async () => {
+  const check = checksFor({ expect: { desktopSettings: { computerControl: false, browserControl: false } }, dataDir: 'd' })
+    .find((row) => row.name === 'effective desktop settings');
+  const run = (config) => check.run({ core: { call: async (method, params) => {
+    assert.equal(method, 'config/read');
+    assert.deepEqual(params, { keys: ['agent', 'desktop'] });
+    return { config };
+  } } });
+  await run({ desktop: { defaultsSeparationVersion: 1 } });
+  await assert.rejects(run({ desktop: { computerControl: true } }), /computerControl/);
+  await assert.rejects(run({ desktop: { browserControl: true } }), /browserControl/);
+  await assert.rejects(run({}), /no desktop section/);
+});
+
+test('stored separated defaults require both marker and actual absence', async () => {
+  const check = checksFor({ expect: {
+    storedConfig: { desktop: { defaultsSeparationVersion: 1 }, sentinel: 'retained' },
+    storedConfigAbsent: ['desktop.computerControl', 'desktop.browserControl'],
+  }, dataDir: 'd' }).find((row) => row.name === 'stored configuration sentinels');
+  const run = (desktop, sentinel = 'retained') => check.run({ read: () => ({ desktop, sentinel }) });
+  await run({ defaultsSeparationVersion: 1 });
+  await assert.rejects(run({}), /defaultsSeparationVersion/);
+  await assert.rejects(run({ defaultsSeparationVersion: 1, computerControl: false }), /must be absent/);
+  await assert.rejects(run({ defaultsSeparationVersion: 1, browserControl: true }), /must be absent/);
+  await assert.rejects(run({ defaultsSeparationVersion: 1 }, 'lost'), /sentinel/);
+});
+
+test('notification device checks preserve every preference and require the declared PC default', async () => {
+  const preferences = { migratedAt: 42, overrides: [], devices: { fixture: { scope: 'off' }, pc: { scope: 'all' } } };
+  const check = checksFor({ expect: { notifications: preferences }, dataDir: 'd' })
+    .find((row) => row.name === 'notification preferences');
+  const run = (notifications) => check.run({ core: { call: async () => ({ notifications }) } });
+  await run(structuredClone(preferences));
+  for (const id of ['fixture', 'pc']) {
+    const changed = structuredClone(preferences);
+    changed.devices[id].scope = 'bots';
+    await assert.rejects(run(changed), new RegExp(`devices.${id}`));
+    delete changed.devices[id];
+    await assert.rejects(run(changed), new RegExp(`devices.${id}`));
+  }
+  await assert.rejects(run({ ...preferences, overrides: [1] }), /overrides/);
+  await assert.rejects(run({ ...preferences, devices: { ...preferences.devices, unexpected: {} } }), /unexpected/);
+});
 import { coreConnectionHeaders, isolatedPaths } from '../rust-core/lib/core-session.mjs';
 
 test('findApp: an executable is used as it is, a folder yields its Mixdog executable, otherwise an error', () => {
