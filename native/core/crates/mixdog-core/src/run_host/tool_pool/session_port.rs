@@ -60,12 +60,6 @@ use mixdog_core_session::session::transcript_row;
 
 use super::callers::ThreadCallers;
 use super::session_output::ListPage;
-#[cfg(test)]
-use super::session_output::range_of;
-#[cfg(test)]
-use super::session_output::row_of;
-#[cfg(test)]
-use super::session_output::session_read_output;
 
 mod actions;
 mod bots;
@@ -434,18 +428,6 @@ impl DirectorySessionPort {
 
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
         self.parts.threads.header(thread).await
-    }
-
-    /// `session action=read` (`targetRequest` and `sessionReadOutput`): a window of another session's transcript, counted
-    /// from its newest row, each row quoted with its own text window.
-    #[cfg(test)]
-    async fn read(&self, call: &ControlCall) -> Result<Value, PortError> {
-        let request = actions::target_request(call, "read")?;
-        let target = ThreadId::from(request.id.as_str());
-        self.target_header(&target).await?;
-        let items = self.parts.requests.transcript(&target).await.map_err(core)?;
-        let range = range_of(items.iter().filter_map(row_of).collect(), request.offset as u64, request.limit as u64);
-        session_read_output(&request.id, &range, request.text_offset as usize, request.item_id.as_deref()).map_err(failed)
     }
 
     /// The cross-session actions (`createSessionControl`'s `control`), each request checked as
