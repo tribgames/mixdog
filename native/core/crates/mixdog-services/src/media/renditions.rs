@@ -602,8 +602,17 @@ fn parse_duration_seconds(text: &str) -> i64 {
 /// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
 /// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
 /// a frame over the cap is no rendition.
+type PosterFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>>;
+
+// State the Send boundary explicitly, as memory::transcript::rewrite_lines_file does:
+// inferring it through the lane's higher-ranked job closure fails at the spawning caller.
+// Every captured argument is owned; no filesystem work runs while constructing this future.
+fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> PosterFuture {
+    Box::pin(async move { poster_job(run, resolve, lane, cache_root, variant, id, source).await })
+}
+
 #[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
-async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
+async fn poster_job(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
     if variant != RenditionVariant::Thumb {
         return Ok(None);
     }
