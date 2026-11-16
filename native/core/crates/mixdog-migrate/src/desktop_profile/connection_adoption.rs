@@ -164,6 +164,9 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     };
     validate(&journal)?;
     if journal.complete {
+        // Completion is durable before staging cleanup. A process can stop during any removal,
+        // so a completed journal must resume cleanup before its otherwise-idempotent fast path.
+        durable::remove_dir_all(&data.join(STAGE))?;
         // A first TUI boot can have current stores before an Electron profile is ever named. Only families with NO recorded
         // input may be added later; a settled family's later deletion must never reimport its retained originals.
         let mut extended = false;
