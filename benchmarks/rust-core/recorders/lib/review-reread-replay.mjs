@@ -168,7 +168,20 @@ const connectPhone = async (name, snapshot) => {
   device.socket.serverSend(snapshot);
   await within(`the phone ${name} subscribing to the app feed`, subscribed);
   watchTells(device, (listener) => device.client.store.subscribe(listener));
-  device.sections = createPhoneSections({ start: async () => ({ client: device.client }) }, sectionsSourceFromFoldStore);
+  // PhoneBoot immediately hands the current client to each subscriber. This replay redials the same
+  // ProtocolClient on reconnect; it does not replace the page's client or emit a second handover.
+  const clientListeners = new Set();
+  const boot = {
+    start: async () => ({ client: device.client }),
+    client: () => device.client,
+    onClient: (listener) => {
+      clientListeners.add(listener);
+      if (device.client) listener(device.client);
+      return () => void clientListeners.delete(listener);
+    },
+  };
+  device.releaseBoot = () => clientListeners.clear();
+  device.sections = createPhoneSections(boot, sectionsSourceFromFoldStore);
   device.onSnapshot = (listener) => device.client.store.subscribe(listener);
   return device;
 };
@@ -279,6 +292,9 @@ for (const [index, op] of input.ops.entries()) {
   told.push(toldAtRead);
 }
 await windows.close();
-for (const device of devices.values()) await (device.connection ? device.connection.close() : device.client.close());
+for (const device of devices.values()) {
+  device.releaseBoot?.();
+  await (device.connection ? device.connection.close() : device.client.close());
+}
 // The client library's liveness ticker would keep the process open; the trace is written, so leave once it is flushed.
 process.stdout.write(JSON.stringify({ traces, told }), () => process.exit(0));
