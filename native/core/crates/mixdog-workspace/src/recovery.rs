@@ -1072,15 +1072,13 @@ impl RecoveryStore {
             if discard {
                 let approved = self.inspect_directory(root, &owned, true)?;
                 require_revision(&approved, &revision)?;
-                if !Self::is_retired(&owned) {
-                    if let Ok(record) = self.read_record(&owned) {
-                        if !belongs_to(root, &record.manifest) {
-                            return Err(recovery_err(
-                                "RECOVERY_MANUAL_INSPECTION",
-                                "Recovery record belongs to another project root. Inspect the host recovery folder manually.",
-                            ));
-                        }
-                    }
+                if !Self::is_retired(&owned)
+                    && let Ok(record) = self.read_record(&owned)
+                    && !belongs_to(root, &record.manifest) {
+                    return Err(recovery_err(
+                        "RECOVERY_MANUAL_INSPECTION",
+                        "Recovery record belongs to another project root. Inspect the host recovery folder manually.",
+                    ));
                 }
                 owned = self.retire(&owned)?;
                 self.remove(&owned)?;
