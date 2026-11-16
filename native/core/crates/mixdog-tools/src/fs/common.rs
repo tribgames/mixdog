@@ -93,6 +93,7 @@ pub(crate) fn invalid(field: &str, reason: &str, message: impl Into<String>) -> 
 /// `validateBuiltinArgs`): null and a blank string are absent (the cwd); an array is flattened one level with null and
 /// blank entries dropped, and is absent when that left nothing of a non-empty array; any other value, an array included,
 /// is refused with `refusal(<type>)`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) fn optional_path_arg<'a>(args: &'a JsonValue, key: &str, refusal: impl Fn(&str) -> String) -> Result<Option<&'a str>, ToolError> {
     let blank = |v: &JsonValue| v.is_null() || v.as_str().is_some_and(|s| mixdog_js::js_trim(s).is_empty());
     match args.get(key) {
@@ -171,6 +172,7 @@ pub(crate) fn fs_failure_worded(err: &FsError, shown: &str, text: String) -> Too
 }
 
 /// Runs `fut` until it ends, the call is cancelled, or the deadline passes.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn guarded<F: Future>(
     ctx: &ToolContext,
     name: &str,
@@ -201,6 +203,7 @@ pub(crate) struct WriteLocks {
 /// Node `withBuiltinPathLocks(lockPaths, () => withAdvisoryLocks(lockPaths, …))` of `apply_patch`.
 /// Each target's real location joins the in-process set, the key `edit` holds, so two routes to
 /// one file (a junction and its referent) queue here and never poll the advisory file.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn lock_patch_targets(ctx: &ToolContext, targets: &[AbsPath]) -> Result<WriteLocks, ToolError> {
     let mut keys: Vec<PathBuf> = targets.iter().map(|t| t.as_path().to_path_buf()).collect();
     for target in targets {
@@ -269,6 +272,7 @@ fn guard_real_target(full: &Path) -> Option<String> {
 /// Node `resolveTargetPath` of the edit adapter: the spelling given (normalized) and its
 /// resolution against the cwd each meet `guardWritePath`, then [`guard_real_target`], before
 /// anything else touches the path. A blank spelling is the cwd.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result<AbsPath, ToolError> {
     // A refusal, not malformed arguments: Node's `_isToolArgShapeFailure` does not count it.
     let refuse = |text: String| crate::orch::util::refused("write-path-guard", text);
@@ -306,6 +310,7 @@ const REACHABILITY_DEADLINE: std::time::Duration = std::time::Duration::from_mil
 
 /// Node `assertPathsReachable` of one path: the stat alone is awaited, and only a stat that never answers is refused
 /// (a missing or denied path answered, so the tool words its own error).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn assert_reachable(ctx: &ToolContext, path: &AbsPath) -> Result<(), ToolError> {
     let probe = ctx.files.stat(ctx.io.interactive, path.clone());
     match guarded(ctx, "edit", mixdog_rt::time::timeout(REACHABILITY_DEADLINE, probe)).await? {
@@ -322,6 +327,7 @@ pub(crate) async fn assert_reachable(ctx: &ToolContext, path: &AbsPath) -> Resul
 }
 
 /// [`real_target`] as a job on the interactive lane.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn real_target_on_lane(ctx: &ToolContext, full: &Path) -> Result<Option<PathBuf>, ToolError> {
     let target = full.to_path_buf();
     let job = ctx.io.interactive.submit(&ctx.cancel, move |_| real_target(&target)).map_err(|_| cancelled())?;
@@ -331,6 +337,7 @@ async fn real_target_on_lane(ctx: &ToolContext, full: &Path) -> Result<Option<Pa
 /// The locks `edit` takes: the target and where it really lives, so two routes to one file (a
 /// symlink and its referent) serialize. Once held, the real location is resolved again; a target
 /// that moved while the locks were awaited is refused, as in Node's `withEditTargetLock`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn lock_edit_target(ctx: &ToolContext, target: &AbsPath) -> Result<WriteLocks, ToolError> {
     let unresolved = || invalid("file_path", "unresolvable", "Error: cannot resolve edit target for locking");
     let real = real_target_on_lane(ctx, target.as_path()).await?.ok_or_else(unresolved)?;
@@ -404,6 +411,7 @@ pub(crate) async fn pull_all<T: Send>(
 // ---- paths ----
 
 /// Resolves a model-supplied path against the call's cwd, lexically.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) fn resolve_path(cwd: &AbsPath, raw: &str) -> Result<AbsPath, ToolError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -498,11 +506,11 @@ pub(crate) struct Codec {
 /// `Err(reason)` is the typed `not_text` reason.
 pub(crate) fn decode_text(bytes: &[u8]) -> Result<(String, Codec), String> {
     let utf16 = |body: &[u8], le: bool| -> Result<String, String> {
-        if body.len() % 2 != 0 {
+        if !body.len().is_multiple_of(2) {
             return Err("utf16 body has an odd trailing byte".to_owned());
         }
         let units: Vec<u16> = body
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|p| {
                 if le {
                     u16::from_le_bytes([p[0], p[1]])

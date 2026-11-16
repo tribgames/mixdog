@@ -167,6 +167,7 @@ fn timeout_error(target: &Path, lock_file: &Path, holder: i64) -> ToolError {
     )
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn pause(ctx: &ToolContext, wait: Duration) -> Result<(), ToolError> {
     tokio::select! {
         () = mixdog_rt::time::sleep(wait) => Ok(()),
@@ -174,6 +175,7 @@ async fn pause(ctx: &ToolContext, wait: Duration) -> Result<(), ToolError> {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn read_info(ctx: &ToolContext, lock_file: &Path) -> Result<(LockInfo, bool), ToolError> {
     let file = lock_file.to_path_buf();
     on_lane(ctx, move || {
@@ -185,6 +187,7 @@ async fn read_info(ctx: &ToolContext, lock_file: &Path) -> Result<(LockInfo, boo
 }
 
 /// `acquireAdvisoryLock`, once the lock file is known.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn acquire(ctx: &ToolContext, target: &Path, lock_file: &Path, timeout: Duration, poll: Duration) -> Result<String, ToolError> {
     let token = format!("{}.{}", std::process::id(), &uuid::Uuid::new_v4().simple().to_string()[..16]);
     let deadline = Instant::now() + timeout;
@@ -234,6 +237,7 @@ async fn acquire(ctx: &ToolContext, target: &Path, lock_file: &Path, timeout: Du
 
 /// `withAdvisoryLocks` over `paths`: each distinct path once, in code-point order of its key.
 /// Two paths of one real file share a lock file, which is taken once.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn lock_in(ctx: &ToolContext, dir: &Path, paths: &[&Path], timeout: Duration, poll: Duration) -> Result<Advisory, ToolError> {
     let fold = |p: &Path| {
         let text = p.to_string_lossy().into_owned();
@@ -261,6 +265,7 @@ pub(super) async fn lock_in(ctx: &ToolContext, dir: &Path, paths: &[&Path], time
     Ok(guard)
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn lock(ctx: &ToolContext, paths: &[&Path]) -> Result<Advisory, ToolError> {
     lock_in(ctx, &lock_directory(), paths, TIMEOUT, POLL).await
 }

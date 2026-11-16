@@ -62,6 +62,7 @@ pub(super) fn render(entries: &[NativeEntry]) -> String {
 }
 
 /// Runs the engine on the durability lane. `Err` is the engine's own message.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn run_engine(
     ctx: &ToolContext,
     base: &AbsPath,
@@ -393,6 +394,7 @@ fn probe_route(base: &std::path::Path, full: &std::path::Path) -> (bool, bool) {
 /// Whether Node hands this target to its own codec-preserving writer instead of the engine: a path
 /// outside the base (symlinks resolved) or, for an update, a symlinked leaf. UTF-16 files are
 /// decided by the caller, which has the bytes.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn uses_js_writer(ctx: &ToolContext, base: &AbsPath, abs: &AbsPath, delete: bool) -> Result<bool, ToolError> {
     let (base, full) = (base.as_path().to_path_buf(), abs.as_path().to_path_buf());
     let job = ctx

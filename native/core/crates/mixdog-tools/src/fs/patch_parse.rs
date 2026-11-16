@@ -36,10 +36,9 @@ fn strip_metadata(raw: &str) -> String {
     if let Some(tab) = text.find('\t') {
         text = js_trim_end(&text[..tab]).to_owned();
     }
-    if let Some(quote) = text.chars().next().filter(|c| (*c == '"' || *c == '\'') && text.len() > 1) {
-        if let Some(end) = text[1..].find(quote).map(|e| e + 1) {
-            text = text[1..end].to_owned();
-        }
+    if let Some(quote) = text.chars().next().filter(|c| (*c == '"' || *c == '\'') && text.len() > 1)
+        && let Some(end) = text[1..].find(quote).map(|e| e + 1) {
+        text = text[1..end].to_owned();
     }
     text
 }
@@ -78,10 +77,9 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
     let mut hunk: Option<Hunk> = None;
 
     fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
-        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take()) {
-            if !h.lines.is_empty() {
-                file.hunks.push(h);
-            }
+        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
+            && !h.lines.is_empty() {
+            file.hunks.push(h);
         }
     }
     let start = |files: &mut Vec<Section>, hunk: &mut Option<Hunk>, pending: &mut Vec<String>, kind: Kind, path: String| {
@@ -237,16 +235,15 @@ pub(super) fn salvage_opening(raw: &str) -> String {
     out[0] = "*** Begin Patch".to_owned();
     let mut changed = i > 0 || first != "*** Begin Patch";
     let j = (1..out.len()).find(|j| !js_trim(&out[*j]).is_empty()).unwrap_or(out.len());
-    if let Some(body) = out.get(j).cloned() {
-        if !is_file_header(&body) && !is_end_patch(&body) {
-            if is_unified_body(&body) && !prepared.split('\n').any(is_file_header) {
-                // A unified diff wrapped in a V4A envelope: drop the envelope.
-                return out.iter().enumerate().filter(|(idx, l)| *idx != 0 && !is_end_patch(l)).map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
-            }
-            if let Some(implied) = implied_file_path(&body) {
-                out[j] = format!("*** Update File: {implied}");
-                changed = true;
-            }
+    if let Some(body) = out.get(j).cloned()
+        && !is_file_header(&body) && !is_end_patch(&body) {
+        if is_unified_body(&body) && !prepared.split('\n').any(is_file_header) {
+            // A unified diff wrapped in a V4A envelope: drop the envelope.
+            return out.iter().enumerate().filter(|(idx, l)| *idx != 0 && !is_end_patch(l)).map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+        }
+        if let Some(implied) = implied_file_path(&body) {
+            out[j] = format!("*** Update File: {implied}");
+            changed = true;
         }
     }
     if changed { out.join("\n") } else { raw.to_owned() }
@@ -338,10 +335,9 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
     let mut pending: Vec<String> = Vec::new();
     let mut hunk: Option<Hunk> = None;
     fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
-        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take()) {
-            if file.kind == Kind::Update && !h.lines.is_empty() {
-                file.hunks.push(h);
-            }
+        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
+            && file.kind == Kind::Update && !h.lines.is_empty() {
+            file.hunks.push(h);
         }
     }
     let header_path = |line: &str, prefix: &str| strip_diff_prefix(&normalise_path(&line[prefix.len()..])).to_owned();
@@ -376,10 +372,9 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
         }
         let Some(current) = files.last_mut() else { continue };
         if raw.is_empty() {
-            if current.kind == Kind::Update {
-                if let Some(h) = hunk.as_mut() {
-                    h.lines.push(" ".to_owned());
-                }
+            if current.kind == Kind::Update
+                && let Some(h) = hunk.as_mut() {
+                h.lines.push(" ".to_owned());
             }
             continue;
         }
