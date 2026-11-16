@@ -289,7 +289,7 @@ fn compose(drawn: &DrawnPicture) -> Result<(Vec<u8>, LockedSize), MediaError> {
     let data = picture.pixels.get(rows).ok_or_else(|| invalid("helper rows outside the frame"))?;
     let raster = Raster::bgrx(data, stride, picture.width as usize, picture.height as usize)?;
     let mut pixels = vec![0u8; width * height * 4];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel[3] = 0xff;
     }
     draw(&mut pixels, width, height, &raster, picture.source, picture.target);

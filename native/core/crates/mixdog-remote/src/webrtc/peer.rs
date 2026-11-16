@@ -125,12 +125,12 @@ impl PeerConnectionEventHandler for Handler {
             return;
         };
         let relay = event.candidate.typ == RTCIceCandidateType::Relay;
-        let relay_protocol = relay.then(|| match event.candidate.relay_protocol {
+        let relay_protocol = if relay { Some(match event.candidate.relay_protocol {
             RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
             RTCIceServerTransportProtocol::Tls => Some(RelayProtocol::Tls),
             RTCIceServerTransportProtocol::Udp => Some(RelayProtocol::Udp),
             _ => None,
-        });
+        }) } else { None };
         let url = relay
             .then(|| {
                 Some(event.url.clone())
@@ -396,14 +396,14 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
         } else {
             TransportProtocol::Udp
         },
-        relay_protocol: (local_type == CandidateType::Relay)
-            .then(|| match local.relay_protocol {
+        relay_protocol: if local_type == CandidateType::Relay {
+            match local.relay_protocol {
                 RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
                 RTCIceServerTransportProtocol::Tls => Some(RelayProtocol::Tls),
                 RTCIceServerTransportProtocol::Udp => Some(RelayProtocol::Udp),
                 _ => None,
-            })
-            .flatten(),
+            }
+        } else { None },
         current_round_trip_time_ms: (pair.current_round_trip_time > 0.0)
             .then_some(pair.current_round_trip_time * 1_000.0),
         available_outgoing_bitrate: (pair.available_outgoing_bitrate > 0.0)

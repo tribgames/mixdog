@@ -77,6 +77,12 @@ pub struct Sender {
     handed: HashMap<CarrierId, usize>,
 }
 
+impl Default for Sender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Sender {
     pub fn new() -> Self {
         Self {
@@ -303,10 +309,10 @@ impl Sender {
         }
         for (first, last) in &message.ranges {
             for sequence in (*first).max(self.acked + 1)..=*last {
-                if let Some(entry) = self.retained.get_mut(&sequence) {
-                    if control_sequence > entry.repaired_by {
-                        entry.held = true;
-                    }
+                if let Some(entry) = self.retained.get_mut(&sequence)
+                    && control_sequence > entry.repaired_by
+                {
+                    entry.held = true;
                 }
             }
         }

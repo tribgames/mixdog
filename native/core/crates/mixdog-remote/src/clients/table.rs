@@ -16,6 +16,7 @@ pub const MAX_CLIENTS: usize = 64;
 const HOST_NAME_MAX: usize = 80;
 
 /// How a phone's frames travel once it is authenticated.
+#[allow(clippy::large_enum_variant, reason = "Keep the single-owned fixed channel and replay state inline without an additional legacy connection allocation")]
 enum Link {
     /// The handshake has not completed.
     Pending,
@@ -44,6 +45,7 @@ struct Client {
 }
 
 /// What one frame from a phone amounts to.
+#[allow(clippy::large_enum_variant, reason = "Preserve the public handshake result that moves Channel directly into its transport session without boxing its payload")]
 pub enum Received {
     /// Traffic of the previous leg, or an unrelated hello: dropped, never acted on.
     Dropped,
