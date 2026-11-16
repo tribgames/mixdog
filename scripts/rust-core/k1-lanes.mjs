@@ -130,6 +130,20 @@ export async function lanesFixtures(options = {}) {
 // backend is once per process, so such a test only passes in a process of its own (nextest, or one invocation per
 // test). A lane whose filter selects one of them next to any other test must run under nextest; k1-lanes.test.mjs
 // checks that no lane does today and that this list holds every file that installs one.
+// These installs belong to process entry points, not to libtest cases sharing a
+// backend. The relay twin and Office protocol fixtures launch dedicated helper
+// executables. Keep them explicit and source-checked, rather than excluding a
+// package or every file below src/.
+export const BACKEND_PROCESS_ENTRIES = [
+  'native/core/crates/mixdog-app-server-daemon/src/lib.rs',
+  'native/core/crates/mixdog-cli/src/main.rs',
+  'native/core/crates/mixdog-cli/src/exec/mod.rs',
+  'native/core/crates/mixdog-exthost-worker/src/methods/document_engine.rs',
+  'native/core/crates/mixdog-office-com/src/host/mod.rs',
+  'native/core/crates/mixdog-relay/src/server/mod.rs',
+  'native/core/crates/mixdog-relay/src/server/twin.rs',
+];
+
 export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-app-server-daemon/src/effort_judge_host.rs',
   'native/core/crates/mixdog-app-server-daemon/tests/it/real_executors.rs',
@@ -140,6 +154,7 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-core/tests/check_phase_socket_reuse.rs',
   'native/core/crates/mixdog-ledger/tests/sums_lanes.rs',
   'native/core/crates/mixdog-mcp/tests/it/skill_catalog_suite.rs',
+  'native/core/crates/mixdog-mcp/tests/mcp_list_shape.rs',
   'native/core/crates/mixdog-mcp/tests/output_schema_depth.rs',
   'native/core/crates/mixdog-mcp/tests/output_schema_lane.rs',
   'native/core/crates/mixdog-rt/tests/elastic.rs',
