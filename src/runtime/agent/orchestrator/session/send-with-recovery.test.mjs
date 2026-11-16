@@ -84,6 +84,48 @@ const baseCtx = {
   nextIteration: 1,
 };
 
+test('a thinking signature prefix mismatch repairs persisted replay before retry', async () => {
+  const older = {
+    role: 'assistant',
+    content: 'earlier answer',
+    assistantBlocks: [
+      { type: 'thinking', thinking: 'old reasoning', signature: 'old-signature' },
+      { type: 'text', text: 'earlier answer' },
+    ],
+  };
+  const newer = {
+    role: 'assistant',
+    content: 'latest answer',
+    assistantBlocks: [
+      { type: 'thinking', thinking: 'new reasoning', signature: 'new-signature' },
+      { type: 'text', text: 'latest answer' },
+    ],
+  };
+  const messages = [
+    { role: 'user', content: 'first' },
+    older,
+    { role: 'user', content: 'second' },
+    newer,
+  ];
+  const error = Object.assign(
+    new Error('messages.13.content.0: Invalid `signature` in `thinking` block. Bound to a different conversation.'),
+    { httpStatus: 400 }
+  );
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    provider: { send: async () => Promise.reject(error) },
+    messages,
+    recoveryMessages: messages,
+    opts: {},
+  });
+
+  assert.equal(result.action, 'retry_replay_repair');
+  assert.notEqual(messages[1], older);
+  assert.notEqual(messages[3], newer);
+  assert.deepEqual(messages[1].assistantBlocks, [{ type: 'text', text: 'earlier answer' }]);
+  assert.deepEqual(messages[3].assistantBlocks, [{ type: 'text', text: 'latest answer' }]);
+});
+
 test('a replayed send reports reconnect progress instead of a plain request', async () => {
   const { stages, opts } = recordingOpts();
   const provider = providerEmitting((sendOpts) => sendOpts.onStageChange('requesting'));

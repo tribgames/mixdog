@@ -13,6 +13,7 @@ import {
 } from './messages.mjs';
 import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
 import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
+import { rebindToChangedPrefix } from '../thinking-binding.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
 const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
@@ -123,9 +124,9 @@ function withoutReplay(message) {
   return rest;
 }
 
-// Only the newest assistant message can still need its replay: an in-progress
-// tool loop continues from it. Older replay is dropped at the compaction
-// boundary, which invalidates the prompt-cache prefix anyway.
+// Older replay is dropped before fitting so opaque signatures do not crowd
+// execution evidence out of the budget. The final compacted tail is rebound
+// below as a whole, because changing earlier content invalidates later replay.
 function withoutStaleReplay(messages) {
   const newest = messages.findLastIndex((message) => message?.role === 'assistant');
   return messages.map((message, index) =>
@@ -322,7 +323,7 @@ export function buildExecutionTail(
     };
   }
   return {
-    messages: [...recovery, ...tail],
+    messages: rebindToChangedPrefix([...recovery, ...tail]),
     toolTokens: tokens + executionTokens(recovery),
     toolBudget: budget,
     retainedGroups: kept.size,

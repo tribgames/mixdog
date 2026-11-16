@@ -1,19 +1,18 @@
 // Recovery for an assistant turn whose stored replay blocks the API refuses.
 //
-// Anthropic validates the LATEST assistant message of every request: its
-// consecutive thinking/redacted_thinking blocks must be exactly what the model
-// produced, and no text block may be empty. A turn that violates either rule is
-// rejected deterministically — and because the turn is already persisted, every
-// retry rebuilds the identical body, so the session is unusable for good. The
-// parser no longer produces such a turn (providers/lib/anthropic-replay-blocks.mjs),
-// but transcripts written by earlier builds still carry them, and any future
-// wire shape we have not seen would wedge a session the same way.
+// Anthropic validates thinking replay against the conversation prefix that
+// produced it, not just the newest assistant message. A stale signature or an
+// empty text block is rejected deterministically — and because the transcript
+// is already persisted, every retry rebuilds the same body unless it is repaired.
 //
-// The repair is the one the API documents as safe: drop the opaque reasoning
-// replay from that turn and keep its text and tool calls. Reasoning replay is
-// an optimization; the turn's decisions live in the text/tool_use blocks.
-import { isAnthropicThinkingBlock, isEmptyAnthropicTextBlock } from '../providers/lib/anthropic-replay-blocks.mjs';
+// The repair is the one the API documents as safe: drop opaque reasoning replay
+// from the transcript because a wire-message index cannot safely identify its
+// persisted row after provider lowering. Keep text and tool calls; reasoning
+// replay is an optimization, while decisions live in the text/tool_use blocks.
+import { assistantMessageWithoutThinkingReplay, rebindToChangedPrefix } from './thinking-binding.mjs';
 import { errorHttpStatus as errorStatus } from '../../../shared/err-text.mjs';
+
+export { assistantMessageWithoutThinkingReplay };
 
 function errorText(err) {
   const detail = err?.providerError || err?.responseFailed?.response?.error || null;
@@ -31,48 +30,10 @@ export function isThinkingReplayRejection(err) {
   const text = errorText(err);
   return (
     /blocks in the latest assistant message cannot be modified/i.test(text) ||
-    /text content blocks must be non-empty/i.test(text)
+    /text content blocks must be non-empty/i.test(text) ||
+    /bound to a different conversation/i.test(text) ||
+    /invalid\s+[`'"]?signature[`'"]?\s+in\s+[`'"]?thinking[`'"]?\s+block/i.test(text)
   );
-}
-
-function keepsReplayBlock(block) {
-  return !isAnthropicThinkingBlock(block) && !isEmptyAnthropicTextBlock(block);
-}
-
-function strippedList(list) {
-  if (!Array.isArray(list) || list.length === 0) return null;
-  const kept = list.filter(keepsReplayBlock);
-  return kept.length === list.length ? null : kept;
-}
-
-/**
- * Replay-free copy of one assistant message, or null when it carries nothing
- * the API could have objected to (so the failure is not this message's shape).
- */
-export function assistantMessageWithoutThinkingReplay(message) {
-  if (message?.role !== 'assistant') return null;
-  const next = { ...message };
-  let changed = false;
-
-  const replayItems = Array.isArray(message.providerReplay?.items) ? strippedList(message.providerReplay.items) : null;
-  if (replayItems) {
-    changed = true;
-    // An assistant turn whose ordered replay is now empty has nothing to
-    // replay verbatim; the flattened content/toolCalls lowering takes over.
-    if (replayItems.length) next.providerReplay = { ...message.providerReplay, items: replayItems };
-    else delete next.providerReplay;
-  }
-  const assistantBlocks = strippedList(message.assistantBlocks);
-  if (assistantBlocks) {
-    changed = true;
-    if (assistantBlocks.length) next.assistantBlocks = assistantBlocks;
-    else delete next.assistantBlocks;
-  }
-  if (Array.isArray(message.thinkingBlocks) && message.thinkingBlocks.length) {
-    changed = true;
-    delete next.thinkingBlocks;
-  }
-  return changed ? next : null;
 }
 
 /** The newest assistant turn that still carries replay blocks a repair would
@@ -94,15 +55,20 @@ export function canRepairThinkingReplay(messages) {
 }
 
 /**
- * Repair the newest assistant turn that still carries reasoning replay, in
- * place, so the fix is persisted with the session and the turn cannot poison
- * any later request. Returns the repaired index, or -1 when nothing matched.
+ * Repair all thinking replay made stale by a prefix mismatch, in place, so
+ * the fix is persisted with the session. A trailing open tool round is closed
+ * before stripping, so it cannot be resumed without the thinking it requires.
+ * Returns the first repaired assistant index, or -1 when nothing matched.
  */
 export function repairThinkingReplayInPlace(messages) {
-  const found = newestRepairableAssistant(messages);
-  if (!found) return -1;
-  // Replace the reference (never edit in place): the session store's
-  // delta writer only re-sends messages whose reference changed.
-  messages[found.index] = found.repaired;
-  return found.index;
+  if (!Array.isArray(messages) || !canRepairThinkingReplay(messages)) return -1;
+  const original = messages.slice();
+  const repaired = rebindToChangedPrefix(messages);
+  const repairedIndex = original.findIndex((message, index) => message !== repaired[index]);
+  if (repaired === messages || repairedIndex < 0) return -1;
+  // Replace references rather than editing messages: the session store's
+  // delta writer persists the replay-free copies, plus any round-closing turn.
+  for (let index = 0; index < repaired.length; index += 1) messages[index] = repaired[index];
+  messages.length = repaired.length;
+  return repairedIndex;
 }

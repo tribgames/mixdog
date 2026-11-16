@@ -600,7 +600,38 @@ function assertPaired(messages) {
   );
 }
 
-test('Compact keeps opaque replay only on the newest assistant message', (t) => {
+test('Compact invalidates later Anthropic thinking when it rewrites earlier execution content', (t) => {
+  sandbox(t);
+  const replay = (id, call) => ({
+    version: 1,
+    provider: 'anthropic',
+    items: [
+      { type: 'thinking', thinking: 'Checking the result.', signature: `${id}-signature` },
+      { type: 'tool_use', id, name: 'edit', input: call.toolCalls[0].arguments },
+    ],
+  });
+  const [oldCall, oldResult] = pair('old', 'OLD_TOOL_RESULT_'.repeat(2_000));
+  const [latestCall, latestResult] = pair('latest', 'Updated latest.js');
+  const messages = [
+    { role: 'user', content: 'first request' },
+    { ...oldCall, providerReplay: replay('old', oldCall) },
+    oldResult,
+    { role: 'user', content: 'second request' },
+    { ...latestCall, providerReplay: replay('latest', latestCall) },
+    latestResult,
+  ];
+  const firstWire = modelRequest(messages);
+  assert.match(firstWire, /OLD_TOOL_RESULT_/);
+  assert.match(firstWire, /latest-signature/);
+
+  const compacted = buildExecutionTail(messages, { contextWindow: 20_000, sessionId: 'thinking-prefix' });
+  const nextWire = modelRequest(compacted.messages);
+  assert.doesNotMatch(nextWire, /OLD_TOOL_RESULT_/, 'the earlier tool result changed or was removed');
+  assert.doesNotMatch(nextWire, /latest-signature/, 'later thinking must not replay under the changed prefix');
+  assertPaired(compacted.messages);
+});
+
+test('Compact drops replay after rewriting the prefix and closes a replaying open tool round', (t) => {
   sandbox(t);
   const replay = (id, size) => ({
     version: 1,
@@ -632,7 +663,9 @@ test('Compact keeps opaque replay only on the newest assistant message', (t) => 
   assert.deepEqual(call('old').toolCalls, oldCall.toolCalls);
   assert.equal(result.messages.find((m) => m.toolCallId === 'old').content, 'Updated old.js');
   assert.equal(result.messages.find((m) => m.content === 'first answer').reasoningItems, undefined);
-  assert.deepEqual(call('latest').providerReplay, replay('latest', 1_000));
+  assert.equal(call('latest').providerReplay, undefined);
+  assert.equal(result.messages.at(-1).meta?.source, 'context-ack');
+  assert.equal(result.messages.at(-1).meta?.synthetic, true);
   assertPaired(result.messages);
 });
 

@@ -24,7 +24,7 @@
 // round, the round is ended explicitly instead (`rebindToChangedPrefix`).
 import { contextAckMessage } from './compact/user-message-kind.mjs';
 import { collectAssistantToolCallIds } from './context-tool-pairs.mjs';
-import { assistantMessageWithoutThinkingReplay } from './thinking-replay-recovery.mjs';
+import { isAnthropicThinkingBlock, isEmptyAnthropicTextBlock } from '../providers/lib/anthropic-replay-blocks.mjs';
 
 /** The runtime turn that ends an open tool round: a context ack, so the
  *  transcript never shows it and Compact never reads it as a reply. */
@@ -51,6 +51,46 @@ export function openToolRoundStart(messages) {
   let start = latest;
   while (start > 0 && ['assistant', 'tool'].includes(messages[start - 1]?.role)) start -= 1;
   return start;
+}
+
+function keepsReplayBlock(block) {
+  return !isAnthropicThinkingBlock(block) && !isEmptyAnthropicTextBlock(block);
+}
+
+function strippedList(list) {
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const kept = list.filter(keepsReplayBlock);
+  return kept.length === list.length ? null : kept;
+}
+
+/**
+ * Replay-free copy of one assistant message, or null when it carries nothing
+ * the API could have objected to (so the failure is not this message's shape).
+ */
+export function assistantMessageWithoutThinkingReplay(message) {
+  if (message?.role !== 'assistant') return null;
+  const next = { ...message };
+  let changed = false;
+
+  const replayItems = Array.isArray(message.providerReplay?.items) ? strippedList(message.providerReplay.items) : null;
+  if (replayItems) {
+    changed = true;
+    // An assistant turn whose ordered replay is now empty has nothing to
+    // replay verbatim; the flattened content/toolCalls lowering takes over.
+    if (replayItems.length) next.providerReplay = { ...message.providerReplay, items: replayItems };
+    else delete next.providerReplay;
+  }
+  const assistantBlocks = strippedList(message.assistantBlocks);
+  if (assistantBlocks) {
+    changed = true;
+    if (assistantBlocks.length) next.assistantBlocks = assistantBlocks;
+    else delete next.assistantBlocks;
+  }
+  if (Array.isArray(message.thinkingBlocks) && message.thinkingBlocks.length) {
+    changed = true;
+    delete next.thinkingBlocks;
+  }
+  return changed ? next : null;
 }
 
 /** What the next request sends ahead of the conversation: the system blocks and tools. */

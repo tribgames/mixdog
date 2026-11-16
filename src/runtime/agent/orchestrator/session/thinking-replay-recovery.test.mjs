@@ -38,6 +38,14 @@ test('only the deterministic replay-shape refusals are treated as repairable', (
     isThinkingReplayRejection(rejection('Anthropic OAuth API 400: messages: text content blocks must be non-empty')),
     true
   );
+  assert.equal(
+    isThinkingReplayRejection(
+      rejection(
+        'messages.13.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation.'
+      )
+    ),
+    true
+  );
   // Asks for MORE reasoning replay — stripping is the wrong repair.
   assert.equal(
     isThinkingReplayRejection(rejection('Expected `thinking` or `redacted_thinking`, but found `tool_use`')),
@@ -95,7 +103,7 @@ test('a turn with nothing to strip is left alone', () => {
   assert.equal(repairThinkingReplayInPlace([clean]), -1);
 });
 
-test('the newest carrying turn is repaired by reference so the session persists the fix', () => {
+test('a prefix mismatch strips replay from every assistant turn and closes an open tool round', () => {
   const older = poisonedTurn();
   const newer = poisonedTurn();
   const messages = [
@@ -106,11 +114,11 @@ test('the newest carrying turn is repaired by reference so the session persists 
     { role: 'tool', toolCallId: 'toolu_1', content: 'ok' },
   ];
   assert.equal(canRepairThinkingReplay(messages), true);
-  assert.equal(repairThinkingReplayInPlace(messages), 3);
-  assert.notEqual(messages[3], newer, 'repaired turn must be a new reference');
-  assert.equal(messages[1], older, 'older turns are untouched');
-  assert.equal(
-    messages[3].providerReplay.items.some((b) => b.type === 'thinking'),
-    false
-  );
+  assert.equal(repairThinkingReplayInPlace(messages), 1);
+  assert.notEqual(messages[1], older, 'older replay must be persisted as a new reference');
+  assert.notEqual(messages[3], newer, 'later replay must also be persisted as a new reference');
+  assert.equal(messages[1].content, 'looking');
+  assert.equal(messages[3].content, 'looking');
+  assert.equal(messages.at(-1).meta?.source, 'context-ack');
+  assert.equal(canRepairThinkingReplay(messages), false);
 });

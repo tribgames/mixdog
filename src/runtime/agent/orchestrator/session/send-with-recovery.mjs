@@ -493,12 +493,10 @@ async function recoverFromSendError(sendErr, state) {
       return { action: 'retry_tool_schema_drop', exclusion };
     }
   }
-  // Anthropic replay-shape refusal: the latest assistant turn carries
-  // thinking blocks the API will not accept back (a thinking run it did not
-  // produce, or an empty text block). This is deterministic — the same body
-  // fails forever and the turn is already persisted, so without this repair
-  // the session is dead. No exposure guard: the request was rejected at
-  // validation, before any generation.
+  // Anthropic replay refusal: a thinking block can be stale anywhere in the
+  // persisted prefix, or the latest turn can have an empty text block. This is
+  // deterministic — the same body fails forever, so repair the full prefix.
+  // No exposure guard: validation rejected the request before generation.
   if (
     thinkingReplayRepairUsed !== true &&
     isThinkingReplayRejection(sendErr) &&
@@ -856,7 +854,7 @@ function retryTransport(sendErr, state) {
 function repairThinkingReplay(recoveryMessages, state) {
   const repairedIndex = repairThinkingReplayInPlace(recoveryMessages);
   logLoop(
-    `[loop] thinking-replay repair (${loopTag(state)} message=${repairedIndex}); dropped the rejected reasoning replay and replaying once`
+    `[loop] thinking-replay repair (${loopTag(state)} firstMessage=${repairedIndex}); dropped stale reasoning replay and replaying once`
   );
   traceLoop(state, 'thinking_replay_repair', { messageIndex: repairedIndex });
   return { action: 'retry_replay_repair' };
