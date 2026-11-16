@@ -1166,6 +1166,7 @@ mod tests {
     /// the stop steps, with the late session-directory step) cannot matter to the warm-ups waiting on the close.
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "Test-only exit recorder waits on a blocking fixture signal while the independent lifecycle release completes")]
     fn the_release_has_requested_closing_before_its_first_budgeted_step() {
         crate::compose_test_support::in_child(module_path!(), "the_release_has_requested_closing_before_its_first_budgeted_step", tokio::runtime::Builder::new_current_thread(), |dir| async move {
             use crate::lifecycle::testing::Recorder;
@@ -1212,7 +1213,6 @@ mod tests {
                 fn close_data_handles(&self) {
                     self.inner.close_data_handles();
                 }
-                #[allow(clippy::disallowed_methods, reason = "Test-only blocking watchdog/exit wait; its owned completion signal is released by the fixture, not product work.")]
                 fn flush_log(&self) {
                     self.inner.flush_log();
                 }
