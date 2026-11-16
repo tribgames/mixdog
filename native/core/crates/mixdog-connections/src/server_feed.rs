@@ -447,7 +447,7 @@ impl Shared {
         };
         let shared = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             {
                 let mut clock = shared.refresh.lock().unwrap();
                 clock.pending = false;
@@ -559,10 +559,9 @@ impl Shared {
             ..row
         };
         let mut rows: Vec<PendingApproval> = self.client.pending_server_requests().iter().filter_map(approval_of).map(mark).collect();
-        if let Some(row) = arriving.and_then(approval_of).map(mark) {
-            if !rows.iter().any(|held| held.request_id == row.request_id) {
-                rows.push(row);
-            }
+        if let Some(row) = arriving.and_then(approval_of).map(mark)
+            && !rows.iter().any(|held| held.request_id == row.request_id) {
+            rows.push(row);
         }
         if let Some(id) = resolved {
             rows.retain(|row| &row.request_id != id);

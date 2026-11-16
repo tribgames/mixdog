@@ -197,7 +197,7 @@ impl ModelProxyRelay {
             if let Some(beat) = state.beat.take() {
                 beat.abort();
             }
-            state.runs.drain(..).collect()
+            std::mem::take(&mut state.runs)
         };
         for run in abandoned {
             run.cancel.cancel();
@@ -324,10 +324,9 @@ impl ModelProxyRelay {
         let ended = {
             let mut state = self.state();
             let ended = state.runs.iter().position(|run| run.generation == generation).map(|at| state.runs.remove(at));
-            if state.runs.is_empty() {
-                if let Some(beat) = state.beat.take() {
-                    beat.abort();
-                }
+            if state.runs.is_empty()
+                && let Some(beat) = state.beat.take() {
+                beat.abort();
             }
             ended
         };

@@ -137,10 +137,9 @@ fn adopt(mut roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfi
     }
     let _one = adopting.lock().unwrap_or_else(PoisonError::into_inner);
     let (_, recorded) = recorded(&roots.data).map_err(|error| failed(DOMAIN, error))?;
-    if let Some(recorded) = recorded {
-        if !same_directory(&named, Path::new(&recorded)) {
-            return Err(invalid("userData", "the profile directory already recorded for this data directory"));
-        }
+    if let Some(recorded) = recorded
+        && !same_directory(&named, Path::new(&recorded)) {
+        return Err(invalid("userData", "the profile directory already recorded for this data directory"));
     }
     let outcome = supplement::run(&roots).map_err(|error| failed(DOMAIN, error.to_string()))?;
     Ok(MigrateProfileAdopted { generation: outcome.generation, moved: outcome.moved })

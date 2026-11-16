@@ -126,6 +126,7 @@ impl StatuslineWarmup {
     }
 
     /// Binds the route, the preparation, the usage service and the gates it works over; once.
+    #[allow(clippy::result_unit_err, reason = "existing one-time binding API: unit means already bound, with no public diagnostic payload")]
     pub fn bind(&self, route: Arc<dyn Fn() -> Obj + Send + Sync>, prep: Arc<dyn UsagePrep>, sink: Arc<dyn StatuslineSink>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
         self.bound.set(Bindings { route, prep, sink, gates }).map_err(|_| ())
     }

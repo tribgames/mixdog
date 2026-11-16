@@ -414,10 +414,9 @@ impl Follower {
         let client = self.client.clone();
         let claim = HostClaimParams { host_id: HostId::from(format!("link:{}", self.id)), resources: None, serves: None };
         drop(mixdog_rt::spawn("link-host-claim", TaskClass::Control, async move {
-            if let Ok(params) = serde_json::to_value(&claim) {
-                if let Err(error) = client.call_raw("host/claim", params, CallOptions::default()).await {
-                    tracing::debug!("[link] the host claim was not taken: {error}");
-                }
+            if let Ok(params) = serde_json::to_value(&claim)
+                && let Err(error) = client.call_raw("host/claim", params, CallOptions::default()).await {
+                tracing::debug!("[link] the host claim was not taken: {error}");
             }
         }));
     }

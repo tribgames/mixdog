@@ -256,10 +256,9 @@ impl Report {
     }
 
     fn on_model_call(&mut self, call: &ProxyCallSettled) {
-        if call.outcome == CallOutcome::Abandoned {
-            if let Some(record) = self.away.as_mut().or(self.returned.as_mut()) {
-                record.interrupted_model_calls += 1;
-            }
+        if call.outcome == CallOutcome::Abandoned
+            && let Some(record) = self.away.as_mut().or(self.returned.as_mut()) {
+            record.interrupted_model_calls += 1;
         }
     }
 }

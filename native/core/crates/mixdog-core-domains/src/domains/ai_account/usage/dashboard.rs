@@ -726,10 +726,9 @@ async fn oauth_snapshot(sources: &dyn UsageSources, provider: &str, refresh: boo
     if !refresh && cached.is_some() {
         return cached;
     }
-    if sources.oauth_provider_ready(provider) {
-        if let Ok(Some(fresh)) = sources.fetch_oauth(provider, refresh).await {
-            return Some(fresh);
-        }
+    if sources.oauth_provider_ready(provider)
+        && let Ok(Some(fresh)) = sources.fetch_oauth(provider, refresh).await {
+        return Some(fresh);
     }
     match cached {
         Some(cached) => Some(cached),
@@ -813,11 +812,10 @@ async fn api_provider_row(
             apply_token_usage(&mut row, tokens);
             has_quota = true;
         }
-        if row["includeInTotal"] != Value::Bool(true) && !has_quota {
-            if let Some(estimated) = local_budget(&provider_cfg) {
-                apply_known_remaining(&mut row, &estimated, true);
-                has_quota = true;
-            }
+        if row["includeInTotal"] != Value::Bool(true) && !has_quota
+            && let Some(estimated) = local_budget(&provider_cfg) {
+            apply_known_remaining(&mut row, &estimated, true);
+            has_quota = true;
         }
         if row["includeInTotal"] != Value::Bool(true) && !has_quota {
             apply_api_unavailable(&mut row, id, snapshot);

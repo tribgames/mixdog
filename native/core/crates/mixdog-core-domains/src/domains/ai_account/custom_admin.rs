@@ -43,7 +43,6 @@ use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Message;
-use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -632,6 +631,7 @@ struct KeyEngines {
 }
 
 impl KeyEngines {
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         if account == "default" {
             return Ok(self.primary.clone());

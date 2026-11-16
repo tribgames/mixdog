@@ -62,20 +62,19 @@ impl DomainService for ScreenSessions {
     }
 
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
-        if method.as_str() == CHANGED {
-            if let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params) {
-                let ids: Option<HashSet<String>> = params.session_ids.map(|ids| ids.into_iter().collect());
-                let report = ScreenReport {
-                    sessions: ids.clone(),
-                    browser_id: params.browser_id.as_deref(),
-                    visualize: params.visualize_session_ids.as_deref(),
-                    foreground: params.foreground,
-                };
-                if !self.registry.report_screen(from.0, report)
-                    && let Some(ids) = ids
-                {
-                    *self.latest() = Some((from, ids));
-                }
+        if method.as_str() == CHANGED
+            && let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params) {
+            let ids: Option<HashSet<String>> = params.session_ids.map(|ids| ids.into_iter().collect());
+            let report = ScreenReport {
+                sessions: ids.clone(),
+                browser_id: params.browser_id.as_deref(),
+                visualize: params.visualize_session_ids.as_deref(),
+                foreground: params.foreground,
+            };
+            if !self.registry.report_screen(from.0, report)
+                && let Some(ids) = ids
+            {
+                *self.latest() = Some((from, ids));
             }
         }
         Admit::Accepted

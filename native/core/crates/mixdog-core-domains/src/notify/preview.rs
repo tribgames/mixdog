@@ -70,10 +70,9 @@ pub fn notification_preview(markdown: &str) -> String {
     let sentence_end = (0..probe.len().saturating_sub(1))
         .rev()
         .find(|&i| "。！？.!?".contains(probe[i]) && is_js_space(probe[i + 1]));
-    if let Some(index) = sentence_end {
-        if index + 1 >= MIN_SENTENCE {
-            return probe[..=index].iter().collect();
-        }
+    if let Some(index) = sentence_end
+        && index + 1 >= MIN_SENTENCE {
+        return probe[..=index].iter().collect();
     }
     let mut clipped: String = characters[..LIMIT - 1].iter().collect();
     clipped.push('…');

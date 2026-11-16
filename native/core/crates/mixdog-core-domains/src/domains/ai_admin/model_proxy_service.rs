@@ -184,6 +184,7 @@ impl ModelProxyService {
 
     /// `admitPayload`: a payload past one call's bound is refused as too large, one that would take the data held past the
     /// in-flight bound as busy. The check and the claim of the share are one step.
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
     fn admit(&self, chars: usize) -> Result<Held<'_>, w::ProxyFailure> {
         if chars > self.bounds.max_request {
             return Err(request_too_large());

@@ -150,6 +150,7 @@ impl ModelWarmup {
     /// Binds the list the warm loads and the runtime's gates; once. The catalog's route-meta memo schedules this
     /// warm-up on a non-fetching miss (`scheduleProviderModelWarmup` handed to `createModelMetaIndex`): one mechanism,
     /// with the same switches, delay and parking as the boot's.
+    #[allow(clippy::result_unit_err, reason = "existing one-time binding API: unit means already bound, with no public diagnostic payload")]
     pub fn bind(self: &Arc<Self>, list: Arc<ModelListService>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
         let catalog = list.catalog.clone();
         self.bind_cache(list, gates)?;
@@ -163,6 +164,7 @@ impl ModelWarmup {
     }
 
     /// Binds the cache the warm loads and the runtime's gates; once.
+    #[allow(clippy::result_unit_err, reason = "existing one-time binding API: unit means already bound, with no public diagnostic payload")]
     pub fn bind_cache(&self, cache: Arc<dyn ModelCacheWarm>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
         self.bound.set(Bindings { cache, gates }).map_err(|_| ())
     }

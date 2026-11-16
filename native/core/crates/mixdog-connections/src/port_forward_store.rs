@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use mixdog_rt::DurabilityIo;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
+use tokio::sync::Semaphore;
 
 use crate::paths::ConnectionsPaths;
 use crate::paths::StoreError;
@@ -54,52 +55,60 @@ fn parsed(value: &Value) -> Forwards {
 pub struct PortForwardStore {
     io: DurabilityIo,
     file: PathBuf,
-    /// `None` until the file was read; held across a change from its read to the end of its write.
+    /// `None` until a successful read; the transaction permit spans read, edit and write.
+    turn: Semaphore,
     state: Mutex<Option<Forwards>>,
 }
 
 impl PortForwardStore {
     pub fn new(paths: &ConnectionsPaths, io: DurabilityIo) -> Self {
-        Self { io, file: paths.port_forwards(), state: Mutex::new(None) }
+        Self { io, file: paths.port_forwards(), state: Mutex::new(None), turn: Semaphore::new(1) }
     }
 
     /// A missing or damaged file (kept aside, the last good copy restored) starts empty; only an I/O error fails.
-    async fn loaded<'a>(&self, state: &'a mut Option<Forwards>) -> Result<&'a mut Forwards, StoreError> {
-        if state.is_none() {
+    // Called only while holding the transaction permit. Never hold data across I/O.
+    async fn loaded(&self) -> Result<(), StoreError> {
+        let missing = self.state.lock().unwrap_or_else(PoisonError::into_inner).is_none();
+        if missing {
             let document = read_state(self.io, self.file.clone(), None).await?;
-            *state = Some(document.as_ref().map(parsed).unwrap_or_default());
+            *self.state.lock().unwrap_or_else(PoisonError::into_inner) = Some(document.as_ref().map(parsed).unwrap_or_default());
         }
-        Ok(state.get_or_insert_with(Vec::new))
+        Ok(())
     }
 
     /// The forwards saved for the server.
     pub async fn get(&self, host_id: &str) -> Result<Vec<SavedPortForward>, StoreError> {
-        let mut state = self.state.lock().await;
-        let all = self.loaded(&mut state).await?;
+        let _turn = self.turn.acquire().await.expect("store transaction gate is never closed");
+        self.loaded().await?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let all = state.as_mut().expect("state loaded under transaction permit");
         Ok(all.iter().find(|(id, _)| id == host_id).map(|(_, list)| list.clone()).unwrap_or_default())
     }
 
     /// Saves the server's forwards (at most 64; a port of 0 is dropped; an empty list forgets the server).
     pub async fn set(&self, host_id: &str, forwards: &[SavedPortForward]) -> Result<(), StoreError> {
-        let mut state = self.state.lock().await;
-        let all = self.loaded(&mut state).await?;
-        let kept: Vec<SavedPortForward> =
-            forwards.iter().filter(|entry| entry.remote_port != 0 && entry.local_port != 0).take(MAX_FORWARDS_PER_HOST).copied().collect();
-        match (all.iter().position(|(id, _)| id == host_id), kept.is_empty()) {
-            (Some(at), true) => {
-                all.remove(at);
+        let _turn = self.turn.acquire().await.expect("store transaction gate is never closed");
+        self.loaded().await?;
+        let hosts = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let all = state.as_mut().expect("state loaded under transaction permit");
+            let kept: Vec<SavedPortForward> =
+                forwards.iter().filter(|entry| entry.remote_port != 0 && entry.local_port != 0).take(MAX_FORWARDS_PER_HOST).copied().collect();
+            match (all.iter().position(|(id, _)| id == host_id), kept.is_empty()) {
+                (Some(at), true) => {
+                    all.remove(at);
+                }
+                (Some(at), false) => all[at].1 = kept,
+                (None, false) => all.push((host_id.to_string(), kept)),
+                (None, true) => {}
             }
-            (Some(at), false) => all[at].1 = kept,
-            (None, false) => all.push((host_id.to_string(), kept)),
-            (None, true) => {}
-        }
-        let hosts: serde_json::Map<String, Value> = all
-            .iter()
-            .map(|(id, list)| {
-                let rows: Vec<Value> = list.iter().map(|f| json!({ "remotePort": f.remote_port, "localPort": f.local_port })).collect();
-                (id.clone(), Value::Array(rows))
-            })
-            .collect();
+            all.iter()
+                .map(|(id, list)| {
+                    let rows: Vec<Value> = list.iter().map(|f| json!({ "remotePort": f.remote_port, "localPort": f.local_port })).collect();
+                    (id.clone(), Value::Array(rows))
+                })
+                .collect::<serde_json::Map<String, Value>>()
+        };
         write_state(self.io, self.file.clone(), json!({ "version": 1, "hosts": hosts }), true).await
     }
 }

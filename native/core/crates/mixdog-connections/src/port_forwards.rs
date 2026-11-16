@@ -218,8 +218,7 @@ impl Forward {
 
 fn tunnel_state(tunnel: &dyn ForwardTunnel) -> TunnelState {
     let state = tunnel.state();
-    let now = state.borrow().clone();
-    now
+    state.borrow().clone()
 }
 
 fn failure_of(tunnel: &dyn ForwardTunnel) -> Option<String> {

@@ -11,7 +11,7 @@ use mixdog_statefile::Invalid;
 use serde::Serialize;
 use serde_json::Number;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tokio::sync::watch;
 
 use crate::paths::ConnectionsPaths;
@@ -230,7 +230,7 @@ struct Inner {
     file: PathBuf,
     state: watch::Sender<Hosts>,
     /// One change at a time, from the edit of the list to the end of its write.
-    gate: Mutex<()>,
+    gate: Semaphore,
     /// The id each target being connected for the first time holds, with the attempts that share it.
     reservations: std::sync::Mutex<HashMap<String, (String, usize)>>,
 }
@@ -254,7 +254,7 @@ impl SshHostStore {
             }
         };
         let (state, _) = watch::channel(Arc::new(hosts));
-        Self { inner: Arc::new(Inner { io, file, state, gate: Mutex::new(()), reservations: std::sync::Mutex::new(HashMap::new()) }) }
+        Self { inner: Arc::new(Inner { io, file, state, gate: Semaphore::new(1), reservations: std::sync::Mutex::new(HashMap::new()) }) }
     }
 
     /// The saved servers, newest first.
@@ -326,7 +326,7 @@ impl SshHostStore {
     /// host name); the settings of the entry it replaces stay when the record carries none. It goes first.
     pub async fn save(&self, record: SshHostRecord) -> Result<SshHostRecord, StoreError> {
         let target = target_id(&record.target)?;
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.gate.acquire().await.expect("host store gate is never closed");
         let mut hosts = self.list();
         let settings = record.settings.or_else(|| hosts.iter().find(|host| host.id == record.id).and_then(|host| host.settings.clone()));
         let name = clean_name(&record.name);
@@ -347,7 +347,7 @@ impl SshHostStore {
     /// A name for the server; an empty name changes nothing.
     pub async fn rename(&self, id: &str, name: &str) -> Result<(), StoreError> {
         let label = clean_name(name);
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.gate.acquire().await.expect("host store gate is never closed");
         let mut hosts = self.list();
         let Some(host) = hosts.iter_mut().find(|host| host.id == id) else { return Ok(()) };
         if label.is_empty() {
@@ -360,7 +360,7 @@ impl SshHostStore {
     /// Replaces the settings of a saved server with the validated `raw` (an empty result removes them); an unknown
     /// id changes nothing.
     pub async fn update_settings(&self, id: &str, raw: &Value) -> Result<(), StoreError> {
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.gate.acquire().await.expect("host store gate is never closed");
         let mut hosts = self.list();
         let Some(host) = hosts.iter_mut().find(|host| host.id == id) else { return Ok(()) };
         let next = parse_host_settings(raw)?;
@@ -370,7 +370,7 @@ impl SshHostStore {
 
     /// Forgets the server.
     pub async fn forget(&self, id: &str) -> Result<(), StoreError> {
-        let _gate = self.inner.gate.lock().await;
+        let _gate = self.inner.gate.acquire().await.expect("host store gate is never closed");
         let mut hosts = self.list();
         let before = hosts.len();
         hosts.retain(|host| host.id != id);

@@ -43,10 +43,9 @@ pub fn account_scoped_session_id(provider: &str, account_id: &str, session_id: &
 pub fn other_session_ids(options: Option<&Value>, session_id: &str) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for id in options.and_then(|o| o.get("sessionIds")).and_then(Value::as_array).into_iter().flatten() {
-        if let Some(id) = id.as_str().filter(|id| !id.is_empty() && *id != session_id) {
-            if !ids.iter().any(|seen| seen == id) {
-                ids.push(id.to_owned());
-            }
+        if let Some(id) = id.as_str().filter(|id| !id.is_empty() && *id != session_id)
+            && !ids.iter().any(|seen| seen == id) {
+            ids.push(id.to_owned());
         }
         if ids.len() >= MAX_SESSION_USAGE_IDS {
             break;
