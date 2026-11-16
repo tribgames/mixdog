@@ -221,7 +221,7 @@ impl Repo {
             if self.inside_worktree(spec).await? || self.in_head(spec).await? {
                 addable.push(spec.clone());
             } else if !self.in_index(spec).await? {
-                return Err(not_in_repository(&[spec.clone()]));
+                return Err(not_in_repository(std::slice::from_ref(spec)));
             }
         }
         self.commit_through_scratch_index(message, &specs, &addable).await
@@ -320,10 +320,9 @@ impl Repo {
                 specs.push(primary);
             }
             // A rename is one change: both halves, whichever form was passed.
-            if let Some(old) = entry.and_then(|e| e.old_path.clone()) {
-                if !specs.contains(&old) {
-                    specs.push(old);
-                }
+            if let Some(old) = entry.and_then(|e| e.old_path.clone())
+                && !specs.contains(&old) {
+                specs.push(old);
             }
         }
         Ok(specs)

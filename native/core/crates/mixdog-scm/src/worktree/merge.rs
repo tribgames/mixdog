@@ -134,14 +134,13 @@ impl Scm {
             return Err(errors::merge_failed("source-invalid", None, None));
         }
         let current = self.checked_out_branch(cancel, cwd).await?;
-        if let Some(target) = target {
-            if Some(target) != current.as_deref() {
-                let message = format!(
-                    "The project folder is on {}, not {target}; reload and try again.",
-                    current.as_deref().unwrap_or("a detached HEAD")
-                );
-                return Err(errors::target_mismatch_text(message, None, None, Some(target.to_owned()), current.clone()));
-            }
+        if let Some(target) = target
+            && Some(target) != current.as_deref() {
+            let message = format!(
+                "The project folder is on {}, not {target}; reload and try again.",
+                current.as_deref().unwrap_or("a detached HEAD")
+            );
+            return Err(errors::target_mismatch_text(message, None, None, Some(target.to_owned()), current.clone()));
         }
         let Some(current) = current else {
             return Err(errors::merge_failed("detached-head", None, None));

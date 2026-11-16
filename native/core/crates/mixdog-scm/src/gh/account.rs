@@ -144,13 +144,12 @@ impl Scm {
         }
         let base = ["auth", "logout", "--hostname", HOSTNAME];
         let mut result = self.github.output(&home, cancel, &base).await?;
-        if !result.success() {
-            if let Some(login) = status.get("login").and_then(Value::as_str) {
-                // Several signed-in accounts make gh demand an explicit --user.
-                let mut with_user = base.to_vec();
-                with_user.extend(["--user", login]);
-                result = self.github.output(&home, cancel, &with_user).await?;
-            }
+        if !result.success()
+            && let Some(login) = status.get("login").and_then(Value::as_str) {
+            // Several signed-in accounts make gh demand an explicit --user.
+            let mut with_user = base.to_vec();
+            with_user.extend(["--user", login]);
+            result = self.github.output(&home, cancel, &with_user).await?;
         }
         if !result.success() {
             let detail = if result.stderr.trim().is_empty() { result.stdout.trim() } else { result.stderr.trim() };

@@ -369,10 +369,9 @@ impl Worktrees {
         let repo = self.scm().open(Path::new(&found.project_path), cancel).await?;
         let _lock = repo.lock_repository().await?;
         let mut current = self.record(cancel, entry_id).await?.filter(|r| r.state == "ready").ok_or_else(missing)?;
-        if let Some(project) = project_path {
-            if !same(&current.project_path, &project.to_string_lossy()) {
-                return Err(errors::project_mismatch(current.id.clone(), current.project_path.clone(), project.to_string_lossy().into_owned()));
-            }
+        if let Some(project) = project_path
+            && !same(&current.project_path, &project.to_string_lossy()) {
+            return Err(errors::project_mismatch(current.id.clone(), current.project_path.clone(), project.to_string_lossy().into_owned()));
         }
         let source = self.checked_out_branch_of(&current, cancel).await?.ok_or_else(missing)?;
         let result = self
@@ -633,15 +632,12 @@ impl Worktrees {
             .merge_branch_into_checkout(cancel, &project, &request.branch, Some(&target), true, None)
             .await?;
         // A managed worktree remembers where it was merged (its later removal checks against it).
-        if merged.merged {
-            if let Some(id) = &state.worktree_id {
-                if let Some(mut current) = self.record(cancel, id).await? {
-                    if current.merge_target.as_deref() != Some(target.as_str()) {
-                        current.merge_target = Some(target.clone());
-                        self.put_record(cancel, current).await?;
-                    }
-                }
-            }
+        if merged.merged
+            && let Some(id) = &state.worktree_id
+            && let Some(mut current) = self.record(cancel, id).await?
+            && current.merge_target.as_deref() != Some(target.as_str()) {
+            current.merge_target = Some(target.clone());
+            self.put_record(cancel, current).await?;
         }
         repo.touched();
         Ok(merged.to_json())

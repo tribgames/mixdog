@@ -219,16 +219,15 @@ pub fn workspace_matcher(patterns: &[String]) -> impl Fn(&str) -> bool + use<> {
 
 async fn workspace_patterns(scm: &Scm, cancel: &CancellationToken, project: &Path) -> Result<Vec<String>, ScmFailure> {
     let mut patterns = Vec::new();
-    if let Some(bytes) = read_or_none(scm, cancel, project.join("package.json")).await? {
-        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            let list = match value.get("workspaces") {
-                Some(serde_json::Value::Array(list)) => Some(list),
-                Some(serde_json::Value::Object(map)) => map.get("packages").and_then(serde_json::Value::as_array),
-                _ => None,
-            };
-            if let Some(list) = list {
-                patterns.extend(list.iter().filter_map(|v| v.as_str().map(str::to_owned)));
-            }
+    if let Some(bytes) = read_or_none(scm, cancel, project.join("package.json")).await?
+        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        let list = match value.get("workspaces") {
+            Some(serde_json::Value::Array(list)) => Some(list),
+            Some(serde_json::Value::Object(map)) => map.get("packages").and_then(serde_json::Value::as_array),
+            _ => None,
+        };
+        if let Some(list) = list {
+            patterns.extend(list.iter().filter_map(|v| v.as_str().map(str::to_owned)));
         }
     }
     if let Some(bytes) = read_or_none(scm, cancel, project.join("pnpm-workspace.yaml")).await? {
@@ -386,12 +385,11 @@ pub async fn find_lockfile_folders(
         for stack in &STACKS {
             let Some(picked) = pick(stack, files) else { continue };
             let mut admitted = dir.is_empty() || is_workspace(dir);
-            if !admitted {
-                if let Some(main) = main_dir {
-                    admitted = lstat(scm, cancel, folder_path(main, dir).join(stack.artefact))
-                        .await?
-                        .is_some_and(|m| m.dir && !m.symlink);
-                }
+            if !admitted
+                && let Some(main) = main_dir {
+                admitted = lstat(scm, cancel, folder_path(main, dir).join(stack.artefact))
+                    .await?
+                    .is_some_and(|m| m.dir && !m.symlink);
             }
             if admitted {
                 found.push(LockfileFolder {

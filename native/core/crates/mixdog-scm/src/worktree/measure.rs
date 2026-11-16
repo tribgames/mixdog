@@ -37,10 +37,9 @@ impl Worktrees {
 
     /// The merge target's tip, else the base commit.
     async fn merge_reference(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
-        if let Some(target) = &record.merge_target {
-            if let Some(tip) = self.branch_commit(&repo_cwd(record), target, cancel).await? {
-                return Ok(Some(tip));
-            }
+        if let Some(target) = &record.merge_target
+            && let Some(tip) = self.branch_commit(&repo_cwd(record), target, cancel).await? {
+            return Ok(Some(tip));
         }
         Ok(record.base_commit.clone())
     }

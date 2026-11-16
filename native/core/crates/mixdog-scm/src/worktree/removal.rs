@@ -20,6 +20,8 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+type CheckedCheckout = (String, (Option<Value>, Vec<String>));
+
 use crate::error::ScmFailure;
 use crate::repo::on_lane;
 use crate::repo::operation_in_progress;
@@ -393,10 +395,9 @@ impl Worktrees {
         .await;
         if let Err(error) = attempt {
             let mut failures: Vec<String> = restore(links).await.into_iter().map(|(path, error)| format!("{path} ({error})")).collect();
-            if unlocked && self.registration_for(record, cancel).await?.is_some() {
-                if let Err(lock_error) = self.scm().git.run(cancel, &cwd, &["worktree", "lock", "--reason", &owned_lock, &record.path]).await {
-                    failures.push(format!("worktree lock ({})", first_line(&lock_error.to_string())));
-                }
+            if unlocked && self.registration_for(record, cancel).await?.is_some()
+                && let Err(lock_error) = self.scm().git.run(cancel, &cwd, &["worktree", "lock", "--reason", &owned_lock, &record.path]).await {
+                failures.push(format!("worktree lock ({})", first_line(&lock_error.to_string())));
             }
             return Err(if failures.is_empty() || matches!(error, ScmFailure::Cancelled) {
                 error
@@ -820,10 +821,9 @@ impl Worktrees {
             return Ok((Some(kept(if dirty.is_empty() { "unmerged" } else { "dirty" })), artefacts));
         }
         // As assert_removable: an operation in progress keeps the checkout.
-        if let Ok(opened) = self.scm().open(Path::new(&record.path), cancel).await {
-            if operation_in_progress(&opened.identity.git_dir).is_some() {
-                return Ok((Some(kept("dirty")), artefacts));
-            }
+        if let Ok(opened) = self.scm().open(Path::new(&record.path), cancel).await
+            && operation_in_progress(&opened.identity.git_dir).is_some() {
+            return Ok((Some(kept("dirty")), artefacts));
         }
         if !ignored.is_empty() {
             return Ok((Some(ignored_keep(&ignored)), artefacts));
@@ -841,7 +841,7 @@ impl Worktrees {
     pub async fn remove_automatically(&self, record: &mut WorktreeRecord, options: &AutoOptions, cancel: &CancellationToken) -> Result<Auto, ScmFailure> {
         let snapshot = record.clone();
         let lease = self.read_owner_lease(record, cancel).await?;
-        let checked: Result<(String, (Option<Value>, Vec<String>)), ScmFailure> = async {
+        let checked: Result<CheckedCheckout, ScmFailure> = async {
             let token = self.checkout_token(record, cancel).await?;
             Ok((token, self.checkout_keep(record, cancel).await?))
         }

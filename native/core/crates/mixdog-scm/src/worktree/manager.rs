@@ -847,12 +847,10 @@ impl Worktrees {
         let path = PathBuf::from(&record.path);
         // A merge, rebase, pick, revert or bisect may hold work that neither the files nor HEAD
         // show yet.
-        if path.exists() {
-            if let Ok(identity) = self.scm.open(&path, cancel).await {
-                if operation_in_progress(&identity.identity.git_dir).is_some() {
-                    return Err(errors::dirty(Some(record.id.clone()), None, None, None));
-                }
-            }
+        if path.exists()
+            && let Ok(identity) = self.scm.open(&path, cancel).await
+            && operation_in_progress(&identity.identity.git_dir).is_some() {
+            return Err(errors::dirty(Some(record.id.clone()), None, None, None));
         }
         let dirty = self.dirty_paths(record, cancel).await?;
         if !dirty.is_empty() {
