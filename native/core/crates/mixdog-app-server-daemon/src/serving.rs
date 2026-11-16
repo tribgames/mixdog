@@ -618,7 +618,7 @@ mod tests {
         std::fs::create_dir_all(&data).unwrap();
         let (entered, mut entries) = tokio::sync::mpsc::unbounded_channel::<()>();
         let (release, gate) = oneshot::channel::<()>();
-        let gate = Arc::new(tokio::sync::Mutex::new(Some(gate)));
+        let gate = Arc::new(std::sync::Mutex::new(Some(gate)));
         let tokens = mixdog_rt::testing::tokens();
         let outgoing = mixdog_app_server::Outgoing::new();
         let composing = crate::compose::compose(
@@ -639,7 +639,7 @@ mod tests {
                     let gate = gate.clone();
                     Box::pin(async move {
                         // The first install waits at the gate; a later one (the next request's new opening) fails as the first did.
-                        let held = gate.lock().await.take();
+                        let held = gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
                         if let Some(gate) = held {
                             let _ = gate.await;
                         }

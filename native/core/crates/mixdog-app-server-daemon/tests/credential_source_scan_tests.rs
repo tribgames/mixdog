@@ -130,6 +130,7 @@ fn crates_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("crates dir").to_path_buf()
 }
 
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn rust_files(path: &Path, out: &mut Vec<PathBuf>) {
     if path.is_file() {
         out.push(path.to_path_buf());
@@ -150,6 +151,7 @@ fn rust_files(path: &Path, out: &mut Vec<PathBuf>) {
 
 /// The lines of the non-test code: the file without its `#[cfg(test)]` items. An item is skipped through its closing
 /// brace (or its `;`), so code after an inline test module is scanned.
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn production_lines(path: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(path).expect("read source");
     let mut out = Vec::new();

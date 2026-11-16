@@ -178,9 +178,12 @@ impl Bound for SetupWarmup {
     }
 }
 
+/// The daemon environment reader shared by setup operations.
+pub type SetupEnvironment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// `SetupHost` over the daemon: the env, the live config and the warm-up slot.
 pub struct DaemonSetupHost {
-    pub env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    pub env: SetupEnvironment,
     pub config: Config,
     pub warmup: Arc<SetupWarmup>,
 }

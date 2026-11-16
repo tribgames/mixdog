@@ -90,7 +90,9 @@ async fn read_engines(io: InteractiveIo, package_root: &Path) -> Result<Option<S
 
 /// `readMigrationProgress`: the progress record, a fresh one when the file is missing; `Err`
 /// when the file is not a progress record (its skips are never guessed).
-fn read_progress(path: &Path) -> Result<(bool, i64, Vec<(String, String)>), ()> {
+type MigrationProgress = (bool, i64, Vec<(String, String)>);
+
+fn read_progress(path: &Path) -> Result<MigrationProgress, ()> {
     let bytes = match read_content(path) {
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Ok((false, 0, Vec::new())),

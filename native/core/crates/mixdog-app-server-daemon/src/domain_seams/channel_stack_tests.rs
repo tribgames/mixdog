@@ -142,10 +142,12 @@ impl mixdog_services::scheduler::Clock for WallClock {
 
 /// The webhook automation, counting the reload syncs it finished and, when armed, sending the recorded delivery the
 /// moment a reload sync is entered (Node's recorder sends it once `WebhookServer.reloadConfig` was entered).
+type ArmedReload = (u16, String, Value, tokio::sync::oneshot::Sender<Value>);
+
 struct ArmedReloads {
     inner: mixdog_services::channels::WebhookAutomation,
     reloaded: tokio::sync::watch::Sender<usize>,
-    armed: std::sync::Mutex<Option<(u16, String, Value, tokio::sync::oneshot::Sender<Value>)>>,
+    armed: std::sync::Mutex<Option<ArmedReload>>,
 }
 
 #[async_trait::async_trait]
@@ -207,6 +209,7 @@ fn dechunked(mut rest: &str) -> String {
 }
 
 /// Waits for `what` with one deadline.
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(30), future).await.unwrap_or_else(|_| panic!("never happened: {what}"))
 }
@@ -395,6 +398,7 @@ fn node_row(row: impl serde::Serialize, columns: &str) -> Value {
 
 /// Every file under `dir`, by its path below it.
 fn files(dir: &std::path::Path) -> Value {
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Map<String, Value>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         let mut paths: Vec<_> = entries.map(|entry| entry.unwrap().path()).collect();
@@ -486,13 +490,13 @@ async fn a_bots_whole_deletion_through_the_admin_entry_leaves_what_node_leaves()
     for def in seed["schedules"].as_array().unwrap() {
         let mut def = def.clone();
         def["ownerAgentId"] = json!(ids[def["owner"].as_u64().unwrap() as usize]);
-        def.as_object_mut().unwrap().remove("owner");
+        def.as_object_mut().unwrap().shift_remove("owner");
         stack.schedules.upsert(&serde_json::from_value::<Schedule>(def).unwrap()).await.unwrap();
     }
     for def in seed["endpoints"].as_array().unwrap() {
         let mut def = def.clone();
         def["ownerAgentId"] = json!(ids[def["owner"].as_u64().unwrap() as usize]);
-        def.as_object_mut().unwrap().remove("owner");
+        def.as_object_mut().unwrap().shift_remove("owner");
         stack.webhooks.upsert(&serde_json::from_value::<EndpointRecord>(def).unwrap()).await.unwrap();
     }
     let claim = &seed["claim"];

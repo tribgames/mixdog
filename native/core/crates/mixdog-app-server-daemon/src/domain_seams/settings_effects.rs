@@ -179,6 +179,7 @@ mod tests {
     /// The system shell Windows and every other platform accept.
     const STORED: &str = "pwsh";
 
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     async fn open_config(dir: &std::path::Path, shell: Option<&str>) -> Config {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -229,6 +230,7 @@ mod tests {
     /// shell follows it at once; a document that no longer names one clears it, and a boot probe kept for the old
     /// command is dropped with it.
     #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     async fn an_outside_edit_of_the_config_file_applies_to_the_next_spawn() {
         let dir = tempfile::tempdir().unwrap();
         let config = open_config(dir.path(), None).await;

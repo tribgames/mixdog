@@ -189,7 +189,7 @@ struct Converting(Arc<mixdog_migrate::run::Waiting>);
 impl mixdog_core_session::session::ArrivingThreads for Converting {
     fn arriving(&self, thread: &mixdog_protocol::ThreadId) -> Option<futures::future::BoxFuture<'static, ()>> {
         let (settled, there) = tokio::sync::oneshot::channel();
-        let asked = self.0.first(thread.as_str(), Box::new(move || drop(settled.send(()))));
+        let asked = self.0.first(thread.as_str(), Box::new(move || { let _ = settled.send(()); }));
         asked.then(|| -> futures::future::BoxFuture<'static, ()> {
             Box::pin(async move {
                 let _ = there.await;
@@ -293,7 +293,6 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                             }
                         })
                     }),
-                    ..MigrateOptions::default()
                 };
                 match mixdog_migrate::run::cli::front(roots, projector.clone(), office, options) {
                     Ok(Front::Pending(back)) => {

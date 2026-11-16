@@ -787,6 +787,7 @@ mod tests {
     /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads the item Node's
     /// `JSON.parse` reads (the half emoji as U+FFFD) instead of quarantining it as corrupt.
     #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     async fn a_queued_item_node_wrote_with_half_an_emoji_is_read_whole() {
         let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
         let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();

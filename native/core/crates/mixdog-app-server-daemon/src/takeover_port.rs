@@ -114,7 +114,7 @@ impl CoreTakeover {
     /// Resolves true once the person may act on takeover `takeover_id` of `session_id`, false when it ends first or is never
     /// seen. Only the session's held takeover answers to its own id: another id is a takeover not seen (`held.get(id) !== id`).
     pub async fn ready(&self, session_id: &str, takeover_id: &str) -> bool {
-        let deadline = tokio::time::Instant::now() + UNSEEN_READY;
+        let deadline = mixdog_rt::time::Instant::now() + UNSEEN_READY;
         let mut seen = false;
         loop {
             let hold = self.shared.hold(session_id);
@@ -124,7 +124,7 @@ impl CoreTakeover {
                 match (&self.shared.computer, hold.names_screen) {
                     (Some(lock), true) => {
                         // A takeover whose own surface is the screen waits for Computer Use to drain too; the takeover ending first drops the wait.
-                        if tokio::time::timeout(POLL, lock.drained()).await.is_ok() {
+                        if mixdog_rt::time::timeout(POLL, lock.drained()).await.is_ok() {
                             return true;
                         }
                         continue;
@@ -132,10 +132,10 @@ impl CoreTakeover {
                     _ => return true,
                 }
             }
-            if (!held && seen) || (!seen && tokio::time::Instant::now() >= deadline) {
+            if (!held && seen) || (!seen && mixdog_rt::time::Instant::now() >= deadline) {
                 return false;
             }
-            tokio::time::sleep(POLL).await;
+            mixdog_rt::time::sleep(POLL).await;
         }
     }
 
@@ -177,7 +177,7 @@ fn refusal(step: Option<String>) -> String {
 fn watch_operations(shared: Arc<Shared>) {
     drop(tokio::spawn(async move {
         loop {
-            tokio::time::sleep(POLL).await;
+            mixdog_rt::time::sleep(POLL).await;
             let mut state = shared.state();
             if state.operations.is_empty() {
                 state.watching = false;
@@ -330,6 +330,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn a_takeover_starting_stops_the_running_command_of_its_session_only() {
         let (holds, owner) = owner();
         let (mine, other) = (owner.begin("s1").unwrap(), owner.begin("s2").unwrap());
@@ -345,6 +346,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn ready_waits_for_the_commands_of_the_session_to_drain() {
         let (holds, owner) = owner();
         let running = owner.begin("s1").unwrap();
@@ -408,6 +410,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn a_screen_takeover_is_ready_once_computer_use_drained() {
         let holds = Arc::new(Holds::default());
         let lock = Arc::new(HumanOnlyLock::new(holds.clone()));
@@ -432,6 +435,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn the_drain_is_chosen_by_the_surface_of_the_takeover_that_is_held() {
         let holds = Arc::new(Holds::default());
         let lock = Arc::new(HumanOnlyLock::new(holds.clone()));
@@ -449,6 +453,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn ready_is_false_when_the_takeover_ends_or_is_never_seen() {
         let (holds, owner) = owner();
         holds.take("s1", None);

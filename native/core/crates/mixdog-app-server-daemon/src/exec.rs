@@ -620,6 +620,8 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[allow(clippy::disallowed_methods, reason = "the test builds its stand-in shell on the test thread")]
+    #[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    #[allow(clippy::result_large_err, reason = "Test fixture preserves the existing structured protocol/error response without boxing solely for lint.")]
     async fn a_shell_that_never_reads_its_input_is_held_and_limited_as_nodes() {
         use mixdog_core_api::domain::process::ProcessManager;
         let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-unread-stdin/golden.json")).unwrap();

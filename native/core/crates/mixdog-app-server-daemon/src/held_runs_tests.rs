@@ -692,6 +692,7 @@ impl Client {
     }
 
     /// The `item/tool/requestApproval` frame this connection is sent, once it is.
+    #[allow(dead_code, reason = "Shared wire fixture helper retained for approval scenarios; this test subset does not ask for that frame.")]
     async fn approval_request(&self) -> Value {
         // Picks the one wire frame the test waits for out of the connection's frames; nothing of Node's output is dropped, the frame itself is compared whole.
         let find = |texts: &[String]| texts.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"));
