@@ -3,6 +3,9 @@
 //! and the owner's inbox. Each is one Node collaborator of `createSpawnRunner`,
 //! `createJobStarter` and `createWorkerTurns`; the decisions around them are the port.
 
+// Private spelling of the existing callback, with unchanged representation.
+type TerminalResultCallback = dyn Fn(&TurnResult) + Send + Sync;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -66,7 +69,7 @@ pub struct TurnHooks {
     pub notify: NotifyFn,
     pub on_tool_result: Arc<dyn Fn(&ToolResultMessage) + Send + Sync>,
     /// Set for a job's turn only.
-    pub on_terminal_result: Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>,
+    pub on_terminal_result: Option<Arc<TerminalResultCallback>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

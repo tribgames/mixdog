@@ -805,7 +805,7 @@ fn tool_drafts(tools: &RequestTools<'_>, deferred_catalog: &[String], annotation
                 "native"
             } else if deferred(tool) {
                 "deferred"
-            } else if deferred_catalog.iter().any(|n| *n == name) {
+            } else if deferred_catalog.contains(&name) {
                 "loaded"
             } else {
                 "active"

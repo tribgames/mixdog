@@ -49,7 +49,7 @@ fn str_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn non_empty<'a>(value: Option<&'a Value>) -> Option<&'a str> {
+fn non_empty(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
@@ -140,11 +140,11 @@ pub fn image_descriptor(block: &Value) -> Option<ImageDescriptor> {
         if let Some(data) = non_empty(field("data")) {
             return described(image_identity("inline", data, &clean_image_mime(&first_text(&[field("mimeType"), field("mediaType")]))));
         }
-        if source.and_then(|s| s.get("type")).and_then(Value::as_str) == Some("base64") {
-            if let Some(data) = non_empty(source.and_then(|s| s.get("data"))) {
-                let mime = first_text(&[source.and_then(|s| s.get("media_type")), source.and_then(|s| s.get("mediaType"))]);
-                return described(image_identity("inline", data, &clean_image_mime(&mime)));
-            }
+        if source.and_then(|s| s.get("type")).and_then(Value::as_str) == Some("base64")
+            && let Some(data) = non_empty(source.and_then(|s| s.get("data")))
+        {
+            let mime = first_text(&[source.and_then(|s| s.get("media_type")), source.and_then(|s| s.get("mediaType"))]);
+            return described(image_identity("inline", data, &clean_image_mime(&mime)));
         }
     }
     if let Some(data) = non_empty(inline.and_then(|i| i.get("data"))) {
@@ -426,11 +426,11 @@ fn estimate_text<R: AttachmentBytes + ?Sized>(m: &Value, blobs: &R) -> Result<St
     }
     let assistant = str_of(m, "role") == Some("assistant");
     let mut text = content_text(m.get("content"), blobs)?;
-    if assistant {
-        if let Some(calls) = non_empty_list(m.get("toolCalls")) {
-            text.push('\n');
-            text.push_str(&mixdog_js::json_stringify(calls));
-        }
+    if assistant
+        && let Some(calls) = non_empty_list(m.get("toolCalls"))
+    {
+        text.push('\n');
+        text.push_str(&mixdog_js::json_stringify(calls));
     }
     // An empty replay list still counts as "has replay": it suppresses the native fallbacks below.
     let replay = assistant.then(|| m.get("providerReplay").and_then(|r| r.get("items")).filter(|i| i.is_array())).flatten();
@@ -449,11 +449,11 @@ fn estimate_text<R: AttachmentBytes + ?Sized>(m: &Value, blobs: &R) -> Result<St
     }
     if replay.is_none() {
         let thought = m.get("providerMetadata").and_then(|p| p.get("gemini")).and_then(|g| g.get("thoughtParts"));
-        if assistant {
-            if let Some(parts) = non_empty_list(thought) {
-                text.push('\n');
-                text.push_str(&native_blocks_text(parts));
-            }
+        if assistant
+            && let Some(parts) = non_empty_list(thought)
+        {
+            text.push('\n');
+            text.push_str(&native_blocks_text(parts));
         }
     }
     if str_of(m, "role") == Some("tool") && truthy(m.get("toolCallId")) {

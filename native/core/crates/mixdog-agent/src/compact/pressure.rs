@@ -586,16 +586,15 @@ fn restore_with<M, E>(
     let state = checkpoint.get("contextState").filter(|s| truthy(Some(s)));
     let raw_used = number(state.and_then(|s| s.get("usedTokens")));
     let mut usable = None;
-    if let Some(s) = state {
-        if s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
+    if let Some(s) = state
+        && s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
             && raw_used.is_finite()
             && raw_used >= 0.0
             && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
             && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
             && slice_matches(messages, s, exact)?
-        {
-            usable = Some(s);
-        }
+    {
+        usable = Some(s);
     }
     let Some(state) = usable else {
         if legacy_baseline_matches(header, messages, exact)? {
@@ -640,20 +639,20 @@ fn restore_with<M, E>(
     patch.put("lastContextTokensUpdatedAt", num(updated_at));
     // Usable by compaction; its source tells it from a measured prompt in the display lane.
     patch.put("lastContextTokensStaleAfterCompact", false.into());
-    if let Some(snapshot) = state.get("usageSnapshot").filter(|s| truthy(Some(s))) {
-        if post_compact {
-            let mut restored = snapshot.as_object().cloned().unwrap_or_default();
-            restored.insert("usedTokens".into(), num(used));
-            restored.insert("messageCount".into(), count.into());
-            restored.insert("messagesSignature".into(), prefix_signature.into());
-            patch.put("contextUsageSnapshot", Value::Object(restored));
-            if truthy(snapshot.get("usageMetricsTurnId")) {
-                patch.put("usageMetricsTurnId", snapshot["usageMetricsTurnId"].clone());
-            }
-            let epoch = number(snapshot.get("usageMetricsEpoch"));
-            if epoch.is_finite() {
-                patch.put("usageMetricsEpoch", num(epoch));
-            }
+    if let Some(snapshot) = state.get("usageSnapshot").filter(|s| truthy(Some(s)))
+        && post_compact
+    {
+        let mut restored = snapshot.as_object().cloned().unwrap_or_default();
+        restored.insert("usedTokens".into(), num(used));
+        restored.insert("messageCount".into(), count.into());
+        restored.insert("messagesSignature".into(), prefix_signature.into());
+        patch.put("contextUsageSnapshot", Value::Object(restored));
+        if truthy(snapshot.get("usageMetricsTurnId")) {
+            patch.put("usageMetricsTurnId", snapshot["usageMetricsTurnId"].clone());
+        }
+        let epoch = number(snapshot.get("usageMetricsEpoch"));
+        if epoch.is_finite() {
+            patch.put("usageMetricsEpoch", num(epoch));
         }
     }
     if let Some(saved) = state.get("compaction").and_then(Value::as_object) {

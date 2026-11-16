@@ -326,7 +326,7 @@ impl JobViews {
             return Err(format!("agent read/status: no task found for tag/sessionId \"{target}\""));
         }
         // The newest when several match one tag.
-        candidates.sort_by(|a, b| b.started_ms.cmp(&a.started_ms));
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.started_ms));
         Ok(candidates.swap_remove(0))
     }
 
