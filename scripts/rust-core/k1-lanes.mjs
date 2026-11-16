@@ -166,6 +166,7 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-services/src/effort_judge/worker_tests.rs',
   'native/core/crates/mixdog-services/src/tidy/process.rs',
   'native/core/crates/mixdog-store/src/store_tests.rs',
+  'native/core/crates/mixdog-tools/src/exec/shell_choice.rs',
   'native/core/crates/mixdog-tools/src/exec/tests.rs',
 ];
 
