@@ -50,7 +50,7 @@ pub fn step_command(command: &Value, step: &Value, action: &str) -> Value {
     for key in ["tab", "background", "session_id", "turn_id"] {
         match command.get(key) {
             Some(value) => out.insert(key.to_string(), value.clone()),
-            None => out.remove(key),
+            None => out.shift_remove(key),
         };
     }
     out.insert("internalStep".to_string(), Value::Bool(true));
@@ -61,7 +61,7 @@ pub fn step_command(command: &Value, step: &Value, action: &str) -> Value {
         out.insert("unattended_run".to_string(), Value::Bool(true));
         match command.get("unattended_agent") {
             Some(agent) => out.insert("unattended_agent".to_string(), agent.clone()),
-            None => out.remove("unattended_agent"),
+            None => out.shift_remove("unattended_agent"),
         };
     }
     Value::Object(out)

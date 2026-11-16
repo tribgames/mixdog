@@ -6,7 +6,6 @@
 use mixdog_browser_policy::timing::Phase;
 use serde::Deserialize;
 
-use super::access::ActionabilityReason;
 use super::access::RefError;
 use super::access::checked_ref_result;
 use super::points::ref_point;

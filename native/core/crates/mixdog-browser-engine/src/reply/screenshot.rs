@@ -77,11 +77,11 @@ fn fits_file_budget(length: usize) -> bool {
 /// (`attachFrame`). A frame that cannot be written to a file stays in the reply.
 pub async fn attach_frame(files: &dyn FilePort, reply: &mut ToolReply, output: ImageOutput, frame_dir: &Path, capture: &CapturedScreenshot) -> Result<(), ReplyError> {
     let length = capture.bytes.len();
-    if output == ImageOutput::File && fits_file_budget(length) {
-        if let Ok(path) = files.write_frame(frame_dir, capture.bytes.clone(), &capture.mime_type).await {
-            reply.text.push_str(&format!("\n\nFrame written to {} ({length} bytes).", path.display()));
-            return Ok(());
-        }
+    if output == ImageOutput::File && fits_file_budget(length)
+        && let Ok(path) = files.write_frame(frame_dir, capture.bytes.clone(), &capture.mime_type).await
+    {
+        reply.text.push_str(&format!("\n\nFrame written to {} ({length} bytes).", path.display()));
+        return Ok(());
     }
     if length > MAX_INLINE_IMAGE_BYTES {
         return Err(ReplyError::new(format!(

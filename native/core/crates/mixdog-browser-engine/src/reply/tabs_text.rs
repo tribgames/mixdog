@@ -21,7 +21,7 @@ pub fn list_tabs_text(pages: &[PageDescriptor], active_page_id: Option<&str>) ->
     }
     for page in pages.iter().filter(|page| page.background) {
         // A popup is named by the page that opened it (`popup from <opener>`).
-        let opener = pages.iter().find(|other| other.facts.opened_popups.iter().any(|id| *id == page.page_id));
+        let opener = pages.iter().find(|other| other.facts.opened_popups.contains(&page.page_id));
         let kind = opener.map(|opener| format!("popup from {}", opener.page_id)).unwrap_or_else(|| "background".to_owned());
         lines.push(format!("- {} [\"{}\"] ({kind}): {}", page.page_id, page.tab_id, title_and_address(page)));
     }
