@@ -385,10 +385,10 @@ impl MediaLowering {
                     self.prime(reference, None).await;
                 }
                 self.resolve(part).await?;
-                if let Lookup::Info(file) = self.lookup(part) {
-                    if inline_file_kind(&file.mime, &file.data, &file.filename) == FileKind::Office {
-                        self.office(&file).await?;
-                    }
+                if let Lookup::Info(file) = self.lookup(part)
+                    && inline_file_kind(&file.mime, &file.data, &file.filename) == FileKind::Office
+                {
+                    self.office(&file).await?;
                 }
             }
         }

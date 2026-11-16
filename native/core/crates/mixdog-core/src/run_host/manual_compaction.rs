@@ -268,13 +268,13 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
 
 /// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`.
 pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates().await
+    ToolResultArtifacts::new(*io, data_dir, thread.as_str()).prune_candidates().await
 }
 
 /// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
 pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
     let now = u64::try_from(clock.now_ms()).unwrap_or(0);
-    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(candidates, transcripts, copies, now).await;
+    ToolResultArtifacts::new(*io, data_dir, thread.as_str()).prune(candidates, transcripts, copies, now).await;
 }
 
 /// `compactSessionMessages` after a pass that did not fail: the reading of the last request is reset.
@@ -294,7 +294,8 @@ impl HostManualCompaction {
 
     /// `recordFailedCompaction` and the save after it: the thread keeps its conversation; its
     /// `compaction` record says what happened.
-    async fn record_failure(&self, thread: &ThreadId, snapshot: &ContextSnapshot, messages: &[AgentMessage], plan: &CompactionPlan, usage: Option<&Value>, error: &str, fresh_error: Option<&str>) -> Result<Value, CoreError> {
+    async fn record_failure(&self, thread: &ThreadId, snapshot: &ContextSnapshot, messages: &[AgentMessage], plan: &CompactionPlan, usage: Option<&Value>, errors: (&str, Option<&str>)) -> Result<Value, CoreError> {
+        let (error, fresh_error) = errors;
         // A session that closed, was deleted or shut down under the compaction (its abort is why this records a failure) is gone
         // from the directory: Node holds the session it loaded, its save is dropped by the close's generation, and the result
         // is returned all the same. So the pass's own snapshot of the header stands in, and nothing is stored.
@@ -368,7 +369,7 @@ impl HostManualCompaction {
         let input = CompactorInput {
             settings,
             rows: registered(&messages, &rows),
-            archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str())),
+            archive: Arc::new(ToolResultArtifacts::new(parts.io, &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
         let Some(compactor) = parts.compactors.compactor(thread, &snapshot.header, &rows, input).await else { return Err(failed(DOMAIN, "no compactor for this session")) };
@@ -394,12 +395,12 @@ impl HostManualCompaction {
         let output = match compacted {
             Ok(output) => output,
             Err(CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) => {
-                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, (&message, Some(&message))).await.map(Some);
             }
             Err(CompactError::Aborted) => {
                 // Node records the abort signal's own text (`error.message` of the reason it threw).
                 let message = if cancel.is_aborted() { cancel.reason() } else { "compact aborted".to_owned() };
-                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, (&message, Some(&message))).await.map(Some);
             }
         };
         if output.skipped {
@@ -474,7 +475,7 @@ impl HostManualCompaction {
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
             // The conversation moved: nothing was applied, the summary's usage still counts.
-            CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), TRANSCRIPT_MOVED_ERROR, None).await.map(Some),
+            CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), (TRANSCRIPT_MOVED_ERROR, None)).await.map(Some),
         }
     }
 }
@@ -515,7 +516,7 @@ impl ManualCompaction for HostManualCompaction {
         let input = CompactorInput {
             settings,
             rows: registered(&messages[messages.len() - rows.len()..], &rows),
-            archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
+            archive: Arc::new(ToolResultArtifacts::new(parts.io, &parts.data_dir, source.as_str())),
             blobs: parts.blobs.clone(),
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };

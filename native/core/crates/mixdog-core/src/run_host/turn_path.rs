@@ -3,6 +3,9 @@
 //! crate implements yet are owner traits there (see `compose-seams.md`, "TurnPath inputs"), so the
 //! daemon can only build the path once each has its real implementation.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type HopFactoryBuilder = dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory;
+
 use std::sync::Arc;
 
 use mixdog_agent::compact::image::ToolImageCompactor;
@@ -111,7 +114,7 @@ pub struct TurnPathParts {
     /// read the same world, and neither can be built from inside this path (the `deps` closure is called in it with the run factory only).
     pub compactors: Arc<SessionCompactors>,
     /// The route hop, built over the directory and the path's registry.
-    pub hops: Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>,
+    pub hops: Box<HopFactoryBuilder>,
     /// The runtime's shell control: the progress watchdog's stop reaps a turn's shells through it.
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
     /// The runtime liveness map the runs write, made by the composition: the code-graph prewarm's busy probe (inside deps) and the path's readers hold the same Arc.

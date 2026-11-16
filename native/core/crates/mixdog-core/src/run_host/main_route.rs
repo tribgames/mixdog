@@ -12,6 +12,9 @@
 //! The config it resolves over is the loaded one (`getConfig()` is `loadConfig()`: the canonical agent
 //! section with the providers of the loaded config and the effective presets), not the stored section.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type KnownRouteLookup = dyn Fn(&str, &Obj) -> bool + Send + Sync;
+
 use std::sync::Arc;
 
 use mixdog_ai::service::admin_route::{Obj, resolve_route};
@@ -20,12 +23,12 @@ use serde_json::Value;
 
 pub struct MainRoute {
     loaded: Arc<LoadedConfig>,
-    is_known: Arc<dyn Fn(&str, &Obj) -> bool + Send + Sync>,
+    is_known: Arc<KnownRouteLookup>,
 }
 
 impl MainRoute {
     /// `is_known` is the catalog's `is_known(provider, config)` (`CatalogFacts`), as the route cell passes it.
-    pub fn new(loaded: Arc<LoadedConfig>, is_known: Arc<dyn Fn(&str, &Obj) -> bool + Send + Sync>) -> Self {
+    pub fn new(loaded: Arc<LoadedConfig>, is_known: Arc<KnownRouteLookup>) -> Self {
         Self { loaded, is_known }
     }
 

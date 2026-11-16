@@ -6,6 +6,10 @@
 //! member there, through the room host (`roomAddressee`, `roomSubmitter`).
 //! Replayed against Node's answers: `fixtures/session-tool-control/golden.json` (`send-*`).
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type SessionRecordLookup = dyn Fn(&str) -> Option<Value> + Send + Sync;
+type SessionTurnLookup = dyn Fn(&str) -> (u32, Vec<String>) + Send + Sync;
+
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -57,9 +61,9 @@ pub fn chained_hop(hop: u32) -> Result<u32, String> {
 /// acting as a bot, `delegationChainOf(callerSessionId, getSession)` (`workspace-tools.mjs`).
 pub struct CallerChains {
     /// `getSession(id)`: a session's record.
-    pub record: Arc<dyn Fn(&str) -> Option<Value> + Send + Sync>,
+    pub record: Arc<SessionRecordLookup>,
     /// `turnHopOf` / `turnBotChainOf` of a session's current turn.
-    pub turn: Arc<dyn Fn(&str) -> (u32, Vec<String>) + Send + Sync>,
+    pub turn: Arc<SessionTurnLookup>,
 }
 
 impl CallerChains {

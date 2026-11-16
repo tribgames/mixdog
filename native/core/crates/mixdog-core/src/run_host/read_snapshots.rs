@@ -39,7 +39,7 @@ fn sweep_dir(dir: &Path, now: SystemTime) {
 }
 
 /// `mkdirSync(dir, { recursive: true, mode: 0o700 })`: the snapshot directory belongs to the user alone where the system has modes.
-#[allow(clippy::disallowed_methods, reason = "ReadState calls the store from the blocking pool; the trait is blocking")]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "FileSnapshotPersist::save is called by ReadState Persistence::run inside its awaited DurabilityIo job")]
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);

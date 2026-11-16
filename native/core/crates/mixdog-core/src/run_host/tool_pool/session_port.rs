@@ -60,8 +60,11 @@ use mixdog_core_session::session::transcript_row;
 
 use super::callers::ThreadCallers;
 use super::session_output::ListPage;
+#[cfg(test)]
 use super::session_output::range_of;
+#[cfg(test)]
 use super::session_output::row_of;
+#[cfg(test)]
 use super::session_output::session_read_output;
 
 mod actions;
@@ -435,6 +438,7 @@ impl DirectorySessionPort {
 
     /// `session action=read` (`targetRequest` and `sessionReadOutput`): a window of another session's transcript, counted
     /// from its newest row, each row quoted with its own text window.
+    #[cfg(test)]
     async fn read(&self, call: &ControlCall) -> Result<Value, PortError> {
         let request = actions::target_request(call, "read")?;
         let target = ThreadId::from(request.id.as_str());

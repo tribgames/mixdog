@@ -348,7 +348,7 @@ pub fn refresh_rule_variants(session: &mut Value, plugin_root: &Path, previous_m
         .and_then(Value::as_array)
         .filter(|_| !(owner_is_agent && !policy.hidden_agent(agent.as_deref())))
         .map(|a| a.iter().map(lowered_keep).collect());
-    let text = |key: &str| session.get(key).filter(|v| truthy_text(Some(v))).map(|v| mixdog_js::value_to_string(v)).unwrap_or_default();
+    let text = |key: &str| session.get(key).filter(|v| truthy_text(Some(v))).map(mixdog_js::value_to_string).unwrap_or_default();
     let (provider, model) = (text("provider"), text("model"));
     let previous_provider = previous_provider.map_or_else(|| provider.clone(), str::to_owned);
     let omit = |model: &str| -> Vec<String> { deny.iter().cloned().chain(std::iter::once(unused_model_edit_tool_name(model).to_owned())).collect() };

@@ -66,6 +66,7 @@ fn is_js_space(c: char) -> bool {
 }
 
 /// A stored session title as the tool quotes it (`escapeHarnessTags(truncateToolText(title, SESSION_TITLE_LIMIT))`).
+#[cfg(test)]
 pub(super) fn quoted_title(title: &str) -> String {
     escape_harness_tags(&truncate_tool_text(title, TITLE_LIMIT))
 }

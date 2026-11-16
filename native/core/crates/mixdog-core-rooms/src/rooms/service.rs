@@ -311,10 +311,10 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
             ..merged
         })?;
         let added: Vec<String> = merged_config.members.iter().filter(|id| !current.config.members.contains(id)).cloned().collect();
-        if !added.is_empty() {
-            if let Some(missing) = Self::missing(&self.known().await?, &added) {
-                return Err(RoomError::Invalid(format!("Agent \"{missing}\" is not available.")));
-            }
+        if !added.is_empty()
+            && let Some(missing) = Self::missing(&self.known().await?, &added)
+        {
+            return Err(RoomError::Invalid(format!("Agent \"{missing}\" is not available.")));
         }
         let patch = RoomPatch {
             name: input.get("name").and_then(Value::as_str).map(str::to_owned),
@@ -327,10 +327,10 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         if !updated.gone.is_empty() {
             self.runner.cancel_owed_to(room_id, &updated.gone);
         }
-        if updated.renamed {
-            if let Some(session_id) = room_session_id(room_id) {
-                let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;
-            }
+        if updated.renamed
+            && let Some(session_id) = room_session_id(room_id)
+        {
+            let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;
         }
         let publish = replied.hold();
         let listing = self.host.republish_catalog(&publish).await?;

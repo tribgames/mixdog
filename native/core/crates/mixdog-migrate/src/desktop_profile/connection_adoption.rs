@@ -209,7 +209,7 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
             save(data, &journal)?;
         }
     }
-    for family in 0..journal.families.len() {
+    for (family, file) in FILES.iter().enumerate() {
         if journal.families[family].settled || journal.families[family].copies.is_empty() { continue; }
         if journal.families[family].current_authoritative {
             journal.families[family].settled = true;
@@ -227,7 +227,7 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
         for index in 0..journal.families[family].copies.len() {
             let copy = journal.families[family].copies[index].clone();
             // Corruption evidence is retained, never promoted into a live store or used to fabricate a new main document.
-            if copy.root != Root::Desktop || !(copy.file == FILES[family] || copy.file == format!("{}.bak", FILES[family])) { continue; }
+            if copy.root != Root::Desktop || !(copy.file == *file || copy.file == format!("{file}.bak")) { continue; }
             let target = data.join("userdata").join(&copy.file);
             if copy.published { verify(&target, &copy)?; continue; }
             fault(&format!("connections-adoption:publish:{}:before", copy.file))?;

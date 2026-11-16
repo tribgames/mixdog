@@ -28,10 +28,10 @@ pub fn collect_assistant_tool_call_ids(message: &Value) -> Vec<String> {
     }
     let mut ids: Vec<String> = Vec::new();
     let mut add = |id: Option<&Value>| {
-        if let Some(id) = id.and_then(Value::as_str).filter(|s| !s.is_empty()) {
-            if !ids.iter().any(|seen| seen == id) {
-                ids.push(id.to_owned());
-            }
+        if let Some(id) = id.and_then(Value::as_str).filter(|s| !s.is_empty())
+            && !ids.iter().any(|seen| seen == id)
+        {
+            ids.push(id.to_owned());
         }
     };
     if let Some(calls) = message.get("toolCalls").and_then(Value::as_array) {

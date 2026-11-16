@@ -51,7 +51,7 @@ pub fn list_of(header: &Header) -> TodoList {
                 .collect()
         })
         .unwrap_or_default();
-    let updated_at_ms = record.and_then(|todo| todo.get("updatedAt")).map_or(0.0, |at| mixdog_js::to_number(at));
+    let updated_at_ms = record.and_then(|todo| todo.get("updatedAt")).map_or(0.0, mixdog_js::to_number);
     TodoList { phases, updated_at_ms: if updated_at_ms.is_finite() { updated_at_ms as i64 } else { 0 } }
 }
 

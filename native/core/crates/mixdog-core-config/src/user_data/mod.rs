@@ -94,9 +94,11 @@ impl GuardError {
 
 /// The environment the guard reads on every call, as Node reads `process.env` and `os.homedir()`.
 pub struct Env {
-    var: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    var: GuardEnvLookup,
     home: Option<PathBuf>,
 }
+
+type GuardEnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 impl Env {
     /// The process environment and its home directory.

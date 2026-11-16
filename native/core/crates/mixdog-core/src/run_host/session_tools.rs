@@ -148,7 +148,7 @@ pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
 /// `{ name, description, inputSchema, annotations }`, which carries neither its `title` nor its
 /// `trigger`: the deferred manifest lists its description. The built-ins, the connected servers' tools
 /// and the step list keep their whole definition, and so does code_graph, which a built-in spec resolves as a built-in (under the
-/// mcp specs Node projects it; the stored definition only differs by 	itle and 	rigger, never on the wire).
+/// mcp specs Node projects it; the stored definition only differs by `title` and `trigger`, never on the wire).
 pub fn session_doc(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>) -> Value {
     let doc = tool.spec().definition();
     if name(tool) == CODE_GRAPH || !internal_tools(pool).iter().any(|internal| name(internal) == name(tool)) {
@@ -354,7 +354,7 @@ impl SessionToolBuilder {
             .filter_map(|active| resolved.iter().chain(&bridge).chain(&standalone).find(|t| name(t) == active).cloned())
             .map(|tool| bound_to_model(tool, model))
             .collect();
-        let builtins = tools.iter().map(|t| name(t)).filter(|n| is_builtin(n)).map(str::to_owned).collect();
+        let builtins = tools.iter().map(name).filter(|n| is_builtin(n)).map(str::to_owned).collect();
         // A `public: false` tool is in no list a model is sent, but a call the runtime rewrites onto it
         // (`web_fetch` to `local_fetch` / `image_fetch`) is dispatched by name, whatever the session.
         let unlisted = self.pool.iter().filter(|t| !t.spec().public).cloned();

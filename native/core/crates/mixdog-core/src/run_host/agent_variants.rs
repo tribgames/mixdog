@@ -40,10 +40,10 @@ const AGENT_VARIANT_TOOLS: [&str; 2] = ["git", "task"];
 /// tool that lost it fails the composition, not a delegated agent's turn. A pool without them passes.
 pub fn check_pool(pool: &[Arc<dyn Tool>]) -> Result<(), VariantError> {
     for tool in pool {
-        if let Some(name) = AGENT_VARIANT_TOOLS.iter().find(|name| tool.spec().name == **name) {
-            if tool.agent_spec().is_none() {
-                return Err(VariantError { tool: name });
-            }
+        if let Some(name) = AGENT_VARIANT_TOOLS.iter().find(|name| tool.spec().name == **name)
+            && tool.agent_spec().is_none()
+        {
+            return Err(VariantError { tool: name });
         }
     }
     Ok(())
