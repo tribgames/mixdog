@@ -30,7 +30,7 @@ impl Presence for RuntimePresence {
             .map(|client| PairedClient {
                 phone_app: client.browser == APP_BROWSER,
                 // `Number.isSafeInteger(createdAt) && createdAt > 0`
-                paired_at: (client.created_at > 0 && client.created_at <= (1 << 53) - 1).then_some(client.created_at),
+                paired_at: (client.created_at > 0 && client.created_at < (1 << 53)).then_some(client.created_at),
                 id: client.id,
             })
             .collect()

@@ -81,6 +81,7 @@ pub struct CustomProbes {
 }
 
 /// What stops a bounded step: its own failure, or the clock (`EPROVIDERTIMEOUT`).
+#[allow(clippy::large_enum_variant, reason = "retain the canonical ProviderError payload and existing private stop layout without a new per-error allocation")]
 enum Stopped {
     Timeout(String),
     Failed(ProviderError),
@@ -89,6 +90,7 @@ enum Stopped {
 /// `withTimeout(run, ms, label)`; the run is dropped when the time is up (its abort). The clock is armed before the
 /// run and wins a tie: a run that bounds itself by the same `ms` (the discovery's own `timeoutMs`) expires with it, and
 /// Node's `setTimeout` armed first fires first.
+#[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
 async fn bounded<T>(
     run: impl std::future::Future<Output = Result<T, ProviderError>>,
     limit: Duration,

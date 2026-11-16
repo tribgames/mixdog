@@ -299,7 +299,7 @@ pub async fn forget_file(id: &str, file: &CredentialFile) -> Result<Value, Strin
 }
 /// The ten OAuth providers, in setup order (`OAUTH_PROVIDERS`).
 pub fn oauth_providers(wiring: &Arc<OAuthWiring>) -> Vec<Arc<dyn OAuthProvider>> {
-    PROVIDERS.iter().map(|id| Arc::new(FileOAuth { id: *id, wiring: Arc::clone(wiring) }) as Arc<dyn OAuthProvider>).collect()
+    PROVIDERS.iter().map(|id| Arc::new(FileOAuth { id, wiring: Arc::clone(wiring) }) as Arc<dyn OAuthProvider>).collect()
 }
 
 /// `describeVertexAdc` + `probeVertexMetadata`: the check a gcloud-login save makes, over the same

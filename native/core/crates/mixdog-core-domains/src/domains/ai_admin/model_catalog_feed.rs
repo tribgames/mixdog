@@ -24,6 +24,7 @@
 //! - a config change that leaves `providers` alone: `setModelPreferences` of a built-in provider only reloads the config
 //!   (`login.mjs:94-98`) and the rows are hydrated with the saved settings at read time (`provider-models.mjs:166,187,191`);
 //! - a catalog load adopting its rows (`provider-models.mjs:107-124`): no signal at all.
+//!
 //! The recording (`scenarios-model-catalog.json`) holds a case for each mutation: a hidden model, a provider saved and one removed
 //! (the providers change that waits for its invalidation), a favorite (the config alone), each followed by Node's read, repeated
 //! once to record the mutation that leaves the rows alone; and `model-catalog-background`, a forced load that adopts other rows

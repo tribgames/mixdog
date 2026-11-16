@@ -13,7 +13,8 @@ use serde_json::Number;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
-use tokio::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
+use tokio::sync::Semaphore;
 use tokio::sync::watch;
 use url::Url;
 
@@ -150,14 +151,13 @@ pub async fn redeem_pair_code(relay_origin: &str, code: &str) -> Result<Redeemed
 
 fn redeemed_from(status: u16, body: &Value) -> Result<RedeemedPairCode, PairRedeemError> {
     let text = |name: &str| body.get(name).and_then(Value::as_str);
-    if status == 200 {
-        if let (Some(device_id), Some(ticket)) = (text("deviceId"), text("ticket")) {
+    if status == 200
+        && let (Some(device_id), Some(ticket)) = (text("deviceId"), text("ticket")) {
             return Ok(RedeemedPairCode {
                 device_id: device_id.to_string(),
                 ticket: ticket.to_string(),
                 name: slice_utf16(text("name").unwrap_or(""), MAX_NAME_LENGTH),
             });
-        }
     }
     if status == 429 {
         let wait = body.get("retryAfter").map_or(0.0, js_number);
@@ -287,7 +287,8 @@ type Hosts = Arc<Vec<RemoteHost>>;
 struct Inner {
     io: DurabilityIo,
     file: PathBuf,
-    /// The hosts as the file keeps them; held across a change from its edit to the end of its write.
+    /// Serializes an edit and its write; data is locked only during the edit and publication.
+    turn: Semaphore,
     stored: Mutex<Vec<StoredHost>>,
     published: watch::Sender<Hosts>,
 }
@@ -311,7 +312,7 @@ impl RemoteHostStore {
             }
         };
         let (published, _) = watch::channel(Arc::new(stored.iter().map(StoredHost::view).collect()));
-        Self { inner: Arc::new(Inner { io, file, stored: Mutex::new(stored), published }) }
+        Self { inner: Arc::new(Inner { io, file, stored: Mutex::new(stored), turn: Semaphore::new(1), published }) }
     }
 
     pub fn list(&self) -> Vec<RemoteHost> {
@@ -332,53 +333,74 @@ impl RemoteHostStore {
         let id = remote_host_id(&link.url);
         let announced = js_trim(name);
         let label = if announced.is_empty() { default_remote_host_name(link) } else { slice_utf16(announced, MAX_NAME_LENGTH) };
-        let mut stored = self.inner.stored.lock().await;
-        if let Some(existing) = stored.iter_mut().find(|host| host.id == id) {
-            if !announced.is_empty() {
-                existing.name = label;
+        self.change(|stored| {
+            if let Some(existing) = stored.iter_mut().find(|host| host.id == id) {
+                if !announced.is_empty() {
+                    existing.name = label;
+                }
+                let view = existing.view();
+                return Ok((view, true));
             }
-            let view = existing.view();
-            self.commit(&stored).await?;
-            return Ok(view);
-        }
-        if stored.len() >= MAX_SAVED_HOSTS {
-            return Err(StoreError::new("Too many saved computers. Forget one first."));
-        }
-        let created = StoredHost { id, name: label, alias: None, url: link.url.clone(), added_at: Number::from(now_ms()), last_connected_at: None };
-        let view = created.view();
-        stored.push(created);
-        self.commit(&stored).await?;
-        Ok(view)
+            if stored.len() >= MAX_SAVED_HOSTS {
+                return Err(StoreError::new("Too many saved computers. Forget one first."));
+            }
+            let created =
+                StoredHost { id, name: label, alias: None, url: link.url.clone(), added_at: Number::from(now_ms()), last_connected_at: None };
+            let view = created.view();
+            stored.push(created);
+            Ok((view, true))
+        })
+        .await
     }
 
     /// The user's own name for a saved PC; an empty one resets it to the name the PC announced.
     pub async fn rename(&self, id: &str, alias: &str) -> Result<(), StoreError> {
-        let mut stored = self.inner.stored.lock().await;
-        let Some(host) = stored.iter_mut().find(|host| host.id == id) else { return Ok(()) };
-        let label = slice_utf16(js_trim(alias), MAX_NAME_LENGTH);
-        host.alias = (!label.is_empty()).then_some(label);
-        self.commit(&stored).await
+        self.change(|stored| {
+            let Some(host) = stored.iter_mut().find(|host| host.id == id) else {
+                return Ok(((), false));
+            };
+            let label = slice_utf16(js_trim(alias), MAX_NAME_LENGTH);
+            host.alias = (!label.is_empty()).then_some(label);
+            Ok(((), true))
+        })
+        .await
     }
 
     /// The host was connected to just now.
     pub async fn touch(&self, id: &str) -> Result<(), StoreError> {
-        let mut stored = self.inner.stored.lock().await;
-        let Some(host) = stored.iter_mut().find(|host| host.id == id) else { return Ok(()) };
-        host.last_connected_at = Some(Number::from(now_ms()));
-        self.commit(&stored).await
+        self.change(|stored| {
+            let Some(host) = stored.iter_mut().find(|host| host.id == id) else {
+                return Ok(((), false));
+            };
+            host.last_connected_at = Some(Number::from(now_ms()));
+            Ok(((), true))
+        })
+        .await
     }
 
     /// Forgets the host.
     pub async fn forget(&self, id: &str) -> Result<(), StoreError> {
-        let mut stored = self.inner.stored.lock().await;
-        stored.retain(|host| host.id != id);
-        self.commit(&stored).await
+        self.change(|stored| {
+            stored.retain(|host| host.id != id);
+            Ok(((), true))
+        })
+        .await
     }
 
-    /// Publishes the list, then writes it (keeping the replaced file as `.bak`). The caller holds the lock.
-    async fn commit(&self, stored: &[StoredHost]) -> Result<(), StoreError> {
-        self.inner.published.send_replace(Arc::new(stored.iter().map(StoredHost::view).collect()));
-        write_state(self.inner.io, self.inner.file.clone(), serde_json::json!({ "version": 1, "hosts": stored }), true).await
+    /// Keeps edits and publication even when the subsequent write fails or is cancelled.
+    async fn change<R>(&self, change: impl FnOnce(&mut Vec<StoredHost>) -> Result<(R, bool), StoreError>) -> Result<R, StoreError> {
+        let _turn = self.inner.turn.acquire().await.expect("remote host transaction gate is never closed");
+        let (result, document) = {
+            let mut stored = self.inner.stored.lock().unwrap_or_else(PoisonError::into_inner);
+            let (result, write) = change(&mut stored)?;
+            if !write {
+                return Ok(result);
+            }
+            self.inner.published.send_replace(Arc::new(stored.iter().map(StoredHost::view).collect()));
+            (result, serde_json::json!({ "version": 1, "hosts": *stored }))
+        };
+        write_state(self.inner.io, self.inner.file.clone(), document, true).await?;
+        Ok(result)
     }
 }
 

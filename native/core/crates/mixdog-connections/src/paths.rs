@@ -95,13 +95,15 @@ pub(crate) async fn on_lane<R: Send + 'static>(
     handle.await.map_err(|dropped| StoreError::new(dropped.to_string()))
 }
 
+type StateValidator = fn(&Value) -> Result<(), mixdog_statefile::Invalid>;
+
 /// `readJsonState`: the document, or `None` when the file is missing, a newer build's, or damaged with no good copy
 /// (a damaged file is kept aside as `.corrupt-<ms>` and its `.bak` restored). A `validate` that refuses marks the
 /// document damaged. Only a file that cannot be read at all is an error.
 pub(crate) async fn read_state(
     io: DurabilityIo,
     file: PathBuf,
-    validate: Option<fn(&Value) -> Result<(), mixdog_statefile::Invalid>>,
+    validate: Option<StateValidator>,
 ) -> Result<Option<Value>, StoreError> {
     on_lane(io, move |lane| match validate {
         Some(check) => mixdog_statefile::read_json(lane, &file, Some(&check), &Opts::default()),

@@ -144,7 +144,8 @@ impl Restore {
             inner.store.retain(|id| known.contains(id)).await?;
         }
         let mut attempts = Vec::new();
-        for record in open.iter().filter_map(|id| saved.iter().find(|record| &record.id == id)).cloned() {
+        for record in open.iter().filter_map(|id| saved.iter().find(|record| &record.id == id)) {
+            let record = record.clone();
             let (inner, links, windows) = (inner.clone(), links.clone(), windows.clone());
             attempts.push(mixdog_rt::spawn("server-window-restore", TaskClass::Control, async move {
                 inner.report(&record, ServerRestorePhase::Connect, None);

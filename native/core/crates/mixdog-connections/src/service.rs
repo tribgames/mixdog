@@ -209,10 +209,9 @@ impl ServerWindowOpener {
 
     async fn show(&self, id: &str, name: &str) -> Result<(), String> {
         self.windows.open(id, name).await?;
-        if id != EPHEMERAL_ID {
-            if let Err(error) = self.store.remember(id).await {
-                tracing::warn!("[connections] the server window could not be remembered: {error}");
-            }
+        if id != EPHEMERAL_ID
+            && let Err(error) = self.store.remember(id).await {
+            tracing::warn!("[connections] the server window could not be remembered: {error}");
         }
         Ok(())
     }
@@ -913,10 +912,9 @@ impl Inner {
         drop(mixdog_rt::spawn("connections-window-closed", TaskClass::Control, async move {
             inner.deps.links.close(&params.connection_id).await;
             // A window the user closed is not reopened at the next launch; one that closed because the app quits is.
-            if params.by_user {
-                if let Err(error) = inner.deps.window_restore.forget(&params.connection_id).await {
-                    tracing::warn!("[connections] a closed server window could not be forgotten: {error}");
-                }
+            if params.by_user
+                && let Err(error) = inner.deps.window_restore.forget(&params.connection_id).await {
+                tracing::warn!("[connections] a closed server window could not be forgotten: {error}");
             }
         }));
     }

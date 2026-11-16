@@ -444,6 +444,7 @@ fn hex16(bytes: &[u8]) -> String {
 
 /// `writeAttachmentFile`: `<temp>/mixdog-attachments/<stem>-<digest16>.<extension>`, owner-only. Nothing touches the disk before the type
 /// is accepted.
+#[allow(clippy::disallowed_types, reason = "attachment writer is invoked by DesktopResidualB::on_lane before publication")]
 pub fn write_attachment_file(temp: &Path, data_url: &Value, name: &Value) -> Result<PathBuf, CoreError> {
     let (bytes, base, extension) = required_attachment_file(data_url, name)?;
     if temp.as_os_str().is_empty() {
@@ -710,6 +711,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
 /// `writeUserFile`: an existing file is rewritten in place (it keeps its inode, links, ACLs and mode; a symlink stays a link) and
 /// flushed before the write returns, a longer old tail cut after the new bytes are down so it is never empty midway; a new file is created
 /// through a temp file. Never backed up or moved aside: user files belong to the user.
+#[allow(clippy::disallowed_types, reason = "user-file rewrite receives its existing lane proof and preserves the opened file inode and permissions")]
 pub fn write_user_file(lane: &InLane<DurabilityIo>, path: &Path, data: &[u8]) -> Result<(), String> {
     let target = match std::fs::canonicalize(path) {
         Ok(target) => target,
@@ -796,6 +798,7 @@ impl InputAccessProbe for SystemInputAccess {
         host_platform()
     }
 
+    #[allow(clippy::disallowed_types, reason = "the real permission probe runs only inside the input_probe durability-lane job")]
     fn can_access(&self) -> bool {
         std::fs::OpenOptions::new().write(true).open(UINPUT_DEVICE).is_ok()
     }
@@ -804,6 +807,7 @@ impl InputAccessProbe for SystemInputAccess {
         Path::new(UINPUT_DEVICE).exists()
     }
 
+    #[allow(clippy::disallowed_types, reason = "pkexec is created and waited inside this method's dedicated worker thread, never on the awaiting runtime")]
     async fn run_pkexec(&self, script: &str) -> PkexecStatus {
         let script = script.to_owned();
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -829,7 +833,14 @@ impl InputAccessProbe for SystemInputAccess {
     }
 }
 
-async fn repair_input_access(probe: &dyn InputAccessProbe) -> Value {
+/// None is a lane failure, never evidence that permission is missing: do not prompt on an unperformed probe.
+async fn input_probe(probe: Arc<dyn InputAccessProbe>, lane: DurabilityIo, device: bool) -> Option<bool> {
+    on_lane_wait(lane, &mixdog_rt::CancellationToken::new(), move |_| {
+        if device { probe.device_exists() } else { probe.can_access() }
+    }).await.ok()
+}
+
+async fn repair_input_access(probe: Arc<dyn InputAccessProbe>, lane: DurabilityIo) -> Value {
     let status = match probe.run_pkexec(&install_script()).await {
         PkexecStatus::Missing => {
             return json!({ "ok": false, "reason": "pkexec_missing", "message": "pkexec (polkit) is not installed, so the /dev/uinput access rule cannot be installed from here." });
@@ -845,15 +856,22 @@ async fn repair_input_access(probe: &dyn InputAccessProbe) -> Value {
     }
     // A clean exit is not proof: confirm the signed-in user can really open the device.
     for _ in 0..RECHECK_ATTEMPTS {
-        if probe.can_access() {
-            return json!({ "ok": true });
+        match input_probe(probe.clone(), lane, false).await {
+            Some(true) => return json!({ "ok": true }),
+            Some(false) => {}
+            None => return json!({ "ok": false, "reason": "failed" }),
         }
         probe.wait(RECHECK_INTERVAL_MS).await;
     }
-    if probe.can_access() {
-        return json!({ "ok": true });
+    match input_probe(probe.clone(), lane, false).await {
+        Some(true) => return json!({ "ok": true }),
+        Some(false) => {}
+        None => return json!({ "ok": false, "reason": "failed" }),
     }
-    if probe.device_exists() {
+    let Some(exists) = input_probe(probe, lane, true).await else {
+        return json!({ "ok": false, "reason": "failed" });
+    };
+    if exists {
         json!({ "ok": false, "reason": "access_unavailable", "detail": "relogin", "message": "The access rule is installed but /dev/uinput is still not writable for this session. Sign out and sign in again (or restart), and make sure you are on a local desktop seat; if it persists, add your user to the input group." })
     } else {
         json!({ "ok": false, "reason": "access_unavailable", "detail": "no-module", "message": "/dev/uinput does not exist: the uinput kernel module is not loaded or is unavailable on this kernel. Run `sudo modprobe uinput` or restart, then try again." })
@@ -870,7 +888,7 @@ struct InputAccessRequests {
 }
 
 impl InputAccessRequests {
-    async fn request(&self, probe: Arc<dyn InputAccessProbe>) -> Value {
+    async fn request(&self, probe: Arc<dyn InputAccessProbe>, lane: DurabilityIo) -> Value {
         if probe.platform() != "linux" {
             return json!({ "ok": false, "reason": "failed" });
         }
@@ -878,10 +896,16 @@ impl InputAccessRequests {
             let mut slot = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(pending) = slot.as_ref() {
                 pending.clone()
-            } else if probe.can_access() {
-                return json!({ "ok": true });
             } else {
-                let pending: InFlight = async move { repair_input_access(&*probe).await }.boxed().shared();
+                // Install the shared flight BEFORE the first async permission read. Concurrent requests
+                // join both the probe and any repair; no mutex remains held while either is awaited.
+                let pending: InFlight = async move {
+                    match input_probe(probe.clone(), lane, false).await {
+                        Some(true) => json!({ "ok": true }),
+                        Some(false) => repair_input_access(probe, lane).await,
+                        None => json!({ "ok": false, "reason": "failed" }),
+                    }
+                }.boxed().shared();
                 *slot = Some(pending.clone());
                 pending
             }
@@ -1370,6 +1394,7 @@ pub fn with_homebrew_path(path: Option<&str>, exists: impl Fn(&str) -> bool) -> 
 }
 
 /// The account's login shell (what `chsh` chose; a Dock launch's `$SHELL` comes from launchd, not the user), then the fixed system shells.
+#[allow(clippy::disallowed_types, reason = "login-shell adoption runs synchronously on daemon startup before boot_executors creates runtimes")]
 fn login_shell_candidates() -> Vec<String> {
     let account = std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).ok().and_then(|user| {
         if cfg!(target_os = "macos") {
@@ -1718,7 +1743,7 @@ impl DomainService for DesktopResidualBService {
             }
             "desktop/computer/inputAccess/request" => {
                 let _params: NoParams = decode(&req)?;
-                reply(self.input_requests.request(Arc::clone(&self.input_access)).await)
+                reply(self.input_requests.request(Arc::clone(&self.input_access), self.durability).await)
             }
             other => Err(wrong_method(DOMAIN, other)),
         }

@@ -316,7 +316,7 @@ fn text_or(value: Option<&Value>, fallback: &str) -> String {
     }
 }
 
-fn objects<'a>(value: Option<&'a Value>) -> impl Iterator<Item = &'a Map<String, Value>> {
+fn objects(value: Option<&Value>) -> impl Iterator<Item = &Map<String, Value>> {
     value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object)
 }
 
@@ -484,6 +484,7 @@ pub fn attachment_view_name(meta: &SessionAttachment) -> String {
 
 /// Writes the attachment to `<temp>/mixdog-attachments/<id16>-<name>` (the same temp convention as an opened data: attachment)
 /// and returns its path, so the file previews through the ordinary file preview paths.
+#[allow(clippy::disallowed_types, reason = "attachment staging is invoked inside DesktopResidual durability-lane publication")]
 pub fn stage_session_attachment(temp: &Path, meta: &SessionAttachment, bytes: &[u8]) -> Result<PathBuf, String> {
     if temp.as_os_str().is_empty() {
         return Err("Unable to open file: no temporary directory.".to_owned());
@@ -675,6 +676,7 @@ pub fn host_platform() -> &'static str {
 }
 
 /// The stdout of a listing command that exits 0 within the time limit and prints at most the buffer limit; any failure is `None`.
+#[allow(clippy::disallowed_types, reason = "font listing runs inside the desktop/fonts/list durability-lane job and bounds its child wait")]
 fn run_listing(file: &str, args: &[&str]) -> Option<String> {
     let mut command = std::process::Command::new(file);
     command.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
