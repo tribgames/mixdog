@@ -188,8 +188,7 @@ pub async fn fill(context: &mut dyn FormContext) -> Result<ToolReply, RefError> 
     } else {
         context.resolve_target_refs(&targets).await?
     };
-    let mut completed = 0;
-    for (field, field_ref) in fields.iter().zip(&field_refs) {
+    for (completed, (field, field_ref)) in fields.iter().zip(&field_refs).enumerate() {
         if let Err(error) = fill_field(context, field, field_ref).await {
             if completed > 0 {
                 context.invalidate_interaction();
@@ -204,7 +203,6 @@ pub async fn fill(context: &mut dyn FormContext) -> Result<ToolReply, RefError> 
                 fields.len()
             )));
         }
-        completed += 1;
     }
     after_edit(context, submit).await
 }

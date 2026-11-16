@@ -166,7 +166,7 @@ fn grouped(count: usize) -> String {
     let digits = count.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);
@@ -544,9 +544,7 @@ fn filter_read_lines(text: &str, query: &ReadQuery) -> String {
         if !query.matches(line) {
             continue;
         }
-        for near in index.saturating_sub(2)..=(index + 2).min(lines.len() - 1) {
-            keep[near] = true;
-        }
+        keep[index.saturating_sub(2)..=(index + 2).min(lines.len() - 1)].fill(true);
     }
     lines.iter().zip(&keep).filter(|(_, keep)| **keep).map(|(line, _)| *line).collect::<Vec<_>>().join("\n")
 }

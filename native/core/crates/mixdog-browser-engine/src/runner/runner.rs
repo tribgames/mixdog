@@ -875,6 +875,7 @@ impl BrowserEngine {
     /// One Browser Use command of `thread`. `input` is the tool's arguments without `action`, with the runtime-set fields the
     /// runtime adds (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`). The command belongs to the session's
     /// running turn (`TurnEvents` ends it).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, CommandFailure> {
         let inner = &self.inner;
         let turn = locked(&inner.tasks).current(thread.as_str());
@@ -1038,6 +1039,7 @@ impl Inner {
         self.ports.mirror.forget(page_id);
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn run_command(self: &Arc<Self>, thread: &ThreadId, turn: u64, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, Failed> {
         let session = thread.as_str();
         let prepared = prepare(action, input, session, turn).map_err(RunError::Failed)?;
@@ -1061,6 +1063,7 @@ impl Inner {
 
     /// The command holds its lane: the session's takeover guard begins (a person who took the session over refuses it, and one who
     /// takes it over meanwhile stops it), and its timing row is kept.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn in_lane(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: RunContext, enqueued: Instant) -> Result<ToolReply, Failed> {
         let timer = Arc::new(CommandTimer::start(enqueued.elapsed().as_secs_f64() * 1000.0));
         let guard = self.ports.takeover.begin(thread.as_str()).map_err(RunError::Failed)?;
@@ -1078,6 +1081,7 @@ impl Inner {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn execute(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
         // Keep the large action-dispatch future out of every enclosing queue/scope future.
         // The production executor uses a 2 MB stack, as does the browser ceiling regression.
@@ -1095,6 +1099,7 @@ impl Inner {
         Box::pin(self.execute_resolved(thread, turn, prepared, ctx, timer))
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn execute_resolved(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
         let Prepared { action, mut command, background, background_asked, tab, expected, has_screenshot_options } = prepared;
         let session = thread.as_str();
@@ -1166,6 +1171,7 @@ impl Inner {
     }
 
     /// The page a command works on, opened or adopted when the action needs one, held by a lease until the command is done.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn resolve_page(
         &self,
         session: &str,
@@ -1196,6 +1202,7 @@ impl Inner {
     }
 
     /// The session's own actions: the tab list, closing a background tab, hiding the panel, and the downloads.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn tabless(&self, action: Action, command: &Value, session: &str, tab: &str, ctx: &RunContext) -> Result<ToolReply, RunError> {
         let cancel = ctx.cancel.token();
         match action {
@@ -1228,6 +1235,7 @@ impl Inner {
     }
 
     /// `downloads`: the session's recorded downloads, optionally after waiting for the newest (or the named) one to finish.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn downloads_reply(&self, command: &Value, session: &str, ctx: &RunContext) -> Result<ToolReply, RunError> {
         const DEFAULT_WAIT_MS: i64 = 10_000;
         const MIN_WAIT_MS: i64 = 500;
@@ -1287,6 +1295,7 @@ impl Inner {
 }
 
 /// What the agent may tell the user about an `open`: shown, or pending because the conversation is not on screen.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
 fn placement_line(facts: &PageFacts, placement: Option<BrowserPlacement>) -> Result<String, RunError> {
     let title = if facts.title.is_empty() { "(untitled)" } else { facts.title.as_str() };
     let address = if facts.url.is_empty() { "about:blank" } else { facts.url.as_str() };
@@ -1566,6 +1575,7 @@ impl PageCtx {
 
     /// One sign-in question to the host about this page. The hooks add to a command that already ran, so a host that cannot answer
     /// them (a failure of its own) says nothing; a command the caller cancelled, or a person who took the page, still ends it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn sign_in(&self, op: BrowserSignInOp, action: Option<&str>, command: Option<Value>, explicit_fill: Option<bool>) -> Result<Option<HostBrowserSignInResult>, RunError> {
         let params = HostBrowserSignInParams {
             session_id: self.session().to_owned(),
@@ -1585,6 +1595,7 @@ impl PageCtx {
 
     /// Before a click, fill or type is sent (`linkedSignIn.beforeAction`): the host notes which field of a provider's sign-in the agent is
     /// about to name, from the command's own `ref`, `target`, `text` and `fields`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn before_action(&self, action: Action, command: &Value) -> Result<(), RunError> {
         if !matches!(action, Action::Click | Action::Fill | Action::Type) {
             return Ok(());
@@ -1597,6 +1608,7 @@ impl PageCtx {
     /// After the action: a page that asks for a sign-in a saved login fits is signed in by the host once per site and turn, and its
     /// note leads a fresh observation that replaces the reply (`autoSignIn.afterCommand`); the identity a provider flow last used
     /// is a line ahead of the reply (`linkedSignIn.replyLine`). An `open` answers with its placement, the note and the line.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn after_command(&self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &SignInHints, mut reply: ToolReply) -> Result<ToolReply, RunError> {
         let said = self.sign_in(BrowserSignInOp::AfterCommand, None, None, Some(hints.explicit_fill)).await?;
         let note = said.as_ref().and_then(|said| said.note.clone()).filter(|note| !note.is_empty());
@@ -1759,6 +1771,7 @@ impl PageCtx {
 
     /// The reply of a command that observed the page (`snapshotResult`): the page settled, its postcondition verified, a snapshot
     /// taken and put into words, and the screenshot the command asked for bound to it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn snapshot_reply(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
         let action = text_of(command.get("action"));
         let blocked = |facts: &PageFacts| facts.pending_dialog.as_ref().map(|dialog| blocking_dialog_reply(dialog, true, &|text: &str| self.redact(text)));
@@ -1806,7 +1819,7 @@ impl PageCtx {
                 postcondition_elapsed_ms: u64::try_from(wait.postcondition_elapsed.as_millis()).unwrap_or(u64::MAX),
                 preexisting_postcondition: options.preexisting,
                 settle_action: options.settle_action,
-                baseline: options.baseline.as_ref().map(|set| EffectBaseline::of(set)),
+                baseline: options.baseline.as_ref().map(EffectBaseline::of),
             },
         };
         let redact = |text: &str| self.redact(text);
@@ -1826,6 +1839,7 @@ impl PageCtx {
     }
 
     /// The screenshot of the command, bound to the snapshot just taken; coordinate actions are then expressed in it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn attach_shot(&self, command: &Value, reply: &mut ToolReply) -> Result<(), RunError> {
         let params = observe::screenshot_params(&self.page_id, command, self.background)?;
         let full_page = params.full_page == Some(true);
@@ -1847,6 +1861,7 @@ impl PageCtx {
     }
 
     /// What follows a gesture: the settled snapshot reply, or, for a step of a sequence, only whether the page settled.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn settled(&self, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
         if command.get("internalStep") != Some(&Value::Bool(true)) {
             return self.snapshot_reply(command, options).await;
@@ -1861,6 +1876,7 @@ impl PageCtx {
     }
 
     /// The reply of an action that is not an observation: its own lead, the recovery notes when it asked for them, the settled page.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn gesture_reply(&self, output: ActionOutput, command: &Value, recovery: &RefRecoveryContext, options: &ReplyOptions) -> Result<ToolReply, RunError> {
         self.timer.merge_input(&output.input);
         let mut reply = self.settled(command, options).await?;
@@ -1883,6 +1899,7 @@ impl PageCtx {
     }
 
     /// One step of a sequence: the dialog's answer when the page is blocked, else the action.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn dispatch(&self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
         match self.dialog_block(action) {
             Some(blocked) => Ok(blocked),
@@ -1903,6 +1920,7 @@ impl PageCtx {
     }
 
     /// The action itself, on a page no dialog blocks for it.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn act(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
         let internal = command.get("internalStep") == Some(&Value::Bool(true));
         let facts = self.page_facts();
@@ -2137,6 +2155,7 @@ impl PageCtx {
         })
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn snapshot_action(&self, command: &Value) -> Result<ToolReply, RunError> {
         let plan = observe::plan_snapshot(command)?;
         let precondition = self.page_precondition();
@@ -2168,10 +2187,11 @@ impl PageCtx {
     }
 
     /// `locate`: a semantic snapshot (the command's query cleared) and, on top of it, the visual candidates for the query.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn locate_action(&self, command: &Value) -> Result<ToolReply, RunError> {
         let mut observing = command.clone();
         if let Some(fields) = observing.as_object_mut() {
-            fields.remove("query");
+            fields.shift_remove("query");
         }
         let snapshot = self.snapshot_reply(&observing, &ReplyOptions::default()).await?;
         if self.page_facts().pending_dialog.is_some() {
@@ -2195,6 +2215,7 @@ impl PageCtx {
 
     /// `network`: the recorded requests, or one request's detail. The detail reads bodies from the page, so the request is copied
     /// out of the ledger first (the mirror lends its ledgers only synchronously).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn network_action(&self, command: &Value) -> Result<ToolReply, RunError> {
         let precondition = self.page_precondition();
         let call = self.observe_call(Some(&precondition));
@@ -2207,6 +2228,7 @@ impl PageCtx {
         Ok(diagnostics::network_detail(&call, &request, command, now).await?)
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn navigate_action(&self, action: Action, command: &Value, options: &ReplyOptions) -> Result<ToolReply, RunError> {
         self.invalidate();
         match self.moved(action, command).await? {
@@ -2234,6 +2256,7 @@ impl PageCtx {
         })
     }
 
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn evaluate_action(&self, command: &Value, has_postcondition: bool, has_screenshot_options: bool, options: &ReplyOptions) -> Result<ToolReply, RunError> {
         let input = command.as_object().cloned().unwrap_or_default();
         let refs = self.latest_refs();
@@ -2592,6 +2615,7 @@ impl Inner {
     /// Asks the person about a step that asks (a submit, a post, an upload, or one the operator listed), and binds what they
     /// approved to what is dispatched: the document, the URL, the command and an upload's files and receiving frame must be the
     /// same after the answer. Answers the binding of an upload; every other approved step needs none.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
     async fn approve(
         &self,
         thread: &ThreadId,
