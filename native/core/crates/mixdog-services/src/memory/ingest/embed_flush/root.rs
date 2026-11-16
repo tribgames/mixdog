@@ -365,7 +365,8 @@ impl RawEmbedFlush {
                 &[&missed_ids],
             )
             .await?;
-        let current: std::collections::HashMap<i64, (bool, Option<String>, Option<String>, Option<String>)> =
+        type CurrentRoot = (bool, Option<String>, Option<String>, Option<String>);
+        let current: std::collections::HashMap<i64, CurrentRoot> =
             current.iter().map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4)))).collect();
         let (mut stale, mut concurrent) = (0usize, 0usize);
         for update in missed {

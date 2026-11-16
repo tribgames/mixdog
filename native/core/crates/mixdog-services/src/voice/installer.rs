@@ -539,7 +539,7 @@ trait Steps {
     async fn unzip(&self, archive: &Path, dest: &Path) -> Result<(), String>;
     async fn publish(&self, staging: PathBuf, active_dir: PathBuf, root: PathBuf, active_name: String) -> Result<(), String>;
     async fn ensure_whisper(&self, progress: Option<ProgressSink>) -> Result<(), String>;
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, destination: (&Path, &str, &Path)) -> Result<(), String>;
     async fn begin_staging(&self, root: &Path) -> Result<PathBuf, String>;
     async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
     async fn extras(&self, progress: Option<ProgressSink>, extras: Option<&Value>, staging: &Path) -> Result<(), String>;
@@ -652,12 +652,13 @@ impl Steps for ManagedVoiceInstaller {
             return Ok(());
         }
         let lock = self.acquire(&root, "install").await?;
-        let outcome = self.stage_whisper(progress.clone(), variant, env, &key, &root, &active_name, &command).await;
+        let outcome = self.stage_whisper(progress.clone(), variant, env, &key, (&root, &active_name, &command)).await;
         self.release(lock).await;
         outcome
     }
 
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, destination: (&Path, &str, &Path)) -> Result<(), String> {
+        let (root, active_name, command) = destination;
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "whisper-".to_owned()).await? {
             return Ok(());
         }

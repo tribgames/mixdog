@@ -71,7 +71,7 @@ fn token_name(name: &str) -> bool {
 fn well_formed_base64(text: &str) -> bool {
     let bytes = text.as_bytes();
     let data = bytes.len() - bytes.iter().rev().take(2).take_while(|b| **b == b'=').count();
-    bytes.len() % 4 == 0 && bytes[..data].iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/'))
+    bytes.len().is_multiple_of(4) && bytes[..data].iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/'))
 }
 
 /// `normalizeHookRequestFrame`: the error text is Node's `TypeError` message.

@@ -250,10 +250,8 @@ fn recall_search_args(a: &Value) -> Value {
     if !ids.is_empty() {
         out.insert("ids".into(), json!(ids));
     }
-    for key in ["period"] {
-        if truthy(key) {
-            out.insert(key.into(), a[key].clone());
-        }
+    if truthy("period") {
+        out.insert("period".into(), a["period"].clone());
     }
     for key in ["limit", "offset"] {
         if let Some(v) = a.get(key) {

@@ -42,10 +42,7 @@ impl RuntimeFlags {
     /// variable keeps the eager paths off (the model still loads on demand), while a set one is read by `envFlag(name, true)`
     /// (`memory-config-flags.mjs:36`): an empty or unrecognised value keeps the default `true`.
     pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Self {
-        let eager_warmup = env("MIXDOG_EMBED_WARMUP").is_some_and(|raw| match mixdog_js::js_trim(&raw).to_lowercase().as_str() {
-            "0" | "false" | "off" | "no" => false,
-            _ => true,
-        });
+        let eager_warmup = env("MIXDOG_EMBED_WARMUP").is_some_and(|raw| !matches!(mixdog_js::js_trim(&raw).to_lowercase().as_str(), "0" | "false" | "off" | "no"));
         Self { eager_warmup, ..Self::default() }
     }
 

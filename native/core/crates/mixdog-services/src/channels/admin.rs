@@ -24,7 +24,7 @@ use crate::scheduler::cron::CronExpr;
 use crate::scheduler::{Clock, Schedule, ScheduleError, ScheduleRecords};
 use crate::webhooks::prompt::{webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::hmac_hex;
-use crate::webhooks::{EndpointRecord, EndpointRecords, WebhookStore};
+use crate::webhooks::{EndpointRecord, EndpointRecords};
 
 const PARSERS: [&str; 4] = ["github", "generic", "stripe", "sentry"];
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);

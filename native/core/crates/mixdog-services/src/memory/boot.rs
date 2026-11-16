@@ -266,10 +266,10 @@ impl Drop for Waiting<'_> {
             return;
         }
         opening.waiters = opening.waiters.saturating_sub(1);
-        if opening.waiters == 0 && !opening.pinned {
-            if let Some(token) = &opening.token {
-                token.cancel();
-            }
+        if opening.waiters == 0 && !opening.pinned
+            && let Some(token) = &opening.token
+        {
+            token.cancel();
         }
     }
 }
@@ -640,10 +640,10 @@ impl MemoryStack {
                 Ok::<_, MemoryError>((memory_db, search_db))
             }),
             async {
-                if !self.flags.secondary {
-                    if let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await {
-                        tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL after a failed memory start");
-                    }
+                if !self.flags.secondary
+                    && let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await
+                {
+                    tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL after a failed memory start");
                 }
             },
         )
