@@ -52,6 +52,8 @@ pub trait ReplayHost: Send + Sync {
     async fn finish(&mut self) {}
 }
 
+type CurrentEra = Arc<Mutex<Option<(usize, Arc<dyn ScopedFeed>)>>>;
+
 /// Every core a scenario ran against, oldest first (a restarted core is a new one: its own app feed, with an epoch of its own), each
 /// with its app feed as a client that subscribed before anything happened sees it (the snapshot, then every frame), and the
 /// deliveries the cores made.
@@ -59,7 +61,7 @@ struct Eras {
     /// Each with the feed position when it was tapped: a composed core has published before the test subscribes, and the tap sees only what follows.
     feeds: Vec<(Arc<dyn ScopedFeed>, FeedTap, u64)>,
     /// The running core's era and app feed, for the delivery recorder.
-    current: Arc<Mutex<Option<(usize, Arc<dyn ScopedFeed>)>>>,
+    current: CurrentEra,
     /// One entry per delivery: the era of the core that made it, and that core's app feed position once the delivery's listeners had all run.
     deliveries: Arc<Mutex<Vec<(usize, u64)>>>,
     stop_recording: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
@@ -125,6 +127,11 @@ fn restore(value: &Value, roots: &HashMap<&str, PathBuf>) -> Value {
     }
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "test/test-support review-signal replay creates temporary fixture files and git repositories; not a production service or lane claim"
+)]
 pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     let name = scenario["name"].as_str().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -378,7 +385,7 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
 /// with a later count than the Node read it matches.
 fn without_after(read: &Value) -> Value {
     let mut read = read.clone();
-    read.as_object_mut().unwrap().remove("after");
+    read.as_object_mut().unwrap().shift_remove("after");
     read
 }
 /// A wait for the core's frames that fails by name at its deadline instead of hanging.
@@ -388,6 +395,10 @@ async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T 
 }
 
 /// The windows of this checkout (`review-reread-replay.mjs`) given the core's deliveries: what each window asked, when, and showed.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "test/test-support oracle resolves its checkout recorder and writes the synthetic trace input in the replay's temporary scratch directory"
+)]
 async fn windows_trace(scratch: &Path, input: &Value) -> Value {
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
     // The checkout the running test belongs to, from the manifest directory cargo and nextest give the test process (this
