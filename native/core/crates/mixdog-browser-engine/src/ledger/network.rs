@@ -56,7 +56,7 @@ pub fn page_faults_first(lines: &[String], limit: usize) -> Vec<String> {
             }
         }
     }
-    lines.iter().zip(picked).filter_map(|(line, keep)| keep.then(|| line.clone())).collect()
+    lines.iter().zip(picked).filter(|(_, keep)| *keep).map(|(line, _)| line.clone()).collect()
 }
 
 /// A text cut to at most `max_chars` UTF-16 code units (`retainedNetworkText`: the ledger owns the bounded prefix, never the whole

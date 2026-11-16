@@ -120,28 +120,28 @@ where
     let mut third = pin!(third);
     let (mut done_first, mut done_second, mut done_third) = (None, None, None);
     poll_fn(|cx| {
-        if done_first.is_none() {
-            if let Poll::Ready(done) = first.as_mut().poll(cx) {
-                match done {
-                    Ok(value) => done_first = Some(value),
-                    Err(error) => return Poll::Ready(Err(error)),
-                }
+        if done_first.is_none()
+            && let Poll::Ready(done) = first.as_mut().poll(cx)
+        {
+            match done {
+                Ok(value) => done_first = Some(value),
+                Err(error) => return Poll::Ready(Err(error)),
             }
         }
-        if done_second.is_none() {
-            if let Poll::Ready(done) = second.as_mut().poll(cx) {
-                match done {
-                    Ok(value) => done_second = Some(value),
-                    Err(error) => return Poll::Ready(Err(error)),
-                }
+        if done_second.is_none()
+            && let Poll::Ready(done) = second.as_mut().poll(cx)
+        {
+            match done {
+                Ok(value) => done_second = Some(value),
+                Err(error) => return Poll::Ready(Err(error)),
             }
         }
-        if done_third.is_none() {
-            if let Poll::Ready(done) = third.as_mut().poll(cx) {
-                match done {
-                    Ok(value) => done_third = Some(value),
-                    Err(error) => return Poll::Ready(Err(error)),
-                }
+        if done_third.is_none()
+            && let Poll::Ready(done) = third.as_mut().poll(cx)
+        {
+            match done {
+                Ok(value) => done_third = Some(value),
+                Err(error) => return Poll::Ready(Err(error)),
             }
         }
         match (done_first.take(), done_second.take(), done_third.take()) {

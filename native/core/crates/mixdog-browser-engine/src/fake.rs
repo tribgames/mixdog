@@ -42,6 +42,7 @@ const HOOKS: [&str; 2] = ["host/browser/signIn", "host/browser/turn"];
 
 /// A notification the host sends.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant, reason = "The fake forwards canonical host DTOs by value; preserve its public constructors without adding a boxed page-facts payload")]
 pub enum Push {
     Events(HostBrowserEventsParams),
     Facts(HostBrowserPageFactsParams),
