@@ -238,7 +238,7 @@ pub fn normalize_mcp_server_input(input: &Value, current_cwd: &Path, home: &Path
             return Err("MCP server command or URL is required".to_owned());
         }
         let args: Vec<Value> = match field(input, "args") {
-            Value::Array(list) => list.iter().map(|v| value_to_string(v)).filter(|s| !s.is_empty()).map(Value::String).collect(),
+            Value::Array(list) => list.iter().map(value_to_string).filter(|s| !s.is_empty()).map(Value::String).collect(),
             other => split_words(&clean(other)),
         };
         let requested = clean(field(input, "cwd"));

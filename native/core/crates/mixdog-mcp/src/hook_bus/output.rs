@@ -219,10 +219,10 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
         if let Some(decision) = hso.get("permissionDecision").filter(|v| !v.is_null() && v.as_str() != Some("")) {
             permission_decision = Some(js_string(decision).to_lowercase());
         }
-        if let Some(reason) = non_empty(hso.get("permissionDecisionReason")) {
-            if out.reason.as_deref().is_none_or(str::is_empty) {
-                out.reason = Some(limit_text(reason));
-            }
+        if let Some(reason) = non_empty(hso.get("permissionDecisionReason"))
+            && out.reason.as_deref().is_none_or(str::is_empty)
+        {
+            out.reason = Some(limit_text(reason));
         }
         if event == "PermissionRequest"
             && let Some(decision) = hso.get("decision").filter(|d| d.is_object())

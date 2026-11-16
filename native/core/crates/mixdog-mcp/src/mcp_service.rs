@@ -809,7 +809,7 @@ impl McpService {
     /// them; a disabled plugin stays disabled.
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, Failure> {
         let status = self.runtime.plugins_status().await;
-        let registered = find_registered_plugin(&status, plugin).map_err(|m| m)?.cloned().unwrap_or_else(|| plugin.clone());
+        let registered = find_registered_plugin(&status, plugin)?.cloned().unwrap_or_else(|| plugin.clone());
         let id = text(if truthy(field(&registered, "id")) { field(&registered, "id") } else { field(&registered, "name") });
         let catalog = self.runtime.catalog().await;
         let Some(row) = catalog.plugins.get(&id) else {
