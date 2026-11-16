@@ -155,7 +155,6 @@ pub struct LiveServer {
 }
 
 /// The owner of the runtime's own scope: the daemon, which closes it by exiting.
-
 pub struct McpGlue {
     hub: Arc<McpHub>,
     config: Arc<dyn ExtensionConfig>,

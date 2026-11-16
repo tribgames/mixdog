@@ -391,10 +391,10 @@ fn copy_overrides(copy: &Map<String, Value>, declared: &Value, root: &str) -> Re
             } else {
                 resolve_against(root, declared_cwd)
             };
-            if let Some(copy_cwd) = copy.get("cwd") {
-                if comparable_path(copy_cwd) != comparable_path(&json!(generated)) {
-                    kept.push(name);
-                }
+            if let Some(copy_cwd) = copy.get("cwd")
+                && comparable_path(copy_cwd) != comparable_path(&json!(generated))
+            {
+                kept.push(name);
             }
             continue;
         }
@@ -843,7 +843,7 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
         entries: js_ordered(entries),
         plugins: js_ordered(plugin_rows),
         warnings,
-        adoption: (!adoption.removed.is_empty()).then(|| (adoption.removed, adoption.intents)),
+        adoption: (!adoption.removed.is_empty()).then_some((adoption.removed, adoption.intents)),
     }
 }
 

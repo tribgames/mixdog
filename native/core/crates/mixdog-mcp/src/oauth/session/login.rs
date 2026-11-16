@@ -690,9 +690,7 @@ impl Run<'_> {
             c.tokens = Some(tokens);
             // A browser sign-in may be another account: its identity replaces the stored one (null when the server
             // named nobody). A refresh keeps it unless the answer names the account again.
-            if browser_opened {
-                c.identity = Some(identity);
-            } else if identity.is_some() {
+            if browser_opened || identity.is_some() {
                 c.identity = Some(identity);
             }
         })

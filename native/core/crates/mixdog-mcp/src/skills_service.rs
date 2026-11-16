@@ -150,6 +150,7 @@ fn deps_of(input: &Value, strict_null_clears: bool) -> Result<Deps, Failure> {
 }
 
 impl SkillsService {
+    #[allow(clippy::too_many_arguments, reason = "Explicit composition dependencies retain the existing public service constructor")]
     pub fn new(
         catalog: Arc<SkillCatalog>,
         settings: Arc<dyn SkillSettingsSource>,
@@ -290,7 +291,7 @@ impl SkillsService {
             Deps::Clear => None,
             Deps::Set(value) => Some(value),
         };
-        save_skill_tool_dependencies(self.durability.clone(), &self.data_dir, file_path, value).await.map_err(|e| e.to_string())
+        save_skill_tool_dependencies(self.durability, &self.data_dir, file_path, value).await.map_err(|e| e.to_string())
     }
 
     /// `addGlobalSkill`.
