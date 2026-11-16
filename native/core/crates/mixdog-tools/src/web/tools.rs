@@ -175,6 +175,7 @@ impl WebService {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn web_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
         let urls: Vec<String> = args.urls.iter().take(FETCH_URL_CAP).cloned().collect();
         let truncated = if args.urls.len() > urls.len() { args.urls.len() } else { 0 };
@@ -193,6 +194,7 @@ impl WebService {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn web_search(&self, args: &JsonValue, thread: &ThreadId, cancel: &CancellationToken) -> ToolOutcome {
         let input = search_args(args)?;
         let listed_alone = input.listed && input.queries.len() == 1;
@@ -247,6 +249,7 @@ impl WebService {
         Ok(text_output(text))
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn local_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
         self.bounded_batch(&args, cancel, |url| async move {
             let parsed = self.loopback.parse_url(&url)?;
@@ -268,6 +271,7 @@ impl WebService {
         .await
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn image_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
         self.bounded_batch(&args, cancel, |url| async move {
             let parsed = self.public.parse_url(&url)?;
@@ -286,6 +290,7 @@ impl WebService {
     }
 
     /// Sequential URLs under one request deadline; the first failure ends the call.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn bounded_batch<F, Fut>(&self, args: &FetchArgs, cancel: &CancellationToken, each: F) -> ToolOutcome
     where
         F: Fn(String) -> Fut,

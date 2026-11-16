@@ -121,10 +121,8 @@ fn wmic_fields(normalized: &str) -> Vec<String> {
     let mut fields: Vec<String> = Vec::new();
     for raw in m.get(1).unwrap_or("").split(|c: char| c == ',' || mixdog_js::is_js_space(c)) {
         let key: String = js_trim(raw).chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-        if let Some((_, field)) = FIELD_MAP.iter().find(|(k, _)| *k == key.to_lowercase()) {
-            if !fields.iter().any(|f| f == field) {
-                fields.push((*field).to_owned());
-            }
+        if let Some((_, field)) = FIELD_MAP.iter().find(|(k, _)| *k == key.to_lowercase()) && !fields.iter().any(|f| f == field) {
+            fields.push((*field).to_owned());
         }
     }
     if fields.is_empty() { defaults() } else { fields }
@@ -155,10 +153,8 @@ pub fn rewrite_wmic_process(text: &str) -> Option<Result<WmicRewrite, String>> {
     }
     let mut pids: Vec<u64> = Vec::new();
     for m in lazy_re!(r"\bprocessid\s*=\s*(\d+)", "gi").captures_iter(&normalized) {
-        if let Some(pid) = m.get(1).and_then(|p| p.parse().ok()) {
-            if !pids.contains(&pid) {
-                pids.push(pid);
-            }
+        if let Some(pid) = m.get(1).and_then(|p| p.parse().ok()) && !pids.contains(&pid) {
+            pids.push(pid);
         }
     }
     let fields = wmic_fields(&normalized);

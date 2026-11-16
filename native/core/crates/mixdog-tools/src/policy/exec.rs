@@ -121,7 +121,8 @@ mod classify {
 
     // ---- bash-policy-scan.mjs ------------------------------------------------------------
 
-    static ANSI_C_BODY_ESCAPES: LazyLock<Vec<(JsRegex, fn(&str) -> String)>> =
+    type AnsiEscape = (JsRegex, fn(&str) -> String);
+    static ANSI_C_BODY_ESCAPES: LazyLock<Vec<AnsiEscape>> =
         LazyLock::new(|| {
             fn code(radix: u32, digits: &str) -> String {
                 u32::from_str_radix(digits, radix)
@@ -358,9 +359,9 @@ mod classify {
                 r"{CMD_START}{}\brm\s+([^|;&\n`)]+)",
                 wrap_chain(&["command"])
             )),
-            remove_item: ci(&format!(
-                r"(?:^|[;&|\n(){{}}]\s*|`\s*)\s*(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\b([^\n;|]*)"
-            )),
+            remove_item: ci(
+                r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\b([^\n;|]*)"
+            ),
             cmd_delete: ci(
                 r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:del|erase|rd|rmdir)\b([^\n;|&]*)",
             ),
@@ -414,11 +415,9 @@ mod classify {
                         recursive = true;
                     } else if FORCE.is_match(&low) {
                         force = true;
-                    } else if matches!(low.as_str(), "-path" | "-literalpath" | "-lp") {
-                        if let Some(next) = toks.get(i + 1) {
-                            targets.push(next);
-                            i += 1;
-                        }
+                    } else if matches!(low.as_str(), "-path" | "-literalpath" | "-lp") && let Some(next) = toks.get(i + 1) {
+                        targets.push(next);
+                        i += 1;
                     }
                 } else {
                     targets.push(toks[i]);

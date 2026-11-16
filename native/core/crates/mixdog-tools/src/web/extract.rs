@@ -102,7 +102,7 @@ fn markdown(node: &NodeRef, base: &Url) -> String {
             let code = text.strip_suffix('\n').unwrap_or(&text);
             let longest = backtick_runs(code).max().unwrap_or(0).max(2);
             let fence = "`".repeat(longest + 1);
-            let language = Selection::from(node.clone())
+            let language = Selection::from(*node)
                 .select_single("code")
                 .nodes()
                 .first()
@@ -175,7 +175,7 @@ fn markdown(node: &NodeRef, base: &Url) -> String {
 }
 
 fn table(node: &NodeRef, base: &Url) -> String {
-    let rows: Vec<Vec<String>> = Selection::from(node.clone())
+    let rows: Vec<Vec<String>> = Selection::from(*node)
         .select("tr")
         .nodes()
         .iter()
@@ -319,7 +319,7 @@ pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Ext
     for candidate in doc.select(CONTAINERS).nodes() {
         let length = utf16_len(js_trim(&candidate.text()));
         if root.as_ref().is_none_or(|(_, best)| length > *best) {
-            root = Some((candidate.clone(), length));
+            root = Some((*candidate, length));
         }
     }
     let (text, extractor) = match root.filter(|(_, length)| *length > 0) {

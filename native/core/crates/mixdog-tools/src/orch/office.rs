@@ -87,6 +87,7 @@ impl OfficeTool {
 
 /// The model-facing output of the worker's `result` (Node's `executeOfficeTool` return:
 /// `content` text and base64 images, `isError`).
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn render(result: &Value) -> ToolOutcome {
     let mut parts = Vec::new();
     for block in result.get("content").and_then(Value::as_array).into_iter().flatten() {

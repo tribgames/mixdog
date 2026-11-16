@@ -215,6 +215,7 @@ impl SessionTool {
         Self { spec: spec_from_def(include_str!("defs/session.json"), false, &[]), port, facts }
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn control(&self, ctx: &ToolContext, args: &Value, action: &str, target: &str) -> ToolOutcome {
         let caller = self.port.caller(&ctx.thread_id).await;
         if action == "create" && caller.attended_agent.is_empty() {
@@ -279,6 +280,7 @@ impl Tool for SessionTool {
         &self.spec
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let thread = &ctx.thread_id;
         let target = field(&args, "session_id");
