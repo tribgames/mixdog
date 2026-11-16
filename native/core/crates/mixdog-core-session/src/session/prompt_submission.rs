@@ -7,6 +7,9 @@
 //! through it over the session's [`AttachmentStore`] ([`LaneAttachments`]), a room's user message (`agent-room-delivery.mjs`
 //! `storedRow`) over the room host's staged store; each writes and measures through a [`PromptStore`].
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type MaterializedPastes = (Map<String, Value>, Option<Map<String, Value>>);
+
 use mixdog_app_protocol::boundary::validate::prompt::canonical_prompt_file_mime;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
@@ -168,7 +171,7 @@ pub fn pasted_text(store: &dyn PromptStore, raw: &Value) -> Result<Option<(Value
 
 /// `materializePastedTexts(pastedTexts)` (`store.mjs:478-512`): each entry's stored text part by the entry's id (`raw.id ??
 /// key`), and the entries as the submission keeps them (`None` when no entry names a text).
-fn materialize_pasted_texts(store: &dyn PromptStore, pasted: Option<&Value>) -> Result<(Map<String, Value>, Option<Map<String, Value>>), String> {
+fn materialize_pasted_texts(store: &dyn PromptStore, pasted: Option<&Value>) -> Result<MaterializedPastes, String> {
     let (mut refs, mut options) = (Map::new(), Map::new());
     let Some(pasted) = pasted.filter(|pasted| pasted.is_object() || pasted.is_array()) else { return Ok((refs, None)) };
     for (key, raw) in js_entries(pasted) {
@@ -193,7 +196,7 @@ fn text_tokens(text: &str) -> Vec<(usize, usize, &str)> {
         let token = after.and_then(|after| {
             let digits = after.bytes().take_while(u8::is_ascii_digit).count();
             let tail = &after[digits..];
-            let close = tail.find(|c| matches!(c, ']' | '\r' | '\n')).filter(|&i| tail.as_bytes()[i] == b']')?;
+            let close = tail.find([']', '\r', '\n']).filter(|&i| tail.as_bytes()[i] == b']')?;
             (digits > 0).then(|| (&after[..digits], text.len() - tail.len() + close + 1))
         });
         match token {
@@ -464,7 +467,7 @@ pub fn touches_store(prompt: &Value, options: &Value, long_text: LongText) -> bo
     match prompt {
         Value::String(text) => long(text.as_str()),
         Value::Array(parts) => parts.iter().any(|part| match part.get("type").and_then(Value::as_str) {
-            Some("text") => reference_of(part).is_some() || part.get("text").and_then(Value::as_str).is_some_and(|text| long(text)),
+            Some("text") => reference_of(part).is_some() || part.get("text").and_then(Value::as_str).is_some_and(&long),
             Some("image" | "file") => reference_of(part).is_none() && part.get("data").and_then(Value::as_str).is_some_and(|data| !data.is_empty()),
             _ => false,
         }),

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobSnapshot;
-use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::progress::Progress;
 use mixdog_agent::agent_tool::progress::ProgressInput;
 use mixdog_agent::agent_tool::progress::frozen_progress;

@@ -125,9 +125,9 @@ pub(crate) struct RoutineStart {
     pub trigger: Option<serde_json::Value>,
     /// `transcriptMeta.hop`: how deep in bot-descended turns the one that asked for this is.
     pub hop: Option<u32>,
-    /// 	ranscriptMeta.botChain: the bots that handed the message on, sender last.
+    /// `transcriptMeta.botChain`: the bots that handed the message on, sender last.
     pub bot_chain: Vec<String>,
-    /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
+    /// `transcriptMeta.roomRow`: the room's newest user row the prompt shows (a member's turn).
     pub room_row: Option<String>,
     /// `transcriptMeta.sender`: who sent the message (`lead` for the `session` tool's send).
     pub sender: Option<&'static str>,

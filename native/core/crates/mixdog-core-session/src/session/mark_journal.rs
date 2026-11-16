@@ -12,6 +12,9 @@
 //!
 //! The writes block the caller for one durable publish: a mark is rare and must be on disk before it is acknowledged.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type PendingMarkUpdate = (String, Vec<String>, BTreeMap<String, u64>);
+
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -33,7 +36,7 @@ pub(crate) struct Loaded {
 struct State {
     carries: BTreeSet<(String, String)>,
     /// File number → (origin, values, session → the version that holds the values).
-    pending: BTreeMap<u64, (String, Vec<String>, BTreeMap<String, u64>)>,
+    pending: BTreeMap<u64, PendingMarkUpdate>,
     next: u64,
     /// Per session, the newest version its log was rewritten for in this process.
     applied: HashMap<String, u64>,

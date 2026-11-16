@@ -1,4 +1,4 @@
-//! The running turn's spinner as Node's TUI store sets it when a turn begins (	urn.mjs `runTurn`: `busy: true` and a spinner
+//! The running turn's spinner as Node's TUI store sets it when a turn begins (`turn.mjs` `runTurn`: `busy: true` and a spinner
 //! whose verb is `pickVerb(turn.index)`, `labels.mjs:7-9`, over the shared pool, `spinner-verbs.mjs`; `turn.index` is the
 //! session's completed turns, `beginTurn`'s `getState().stats.turns`).
 

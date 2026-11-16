@@ -90,11 +90,10 @@ type InFlight = futures::future::BoxFuture<'static, Done>;
 
 /// `job` queued on `lane`, waiting for room, and its result; `Err` when it can never run (the lane has no healthy worker),
 /// which the task treats as a job that was dropped unrun.
-fn queued<R: Send + 'static>(
+async fn queued<R: Send + 'static>(
     lane: DurabilityIo,
     job: impl FnOnce(&mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static,
-) -> impl Future<Output = Result<R, mixdog_rt::JobDropped>> + Send + 'static {
-    async move {
+) -> Result<R, mixdog_rt::JobDropped> {
     let handle: Result<JobHandle<R>, _> = lane.submit_wait(&CancellationToken::new(), job).await;
     match handle {
         Ok(handle) => handle.await,
@@ -105,7 +104,6 @@ fn queued<R: Send + 'static>(
                 _ => mixdog_rt::JobDropped::Dropped,
             })
         }
-    }
     }
 }
 

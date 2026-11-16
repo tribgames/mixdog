@@ -44,7 +44,7 @@ mod transcript_live;
 /// text of a text part, `[Image]` for an image, `[File]` for a file, the text of any other part, one per line.
 /// `None` for a prompt with a text part holding a stored attachment (`isAttachmentReference`), whose text Node reads from the store.
 fn inline_prompt_text(message: &Value) -> Option<String> {
-    let Some(parts) = message.as_array() else { return None };
+    let parts = message.as_array()?;
     let held = |part: &Value| part.get("attachmentRef").and_then(Value::as_str).is_some_and(is_attachment_ref);
     let kind = |part: &Value| part.get("type").and_then(Value::as_str).map(str::to_owned);
     let media_reference = |part: &Value| kind(part).as_deref() == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string);
@@ -210,10 +210,10 @@ impl MessageRows for StoredRows {
     /// `Value::Null` for a message the run never registered: no stored row exists for it.
     fn row(&self, message: &AgentMessage) -> Value {
         let rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(id) = &message.message_id {
-            if let Some(body) = rows.by_id.get(id) {
-                return body.clone();
-            }
+        if let Some(id) = &message.message_id
+            && let Some(body) = rows.by_id.get(id)
+        {
+            return body.clone();
         }
         rows.unkeyed
             .iter()
