@@ -321,7 +321,7 @@ async fn drain(inner: Arc<Inner>) {
             // Local telemetry never affects the routed call, but a lost batch is reported.
             Err(error) => {
                 marks.iter().for_each(|&mark| inner.marks.failed(mark, &error));
-                eprint!("[statusline] gateway usage events not saved: {error}\n");
+                eprintln!("[statusline] gateway usage events not saved: {error}");
             }
         }
     }

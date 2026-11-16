@@ -72,6 +72,7 @@ pub struct SessionHandle {
     /// start's create and read back by every open. A fork's heir is created without it.
     pub(crate) control: bool,
     pub(crate) cell: Arc<ControlCell>,
+    #[allow(dead_code, reason = "Retain the handle-owned feed and its existing crate-internal replay access rather than change ownership or field layout")]
     pub(crate) feed: Arc<dyn Feed>,
     /// The thread feed as a subscriber attaches to it: what the subscribing replies (`thread/start`, `thread/resume`) hand out.
     pub(crate) subscriptions: Arc<CountedFeed>,

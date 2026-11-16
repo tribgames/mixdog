@@ -288,12 +288,12 @@ impl SessionDirectory {
         // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
         // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
         let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
-        let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
+        let fit = fit_of(self.deps().inherit.basis(target, &carried).await);
         // `carryConversation`'s `compacted`: the heir takes the compactor's conversation instead of the source's.
         let mut was_compacted = false;
         if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
             // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
-            let budget = self.deps().inherit.compaction_budget(&target).await;
+            let budget = self.deps().inherit.compaction_budget(target).await;
             let compacted = match budget {
                 Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
                     Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
@@ -305,7 +305,7 @@ impl SessionDirectory {
                 return Err(refused("inheritFrom: the conversation could not be compacted for the new session"));
             }
             let next_fit = match &compacted {
-                Some(rows) => fit_of(self.deps().inherit.basis(&target, rows).await),
+                Some(rows) => fit_of(self.deps().inherit.basis(target, rows).await),
                 None => fit,
             };
             if let Some(rows) = compacted {
@@ -365,7 +365,7 @@ impl SessionDirectory {
                 tools_of: current.cloned(),
                 source: id.clone().map(ThreadId::from),
             };
-            self.deps().inherit.basis(&target, &carried).await
+            self.deps().inherit.basis(target, &carried).await
         };
         // `inheritanceFit`: the base names the target's route, empty when it has none.
         let (name, tag) = if provider.is_empty() || model.is_empty() { (String::new(), String::new()) } else { (provider, model) };

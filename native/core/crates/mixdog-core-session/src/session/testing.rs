@@ -2,6 +2,11 @@
 //! list per thread (so a second directory reopens what the first wrote), a JSON codec, a
 //! minimal transcript projection, scripted runs, and a feed that records what it publishes.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type InheritAsk = (String, String, Option<u64>, Option<ThreadId>, usize);
+type HeldOperation = (&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>);
+type SeenOffload = (ThreadId, Vec<Value>);
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -235,7 +240,7 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
 #[derive(Default)]
 pub struct TestInherit {
     pub basis: Mutex<Option<(u64, u64, bool)>>,
-    pub asked: Mutex<Vec<(String, String, Option<u64>, Option<ThreadId>, usize)>>,
+    pub asked: Mutex<Vec<InheritAsk>>,
     /// `inheritanceCompactionPlan(target).budgetTokens`; `None` is a route with no boundary to compact toward.
     pub budget: Mutex<Option<u64>>,
     /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
@@ -463,6 +468,7 @@ type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::
 /// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
 /// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
 /// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+#[allow(clippy::disallowed_methods, reason = "Test-support only: the inline store barrier must release the Tokio worker LIFO slot while the synchronous fake commit waits for explicit fixture release")]
 fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
     if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
         tokio::task::block_in_place(|| wait_for_release(go, gate));
@@ -537,12 +543,11 @@ impl SessionLog for MemLog {
             wait_off_worker(&go, "the title gate");
         }
         let mut log = lock(&self.log);
-        let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        let first = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
         let mut out = Vec::new();
-        for commit in batch {
+        for (next, commit) in (first..).zip(batch.iter()) {
             log.push((next, (*commit.record).clone()));
             out.push(next);
-            next += 1;
         }
         drop(log);
         lock(&self.batches).push(batch.len());
@@ -944,7 +949,7 @@ pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
     hook: Option<CommitHook>,
-    held: Mutex<Option<(&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>)>>,
+    held: Mutex<Option<HeldOperation>>,
 }
 
 /// The one call of a [`CallCounted`] being held: it has been entered (`entered`) and does not reach the store until `release`.
@@ -1176,10 +1181,9 @@ impl MemStore {
     pub fn seed(&self, id: &ThreadId, records: Vec<Record>) {
         let log = self.log(id);
         let mut log = lock(&log);
-        let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
-        for record in records {
+        let first = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        for (next, record) in (first..).zip(records) {
             log.push((next, record));
-            next += 1;
         }
     }
 }
@@ -2047,6 +2051,7 @@ impl Deletes {
 struct Hook(&'static str, Arc<Deletes>);
 
 impl super::delete::PurgeHook for Hook {
+    #[allow(clippy::disallowed_methods, reason = "Test-support only: hold this fake purge on its explicit release channel without blocking the replay actor")]
     fn purge(&self, session_id: &str, cwds: &[String]) -> futures::future::BoxFuture<'static, ()> {
         self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
         let held = if self.0 == "transcriptExport" { lock(&self.1.6).take() } else { None };
@@ -2116,7 +2121,7 @@ impl Rig {
 /// The close-time memory ingests, in order; each waits `delay` before it records.
 #[derive(Default)]
 pub struct Closes {
-    pub seen: Arc<Mutex<Vec<(ThreadId, Vec<Value>)>>>,
+    pub seen: Arc<Mutex<Vec<SeenOffload>>>,
     pub delay: Mutex<std::time::Duration>,
     /// When set, each ingest tells this log `{teardown: "done"}` as it ends.
     pub timeline: Mutex<Option<EventLog>>,
@@ -2141,7 +2146,7 @@ impl super::CloseIngest for Closes {
 
 /// The session-search ingests, in order: each thread and its messages.
 #[derive(Default)]
-pub struct Ingests(pub Mutex<Vec<(ThreadId, Vec<Value>)>>, pub tokio::sync::Notify);
+pub struct Ingests(pub Mutex<Vec<SeenOffload>>, pub tokio::sync::Notify);
 
 impl super::TurnIngest for Ingests {
     fn ingest_turn(&self, id: &ThreadId, _header: &Header, messages: Vec<Value>) {
@@ -2235,6 +2240,10 @@ impl super::notices::SessionNotices for TestNotices {
         lock(&self.0).push(format!("offload-prune-blocked:{session}"));
         self.1.notify_waiters();
     }
+}
+
+impl Default for Rig {
+    fn default() -> Self { Self::new() }
 }
 
 impl Rig {
@@ -2605,9 +2614,13 @@ impl Drop for DataDir {
 /// Keeps a paused runtime clock from moving by itself while it is held: tokio advances a paused clock when the runtime is idle,
 /// except while a blocking task runs, so this holds one. Time then moves only by the test's own `advance`, and a wait for work
 /// that needs time to pass which the test did not give it stays pending until its deadline fails it.
-pub struct HeldClock(std::sync::mpsc::Sender<()>);
+pub struct HeldClock(
+    #[allow(dead_code, reason = "Channel ownership is the guard: dropping this sender releases the paused-clock blocking task")]
+    std::sync::mpsc::Sender<()>,
+);
 
 impl HeldClock {
+    #[allow(clippy::disallowed_methods, reason = "Test-support only: Tokio must see a live blocking task to prevent automatic paused-clock advancement; a plain thread or lane would not enforce this replay clock contract")]
     pub fn hold() -> Self {
         let (release, released) = std::sync::mpsc::channel::<()>();
         drop(tokio::task::spawn_blocking(move || {

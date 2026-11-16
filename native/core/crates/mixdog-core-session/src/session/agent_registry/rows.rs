@@ -48,12 +48,13 @@ pub(super) mod work {
         pub sessions_compared: usize,
         /// A loaded session's stamp taken to learn whether it changed (`LiveSessions::stamp`).
         pub stamps_taken: usize,
-        /// Reloads that read the store (not counted in [`Counts::total`]).
+        /// Reloads that read the store (not counted in the test-only `Counts::total`).
         pub reloads: usize,
     }
 
     impl Counts {
         /// Every per-row, per-tombstone and per-tag operation counted.
+        #[cfg(test)]
         pub fn total(&self) -> usize {
             self.tombstones_normalized
                 + self.tombstones_keyed

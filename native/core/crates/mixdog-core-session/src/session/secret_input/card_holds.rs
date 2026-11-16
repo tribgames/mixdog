@@ -111,7 +111,7 @@ impl CardHolds {
         let expiry = scope.expires_after.map(|after| {
             let (lock, cards, id) = (self.lock.clone(), self.cards.clone(), request_id.to_owned());
             Timer(tokio::spawn(async move {
-                tokio::time::sleep(after).await;
+                mixdog_rt::time::sleep(after).await;
                 end(&lock, &cards, &id);
             }))
         });

@@ -343,7 +343,7 @@ fn listed_active(session: &Row) -> bool {
 /// since it settled), a millisecond early so rounding never hides one.
 fn settling_from(row: &Row) -> Option<Ms> {
     let settled = session_activity_at(row);
-    (settled > 0.0).then(|| Ms(settled + SETTLED_ROW_RETENTION_MS - 1.0))
+    if settled > 0.0 { Some(Ms(settled + SETTLED_ROW_RETENTION_MS - 1.0)) } else { None }
 }
 
 /// One scope's rows, with what a refresh and the status read look at in them kept apart.

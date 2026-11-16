@@ -81,6 +81,11 @@ impl ModelContext {
         }
     }
 
+    /// Whether the indexed model context contains no rows.
+    pub async fn is_empty(&self) -> Result<bool, CoreError> {
+        self.len().await.map(|len| len == 0)
+    }
+
     /// How many rows [`read`](Self::read) returns for a context with no input row, answered from the store's index: a caller
     /// that wants `session.messages.length` never reads the conversation.
     pub async fn len(&self) -> Result<usize, CoreError> {

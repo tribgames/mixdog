@@ -36,7 +36,7 @@ use crate::session::turn_ops::CompactionHeader;
 
 /// `wait`, failing with `what` when it has not ended within ten seconds.
 pub async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("no answer within 10s: {what}"))
+    mixdog_rt::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("no answer within 10s: {what}"))
 }
 
 /// The recording (`fixtures/offload-prune-order/golden.json`), whose text the calling test reads at run time
