@@ -37,6 +37,7 @@ pub(super) const SNAPSHOT_MAX_BYTES: u64 = 8 * MIB;
 const EDIT_BUDGET_BYTES: u64 = 2 * EDIT_MAX_BYTES;
 
 /// Runs blocking work as a durability-lane job.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn on_lane<R: Send + 'static>(ctx: &ToolContext, work: impl FnOnce() -> R + Send + 'static) -> Result<R, ToolError> {
     let job = ctx.io.durability.submit_wait(&ctx.cancel, move |_| work()).await.map_err(|_| cancelled())?;
     job.await.map_err(|_| cancelled())
@@ -89,7 +90,7 @@ pub(super) fn detect_text_codec(bytes: &[u8]) -> Detected {
     if nul_even == 0 && nul_odd == 0 {
         return Detected { encoding: Some(Encoding::Utf8), bom_len: 0, certain: true };
     }
-    if bytes.len() < 32 || bytes.len() % 2 != 0 {
+    if bytes.len() < 32 || !bytes.len().is_multiple_of(2) {
         return undecidable;
     }
     let even_slots = bytes.len().div_ceil(2) as f64;
@@ -118,11 +119,11 @@ pub(super) fn decode_patch_target(bytes: &[u8]) -> Result<(String, Codec), Strin
     let text = match encoding {
         Encoding::Utf8 => std::str::from_utf8(body).map_err(|e| format!("invalid_utf8@{}", e.valid_up_to()))?.to_owned(),
         Encoding::Utf16Le | Encoding::Utf16Be => {
-            if body.len() % 2 != 0 {
+            if !body.len().is_multiple_of(2) {
                 return Err("utf16 body has an odd trailing byte".to_owned());
             }
             let units: Vec<u16> = body
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|p| if encoding == Encoding::Utf16Le { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) })
                 .collect();
             String::from_utf16_lossy(&units)
@@ -171,7 +172,7 @@ struct Budget {
     total: u64,
 }
 
-fn bounded_read(path: &Path, max: u64, mut budget: Option<&mut Budget>, classify_only: bool, detect_binary: bool) -> Result<Bounded, ReadFail> {
+fn bounded_read(path: &Path, max: u64, budget: Option<&mut Budget>, classify_only: bool, detect_binary: bool) -> Result<Bounded, ReadFail> {
     let absent = |e: &std::io::Error| matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory);
     let stat = match fs::metadata(path) {
         Ok(s) => s,
@@ -196,10 +197,9 @@ fn bounded_read(path: &Path, max: u64, mut budget: Option<&mut Budget>, classify
     if meta.len() > max {
         return Ok(omitted("oversized", meta.len(), None));
     }
-    if let Some(b) = budget.as_deref() {
-        if !classify_only && meta.len() > b.remaining {
-            return Ok(omitted("budget", meta.len(), Some(b.total)));
-        }
+    if let Some(b) = budget.as_deref()
+        && !classify_only && meta.len() > b.remaining {
+        return Ok(omitted("budget", meta.len(), Some(b.total)));
     }
     let mut content = Vec::new();
     Read::take(&mut file, max + 1).read_to_end(&mut content).map_err(|e| ReadFail::Io(io_code(&e)))?;
@@ -213,7 +213,7 @@ fn bounded_read(path: &Path, max: u64, mut budget: Option<&mut Budget>, classify
     if classify_only {
         return Ok(Bounded::Classified);
     }
-    if let Some(b) = budget.as_deref_mut() {
+    if let Some(b) = budget {
         if total > b.remaining {
             return Ok(omitted("budget", total, Some(b.total)));
         }
@@ -243,6 +243,7 @@ pub(super) fn refusal_message(display: &str, o: &Omitted) -> String {
 /// The bytes of a file a V4A section updates, read as Node's conversion reads them: bounded to the
 /// edit limit, binary refused. `Ok(None)` is an absent file; the `Err` text is the parenthesised
 /// reason of "V4A update target unreadable".
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn read_for_conversion(ctx: &ToolContext, abs: &AbsPath) -> Result<Result<Option<Vec<u8>>, String>, ToolError> {
     let path = abs.as_path().to_path_buf();
     let read = on_lane(ctx, move || bounded_read(&path, EDIT_MAX_BYTES, None, false, true)).await?;
@@ -257,6 +258,7 @@ pub(super) async fn read_for_conversion(ctx: &ToolContext, abs: &AbsPath) -> Res
 }
 
 /// The bytes of `abs` when it is a regular file within `max` (and, with `detect_binary`, text); else `None`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn read_present(ctx: &ToolContext, abs: &AbsPath, max: u64, detect_binary: bool) -> Result<Option<Vec<u8>>, ToolError> {
     let path = abs.as_path().to_path_buf();
     let read = on_lane(ctx, move || bounded_read(&path, max, None, false, detect_binary)).await?;
@@ -267,6 +269,7 @@ pub(super) async fn read_present(ctx: &ToolContext, abs: &AbsPath, max: u64, det
 }
 
 /// Node `patchContentEditRefusal`: the refusal for editing `abs`, or `None` when it may proceed.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn content_edit_refusal(ctx: &ToolContext, abs: &AbsPath, display: &str) -> Result<Option<String>, ToolError> {
     let path = abs.as_path().to_path_buf();
     let read = on_lane(ctx, move || bounded_read(&path, EDIT_MAX_BYTES, None, true, true)).await?;
@@ -319,6 +322,7 @@ impl Snapshot {
 
 /// The pre-patch state of every path, or the `apply_patch: rollback snapshot target …` reason.
 /// `delete_only` are the targets the patch only deletes: they keep the smaller snapshot limit.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn capture(ctx: &ToolContext, paths: &[AbsPath], delete_only: &HashSet<String>) -> Result<Result<Vec<Snapshot>, String>, ToolError> {
     let jobs: Vec<(AbsPath, u64)> = paths
         .iter()
@@ -397,6 +401,7 @@ fn write_restored<'a>(path: &'a Path, content: &[u8]) -> Result<(), Step<'a>> {
 
 /// Undoes the batch: every snapshotted path is written back (or removed when it did not exist).
 /// Returns the `path — reason` rows of what could not be restored.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Result<(Vec<String>, Vec<Snapshot>), ToolError> {
     on_lane(ctx, move || {
         let mut errors = Vec::new();
@@ -491,6 +496,7 @@ impl Quarantine {
     }
 
     /// Whether deleting `abs` must go through the quarantine: its bytes are (or would be) omitted.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     pub(super) async fn needs(&self, ctx: &ToolContext, abs: &AbsPath) -> Result<bool, ToolError> {
         if self.omitted.contains(&key(abs.as_path())) {
             return Ok(true);
@@ -501,6 +507,7 @@ impl Quarantine {
     }
 
     /// Moves every target aside, all or nothing. The `Err` text is the model-facing failure.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     pub(super) async fn move_aside(&mut self, ctx: &ToolContext, targets: Vec<(AbsPath, String)>) -> Result<Result<(), String>, ToolError> {
         let moved = on_lane(ctx, move || {
             let mut done: Vec<Moved> = Vec::new();
@@ -537,6 +544,7 @@ impl Quarantine {
     }
 
     /// Undoes every move (batch failure); returns the rows of what could not be restored.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     pub(super) async fn rollback(&mut self, ctx: &ToolContext) -> Result<Vec<String>, ToolError> {
         let items = std::mem::take(&mut self.moved);
         if items.is_empty() {
@@ -546,6 +554,7 @@ impl Quarantine {
     }
 
     /// Commit: unlinks the quarantine copies. Returns the `WARN` rows of those that stayed.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     pub(super) async fn commit(&mut self, ctx: &ToolContext) -> Result<Vec<String>, ToolError> {
         let items = std::mem::take(&mut self.moved);
         on_lane(ctx, move || {

@@ -105,10 +105,9 @@ fn parse_quoted(s: &str) -> Option<(String, usize)> {
 }
 
 fn unquote_if_quoted(s: &str) -> String {
-    if s.starts_with('"') {
-        if let Some((name, _)) = parse_quoted(s) {
-            return name;
-        }
+    if s.starts_with('"')
+        && let Some((name, _)) = parse_quoted(s) {
+        return name;
     }
     s.to_owned()
 }

@@ -88,13 +88,13 @@ pub fn merge_ranges(ranges: &[LineRange]) -> Vec<LineRange> {
     let mut sorted: Vec<LineRange> = ranges
         .iter()
         .map(|r| LineRange { start: r.start.max(1), end: r.end })
-        .filter(|r| r.end.map_or(true, |e| e >= r.start))
+        .filter(|r| r.end.is_none_or(|e| e >= r.start))
         .collect();
     sorted.sort_by_key(|r| r.start);
     let mut out: Vec<LineRange> = Vec::new();
     for cur in sorted {
         match out.last_mut() {
-            Some(top) if top.end.map_or(true, |e| cur.start <= e + 1) => {
+            Some(top) if top.end.is_none_or(|e| cur.start <= e + 1) => {
                 top.end = match (top.end, cur.end) {
                     (Some(a), Some(b)) => Some(a.max(b)),
                     _ => None,
@@ -266,6 +266,9 @@ impl Persistence {
 
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
+type InvalidationListener = Arc<dyn Fn(&[String]) + Send + Sync>;
+type ReleaseListener = Arc<dyn Fn(&str) + Send + Sync>;
+
 struct Shared {
     inner: Mutex<Inner>,
     clock: Clock,
@@ -275,9 +278,9 @@ struct Shared {
     /// Signalled when the outbox has been emptied.
     idle: tokio::sync::Notify,
     /// `registerCacheInvalidationListener`: told the paths of every invalidation.
-    watchers: Mutex<Vec<Arc<dyn Fn(&[String]) + Send + Sync>>>,
+    watchers: Mutex<Vec<InvalidationListener>>,
     /// `registerSessionPurgeHook`: told the id of every session that is closed or deleted.
-    releases: Mutex<Vec<Arc<dyn Fn(&str) + Send + Sync>>>,
+    releases: Mutex<Vec<ReleaseListener>>,
     /// Every change owed to the store (a session's change, a release, a path sweep) numbered as it is made, reported once
     /// the write that carries it ran.
     marks: mixdog_rt::WriteMarks,
@@ -506,7 +509,7 @@ impl ReadState {
 
     /// `registerCacheInvalidationListener(fn)`: `fn` runs with the paths of every `invalidate` (an edit, a patch, a
     /// tidy write, a rejected cached read), after the cached answers are dropped.
-    pub fn on_invalidated(&self, listener: Arc<dyn Fn(&[String]) + Send + Sync>) {
+    pub fn on_invalidated(&self, listener: InvalidationListener) {
         self.shared.watchers.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
     }
 
@@ -612,7 +615,7 @@ impl ReadState {
                 next.content_hash = same_file.and_then(|e| e.content_hash.clone());
             }
             let incoming_is_grep = meta.source == "grep";
-            next.grep_only = incoming_is_grep && same_file.map_or(true, |e| e.grep_only);
+            next.grep_only = incoming_is_grep && same_file.is_none_or(|e| e.grep_only);
             let prior_for_delivery = if fresh_large { None } else { prior.as_ref() };
             if let Some(delivered) = resolve_body_delivered(&next, &meta, prior_for_delivery, &identity, incoming_is_grep) {
                 next.body_delivered = Some(delivered);
@@ -809,7 +812,7 @@ fn resolve_body_delivered(
             (Some(p), Some(pre)) => same_version(pre, &p.version),
             _ => false,
         };
-        let prior_ranges_are_reads = prior.map_or(true, |p| !is_mutation_source(&p.source));
+        let prior_ranges_are_reads = prior.is_none_or(|p| !is_mutation_source(&p.source));
         return Some(
             prior_current
                 && prior.is_some_and(|p| {

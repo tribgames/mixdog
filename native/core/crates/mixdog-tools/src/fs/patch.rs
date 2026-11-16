@@ -126,6 +126,7 @@ impl Default for ApplyPatchTool {
 }
 
 /// Why a step stopped: a model-facing failure text, or a cancellation/deadline.
+#[allow(clippy::large_enum_variant, reason = "private stop retains canonical ToolError by value; preserve its existing allocation and error payload contract")]
 enum Stop {
     Text(String),
     Tool(ToolError),
@@ -139,6 +140,7 @@ impl From<ToolError> for Stop {
 
 type R<T> = Result<T, Stop>;
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn text_err<T>(message: impl Into<String>) -> R<T> {
     Err(Stop::Text(message.into()))
 }
@@ -172,6 +174,7 @@ fn decode_message(reason: &str, display: &str) -> String {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn read_opt(ctx: &ToolContext, abs: &AbsPath) -> R<Option<Vec<u8>>> {
     let read = guarded(ctx, "apply_patch", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
     match read {
@@ -181,6 +184,7 @@ async fn read_opt(ctx: &ToolContext, abs: &AbsPath) -> R<Option<Vec<u8>>> {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn stat_opt(ctx: &ToolContext, abs: &AbsPath) -> R<Result<mixdog_core_api::domain::fs::FileStat, FsError>> {
     Ok(guarded(ctx, "apply_patch", ctx.files.stat(ctx.io.interactive, abs.clone())).await?)
 }
@@ -189,6 +193,7 @@ async fn stat_opt(ctx: &ToolContext, abs: &AbsPath) -> R<Result<mixdog_core_api:
 
 /// Repeated plain Update sections on one file merge; a Delete then Add of one path collapses into
 /// the single end state it describes. Anything else on one path is a conflict.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn coalesce(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>) -> R<Vec<Section>> {
     let mut out: Vec<Section> = Vec::new();
     let mut index: Vec<(String, usize)> = Vec::new();
@@ -288,6 +293,7 @@ struct RenameOp {
 
 /// One section as the change it makes to the disk as it is now; `None` when none of its hunks
 /// does anything. Errors are the bare messages Node's conversion throws.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bool, reject_partial: bool, notices: &mut Notices) -> R<Option<Entry>> {
     let abs = resolve_path(base, &section.path)?;
     let display = section.path.replace('\\', "/");
@@ -360,6 +366,7 @@ async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bo
 
 /// Node `renameTargetsSamePhysicalFile`: two different spellings whose real paths agree (a junction
 /// alias, or a case-only difference on a case-insensitive disk); both must exist.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn same_physical_file(ctx: &ToolContext, src: &AbsPath, dest: &AbsPath) -> Result<bool, ToolError> {
     if src == dest {
         return Ok(false);
@@ -369,6 +376,7 @@ async fn same_physical_file(ctx: &ToolContext, src: &AbsPath, dest: &AbsPath) ->
 }
 
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn validate_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, seen_dest: &mut HashSet<String>) -> R<()> {
     let move_path = section.move_path.as_deref().unwrap_or_default();
     let src = resolve_path(base, &section.path)?;
@@ -416,6 +424,7 @@ async fn validate_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, s
 }
 
 /// Checks every rename of the patch against each other and the other sections.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn plan_renames(ctx: &ToolContext, base: &AbsPath, renames: &[&Section], rest: &[&Section]) -> R<()> {
     let mut remaining = HashSet::new();
     for s in rest {
@@ -441,6 +450,7 @@ async fn plan_renames(ctx: &ToolContext, base: &AbsPath, renames: &[&Section], r
 }
 
 /// The rename's new file content, computed from the source as it is now.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn build_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bool) -> R<RenameOp> {
     let move_path = section.move_path.as_deref().unwrap_or_default();
     let src = resolve_path(base, &section.path)?;
@@ -452,7 +462,7 @@ async fn build_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzz
         Err(why) => return Err(unreadable(why)),
     };
     let (text, codec) = decode_patch_target(&bytes).map_err(|reason| unreadable(decode_message(&reason, &normalize_output_path(&src.as_path().to_string_lossy()))))?;
-    let applied = apply_hunks(&Lines::split(&text), &section.hunks, fuzzy, None, &section.path, None, "apply_patch", true).map_err(Stop::Text)?;
+    let applied = apply_hunks(&Lines::split(&text), &section.hunks, fuzzy, (None, &section.path), None, "apply_patch", true).map_err(Stop::Text)?;
     let dest_before = read_opt(ctx, &dest).await?;
     Ok(RenameOp {
         shown_src: normalize_output_path(&section.path),
@@ -516,10 +526,9 @@ fn summary(entries: &[&Entry], js: bool, dry: bool) -> String {
 /// The path a section writes as its patch header: relative to the base when the patch named it
 /// absolutely and it lies inside.
 fn header_of(base: &AbsPath, abs: &AbsPath, display: &str) -> String {
-    if std::path::Path::new(display).is_absolute() {
-        if let Some(rel) = relative_inside(base.as_path(), abs.as_path()).filter(|r| !r.as_os_str().is_empty()) {
-            return fwd(&rel);
-        }
+    if std::path::Path::new(display).is_absolute()
+        && let Some(rel) = relative_inside(base.as_path(), abs.as_path()).filter(|r| !r.as_os_str().is_empty()) {
+        return fwd(&rel);
     }
     display.to_owned()
 }
@@ -553,6 +562,7 @@ impl Tx {
 }
 
 /// Snapshots every path the batch touches and refuses an edit whose bytes cannot be captured.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn begin_tx(ctx: &ToolContext, entries: &[Entry], renames: &[&Section], base: &AbsPath) -> R<Tx> {
     let mut paths: Vec<AbsPath> = Vec::new();
     let mut seen = HashSet::new();
@@ -586,6 +596,7 @@ async fn begin_tx(ctx: &ToolContext, entries: &[Entry], renames: &[&Section], ba
 }
 
 /// Node `withRollback`: undoes the batch and words the outcome, including what could not be undone.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String> {
     let mut errors = tx.quarantine.rollback(ctx).await?;
     let (restore_errors, snapshots) = restore(ctx, std::mem::take(&mut tx.snapshots)).await?;
@@ -600,6 +611,7 @@ async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String>
 
 /// A batch outcome: success commits the quarantine, failure rolls the batch back. `dry` runs
 /// change nothing and report as they are.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: bool, notices: &mut Notices) -> R<String> {
     match outcome {
         Ok(text) => {
@@ -628,6 +640,7 @@ async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: b
 
 /// Writes the renames and entries as one unit, or only checks them when `dry`. The error text is
 /// complete, including its `Error: ` prefix.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entries: &[Entry], opts: &Options, tx: &mut Tx) -> R<String> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
     // A binary or oversized target is refused before anything is written.
@@ -728,11 +741,11 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
 /// Node `applyV4ARenameSection` past its dry run, for one ordered unit: the destination is
 /// written, the source removed (unless both name one file), and a failure of either puts both
 /// paths back before the unit reports `V4A rename failed`. The writes are not cancellable half-way.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn apply_rename(ctx: &ToolContext, op: &RenameOp) -> R<()> {
-    if let Some(parent) = op.dest.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
-        if let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
-            return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
-        }
+    if let Some(parent) = op.dest.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf()))
+        && let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
+        return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
     }
     let (files, lane) = (&ctx.files, ctx.io.durability);
     let write = |path: &AbsPath, content: &[u8]| WriteRequest { path: path.clone(), content: content.to_vec(), precondition: WritePrecondition::Unconditional };
@@ -758,6 +771,7 @@ async fn apply_rename(ctx: &ToolContext, op: &RenameOp) -> R<()> {
 }
 
 /// Writes the renames and the codec-preserving entries as one unit.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry]) -> R<()> {
     let mut writes: Vec<WriteRequest> = Vec::new();
     let mut removes: Vec<AbsPath> = Vec::new();
@@ -790,10 +804,9 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
         }
     }
     for w in &writes {
-        if let Some(parent) = w.path.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
-            if let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
-                return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
-            }
+        if let Some(parent) = w.path.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf()))
+            && let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
+            return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
         }
     }
     if let Err(e) = guarded(ctx, "apply_patch", ctx.files.write_batch(ctx.io.durability, writes.clone())).await? {
@@ -865,6 +878,7 @@ fn prepare_failed(stop: Stop) -> Stop {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn into_text(r: R<String>) -> Result<String, ToolError> {
     match r {
         Ok(t) => Ok(t),
@@ -875,6 +889,7 @@ fn into_text(r: R<String>) -> Result<String, ToolError> {
 
 // ---- routes ----
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn run_batch(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, opts: &Options, coalesce_sections: bool) -> R<String> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
     let mut notices = Notices::default();
@@ -929,6 +944,7 @@ async fn run_batch(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, op
     });
     finish_batch(ctx, &mut tx, outcome, dry, &mut notices).await
 }
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, opts: &Options, mode: Sequence) -> R<String> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
     let mut notices = Notices::default();
@@ -1403,15 +1419,15 @@ fn to_uhunks(file: &UFile) -> Vec<UHunk> {
 /// The header the engine is given: an absolute name inside the base is made relative to it.
 fn engine_name(base: &AbsPath, raw: &str) -> String {
     let stripped = strip_diff_prefix(raw);
-    if std::path::Path::new(stripped).is_absolute() {
-        if let Some(rel) = relative_inside(base.as_path(), &PathBuf::from(stripped)).filter(|r| !r.as_os_str().is_empty()) {
-            return fwd(&rel);
-        }
+    if std::path::Path::new(stripped).is_absolute()
+        && let Some(rel) = relative_inside(base.as_path(), &PathBuf::from(stripped)).filter(|r| !r.as_os_str().is_empty()) {
+        return fwd(&rel);
     }
     raw.to_owned()
 }
 
 /// Node `rewriteParsedReadRedirects`: a missing target with one relocated twin is re-pointed at it.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn redirect_files(ctx: &ToolContext, base: &AbsPath, mut files: Vec<UFile>) -> Result<Vec<UFile>, ToolError> {
     for file in &mut files {
         let kind = classify(file);
@@ -1421,12 +1437,10 @@ async fn redirect_files(ctx: &ToolContext, base: &AbsPath, mut files: Vec<UFile>
         }
         let requested = resolve_path(base, strip_diff_prefix(&old))?;
         if let Some(header) = relocated_header(ctx, base, &requested).await? {
-            if kind == UKind::Modify {
-                if let Some(new) = file.new_name.clone().filter(|n| !n.is_empty()) {
-                    if path_key(&resolve_path(base, strip_diff_prefix(&new))?) == path_key(&requested) {
-                        file.new_name = Some(header.clone());
-                    }
-                }
+            if kind == UKind::Modify
+                && let Some(new) = file.new_name.clone().filter(|n| !n.is_empty())
+                && path_key(&resolve_path(base, strip_diff_prefix(&new))?) == path_key(&requested) {
+                file.new_name = Some(header.clone());
             }
             file.old_name = Some(header);
         }
@@ -1436,6 +1450,7 @@ async fn redirect_files(ctx: &ToolContext, base: &AbsPath, mut files: Vec<UFile>
 
 /// The one-operation-per-target rule and Node's pre-validation, then one `Entry` per file. Errors
 /// are complete model-facing texts.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, fuzzy: bool) -> R<Vec<Entry>> {    if files.is_empty() {
         return text_err("Error: patch contained no file sections");
     }
@@ -1516,6 +1531,7 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
 }
 
 /// A unified patch as one batch: validated in full, written as one unit.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn run_unified(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, opts: &Options) -> R<String> {
     let mut notices = Notices::default();
     let entries = unified_entries(ctx, base, files, opts.fuzzy).await?;
@@ -1554,6 +1570,7 @@ fn can_fall_back_counted(patch: &str, requested: &str, message: &str) -> bool {
 const HEADERLESS: &str = "Error: apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. Each section must start with `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` (V4A, wrapped in `*** Begin Patch` / `*** End Patch`), or a `--- a/<path>` + `+++ b/<path>` pair (unified).";
 
 /// A unified patch in the explicit ordered mode: one unit per file, in listed order.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, opts: &Options) -> R<String> {
     let mut notices = Notices::default();
     let count = files.len();
@@ -1616,6 +1633,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
 
 impl ApplyPatchTool {
     /// A genuine unified diff: one batch, or the ordered sequence when asked for.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn call_unified(&self, ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, opts: &Options, ordered: bool) -> ToolOutcome {
         let files = redirect_files(ctx, base, files).await?;
         let mut touched: Vec<AbsPath> = Vec::new();
