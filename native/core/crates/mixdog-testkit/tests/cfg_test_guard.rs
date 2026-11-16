@@ -15,6 +15,26 @@ const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 /// `(file under the crates dir, the item the predicate is on, why it may stay bare)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "mixdog-core-session/src/session/agent_registry/rows.rs",
+        "pub fn total(&self) -> usize {",
+        "only the inline agent_registry/tests.rs work-budget assertions call Counts::total; rows is a private module and those tests stay in the library, while moved replays use the existing individual counters",
+    ),
+    (
+        "mixdog-core-session/src/session/secret_input/human_only.rs",
+        "struct NoTakeovers;",
+        "constructed only by the private free_lock fixture below, whose callers are the inline human_only/computer tests and the cfg(test) card_holds_tests/human_only_merge_tests modules",
+    ),
+    (
+        "mixdog-core-session/src/session/secret_input/human_only.rs",
+        "impl TakeoverHolds for NoTakeovers {",
+        "implements only the NoTakeovers stand-in constructed by free_lock for inline secret_input tests; no production or moved replay caller can reach this private type",
+    ),
+    (
+        "mixdog-core-session/src/session/secret_input/human_only.rs",
+        "pub(super) fn free_lock() -> Arc<HumanOnlyLock> {",
+        "called only by the inline human_only.rs and computer.rs tests plus card_holds_tests.rs and human_only_merge_tests.rs, both cfg(test) modules in secret_input.rs; moved replays do not call this parent-private fixture",
+    ),
+    (
         "mixdog-core/src/run_host/fixture_fs.rs",
         "pub(crate) fn files_under(",
         "only the inline auto_effort/tests.rs byte-inventory assertion uses this crate-private helper; that test stays in the library, and moved replays do not call it",

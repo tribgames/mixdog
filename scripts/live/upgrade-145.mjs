@@ -13,7 +13,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 
@@ -28,6 +29,18 @@ if (!Number.isSafeInteger(GENERATION)) throw new Error('candidate profile migrat
 const MARKER_WAIT_MS = 120_000;
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
+let desktopReader;
+async function effectiveDesktopSettings(config) {
+  // Use the same consumer as desktop readSettings, including its default semantics.
+  desktopReader ??= (async () => {
+    const requireDesktop = createRequire(new URL('../../apps/desktop/package.json', import.meta.url));
+    const tsxPackage = requireDesktop.resolve('tsx/package.json');
+    const api = readJson(tsxPackage).exports['./esm/api'].import.default;
+    const { tsImport } = await import(new URL(api, pathToFileURL(tsxPackage)).href);
+    return (await tsImport('../../apps/desktop/src/shared/desktop-settings.ts', { parentURL: import.meta.url, tsconfig: false })).desktopSettingsFromConfig;
+  })();
+  return (await desktopReader)(config);
+}
 
 /** The Mixdog executable of an unpacked folder (or the executable itself). */
 export function findApp(app, { exists = existsSync, isDir = (p) => statSync(p).isDirectory(), platform = process.platform } = {}) {
@@ -227,7 +240,13 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
         const stored = state?.notifications;
         if (!stored || typeof stored !== 'object') throw new Error('notify/state holds no notification preferences');
         if (typeof expect.notifications === 'object') {
-          const differ = Object.keys(expect.notifications).filter((key) => !isDeepStrictEqual(stored[key], expect.notifications[key]));
+          const differ = Object.keys(expect.notifications).filter((key) => key !== 'devices' && !isDeepStrictEqual(stored[key], expect.notifications[key]));
+          if (expect.notifications.devices) {
+            const expectedDevices = expect.notifications.devices;
+            for (const id of new Set([...Object.keys(expectedDevices), ...Object.keys(stored.devices ?? {})])) {
+              if (!isDeepStrictEqual(stored.devices?.[id], expectedDevices[id])) differ.push(`devices.${id}`);
+            }
+          }
           if (differ.length) throw new Error(`notify/state differs at ${differ.join(', ')}`);
         }
         return 'stored';
@@ -272,6 +291,13 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
     if (differ.length) throw new Error(`config/read differs at ${differ.join(', ')}`);
     return 'effective values retained';
   } });
+  if (expect.desktopSettings) list.push({ name: 'effective desktop settings', run: async ({ core }) => {
+    const result = await core.call('config/read', { keys: ['agent', 'desktop'] });
+    if (!result?.config || typeof result.config.desktop !== 'object' || !result.config.desktop) throw new Error('config/read holds no desktop section');
+    const differ = subsetProblems(await effectiveDesktopSettings(result.config), expect.desktopSettings);
+    if (differ.length) throw new Error(`desktop settings differ at ${differ.join(', ')}`);
+    return 'desktop consumer applied fixture settings';
+  } });
   if (expect.editorSettings) list.push({ name: 'effective editor settings', run: async ({ core, workspace }) => {
     const value = await core.call('projectFs/readEditorSettings', { root: workspace, rel: 'synthetic.ts' });
     const differ = subsetProblems(value, expect.editorSettings);
@@ -283,7 +309,14 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
     return 'fixture-requested write completed';
   } });
   if (expect.storedConfig) list.push({ name: 'stored configuration sentinels', run: async ({ read = readJson }) => {
-    const differ = subsetProblems(read(join(dataDir, 'mixdog-config.json')), expect.storedConfig);
+    const stored = read(join(dataDir, 'mixdog-config.json'));
+    const differ = subsetProblems(stored, expect.storedConfig);
+    for (const path of expect.storedConfigAbsent ?? []) {
+      const parts = path.split('.');
+      const key = parts.pop();
+      const parent = parts.reduce((value, part) => value?.[part], stored);
+      if (parent && Object.hasOwn(parent, key)) differ.push(`${path} must be absent`);
+    }
     if (differ.length) throw new Error(`stored configuration differs at ${differ.join(', ')}`);
     return 'known and unknown fixture keys retained';
   } });
