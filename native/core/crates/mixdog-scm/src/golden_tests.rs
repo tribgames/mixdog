@@ -1132,6 +1132,61 @@ impl crate::worktree::maintenance::SessionSource for Sessions {
     }
 }
 
+/// A session layer whose every read is counted: the preview of a repository with no managed worktree must not scan it.
+struct CountedSessions(std::sync::atomic::AtomicUsize);
+
+impl CountedSessions {
+    fn touch(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::worktree::maintenance::SessionSource for CountedSessions {
+    async fn stored_session_ids(&self) -> Result<std::collections::HashSet<String>, crate::error::ScmFailure> {
+        self.touch();
+        Ok(Default::default())
+    }
+    async fn favorites(&self) -> Option<std::collections::HashSet<String>> {
+        self.touch();
+        Some(Default::default())
+    }
+    async fn archived(&self) -> Option<std::collections::HashSet<String>> {
+        self.touch();
+        None
+    }
+    async fn activity(&self, _: &[String]) -> std::collections::HashMap<String, crate::worktree::maintenance::SessionActivity> {
+        self.touch();
+        Default::default()
+    }
+    async fn running_jobs(&self) -> Result<Vec<crate::worktree::maintenance::ShellJob>, crate::error::ScmFailure> {
+        self.touch();
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn the_preview_of_a_repository_without_managed_worktrees_reads_no_session() {
+    use crate::worktree::maintenance::CleanupOptions;
+    use crate::worktree::maintenance::SessionSource;
+    use crate::worktree::settings::WorktreeSettings;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let counted = std::sync::Arc::new(CountedSessions(Default::default()));
+    let sessions: std::sync::Arc<dyn SessionSource> = counted.clone();
+    let elsewhere = CleanupOptions {
+        settings: Some(WorktreeSettings::default()),
+        repo_common_dir: Some("/no/managed/worktrees/here/.git".to_owned()),
+        ..CleanupOptions::default()
+    };
+    let (ids, stale) = worktrees.preview_worktree_cleanup(&sessions, &elsewhere, &cancel).await.unwrap();
+    assert!(ids.is_empty() && stale.is_empty());
+    assert_eq!(counted.0.load(std::sync::atomic::Ordering::SeqCst), 0, "no session layer read for a repository with no record");
+    // The repository that does have records is still read.
+    let own = CleanupOptions { repo_common_dir: Some(made[0].repo_common_dir.clone()), ..elsewhere };
+    worktrees.preview_worktree_cleanup(&sessions, &own, &cancel).await.unwrap();
+    assert!(counted.0.load(std::sync::atomic::Ordering::SeqCst) > 0);
+}
+
 #[tokio::test]
 async fn the_cleanup_pass_removes_unretained_work_but_not_what_a_job_or_a_stored_session_keeps() {
     use crate::worktree::maintenance::CleanupOptions;

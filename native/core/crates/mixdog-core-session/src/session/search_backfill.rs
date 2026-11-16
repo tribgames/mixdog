@@ -45,6 +45,11 @@ impl StoredSearchSessions {
 }
 
 impl StoredSearchSessions {
+    /// [`StoreThreads::retention`]: moves when a favorite or archive mark is written.
+    pub(super) fn retention(&self) -> u64 {
+        self.threads.retention()
+    }
+
     /// The stored header of a session; `None` for one absent, deleted or unreadable (Node's
     /// `loadSession` null).
     pub(super) async fn header(&self, session_id: &str) -> Option<Header> {

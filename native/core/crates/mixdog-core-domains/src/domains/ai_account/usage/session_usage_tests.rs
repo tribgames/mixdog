@@ -58,6 +58,8 @@ fn golden() -> Value {
 struct Records {
     unseated: Mutex<HashSet<String>>,
     gone: HashSet<String>,
+    /// How many times a thread's conversation was read.
+    message_reads: std::sync::atomic::AtomicUsize,
 }
 
 #[async_trait::async_trait]
@@ -90,6 +92,7 @@ impl ThreadState for Records {
 #[async_trait::async_trait]
 impl mixdog_core_ports::ports::memory_source::ThreadMessages for Records {
     async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+        self.message_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Vec::new())
     }
 }
@@ -137,12 +140,27 @@ async fn a_thread_without_a_session_answers_null_as_nodes_does() {
     assert!(usage[0]["value"].is_null() && usage[1]["value"].is_null() && usage[2]["value"]["sessionId"] == "$control", "the recording spans the session's creation");
 
     let dir = tempfile::tempdir().unwrap();
-    let records = Arc::new(Records { unseated: Mutex::new(HashSet::from(["$control".to_owned()])), gone: HashSet::from(["sess_gone".to_owned()]) });
+    let records = Arc::new(Records { unseated: Mutex::new(HashSet::from(["$control".to_owned()])), gone: HashSet::from(["sess_gone".to_owned()]), ..Records::default() });
     let service = service_over(&dir, &golden(), records.clone()).await;
     assert_eq!(usage_of(&service, "$control").await, usage[0]["value"], "before a route has created the session");
     records.unseated.lock().unwrap().clear();
     assert_eq!(usage_of(&service, "$control").await, usage[2]["value"], "once it has");
     assert_eq!(usage_of(&service, "sess_gone").await["sessionId"], "sess_gone", "a thread the directory forgot keeps its ledger totals");
+}
+
+/// The conversation of a thread whose header names a model is never read for the call (it loads every stored row and waits on
+/// the thread's actor); one whose header names none is, because its rows are what make it a session.
+#[tokio::test]
+async fn a_seated_thread_is_answered_without_reading_its_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let records = Arc::new(Records { unseated: Mutex::new(HashSet::from(["$unseated".to_owned()])), ..Records::default() });
+    let service = service_over(&dir, &golden(), records.clone()).await;
+    for _ in 0..3 {
+        assert_eq!(usage_of(&service, "sess_seated").await["sessionId"], "sess_seated");
+    }
+    assert_eq!(records.message_reads.load(std::sync::atomic::Ordering::SeqCst), 0, "no conversation read for a seated thread");
+    assert!(usage_of(&service, "$unseated").await.is_null());
+    assert_eq!(records.message_reads.load(std::sync::atomic::Ordering::SeqCst), 1, "a header without a model is told by its rows");
 }
 
 #[tokio::test]

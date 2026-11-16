@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { createUsageStatsApi } from '../shared/test-recorded/island-session-usage.test.0.recorded.mjs';
-import { islandUsageCue, useIslandSessionUsage } from './island-session-usage.ts';
+import { islandUsageCue, MIN_READ_GAP_MS, useIslandSessionUsage } from './island-session-usage.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -95,6 +95,8 @@ test('a burst of cues during a read costs one follow-up read, never two reads at
   await render({ cue: '1|agent-a:8', agents: ['agent-a', 'agent-b'] });
   assert.equal(reads.length, 1, 'nothing starts behind an unanswered read');
   await act(async () => reads[0].answer(snapshot(1)));
+  assert.equal(reads.length, 1, 'the follow-up waits out the gap since the last read started');
+  await act(async () => context.mock.timers.tick(MIN_READ_GAP_MS));
   assert.equal(reads.length, 2, 'the whole burst collapsed into one follow-up');
   assert.deepEqual(reads[1].args[0].sessionIds, ['agent-a', 'agent-b'], 'the follow-up asks for the latest agents');
   await act(async () => reads[1].answer(snapshot(2)));
@@ -108,11 +110,33 @@ test('a failed read keeps the last figures and frees the next one', async (conte
   const reads = slowHost(window);
   await render({});
   await act(async () => reads[0].answer(snapshot(5)));
+  await act(async () => context.mock.timers.tick(MIN_READ_GAP_MS));
   await render({ cue: '1|' });
   await act(async () => reads[1].fail(new Error('worker down')));
   assert.equal(value().turns, 5);
+  await act(async () => context.mock.timers.tick(MIN_READ_GAP_MS));
   await render({ cue: '2|' });
   assert.equal(reads.length, 3);
+});
+
+test('cues that keep coming start at most one read per gap, whatever their number', async (context) => {
+  const { render, window } = mountProbe(context);
+  const reads = slowHost(window);
+  await render({});
+  await act(async () => reads[0].answer(snapshot(1)));
+  // A busy team moves the cue every second for a minute, each read answered at once.
+  let total = 0;
+  for (let second = 1; second <= 60; second += 1) {
+    await render({ cue: `0|agent-a:${second}` });
+    await act(async () => context.mock.timers.tick(1_000));
+    total += 1;
+    for (const read of reads) read.answer?.(snapshot(second));
+    await act(async () => undefined);
+  }
+  assert.equal(total, 60);
+  const ceiling = 1 + Math.ceil(60_000 / MIN_READ_GAP_MS);
+  assert.ok(reads.length <= ceiling, `${reads.length} reads in a minute, at most ${ceiling}`);
+  assert.ok(reads.length > 1, 'the cues still reach the ledger');
 });
 
 test("the cue is the token of the Lead's group that the pool rows carry, plus settled turns", () => {

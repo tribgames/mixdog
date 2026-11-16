@@ -512,6 +512,36 @@ test('"Clean up worktrees" runs the manual prune, reports it and reads the menu 
   assert.equal(document.querySelector('.branch-menu-notice').textContent, 'Nothing to clean up.');
 });
 
+test('a closed branch menu never asks the runtime for the cleanup preview once its menu is read', async (t) => {
+  menuReply = menuFor();
+  const { trigger } = await mount(t, {}, { handlers: { previewWorktreeCleanup: () => ({ hasCandidates: true }) } });
+  await settle();
+  assert.ok(calls.some((call) => call.capability === 'getBranchMenu'), 'the menu itself was read');
+  assert.equal(calls.filter((call) => call.capability === 'previewWorktreeCleanup').length, 0, 'closed: no preview read');
+  await openMenu(trigger);
+  await settle();
+  assert.equal(calls.filter((call) => call.capability === 'previewWorktreeCleanup').length > 0, true, 'opened: the preview is read');
+});
+
+test('menus of one repository that ask for the cleanup preview together share one round trip', async () => {
+  let reads = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const read = () => {
+    reads += 1;
+    return gate;
+  };
+  const asks = [1, 2, 3, 4].map(() => model.sharedCleanupPreview('/p/.git', read));
+  const other = model.sharedCleanupPreview('/q/.git', read);
+  assert.equal(reads, 2, 'one read per repository however many menus ask');
+  release({ hasCandidates: false });
+  await Promise.all([...asks, other]);
+  model.sharedCleanupPreview('/p/.git', read);
+  assert.equal(reads, 3, 'a settled read is not kept: the next ask reads again');
+});
+
 test('"Clean up worktrees" is disabled with a tooltip only when the preview finds nothing to clean', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();

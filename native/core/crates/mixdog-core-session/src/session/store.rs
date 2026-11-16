@@ -335,6 +335,27 @@ struct StoreLog {
     writer: Option<LogWriter>,
     projector: Projector,
     redaction: Option<Redaction>,
+    /// The store's retention version: moved by every batch this log commits that sets or clears a sidebar retention mark.
+    retention: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// Whether `record` writes a header key the worktree retention reads: a session's favorite or archive mark. A change kept in a
+/// blob is not read here and counts as touching.
+fn touches_retention(record: &mixdog_store::schema::record::Record) -> bool {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+    const KEYS: [&str; 2] = ["favoriteAt", "archivedAt"];
+    match record {
+        Record::Meta(meta) => match &meta.change {
+            Slot::Inline(change) => KEYS.iter().any(|key| change.set.contains_key(*key) || change.unset.iter().any(|unset| unset == key)),
+            _ => true,
+        },
+        Record::Session(start) => match &start.header {
+            Slot::Inline(header) => KEYS.iter().any(|key| header.contains_key(*key)),
+            _ => true,
+        },
+        _ => false,
+    }
 }
 
 /// The readers' side of a log rewrite (`log_rewrite`'s steps 4-8): every read of a session's log and index rows
@@ -556,6 +577,10 @@ impl SessionLog for StoreLog {
         let writer = self.writer.as_mut().ok_or_else(writer_lost)?;
         let ack = writer.append_barrier(lane, encoded).map_err(barrier)?;
         let ordinals = ack.positions.iter().map(|p| p.ordinal).collect();
+        // After the batch is durable, so a scan that read the header before it is never the one a later ask is served.
+        if batch.iter().any(|c| touches_retention(&c.record)) {
+            self.retention.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        }
         self.projector.send(ack.projection);
         Ok(ordinals)
     }
@@ -585,6 +610,7 @@ pub struct StoreThreads {
     journal: std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>,
     gate: ReadGate,
     rewrites: Arc<Rewrites>,
+    retention: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl super::thread_list::ListFence for StoreThreads {
@@ -611,6 +637,7 @@ impl StoreThreads {
             journal: std::sync::OnceLock::new(),
             gate: ReadGate::default(),
             rewrites: Arc::default(),
+            retention: Arc::default(),
         }
     }
 
@@ -697,7 +724,13 @@ impl StoreThreads {
             journal: self.journal.get().cloned(),
             rewrites: self.rewrites.clone(),
         });
-        Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction })
+        Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction, retention: self.retention.clone() })
+    }
+
+    /// Moves whenever any session's favorite or archive mark is written through this store's logs, the only writers of a
+    /// header: what was derived from those marks is stale once it differs from the value it was derived at.
+    pub fn retention(&self) -> u64 {
+        self.retention.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Over the data dir's stores: `index` is the core's one `SqliteStore` (WP-STORE opens it,

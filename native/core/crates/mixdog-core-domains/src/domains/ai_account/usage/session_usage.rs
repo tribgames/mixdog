@@ -19,6 +19,7 @@ use mixdog_core_base::support::wrong_method;
 use mixdog_core_base::support::failed;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_core_ports::ports::route::has_session;
+use mixdog_core_ports::ports::route::header_names_session;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_ledger::stats::session_usage_snapshot;
 use serde_json::Map;
@@ -130,7 +131,9 @@ impl DomainService for SessionUsageService {
         // A thread with no session yet is `getSessionId()` null as well. A thread the directory does not know is a session
         // that ran and is gone: its totals are still in the ledger.
         if let Ok(header) = self.threads.header(&thread).await {
-            let rows = self.messages.messages(&thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+            // The conversation is read only to find a session on a header that names no model: the read loads every stored row
+            // of the thread (and waits on its actor), and a seated route, which is every running thread, needs none of it.
+            let rows = if header_names_session(&header) { Vec::new() } else { self.messages.messages(&thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))? };
             if !has_session(&header, &rows) {
                 return Ok(Reply::Value(Value::Null));
             }

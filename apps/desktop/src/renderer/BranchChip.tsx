@@ -57,6 +57,7 @@ export function BranchChip({
     projectPath,
     menu,
     query,
+    menuOpen: open,
     load,
     setNotice,
     close,

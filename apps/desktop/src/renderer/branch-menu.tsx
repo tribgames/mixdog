@@ -42,6 +42,7 @@ import {
   largeRepoPrompt,
   nothingToCleanUp,
   pruneReportText,
+  sharedCleanupPreview,
   applyDefaultWorktreeIntent,
   chooseWorktreeIntent,
   setBranchIntent,
@@ -327,6 +328,7 @@ export function useBranchMenuActions({
   menu,
   query,
   locked = false,
+  menuOpen,
   load,
   setNotice,
   close,
@@ -341,6 +343,8 @@ export function useBranchMenuActions({
   menu: DesktopBranchMenu | null;
   query: string;
   locked?: boolean;
+  /** The menu is shown: the "Clean up" button's preview is read only then. */
+  menuOpen: boolean;
   load(): Promise<unknown>;
   setNotice(notice: string): void;
   close(): void;
@@ -500,7 +504,9 @@ export function useBranchMenuActions({
     // A new request makes the answer unknown (usable) until it arrives.
     setCleanup(null);
     if (!repoCommonDir) return;
-    const empty = await invokeWorktree('previewWorktreeCleanup', [{ repoCommonDir }], sessionId)
+    const empty = await sharedCleanupPreview(repoCommonDir, () =>
+      invokeWorktree('previewWorktreeCleanup', [{ repoCommonDir }], sessionId)
+    )
       .then(nothingToCleanUp)
       .catch(() => false);
     if (id === cleanupRead.current) setCleanup({ repoCommonDir, empty });
@@ -508,10 +514,12 @@ export function useBranchMenuActions({
   // `menu` itself is a fresh object per render for a draft's chosen branch;
   // its occupancy list is the read's own identity.
   const menuRead = menu?.occupancy;
+  // Only an open menu shows the button the answer decides: a closed one (a composer per running session, each re-reading
+  // its menu on every turn) asked the runtime for a repository scan it never displayed.
   // biome-ignore lint/correctness/useExhaustiveDependencies: menuRead is the deliberate re-read trigger
   useEffect(() => {
-    void readCleanup();
-  }, [readCleanup, menuRead]);
+    if (menuOpen) void readCleanup();
+  }, [readCleanup, menuRead, menuOpen]);
 
   /** "Clean up": the manual prune (clean, merged worktrees no session keeps;
    *  registrations whose folder is gone), its summary as the notice, then a
