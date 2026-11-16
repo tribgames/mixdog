@@ -65,10 +65,10 @@ pub fn prepare_spawn(env: &SshEnv, command: &str, args: &[String], context: Opti
         // The target's own generated config when there is one (resolved options, no forwards), else the generic
         // one; a caller that passes its own -F keeps it.
         let config_file = env.config_files.for_args(&list).or_else(|| env.config_files.generic());
-        if let Some(file) = config_file {
-            if !list.iter().any(|arg| arg == "-F") {
-                prepend(&mut list, ["-F".to_owned(), file.to_string_lossy().into_owned()]);
-            }
+        if let Some(file) = config_file
+            && !list.iter().any(|arg| arg == "-F")
+        {
+            prepend(&mut list, ["-F".to_owned(), file.to_string_lossy().into_owned()]);
         }
         let identity = context.and_then(|attempt| attempt.settings.as_ref()).and_then(|settings| settings.identity_file.as_deref()).map(str::trim);
         if let Some(identity) = identity.filter(|file| !file.is_empty()) {

@@ -37,9 +37,9 @@ fn join(platform: Platform, directory: &str, file: &str) -> String {
     let text = format!("{directory}{separator}{file}");
     let text = if windows { text.replace('/', "\\") } else { text };
     let bytes = text.as_bytes();
-    let (prefix, rest) = if windows && bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
-        text.split_at(2)
-    } else if windows && text.starts_with("\\\\") {
+    let (prefix, rest) = if windows
+        && ((bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()) || text.starts_with("\\\\"))
+    {
         text.split_at(2)
     } else {
         ("", text.as_str())
