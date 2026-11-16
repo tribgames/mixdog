@@ -1929,7 +1929,7 @@ async fn websocket_connection_limit_continues_the_agent_without_consulting_fallb
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "continued");
     assert!(route.asked.lock().unwrap().is_empty());
-    assert!(h.waiter.0.lock().unwrap().is_empty());
+    assert!(h.waiter.0.lock().unwrap().is_empty(), "the provider owns the backoff; the agent adds no second wait");
     assert_eq!(dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(), 3);
 }
 

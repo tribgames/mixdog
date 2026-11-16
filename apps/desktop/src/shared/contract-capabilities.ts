@@ -134,6 +134,9 @@ export const DESKTOP_CAPABILITIES = [
   'cancelSide',
   'listPresets',
   'setModel',
+  // setRoute({ provider, model, effort?, fast?, applyToCurrentSession, keepMainModel }): the picker's one route write
+  // (`route/set`); the answer is the session's state after it.
+  'setRoute',
   'getWebSearchRoute',
   'listWebSearchModels',
   'setWebSearchRoute',

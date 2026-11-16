@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -130,6 +131,8 @@ struct Dial {
     sent: Arc<Mutex<Vec<String>>>,
     headers: Mutex<Vec<tokio_tungstenite::tungstenite::http::HeaderMap>>,
     dials: Mutex<u32>,
+    waits: Mutex<Vec<(u32, Duration)>>,
+    now: AtomicU64,
     /// The dials begun so far, as an event a test can wait for.
     began: tokio::sync::watch::Sender<u32>,
 }
@@ -141,8 +144,27 @@ impl Dial {
             sent: Arc::default(),
             headers: Mutex::default(),
             dials: Mutex::new(0),
+            waits: Mutex::default(),
+            now: AtomicU64::new(1_790_000_000_000),
             began: tokio::sync::watch::channel(0).0,
         })
+    }
+}
+
+#[async_trait]
+impl mixdog_ai::oauth::Pace for Dial {
+    fn now_ms(&self) -> u64 {
+        self.now.load(Ordering::Relaxed)
+    }
+
+    async fn wait(&self, duration: Duration) {
+        self.waits.lock().unwrap().push((*self.dials.lock().unwrap(), duration));
+        self.now.fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+        mixdog_rt::time::sleep(duration).await;
+    }
+
+    fn draw(&self) -> f64 {
+        0.5
     }
 }
 
@@ -183,10 +205,10 @@ impl CredentialSource for Creds {
 }
 
 fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
-    // Every clock read advances, so accidental turn re-stamping cannot pass
-    // merely because encoding and sending happened in the same millisecond.
-    let clock = AtomicU64::new(1_790_000_000_000);
-    let context = Arc::new(SessionContext::with_sources(move || clock.fetch_add(1, Ordering::Relaxed), || "request-id".into()));
+    // Node's recorder advances the clock by each backoff, not by each clock read.
+    let clock = dial.clone();
+    let context = Arc::new(SessionContext::with_sources(move || clock.now.load(Ordering::Relaxed), || "request-id".into())
+        .with_retry_pace(dial.clone()));
     let config = if codex {
         let identity = CodexIdentity {
             installation_id: "i".into(),
@@ -431,8 +453,15 @@ async fn websocket_retries_keep_turn_metadata_and_restamp_each_frame() {
     let adapter = adapter(true, http.clone(), dial.clone());
     drain(&adapter, request(vec![say(Role::User, "continue")])).await.unwrap();
     assert_eq!(*dial.dials.lock().unwrap(), 4);
+    assert_eq!(*dial.waits.lock().unwrap(), vec![
+        (1, Duration::from_millis(200)),
+        (2, Duration::from_millis(400)),
+        (3, Duration::from_millis(800)),
+    ], "handshake, retirement and stream loss share one backoff schedule; 404 switches immediately");
     let sent = frames(&dial);
     assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0]["client_metadata"]["x-codex-ws-stream-request-start-ms"], "1790000000200");
+    assert_eq!(sent[1]["client_metadata"]["x-codex-ws-stream-request-start-ms"], "1790000000600");
     assert_same_request(&sent[0], &sent[1]);
     for frame in &sent {
         let turn: Value = serde_json::from_str(frame["client_metadata"]["x-codex-turn-metadata"].as_str().unwrap()).unwrap();
@@ -466,6 +495,13 @@ async fn connection_limit_after_five_handshake_failures_surfaces_the_current_ret
     let provider = adapter(true, http.clone(), dial.clone());
     let error = drain(&provider, request(vec![say(Role::User, "hi")])).await.unwrap_err();
     assert_eq!(*dial.dials.lock().unwrap(), 6);
+    assert_eq!(*dial.waits.lock().unwrap(), vec![
+        (1, Duration::from_millis(200)),
+        (2, Duration::from_millis(400)),
+        (3, Duration::from_millis(800)),
+        (4, Duration::from_millis(1600)),
+        (5, Duration::from_millis(3200)),
+    ], "one wait before each fresh acquire and none after exhaustion");
     assert!(http.seen.lock().unwrap().is_empty(), "retirement is not a transport-switch reason");
     assert_eq!(error.status, Some(400), "no stale 503 for the route fallback to admit");
     assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));

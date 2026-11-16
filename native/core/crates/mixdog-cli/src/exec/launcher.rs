@@ -128,12 +128,16 @@ impl CoreLauncher for InProcessLauncher {
         let (js_runtime, ort_library) = self.install.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().ok_or("the exec's core was already launched")?;
         let data_dir = boundary.data_dir.clone();
         let stop = mixdog_rt::CancellationToken::new();
+        // The exec's stderr is program output: the core's log lines (connection open/close among them) go to its own log file, as the
+        // daemon's do from ready on, never to the terminal.
+        let log = mixdog_app_server_daemon::daemon_log::DaemonLog::new(data_dir.join("daemon.log"), self.tokens.maintenance_io, stop.clone());
+        log.enable_file_logging();
         let outgoing = mixdog_app_server::Outgoing::new();
         let config = ComposeConfig {
             user_data_dir: data_dir.join("userdata"),
             // The exec's private runtime root (boundary.rs): no remote intent of the user's own core is read or written.
             runtime_root: boundary.runtime_root.clone(),
-            log: mixdog_app_server_daemon::daemon_log::DaemonLog::new(data_dir.join("daemon.log"), self.tokens.maintenance_io, stop.clone()),
+            log,
             data_dir,
             js_runtime,
             ort_library,

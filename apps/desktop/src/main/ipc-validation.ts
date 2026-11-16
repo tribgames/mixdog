@@ -578,6 +578,7 @@ const CAPABILITY_ARITY = {
   getTheme: [0, 0],
   setTheme: [1, 2],
   setAgentRoute: [2, 2],
+  setRoute: [1, 1],
   listProviders: [0, 0],
   listProviderModels: [0, 1],
   getProviderSetup: [0, 1],
