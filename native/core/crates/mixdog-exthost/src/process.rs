@@ -61,6 +61,7 @@ pub(crate) fn spawn_command(
 
 /// Creates `command` and puts it under containment. The child of a failed attach (created suspended, never resumed) is
 /// ended and handed back with the error.
+#[allow(clippy::result_large_err, reason = "Return the owned child with containment failures so cleanup is preserved without an extra allocation")]
 fn spawn_contained(mut command: Command) -> Result<Proc, (std::io::Error, Option<Child>)> {
     let mut child = command.spawn().map_err(|error| (error, None))?;
     match Containment::attach(&child) {

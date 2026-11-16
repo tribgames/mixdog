@@ -144,7 +144,7 @@ impl ExtHostPool {
         );
         let dispatcher_browser = browser.clone();
         mixdog_rt::spawn("exthost.dispatch", TaskClass::Work, async move {
-            let mut dispatcher =
+            let dispatcher =
                 Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace);
             dispatcher.run(inbox).await;
         });
