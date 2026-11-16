@@ -467,7 +467,7 @@ pub fn touches_store(prompt: &Value, options: &Value, long_text: LongText) -> bo
     match prompt {
         Value::String(text) => long(text.as_str()),
         Value::Array(parts) => parts.iter().any(|part| match part.get("type").and_then(Value::as_str) {
-            Some("text") => reference_of(part).is_some() || part.get("text").and_then(Value::as_str).is_some_and(&long),
+            Some("text") => reference_of(part).is_some() || part.get("text").and_then(Value::as_str).is_some_and(long),
             Some("image" | "file") => reference_of(part).is_none() && part.get("data").and_then(Value::as_str).is_some_and(|data| !data.is_empty()),
             _ => false,
         }),
