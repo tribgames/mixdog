@@ -11,8 +11,8 @@ use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_protocol::ComputerLaneSection;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::Mutex;
-use tokio::sync::MutexGuard;
+use tokio::sync::Semaphore;
+use tokio::sync::SemaphorePermit;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_backend::HOST_READ_ACTIONS;
@@ -114,14 +114,19 @@ impl Kind {
 }
 
 /// The lane of one pool's sessions.
-#[derive(Default)]
 pub struct Lane {
-    turn: Mutex<()>,
+    turn: Semaphore,
     /// Requests in or waiting for the lane (`foregroundQueueDepth`).
     depth: AtomicUsize,
     claims: StdMutex<Claims>,
     /// Told when the queue grows or shrinks, so the section is published between command events.
     listener: StdMutex<Option<Listener>>,
+}
+
+impl Default for Lane {
+    fn default() -> Self {
+        Self { turn: Semaphore::new(1), depth: AtomicUsize::default(), claims: StdMutex::default(), listener: StdMutex::default() }
+    }
 }
 
 /// Tells the pool the lane changed.
@@ -149,7 +154,7 @@ pub struct Leaving {
 /// leaves never counts it as ahead (`finally` decrements the depth before the chain moves on, command-queue-foreground.ts).
 pub struct Entered<'a> {
     _place: Option<Place<'a>>,
-    _turn: Option<MutexGuard<'a, ()>>,
+    _turn: Option<SemaphorePermit<'a>>,
 }
 
 /// One request's place in the queue, given back when it leaves or is dropped while waiting.
@@ -172,7 +177,7 @@ impl Lane {
         self.changed();
         let place = Place(self);
         let turn = tokio::select! {
-            turn = self.turn.lock() => turn,
+            turn = self.turn.acquire() => turn.expect("the private foreground gate is never closed"),
             () = cancel.cancelled() => return Err(ComputerError::Cancelled),
         };
         if kind == Kind::Command && position > 0 {

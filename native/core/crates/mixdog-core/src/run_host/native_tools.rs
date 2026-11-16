@@ -254,6 +254,7 @@ pub type WrapBackend = Arc<dyn Fn(&str, Arc<dyn ComputerBackend>) -> Arc<dyn Com
 /// observation-only setting and the backend that serves a new session.
 pub struct ComputerSettings {
     pub data_dir: PathBuf,
+    pub io: InteractiveIo,
     pub observe_only: ObserveOnly,
     /// `desktop.computerBackend`, read when a session's first request makes its state: a change reaches the sessions made after it.
     pub backend: Arc<dyn Fn() -> ComputerBackendChoice + Send + Sync>,
@@ -264,16 +265,17 @@ pub struct ComputerSettings {
 
 impl ComputerSettings {
     /// The resident helper serves every session.
-    pub fn new(data_dir: PathBuf, observe_only: ObserveOnly) -> Self {
-        Self { data_dir, observe_only, backend: Arc::new(|| ComputerBackendChoice::Helper), host_blobs: None }
+    pub fn new(data_dir: PathBuf, observe_only: ObserveOnly, io: InteractiveIo) -> Self {
+        Self { data_dir, io, observe_only, backend: Arc::new(|| ComputerBackendChoice::Helper), host_blobs: None }
     }
 
     /// `desktop.computerObserveOnly` and `desktop.computerBackend` of `config`, read again on every call, so a change in Settings
     /// reaches the next call of every session (the backend, the next session made).
-    pub fn from_config(data_dir: PathBuf, config: Config, host_blobs: Option<Arc<dyn HostBlobs>>) -> Self {
+    pub fn from_config(data_dir: PathBuf, config: Config, host_blobs: Option<Arc<dyn HostBlobs>>, io: InteractiveIo) -> Self {
         let observing = config.clone();
         Self {
             data_dir,
+            io,
             observe_only: Arc::new(move || observing.desktop_settings().computer_observe_only),
             backend: Arc::new(move || chosen_backend(&config)),
             host_blobs,
@@ -409,6 +411,7 @@ pub struct ComputerSessionPool {
     manager: Arc<dyn ProcessManager>,
     wrap: WrapBackend,
     data_dir: PathBuf,
+    io: InteractiveIo,
     /// The desktop's one keyboard and pointer, the person's control of it and the observation-only setting, which every
     /// session's backend shares.
     shared: ComputerShared,
@@ -753,7 +756,7 @@ impl ComputerSessionPool {
         if let (Some(binary), Ok(runtime)) = (&binary, tokio::runtime::Handle::try_current()) {
             let mut config = ComputerConfig::new(binary.clone(), "ledger-sweep");
             config.data_dir = Some(settings.data_dir.clone());
-            let sweeper = ProcessComputerBackend::new(config, manager.clone());
+            let sweeper = ProcessComputerBackend::new(config, manager.clone(), settings.io);
             let _sweep = runtime.spawn(async move { sweeper.sweep_ledgers().await });
         }
         Self {
@@ -761,6 +764,7 @@ impl ComputerSessionPool {
             manager,
             wrap,
             data_dir: settings.data_dir,
+            io: settings.io,
             shared,
             entries: Mutex::new(HashMap::new()),
             presence,
@@ -842,7 +846,7 @@ impl ComputerSessionPool {
                 config.data_dir = Some(self.data_dir.clone());
                 // The helpers read the pixels of a display from the core's blob store and keep the pointer between a session's commands.
                 let shared = ComputerShared { blobs: self.host_blobs.clone(), pointer_hold: self.presence.pointer.get().cloned(), ..self.shared.clone() };
-                let mut helper = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(shared).with_observer(observer);
+                let mut helper = ProcessComputerBackend::new(config, self.manager.clone(), self.io).with_shared(shared).with_observer(observer);
                 if let Some(desktop) = self.desktop.get() {
                     helper = helper.with_desktop(desktop.clone());
                 }
@@ -909,7 +913,7 @@ impl ComputerSessionPool {
                 };
                 let mut config = ComputerConfig::new(binary.clone(), "computer-settings");
                 config.data_dir = Some(self.data_dir.clone());
-                ProcessComputerBackend::new(config, self.manager.clone()).authorization_windows().await
+                ProcessComputerBackend::new(config, self.manager.clone(), self.io).authorization_windows().await
             }
         }
     }
@@ -1281,7 +1285,7 @@ mod tests {
 
     /// Observation only off.
     fn settings() -> ComputerSettings {
-        ComputerSettings::new(data_dir(), Arc::new(|| false))
+        ComputerSettings::new(data_dir(), Arc::new(|| false), mixdog_rt::testing::tokens().interactive_io)
     }
 
     fn computer_values(published: &Published) -> Vec<mixdog_protocol::ComputerSection> {
@@ -1423,7 +1427,7 @@ mod tests {
         let published = Arc::new(Published::default());
         let on = Arc::new(AtomicBool::new(false));
         let setting = on.clone();
-        let settings = ComputerSettings::new(data_dir(), Arc::new(move || setting.load(Ordering::SeqCst)));
+        let settings = ComputerSettings::new(data_dir(), Arc::new(move || setting.load(Ordering::SeqCst)), mixdog_rt::testing::tokens().interactive_io);
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings).await.expect("helper");
         let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
 
@@ -1446,7 +1450,7 @@ mod tests {
     /// read still goes to the helper (which cannot start here).
     #[tokio::test]
     async fn the_sessions_refuse_input_while_observation_only_is_on() {
-        let settings = ComputerSettings::new(data_dir(), Arc::new(|| true));
+        let settings = ComputerSettings::new(data_dir(), Arc::new(|| true), mixdog_rt::testing::tokens().interactive_io);
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings).await.expect("helper");
         let write = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
         let refused = pool.backend("a").run(write, CancellationToken::new()).await;

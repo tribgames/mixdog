@@ -179,7 +179,7 @@ fn launch_error(input: &Map<String, Value>) -> Result<(), String> {
 }
 
 fn saved_login_error(input: &Map<String, Value>) -> Result<(), String> {
-    if js_trim(&text(input, "savedAccount")).is_empty() {
+    if js_trim(text(input, "savedAccount")).is_empty() {
         return Err("Computer Use saved_login savedAccount must not be empty".into());
     }
     Ok(())

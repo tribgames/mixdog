@@ -54,7 +54,7 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_protocol::ProcessHandle;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::Semaphore;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
 
@@ -263,9 +263,9 @@ struct Inner {
     config: ScreenInputConfig,
     state: Mutex<State>,
     /// One start at a time.
-    starting: AsyncMutex<()>,
+    starting: Semaphore,
     /// One writer at a time, so ids and lines reach the process in order.
-    writer: AsyncMutex<()>,
+    writer: Semaphore,
     desktop: watch::Sender<Option<InputDesktop>>,
     /// Counts the exits this side did not ask for (a crash, or a kill for a missed acknowledgment).
     exits: watch::Sender<u32>,
@@ -504,7 +504,7 @@ impl Inner {
         };
         let line = format_command(id, command)?;
         let answer = {
-            let _writing = self.writer.lock().await;
+            let _writing = self.writer.acquire().await.expect("the private screen writer gate is never closed");
             let (reply, answer) = oneshot::channel();
             {
                 let mut state = self.state();
@@ -550,8 +550,8 @@ impl ScreenInput {
                 manager,
                 config,
                 state: Mutex::new(State::default()),
-                starting: AsyncMutex::new(()),
-                writer: AsyncMutex::new(()),
+                starting: Semaphore::new(1),
+                writer: Semaphore::new(1),
                 desktop: watch::channel(None).0,
                 exits: watch::channel(0).0,
                 cleanups: watch::channel(0).0,
@@ -563,7 +563,7 @@ impl ScreenInput {
     /// earlier process finish first, so they cannot lift what this one holds.
     pub async fn start(&self) -> Result<(), ScreenInputError> {
         let inner = &self.inner;
-        let _starting = inner.starting.lock().await;
+        let _starting = inner.starting.acquire().await.expect("the private screen startup gate is never closed");
         if inner.state().run.as_ref().is_some_and(|run| !run.retired) {
             return Ok(());
         }

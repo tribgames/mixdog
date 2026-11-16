@@ -14,7 +14,6 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -66,8 +65,9 @@ impl ProcessRunner for ChildProcesses {
     }
 }
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Called only by ChildProcesses::run on its dedicated std thread, which owns and waits for the installer child even if the async receiver is dropped")]
 fn run_child(program: &std::path::Path, args: &[String], stdin: Option<String>) -> Result<Exit, String> {
-    let mut command = Command::new(program);
+    let mut command = std::process::Command::new(program);
     command.args(args).stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(windows)]
     {

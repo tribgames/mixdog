@@ -477,7 +477,7 @@ impl Core {
     }
 
     /// The request's result for the elevated install's exit code.
-    async fn from_exit_code(&self, exit_code: i32, before: InstallState, key: String) -> InstallResult {
+    async fn classify_exit_code(&self, exit_code: i32, before: InstallState, key: String) -> InstallResult {
         let after = self.port.check(Some(key)).await;
         match exit_code {
             ELEVATION_DECLINED_EXIT => result(InstallOutcome::Declined, after),
@@ -553,7 +553,7 @@ impl Core {
                 InstallResult { outcome: InstallOutcome::Failed, state: self.port.check(Some(key)).await, detail: Some(message) }
             }
             None => result_with(InstallOutcome::InProgress, self.port.check(Some(key)).await, AWAITING_PROMPT),
-            Some(Ok(exit_code)) => self.from_exit_code(exit_code, before, key).await,
+            Some(Ok(exit_code)) => self.classify_exit_code(exit_code, before, key).await,
         }
     }
 
@@ -644,6 +644,7 @@ impl SecureDesktopInstaller {
     }
 
     /// Whether a request or a key op (and so possibly a prompt) is in progress.
+    #[cfg(test)]
     pub(super) fn pending(&self) -> bool {
         let state = self.core.state();
         state.in_flight.is_some() || state.outstanding.is_some() || state.key_op.is_some()

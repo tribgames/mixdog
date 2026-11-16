@@ -124,7 +124,7 @@ pub fn record(session: &str, result: &str, now: i64) {
 pub fn link_for(session: &str, url: &str, now: i64) -> Option<MailLink> {
     let mut links = table();
     prune_expired(&mut links, now);
-    let href = https_href(&mixdog_js::js_trim(url))?;
+    let href = https_href(mixdog_js::js_trim(url))?;
     links.get(session)?.iter().find(|link| link.url == href).cloned()
 }
 

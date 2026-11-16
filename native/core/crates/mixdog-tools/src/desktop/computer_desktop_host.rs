@@ -175,7 +175,7 @@ impl DesktopHostBackend {
         let uncertain = may_have_executed(&command);
         let params = json!({ "sessionThreadId": self.session_id, "command": command });
         let timed_out = || if uncertain { uncertain_mutation() } else { reported("Error: computer bridge timed out") };
-        let asked = tokio::time::timeout(timeout, self.desktop.request_scoped(HostCapability::Computer, Method(METHOD), params, cancel)).await;
+        let asked = mixdog_rt::time::timeout(timeout, self.desktop.request_scoped(HostCapability::Computer, Method(METHOD), params, cancel)).await;
         let Ok(answer) = asked else { return Err(timed_out()) };
         match answer {
             Ok(body) => self.read_body(&body, uncertain).await,
