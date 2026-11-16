@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { runTree } from './lib/process-tree.mjs';
-import { BACKEND_INSTALLERS, LANES, commandOf, installersIn, runChild, selectedTests, testBinariesOf, testsOfList } from './k1-lanes.mjs';
+import { BACKEND_INSTALLERS, BACKEND_PROCESS_ENTRIES, LANES, commandOf, installersIn, runChild, selectedTests, testBinariesOf, testsOfList } from './k1-lanes.mjs';
 
 test('a lane is one cargo run per filter on its package', () => {
   assert.deepEqual(commandOf('advisory-lock', 'cargo nextest run', 'x'), { program: 'cargo', args: ['nextest', 'run', '-p', 'mixdog-tools', '--locked', 'x'] });
@@ -73,14 +73,47 @@ test('a lane is a property of the table, not of Object.prototype', async () => {
 
 // Tests that install an executor backend of their own only pass in a process each (AlreadyInstalled otherwise).
 test('BACKEND_INSTALLERS names every test file that installs a backend', async () => {
-  const production = new Set(['native/core/crates/mixdog-app-server-daemon/src/lib.rs', 'native/core/crates/mixdog-cli/src/main.rs']);
+  const processEntries = new Set(BACKEND_PROCESS_ENTRIES);
   const found = await runTree('git', ['grep', '-l', '-E', 'mixdog_rt::install\\(|exec::boot\\(|boot_executors\\(\\)', '--', 'native/core/crates'], { label: 'git grep of the backend installers', cwd: join(fileURLToPath(new URL('.', import.meta.url)), '..', '..'), deadlineMs: 60_000 });
   assert.equal(found.status, 0, found.stderr);
-  const files = found.stdout.split(/\r?\n/).filter(Boolean).filter((file) => !production.has(file) && !file.includes('/examples/')).sort(); // an example is no test binary: no lane filter selects it
+  const captured = found.stdout.split(/\r?\n/).filter(Boolean);
+  assert.equal(processEntries.size, BACKEND_PROCESS_ENTRIES.length, 'process entry paths are distinct');
+  for (const file of processEntries) {
+    assert.ok(captured.includes(file), `${file}: declared process entry no longer installs a backend`);
+    assert.ok(!BACKEND_INSTALLERS.includes(file), `${file}: cannot be both a process entry and an installing test`);
+  }
+  const files = captured.filter((file) => !processEntries.has(file) && !file.includes('/examples/')).sort(); // an example is no test binary: no lane filter selects it
   assert.deepEqual(files, [...BACKEND_INSTALLERS].sort());
 });
 
 const at = (path) => resolve(fileURLToPath(new URL('../..', import.meta.url)), path);
+
+test('new process entries install only in their declared entry, and helper entries have standalone callers', () => {
+  const declarations = [
+    ['native/core/crates/mixdog-cli/src/exec/mod.rs', 'pub fn run_command('],
+    ['native/core/crates/mixdog-exthost-worker/src/methods/document_engine.rs', 'fn lanes('],
+    ['native/core/crates/mixdog-office-com/src/host/mod.rs', 'pub fn run_with('],
+    ['native/core/crates/mixdog-relay/src/server/mod.rs', 'pub fn run_cli('],
+    ['native/core/crates/mixdog-relay/src/server/twin.rs', 'pub fn main('],
+  ];
+  const install = /mixdog_rt::install\(|exec::boot\(|boot_executors\(\)/g;
+  for (const [file, entry] of declarations) {
+    assert.ok(BACKEND_PROCESS_ENTRIES.includes(file));
+    const source = readFileSync(at(file), 'utf8');
+    const start = source.indexOf(entry);
+    assert.ok(start >= 0, `${file}: missing entry ${entry}`);
+    const end = source.indexOf('\n}', start);
+    assert.ok(end > start, `${file}: entry has no closing brace`);
+    const calls = [...source.matchAll(install)];
+    assert.equal(calls.length, 1, `${file}: a new installer requires explicit production/test classification`);
+    assert.ok(calls[0].index > start && calls[0].index < end, `${file}: installer escaped its declared process entry`);
+  }
+  const document = readFileSync(at(declarations[1][0]), 'utf8');
+  assert.match(document, /#\[cfg\(not\(feature = "test-support"\)\)\]\s*fn lanes\(/);
+  assert.match(document, /#\[cfg\(feature = "test-support"\)\]\s*fn lanes\([^]*?mixdog_rt::testing::tokens\(\)/);
+  assert.match(readFileSync(at('native/core/crates/mixdog-office-com/tests/bin/office_com_host_test.rs'), 'utf8'), /fn main\([^]*?mixdog_office_com::host::run_with\(/);
+  assert.match(readFileSync(at('native/core/crates/mixdog-relay/src/bin/relay_twin_host.rs'), 'utf8'), /fn main\([^]*?mixdog_relay::server::twin::main\(\)/);
+});
 
 test('an installer is recognised by the binary its test is in, not by a name prefix', () => {
   // A standalone integration-test binary: its tests carry no file name (tests/ticker.rs -> `a_tick`).
@@ -88,6 +121,9 @@ test('an installer is recognised by the binary its test is in, not by a name pre
   assert.equal(installersIn([{ name: 'a_tick', srcPath: ticker }]).length, 1);
   // The same test name in another binary is not the installer.
   assert.equal(installersIn([{ name: 'a_tick', srcPath: at('native/core/crates/mixdog-rt/tests/other.rs') }]).length, 0);
+  const mcpShape = 'a_tools_list_without_a_tools_array_is_treated_as_node_does';
+  assert.equal(installersIn([{ name: mcpShape, srcPath: at('native/core/crates/mixdog-mcp/tests/mcp_list_shape.rs') }]).length, 1);
+  assert.equal(installersIn([{ name: mcpShape, srcPath: at('native/core/crates/mixdog-mcp/tests/other.rs') }]).length, 0);
   // A binary gathering modules (tests/it/main.rs): only the installer's module counts; the victims next to it do not.
   const it = at('native/core/crates/mixdog-app-server-daemon/tests/it/main.rs');
   assert.equal(installersIn([{ name: 'real_executors::a_real_run', srcPath: it }]).length, 1);
