@@ -29,8 +29,6 @@ fn seed(root: &Path) -> MigrationRoots {
 }
 fn migrate(roots: &MigrationRoots) {
     Migrator::new(roots.clone(), vec![Arc::new(DesktopProfileDriver::new())], MigrateOptions::default()).run().unwrap();
-    // Explicit here too so the test follows the public repair contract before root wires it into Migrator::front.
-    connection_adoption::run(&roots.data).unwrap();
 }
 
 #[tokio::test]
