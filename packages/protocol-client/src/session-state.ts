@@ -10,7 +10,7 @@
 import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, ThreadReducer } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { mergeToolRows, mergeToolRowsSteps, rowOf } from './rows.ts';
+import { mergeToolRows, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
 
 
 /** The projection the UI reads: a flat record of `DesktopSessionState` fields. */
@@ -190,8 +190,7 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const source = Array.isArray(p.items) ? p.items : [];
   const items: Obj[] = [];
   for (let i = 0; i < source.length; i++) {
-    const row = rowOf(asObj(source[i]));
-    if (row) items.push(row);
+    items.push(...rowsOf(asObj(source[i])));
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
@@ -233,6 +232,10 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         const item = asObj(p.item);
         const row = rowOf(item);
         if (row === null) return s;
+        // After a compaction the core sends each row of its window again, archived (`show_archived`). A row this store does not
+        // hold lies above its tail window, older than the divider; appended, it showed below the divider, inside the current turn.
+        // Node dims only the rows its store holds (`archiveItemsForCompaction`); paging reads the older ones, already archived.
+        if (row.archived === true && !s.items.some((held) => held.id === row.id)) return s;
         if (item.type === 'agentMessage' && n.method === 'item/started') {
           const { text, ...identity } = row;
           return withLive(s, { id: String(item.id), identity: { ...identity, kind: 'assistant', streaming: true }, text: typeof text === 'string' ? text : '' });

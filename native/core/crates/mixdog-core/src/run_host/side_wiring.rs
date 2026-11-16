@@ -200,6 +200,7 @@ mod tests {
             Ok(mixdog_agent::env::CompactOutput {
                 messages: request.messages.to_vec(),
                 usage: None,
+                input_excludes_cache: false,
                 dropped_count: 0,
                 dropped: None,
                 skipped: request.budget_tokens == 0,

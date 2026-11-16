@@ -3,6 +3,7 @@ mod archive_index;
 pub mod archived_agent;
 pub mod blobs;
 pub mod compaction_view;
+pub mod completion_receipts;
 pub mod context;
 pub mod message_facets;
 pub mod message_index;

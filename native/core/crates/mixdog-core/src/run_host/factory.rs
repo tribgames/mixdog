@@ -1183,8 +1183,8 @@ impl RunObserver for PortObserver {
             RunEvent::CompactPass(pass) => {
                 let _ = self.out.send(Shown::Pass(pass));
             }
-            RunEvent::CompactUsage { iteration, usage, reasoning_tokens, reasoning_tokens_complete } => {
-                let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport { iteration, usage, reasoning_tokens, reasoning_tokens_complete }));
+            RunEvent::CompactUsage { iteration, usage, reasoning_tokens, reasoning_tokens_complete, input_excludes_cache } => {
+                let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport { iteration, usage, reasoning_tokens, reasoning_tokens_complete, input_excludes_cache }));
             }
             RunEvent::ToolStream(kind) => self.model_progress(kind),
             RunEvent::Chunk(kind) => {
@@ -1885,6 +1885,7 @@ async fn drive(
                 send_tools: lock(&closing.last_send_tools).clone(),
                 response_model: output.response.model.clone(),
                 asked_at_ms: asked_at,
+                input_excludes_cache: output.input_excludes_cache,
             };
             let _ = port.settled(settled).await;
             // `transcript.appendFinalAssistant(result)` (`turn-settle.mjs:44`): `historyContent ?? content`.
@@ -2709,7 +2710,7 @@ mod tests {
             let mut messages: Vec<AgentMessage> = request.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
             messages.push(AgentMessage::user("[summary]"));
             messages.extend(request.messages.last().cloned());
-            Ok(CompactOutput { messages, usage: None, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None, summary_route: None })
+            Ok(CompactOutput { messages, usage: None, input_excludes_cache: false, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None, summary_route: None })
         }
     }
 
@@ -4043,6 +4044,7 @@ mod tests {
         let surfaces_from_catalog = exclusions.clone();
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
+            prefix_guards: Arc::default(),
             clock: clock.clone(),
             paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: data },
             registry: Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(OneProvider(provider.clone()))).with_accounting(accounting)),
@@ -4335,6 +4337,7 @@ mod tests {
                 text: self.text.clone(),
                 tool_call: false,
                 usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
+                input_excludes_cache: false,
             })
         }
     }

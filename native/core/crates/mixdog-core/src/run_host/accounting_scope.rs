@@ -43,7 +43,8 @@ impl HeaderScope {
 impl SendScope for HeaderScope {
     fn of(&self, provider: &str, request: &ModelRequest) -> Scope {
         let options = &request.options;
-        let header = options.session_id.as_deref().and_then(|id| self.sessions.header(id));
+        // `opts.session`: the session the spend belongs to, which a Codex request's `session_id` (its wire id) does not name.
+        let header = options.usage_session_id.as_deref().or(options.session_id.as_deref()).and_then(|id| self.sessions.header(id));
         let header = header.as_deref();
         let from_header = |key: &str| header.and_then(|h| text(h, key));
         let primary = header

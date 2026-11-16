@@ -7,6 +7,9 @@ mod dev_only;
 
 fn main() {
     dev_only::refuse_in_release(&["crash-gates", "dev-controls", "replay-bytes", "replay-controls", "replay-settled", "terminal-lease-clock", "virtual-clock"]);
+    if cfg!(windows) && std::env::var_os("CARGO_FEATURE_ALLOC_PROFILE").is_some() {
+        println!("cargo:rustc-link-arg-bin=mixdogd=/MAP");
+    }
     stamp_identity();
 }
 

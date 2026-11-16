@@ -87,6 +87,13 @@ pub struct OAuthBinding {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+pub struct McpAccountConfig {
+    pub id: String,
+    pub email: String,
+    pub server: McpServerConfig,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct McpServerConfig {
     pub name: String,
     pub enabled: bool,
@@ -123,6 +130,7 @@ pub struct McpServerConfig {
     /// Why the server cannot connect: the plugin data folder it needs could not be made (`ensurePluginServerData`
     /// throws before its connect). The connect fails with this text.
     pub blocked: Option<String>,
+    pub accounts: Vec<McpAccountConfig>,
 }
 
 /// `mcpLog` (mcp/client.mjs:147): the client's own log lines are dropped while `MIXDOG_QUIET_MCP_LOG` is set to
@@ -617,8 +625,20 @@ impl McpServerConfig {
             .and_then(Value::as_str)
             .filter(|id| crate::connectors::connector(id).is_some())
             .map(str::to_owned);
+        let accounts = crate::connector_model::accounts_of(entry)
+            .into_iter()
+            .filter(crate::connector_model::account_enabled)
+            .map(|account| {
+                let own = crate::connector_model::account_server(entry, &account);
+                Ok(McpAccountConfig {
+                    id: account["id"].as_str().unwrap_or_default().to_owned(),
+                    email: crate::connector_model::gmail_app_password_account(&own),
+                    server: Self::from_entry(account["name"].as_str().unwrap_or_default(), &own, env)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ConfigError>>()?;
         let oauth = match &transport {
-            TransportConfig::Http { url, .. } | TransportConfig::Sse { url, .. } if !has_configured_auth(entry) => {
+            TransportConfig::Http { url, .. } | TransportConfig::Sse { url, .. } if accounts.is_empty() && !has_configured_auth(entry) => {
                 Some(crate::connectors::oauth_binding(name, entry, url, connector.as_deref()))
             }
             _ => None,
@@ -689,6 +709,7 @@ impl McpServerConfig {
             project_root,
             warnings,
             blocked: None,
+            accounts,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             outbound_kinds: string_map(entry.get("outbound"))
                 .into_iter()

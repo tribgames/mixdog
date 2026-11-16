@@ -4,7 +4,8 @@
 /* Prompt input: 42px one-line bar (agent-chat.css) and 28px controls. The composer keeps a
    real floor gap instead of hugging the
    window edge. */
-.composer-region {
+.composer-region,
+.studio-dock {
   width: 100%;
   max-width: var(--pane-column);
   margin: 0 auto;
@@ -15,7 +16,8 @@
    conversation column gives the transcript shell whatever the dock's
    intrinsic height leaves, so every dock change resizes the viewport itself
    and nothing is fed back into the transcript as padding. */
-.conversation > .composer-region {
+.conversation > .composer-region,
+.studio-shell > .studio-dock {
   position: relative;
   z-index: 10;
   /* Never taller than the pane: when the dock's members need more than the
@@ -26,16 +28,19 @@
   display: flex;
   flex-direction: column;
 }
-.conversation > .composer-region > :not(.composer-island-slot) {
+.conversation > .composer-region > :not(.composer-island-slot),
+.studio-shell > .studio-dock > * {
   flex: none;
 }
 /* The strip fades the last --transcript-fade of the viewport into the sheet at
    the transcript/dock boundary. Keep it outside the scrolling layer: masking
    the viewport makes scrolling repaint the masked content. */
-.conversation {
+.conversation,
+.studio-shell {
   --transcript-fade: 24px;
 }
-.conversation > .transcript-shell::after {
+.conversation > .transcript-shell::after,
+.studio-shell > .studio-stage-host::after {
   content: "";
   position: absolute;
   z-index: 8;

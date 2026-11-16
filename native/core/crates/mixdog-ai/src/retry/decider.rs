@@ -55,7 +55,7 @@ impl RetryDecider for StandardRetryDecider {
         // Replay boundary: output the caller already saw or dispatched can
         // not be taken back; a cut tool input is replayed by the agent loop.
         let exposure = error.exposure;
-        if exposure.text_emitted || exposure.tool_dispatched || exposure.tool_input_cut {
+        if error.unsafe_to_retry || exposure.text_emitted || exposure.tool_dispatched || exposure.tool_input_cut {
             return stop(Verdict::Surface);
         }
         // Refusals that repeating cannot change (quota kinds included), save

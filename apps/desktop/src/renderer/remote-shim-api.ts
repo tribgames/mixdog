@@ -266,6 +266,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
       call<boolean>('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]),
+    // A refused approval answer: the phone publishes its own client's current projection (not a resume from its cursor).
+    resyncSessionState: (sessionId, options) =>
+      options?.fresh ? call<boolean>('refreshSessionState', [sessionId]) : undefined,
     // Older history by position; a host that predates it rejects the call and
     // the page falls back to growing its window.
     readTranscriptHistory: (sessionId, request) => call('readTranscriptHistory', [sessionId, request]),

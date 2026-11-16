@@ -208,8 +208,17 @@ async fn read_or_wait(
             });
         }
     }
-    if !job.is_running() {
+    if !running {
         job.acknowledge();
+        return Ok(ToolOutput {
+            parts: vec![ToolPart::Text(rendered)],
+            meta: Some(serde_json::json!({
+                "code": "task-completion",
+                "executionId": job.id,
+                "status": status.as_str(),
+            })),
+            ..ToolOutput::default()
+        });
     }
     ok(rendered)
 }

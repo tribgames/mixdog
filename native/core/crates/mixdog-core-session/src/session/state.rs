@@ -74,6 +74,9 @@ pub(crate) enum Change {
     /// A live completion card (not persisted): a new item at the end of the view, or the item
     /// with its id replaced.
     Card(ThreadItem),
+    /// The detail of a row in view (a compaction divider's figures, which its pass's event delivers after the record):
+    /// nothing when the row is gone, never a new row. Not persisted.
+    Detail { item: ItemId, detail: String },
     /// A run's live-only row (not persisted): before the row `before` when it is in view,
     /// else at the end.
     Shown { item: ThreadItem, before: Option<ItemId> },
@@ -206,6 +209,11 @@ impl SessionState {
                     self.has_older = true;
                 }
             }
+            Change::Detail { item, detail } => {
+                if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == item) {
+                    super::view::meta_mut(Arc::make_mut(&mut row.item)).detail = Some(detail.clone());
+                }
+            }
             Change::Card(card) => {
                 if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == card.id()) {
                     row.item = Arc::new(card.clone());
@@ -241,6 +249,24 @@ impl SessionState {
     }
 
     fn apply_record(&mut self, record: &Record, display: &Display, ordinal: Option<u64>) {
+        let receipt = match record {
+            Record::Item(item) if item.model => match &item.body {
+                Slot::Inline(body) => mixdog_store::completion_receipts::tool_receipt(body),
+                _ => None,
+            },
+            Record::Queue(queue)
+                if queue.action == QueueAction::Dequeue
+                    && queue.reason == Some(mixdog_store::schema::record::DequeueReason::Delivered)
+                    && queue.qid.as_str().starts_with("completion_") =>
+            {
+                Some(queue.qid.as_str().to_owned())
+            }
+            _ => None,
+        };
+        if let Some(qid) = receipt {
+            mixdog_store::completion_receipts::record(&mut self.header, &qid);
+            self.queue.retain(|q| q.qid != qid);
+        }
         match record {
             Record::Session(session) => {
                 if let Slot::Inline(header) = &session.header {
@@ -535,14 +561,15 @@ impl SessionState {
         // A pick held for the next turn (`pendingRoute`) is the runtime's route already (Node's `getRoute()`): the state shows its
         // provider, model and effort while the session still runs on its own (`sessionProvider` / `sessionModel`).
         let held_text = |key: &str| self.held_pick().and_then(|pick| pick.get(key)).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        let selected = self.held_pick().unwrap_or(&self.header);
         let initial = ThreadRoute {
             session_provider: header_text("provider"),
             session_model: header_text("model"),
             fast: Some(false),
             fast_capable: Some(false),
-            auto_effort: Some(true),
+            auto_effort: Some(selected.get("autoEffort") != Some(&Value::Bool(false))),
             model_parameters: Some(Default::default()),
-            effort: held_text("effort").or_else(|| header_text("effort")),
+            effort: mixdog_core_ports::ports::route::facade_effort(selected).and_then(Value::as_str).map(str::to_owned),
             provider: held_text("provider").or_else(|| header_text("provider")),
             model: held_text("model").or_else(|| header_text("model")),
             effort_options: Some(Vec::new()),
@@ -823,6 +850,21 @@ mod tests {
         state.apply(&Change::Section(Section::SetupChanged(change.clone())), None);
         state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
         assert_eq!(state.sections.runtime.unwrap().setup_changed, Some(change));
+    }
+
+    /// A pick held for the next turn shows the effort its route is on, not the one asked for: `ultra` clamped to `high` reads `high`
+    /// (`runtime-facade.mjs` `effort`: the effective effort first), so a reply, `thread/read` and a live frame say the same.
+    #[test]
+    fn a_held_pick_reads_back_its_effective_effort() {
+        let mut state = SessionState::new(10);
+        let route = json!({ "provider": "p", "model": "m", "effort": "ultra", "effectiveEffort": "high" });
+        let pick = mixdog_core_ports::ports::route::held_route_pick(route.as_object().unwrap());
+        state.header.insert("pendingRoute".into(), Value::Object(pick));
+        assert_eq!(state.route().effort.as_deref(), Some("high"));
+        let asked = json!({ "provider": "p", "model": "m", "effort": "ultra" });
+        let pick = mixdog_core_ports::ports::route::held_route_pick(asked.as_object().unwrap());
+        state.header.insert("pendingRoute".into(), Value::Object(pick));
+        assert_eq!(state.route().effort.as_deref(), Some("ultra"), "no clamp, the asked effort");
     }
 
     /// `runtime.turnEffort` (`currentTurnEffort`): the run's value replaces the held one, a turn

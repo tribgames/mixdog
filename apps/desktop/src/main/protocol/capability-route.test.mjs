@@ -75,6 +75,11 @@ function recordingLane(answer = async () => ({ ok: true })) {
       return () => listeners.delete(listener);
     },
     call: async (method, params) => {
+      // The connection's wait for its first open: the client appears, and holds what it starts from then on.
+      if (method === 'thread/start' && world.firstOpen) {
+        await world.firstOpen;
+        if (!link.client) newClient();
+      }
       all.push({ method, params });
       if (method === 'thread/start') {
         if (world.failStarts > 0) {
@@ -82,7 +87,10 @@ function recordingLane(answer = async () => ({ ok: true })) {
           throw new Error('core busy');
         }
         world.starts += 1;
-        return { thread: { id: `control-${world.starts}` } };
+        const id = `control-${world.starts}`;
+        // The library's client holds the control thread it started (`threadSubscription(id).held`).
+        link.client?.held.add(id);
+        return { thread: { id } };
       }
       if (method === 'thread/read') {
         const state = states.get(params.threadId) ?? {};
@@ -99,7 +107,23 @@ function recordingLane(answer = async () => ({ ok: true })) {
     else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
     listeners.forEach((listener) => listener(event));
   };
-  return { calls, all, states, world, emit, lane: createCapabilityLane({ protocol }) };
+  // The client the connection exposes: what it holds (`threadSubscription`) and what it was told to let go (`unsubscribeThread`).
+  const link = { client: null, released: [] };
+  const newClient = () =>
+    (link.client = {
+      held: new Set(),
+      threadSubscription(id) {
+        return { held: this.held.has(id) };
+      },
+      async unsubscribeThread(id) {
+        this.held.delete(id);
+        link.released.push(id);
+      },
+    });
+  newClient();
+  protocol.client = () => link.client;
+  const replace = () => void newClient(); // a reopen: another client, which holds nothing of the old one's
+  return { calls, all, states, world, emit, replace, link, lane: createCapabilityLane({ protocol }) };
 }
 // The 14 `mcp/*` actions: `[capability, positional args, params without threadId]`. The names are the fields of the
 // Rust `Mcp*Params` structs in declared order (`v2/params.rs`), which is the order of Node's `resource-mcp-api.mjs`.
@@ -327,6 +351,84 @@ test('the control thread is a control-kind thread started once and kept', async 
   );
 });
 
+// The incident: the control thread a `thread/start` subscribed lost its subscriber after the library redialled, was unloaded and
+// swept, and the lane still named it. The client now holds and resumes the thread it started (packages/protocol-client
+// control-thread-held.test.ts); the lane keeps its id for as long as the current client holds it.
+const RESIZE = [{ data: 'AAAA', mimeType: 'image/png' }];
+const resizedOn = (calls) => calls.filter((call) => call.method === 'thread/resizeImage').map((call) => call.params.threadId);
+
+test('a control thread the client holds stays the one named, across any number of calls', async () => {
+  const { calls, lane, world } = recordingLane();
+  for (let n = 0; n < 3; n++) await lane.invoke('resizeImage', RESIZE, undefined);
+  assert.equal(world.starts, 1);
+  assert.deepEqual(resizedOn(calls), ['control-1', 'control-1', 'control-1']);
+});
+
+test('a control thread the client no longer holds (the core lost it) is replaced by a new one', async () => {
+  const { calls, lane, link, world } = recordingLane();
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  link.client.held.delete('control-1');
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  assert.equal(world.starts, 2);
+  assert.deepEqual(resizedOn(calls), ['control-1', 'control-2', 'control-2']);
+});
+
+test('a replaced client does not hold the old control thread: the lane starts one on the new client, once', async () => {
+  const { calls, lane, replace, world } = recordingLane();
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  replace();
+  await Promise.all([lane.invoke('resizeImage', RESIZE, undefined), lane.invoke('resizeImage', RESIZE, undefined)]);
+  assert.equal(world.starts, 2);
+  assert.deepEqual(resizedOn(calls), ['control-1', 'control-2', 'control-2']);
+});
+
+// A call made before the first client is exposed: the connection waits for the first open and starts the thread on the live
+// client, which holds it; a concurrent call joins that start, so there is one control thread.
+test('calls made before the first connection start one control thread', async () => {
+  const { calls, lane, link, world } = recordingLane();
+  link.client = null;
+  let open;
+  world.firstOpen = new Promise((resolve) => (open = resolve));
+  const first = lane.invoke('resizeImage', RESIZE, undefined);
+  const joined = lane.invoke('resizeImage', RESIZE, undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  open();
+  await Promise.all([first, joined]);
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  assert.equal(world.starts, 1);
+  assert.deepEqual(resizedOn(calls), ['control-1', 'control-1', 'control-1']);
+});
+
+// A failed call is that call's failure: the thread is still the client's and still held, so nothing is started, released or sent again.
+test('a failed call leaves the held control thread in place and is not sent again', async () => {
+  const { calls, lane, link, world } = recordingLane(async () => {
+    throw new Error('refused');
+  });
+  for (const capability of ['clear', 'mcpStatus']) await assert.rejects(lane.invoke(capability, [], undefined), /refused/);
+  assert.equal(world.starts, 1);
+  assert.deepEqual(link.released, []);
+  assert.deepEqual([...link.client.held], ['control-1']);
+  assert.equal(calls.length, 2, 'each capability was sent once');
+});
+
+// Ownership is settled before a capability names the thread: the client's resume after a redial has ended first, and a thread the
+// core refused to resume is not named; the lane starts a new one and sends once to it.
+test('a capability waits for the client to settle the control thread, and a thread it lost is never named', async () => {
+  const { calls, lane, link, world } = recordingLane();
+  await lane.invoke('resizeImage', RESIZE, undefined);
+  let settle;
+  const gate = new Promise((resolve) => (settle = resolve));
+  link.client.whenHeldSettled = () => gate;
+  const pending = lane.invoke('resizeImage', RESIZE, undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 1, 'nothing is sent while the resume is unanswered');
+  link.client.held.delete('control-1'); // the core refused the resume
+  settle();
+  await pending;
+  assert.equal(world.starts, 2);
+  assert.deepEqual(resizedOn(calls), ['control-1', 'control-2']);
+});
 test('a failed start of the control thread is tried again by the next call', async () => {
   const { lane, world } = recordingLane();
   world.failStarts = 1;
@@ -462,19 +564,14 @@ test('reads are answered together, in order, from the control session whatever s
     [
       { method: 'config/getAutoClear', params: { threadId: 'control-1' } },
       { method: 'mcp/mcpStatus', params: { threadId: 'control-1' } },
-      // A read that failed is sent once more on a new control thread (Node's invokeControlResult), and failed again here.
-      { method: 'mcp/mcpStatus', params: { threadId: 'control-2' } },
       { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { cwd: '/w' } } },
     ].sort(byMethod)
   );
   // Node's readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
-  // to the control thread (as Node's MCP carrier does), which it starts, and starts again for the read it sends once more.
+  // to the control thread (as Node's MCP carrier does), which it starts once.
   assert.deepEqual(
     all.filter((call) => call.method === 'thread/start'),
-    [
-      { method: 'thread/start', params: { kind: 'control' } },
-      { method: 'thread/start', params: { kind: 'control' } },
-    ]
+    [{ method: 'thread/start', params: { kind: 'control' } }]
   );
   assert.deepEqual(all.filter((call) => call.method !== 'thread/start'), calls);
 });
@@ -854,88 +951,36 @@ test('resolveToolApproval answers the server request the card shows with the cor
   assert.equal(calls.length, 2);
 });
 
-// `fixtures/mcp-oauth-control-session-cases/golden.json`: an MCP sign-in begun, polled and pasted while Node's desktop replaced its control
-// session (record-mcp-oauth-control-session-cases.mjs, b6f10295a). The lane is the product's replacement code; the fake core answers every
-// call the recording made with its recorded answer in the recorded order, failing the two calls the recorder failed (the first status
-// read, the paste of 'garbage'). Each call's whole result is compared with the recorded one: the value, and the control session it
-// was addressed to (recorded `sess_daemon_…` ids stand for `control-N` in order of first appearance, manifest `replay.normalised`);
-// the recorded `snapshot: null` is the recorder's stub, the lane's own snapshot is read from the core (its busy flag and rows).
-test('a failed control call drops the control thread and a read is sent once more on a new one, as Node recorded', async () => {
-  const recording = JSON.parse(
-    readFileSync(new URL('../../../../../native/core/fixtures/mcp-oauth-control-session-cases/golden.json', import.meta.url), 'utf8')
-  ).cases[0].observed;
-  const FLOW = 'flow-1';
-  const flowed = (value) => JSON.parse(JSON.stringify(value).replaceAll('<flow>', FLOW));
-  const refusal = recording.invalidPaste.threw.message;
-  // The recorded calls in order: [recorded key, capability, args, how the core answers: 'failsFirst' (that call fails once, then is
-  // answered) or 'refused' (the core refuses it)].
-  const script = [
-    ['signOut', 'signOutMcpServer', ['fixture']],
-    ['begun', 'beginMcpOAuthLogin', ['fixture', { openBrowser: false }]],
-    ['statusRead', 'mcpStatus', [], 'failsFirst'],
-    ['statusAfterReplace', 'getMcpOAuthLoginStatus', [FLOW]],
-    ['invalidPaste', 'completeMcpOAuthLogin', [FLOW, 'garbage'], 'refused'],
-    ['statusAfterInvalidPaste', 'getMcpOAuthLoginStatus', [FLOW]],
-    ['correctedPaste', 'completeMcpOAuthLogin', [FLOW, recording.callback]],
-    ['finalStatus', 'getMcpOAuthLoginStatus', [FLOW]],
-  ];
-  const answers = [];
-  for (const [key, , , mode] of script) {
-    if (mode === 'failsFirst') answers.push({ method: 'mcp/mcpStatus', fails: new Error('status unavailable') });
-    if (mode === 'refused') answers.push({ method: 'mcp/completeMcpOAuthLogin', fails: new Error(refusal) });
-    else answers.push({ method: undefined, key });
-  }
-  let next = 0;
-  const { calls, states, world, lane } = recordingLane(async (method) => {
-    const step = answers[next++];
-    if (step.method) assert.equal(method, step.method, `call ${next}`);
-    if (step.fails) throw step.fails;
-    const recorded = recording[step.key];
-    return flowed(step.key === 'statusRead' ? recorded.value.value : recorded.value);
+// A request this connection holds under another surface (a sub-agent's, shown on its parent chat) is not answered from the child's
+// own session id, and a request it does not hold is not sent at all: the answer would otherwise reach whatever the core asks under
+// that thread and id.
+test('an approval held under another surface, or not held at all, is refused without sending', async () => {
+  const { emit, lane, calls } = recordingLane(async () => ({ accepted: true }));
+  emit({
+    type: 'serverRequest',
+    request: { id: 'req-8', method: 'item/tool/requestApproval', params: { threadId: 'sub-1', surfaceThreadId: 'pane-1', turnId: 't', itemId: 'i8', order: 1, request: { name: 'shell' } } },
   });
-  // The state each control thread holds is the recorded one (idle, no rows).
-  for (const thread of ['control-1', 'control-2', 'control-3']) states.set(thread, { runtime: { busy: recording.signOut.result.full.busy } });
-  const sessions = new Map();
-  const sessionOf = (id) => {
-    if (!sessions.has(id)) sessions.set(id, `control-${sessions.size + 1}`);
-    return sessions.get(id);
-  };
-  for (const [key, capability, args] of script) {
-    const recorded = recording[key];
-    if (key === 'invalidPaste') {
-      await assert.rejects(lane.invoke(capability, args), (error) => error.message === recorded.threw.message, key);
-      continue;
-    }
-    const reply = await lane.invoke(capability, args);
-    const result = key === 'statusRead' ? recorded.value.result : recorded.result;
-    assert.deepEqual(reply.value, flowed(key === 'statusRead' ? recorded.value.value : recorded.value), `${key}: the value`);
-    assert.deepEqual(
-      { sessionId: reply.snapshot.sessionId, busy: reply.snapshot.busy, items: reply.snapshot.items },
-      { sessionId: sessionOf(result.sessionId), busy: result.full.busy, items: result.full.items },
-      `${key}: the control session and the state it carries`
-    );
-  }
-  assert.equal(next, answers.length, 'every recorded answer was used');
-  assert.equal(recording.controlSessionReplaced, true);
-  assert.equal(world.starts, recording.runtimesAfterInvalidPaste, 'the control sessions started over the whole scenario');
-  // The refused paste ('garbage') appears once: a mutation is not sent again.
-  assert.deepEqual(
-    calls.map((call) => [call.method, call.params.threadId]),
-    [
-      ['mcp/signOutMcpServer', 'control-1'],
-      ['mcp/beginMcpOAuthLogin', 'control-1'],
-      ['mcp/mcpStatus', 'control-1'],
-      ['mcp/mcpStatus', 'control-2'],
-      ['mcp/getMcpOAuthLoginStatus', 'control-2'],
-      ['mcp/completeMcpOAuthLogin', 'control-2'],
-      ['mcp/getMcpOAuthLoginStatus', 'control-3'],
-      ['mcp/completeMcpOAuthLogin', 'control-3'],
-      ['mcp/getMcpOAuthLoginStatus', 'control-3'],
-    ],
-    'each call is addressed to the control thread the lane then held'
-  );
+  assert.equal(await lane.resolveToolApproval('sub-1', 'req-8', { approved: true }), false);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'req-9', { approved: true }), false);
+  assert.equal(calls.length, 0);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'req-8', { approved: true }), true);
+  assert.equal(calls[0].params.threadId, 'sub-1');
 });
 
+// Node's recorded sign-in (`fixtures/mcp-oauth-control-session-cases/golden.json`) replaced its control session after a failed call and
+// sent a failed read once more on the new one. The core's control thread is the client's (held, resumed after a redial, never named
+// once lost), so a failed call is only that call's failure: the same thread serves the next call and nothing is sent twice.
+test('a failed control call is that call\'s failure, and the next call uses the same control thread', async () => {
+  let next = 0;
+  const { calls, world, lane } = recordingLane(async (method) => {
+    if (next++ === 0) throw new Error('status unavailable');
+    return method;
+  });
+  await assert.rejects(lane.invoke('mcpStatus', []), /status unavailable/);
+  assert.equal((await lane.invoke('mcpStatus', [])).value, 'mcp/mcpStatus');
+  assert.equal(world.starts, 1);
+  assert.deepEqual(calls.map((call) => call.params.threadId), ['control-1', 'control-1']);
+});
 // session-host-transport.ts `invokeControlResult` awaits `ensureControlSession()` outside its try: a control thread that cannot be
 // created is not retried, whatever the call, and its error reaches the caller at once.
 test('a failed start of the control thread is not retried, not even for a read', async () => {

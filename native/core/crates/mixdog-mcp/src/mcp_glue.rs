@@ -11,9 +11,8 @@
 //! default scope; a session's own scope (Node's `rt.mcpScopeId`) is a key into the same hub that
 //! [`McpScopes`] opens and releases.
 //!
-//! The accounts of a catalog connector connect as one hub server each, named by the account;
-//! Node's single connector server that merges their tools behind an `account` argument is not
-//! ported, so the connector's status row is built from its account servers.
+//! A catalog connector is one hub server; its private account connections share one tool
+//! catalog and route calls through the `account` selector.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -50,8 +49,6 @@ use crate::connector_model::account_target;
 use crate::connector_model::accounts_of;
 use crate::connector_model::connector_of_server;
 use crate::connector_model::gmail_app_password_account;
-use crate::connector_model::live_account_servers;
-use crate::connector_model::server_settings;
 use crate::connectors::google_client;
 use crate::declaration_cache::DeclarationCache;
 use crate::extension_service::ExtensionConfig;
@@ -257,6 +254,11 @@ struct Bridge(std::sync::Weak<McpGlue>);
 impl McpGlue {
     pub fn new(inputs: GlueInputs) -> Arc<Self> {
         inputs.hub.set_oauth_env(inputs.oauth_env.clone());
+        inputs.hub.set_account_runtime(crate::connector_transport::AccountRuntime {
+            health: inputs.health.clone(),
+            data_dir: inputs.admin.data_dir().to_path_buf(),
+            maintenance: inputs.maintenance,
+        });
         Arc::new_cyclic(|me| Self {
             logins: McpLogins::new(Arc::new(Bridge(me.clone())), inputs.login_feeds),
             scopes: ScopeRuntime::new(inputs.hub.clone(), Arc::new(GlueConfigs { glue: me.clone() })),
@@ -324,7 +326,8 @@ impl McpGlue {
     }
 
     fn live_server(&self, name: &str) -> Option<Arc<McpServer>> {
-        self.hub.server_in(&self.request_scope()?, name)
+        let scope = self.request_scope()?;
+        self.hub.server_in(&scope, name).or_else(|| self.hub.servers_in(&scope).iter().find_map(|server| server.account_server(name)))
     }
 
     fn live_servers(&self) -> Vec<Arc<McpServer>> {
@@ -462,12 +465,9 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
     /// The hub servers a configured server or an account name stands for.
     fn targets_of(catalog: &Catalog, name: &str) -> Vec<String> {
         if let Some(target) = account_target(&catalog.servers, name) {
-            return vec![clean(&target.account["name"])];
+            return vec![target.server_name];
         }
-        match catalog.servers.get(name) {
-            Some(cfg) if !accounts_of(cfg).is_empty() => account_servers(cfg).iter().map(|a| clean(&a["name"])).collect(),
-            _ => vec![name.to_owned()],
-        }
+        vec![name.to_owned()]
     }
 
     /// The connections the catalog asks for, and the servers whose configuration could not be
@@ -476,31 +476,14 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         let mut out = Vec::new();
         let mut bad = HashMap::new();
         for (name, cfg) in &catalog.servers {
-            let entries: Vec<(String, Value)> = if !accounts_of(cfg).is_empty() {
-                let settings = server_settings(cfg);
-                let off = cfg.get("enabled") == Some(&Value::Bool(false));
-                live_account_servers(cfg)
-                    .into_iter()
-                    .map(|account| {
-                        let mut entry = settings.clone();
-                        entry.extend(account.as_object().cloned().unwrap_or_default());
-                        entry.insert("enabled".to_owned(), json!(!off));
-                        (clean(&account["name"]), Value::Object(entry))
-                    })
-                    .collect()
-            } else {
-                vec![(name.clone(), cfg.clone())]
-            };
-            for (server, entry) in entries {
-                match McpServerConfig::from_entry(&server, &entry, &self.env) {
+                match McpServerConfig::from_entry(name, cfg, &self.env) {
                     Ok(config) => out.push(config),
                     Err(error) => {
-                        if entry.get("enabled") != Some(&Value::Bool(false)) {
-                            bad.insert(server, error.to_string());
+                        if cfg.get("enabled") != Some(&Value::Bool(false)) {
+                            bad.insert(name.clone(), error.to_string());
                         }
                     }
                 }
-            }
         }
         (out, bad)
     }
@@ -631,21 +614,16 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
                 }
                 continue;
             }
-            let mut merged: Option<LiveServer> = None;
+            let mut merged = self.live_server(name).and_then(|server| one(&server).0);
             let mut failed = Vec::new();
             for account in &accounts {
                 let account_name = clean(&account["name"]);
                 account_names.insert(account_name.clone());
-                let Some(server) = self.live_server(&account_name) else { continue };
+                let Some(server) = self.live_server(name).and_then(|server| server.account_server(&account_name)) else { continue };
                 let (l, f) = one(&server);
                 // A connector merges the accounts that are connected; a dead one is among its failures.
                 if let Some(l) = l.filter(|l| l.connected) {
                     let slot = merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone(), warnings: Vec::new(), connected: true });
-                    for tool in l.tools {
-                        if !slot.tools.iter().any(|t| t.0 == tool.0) {
-                            slot.tools.push(tool);
-                        }
-                    }
                     for warning in l.warnings {
                         if !slot.warnings.contains(&warning) {
                             slot.warnings.push(warning);
@@ -772,8 +750,11 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
     }
 
     fn account_error(&self, catalog: &Catalog, name: &str) -> String {
-        let _ = catalog;
-        let Some(server) = self.live_server(name) else { return String::new() };
+        let server = match account_target(&catalog.servers, name) {
+            Some(target) => self.live_server(&target.server_name).and_then(|server| server.account_server(name)),
+            None => self.live_server(name),
+        };
+        let Some(server) = server else { return String::new() };
         match &*server.state() {
             ServerState::Failed { cause } => {
                 if self.live_oauth(name).is_some_and(|o| o.sign_in_required()) { "Sign-in required".to_owned() } else { cause.clone() }

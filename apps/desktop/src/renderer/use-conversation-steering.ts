@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import {
   pendingPromptTranscriptItems,
+  promptsAwaitingTurn,
   steerPromptItems,
   unsettledQueueEntries,
   type PendingPromptItem,
@@ -20,7 +21,8 @@ const NO_PROMPT_IDS: string[] = [];
 export function useConversationSteering(
   optimisticPrompts: PendingPromptItem[],
   settledItems: TranscriptItem[],
-  queued: unknown
+  queued: unknown,
+  busy: boolean
 ) {
   const unsettledSessionQueue = useMemo(() => unsettledQueueEntries(queued, settledItems), [settledItems, queued]);
   const pendingPromptItems = useMemo(
@@ -41,7 +43,13 @@ export function useConversationSteering(
     const items = steerPromptItems(unsettledSessionQueue, pendingPromptItems);
     return items.length ? items : NO_PENDING_PROMPTS;
   }, [pendingPromptItems, unsettledSessionQueue]);
-  const optimisticActivityStartedAt = transcriptPendingPromptItems.reduce((earliest, item) => {
+  // The submit clock runs from the bubble until the turn is reported, through
+  // the states where the prompt's own row has landed and the turn has not.
+  const awaitingTurn = useMemo(
+    () => promptsAwaitingTurn(optimisticPrompts, settledItems, busy),
+    [optimisticPrompts, settledItems, busy]
+  );
+  const optimisticActivityStartedAt = [...transcriptPendingPromptItems, ...awaitingTurn].reduce((earliest, item) => {
     const startedAt = Number(item.submittedAt || 0);
     if (!Number.isFinite(startedAt) || startedAt <= 0) return earliest;
     return earliest > 0 ? Math.min(earliest, startedAt) : startedAt;

@@ -94,6 +94,7 @@ async fn write_notices(transport: Arc<dyn Transport>, mut queue: mpsc::Receiver<
 struct Pending {
     tx: oneshot::Sender<Result<Value, RpcError>>,
     progress: Arc<Notify>,
+    forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
 
 pub struct RpcClient {
@@ -232,9 +233,12 @@ impl RpcClient {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .get(&token)
-                        .map(|p| Arc::clone(&p.progress));
-                    if let Some(progress) = progress {
+                        .map(|p| (Arc::clone(&p.progress), p.forward.clone()));
+                    if let Some((progress, forward)) = progress {
                         progress.notify_one();
+                        if let Some(forward) = forward {
+                            forward(message["params"].clone());
+                        }
                     }
                 }
             }
@@ -298,13 +302,19 @@ impl RpcClient {
     }
 
     pub async fn request(&self, method: &str, params: Value, options: RequestOptions<'_>) -> Result<Value, RpcError> {
+        self.request_with_progress(method, params, options, None).await
+    }
+
+    pub(crate) async fn request_with_progress(
+        &self, method: &str, params: Value, options: RequestOptions<'_>, forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, mut rx) = oneshot::channel();
         let progress = Arc::new(Notify::new());
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(id, Pending { tx, progress: Arc::clone(&progress) });
+            .insert(id, Pending { tx, progress: Arc::clone(&progress), forward });
         if let Some(cause) = self.closed.borrow().as_ref() {
             self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
             return Err(RpcError::Closed(cause.stderr_tail.clone()));

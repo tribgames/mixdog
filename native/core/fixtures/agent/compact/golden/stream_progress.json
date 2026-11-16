@@ -944,7 +944,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -989,7 +989,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -1811,9 +1811,7 @@
               "item_id": "ghost",
               "delta": ""
             },
-            "kinds": [
-              "tool"
-            ]
+            "kinds": []
           },
           {
             "wire": {
@@ -1827,7 +1825,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -2434,7 +2432,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           }
         ],
@@ -2496,7 +2494,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -2516,7 +2514,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -2541,7 +2539,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -3410,9 +3408,7 @@
               "item_id": "ghost",
               "delta": ""
             },
-            "kinds": [
-              "tool"
-            ]
+            "kinds": []
           },
           {
             "wire": {
@@ -3426,7 +3422,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -3446,7 +3442,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           }
         ],
@@ -4023,7 +4019,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           }
         ],
@@ -4085,7 +4081,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -4130,7 +4126,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {
@@ -4950,9 +4946,7 @@
               "item_id": "ghost",
               "delta": ""
             },
-            "kinds": [
-              "tool"
-            ]
+            "kinds": []
           },
           {
             "wire": {
@@ -4966,7 +4960,7 @@
               }
             },
             "kinds": [
-              "tool"
+              "semantic"
             ]
           },
           {

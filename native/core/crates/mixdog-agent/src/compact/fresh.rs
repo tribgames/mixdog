@@ -25,6 +25,8 @@ use super::messages::split_protected_context;
 use crate::message::AgentMessage;
 use crate::message::Source;
 use crate::project::is_summary_message;
+use crate::project::strip_runtime_user_context;
+use crate::project::stripped_content;
 use crate::repair::sanitize_tool_pairs;
 
 pub const SUMMARY_PREFIX: &str = "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.";
@@ -213,10 +215,14 @@ pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[Agent
         }
     }
     let latest_user = latest_actual_user_instruction_index(&conversation);
-    // Older requests carry their attachments by reference from here on.
+    // Project older requests before budgeting; the shared user-message rules still decide tail retention.
     let mut live = Vec::with_capacity(conversation.len());
     for (index, m) in conversation.iter().enumerate() {
-        let kept = if Some(index) == latest_user { m.clone() } else { ctx.attachments.reference_media(m).await };
+        let kept = if Some(index) == latest_user {
+            m.clone()
+        } else {
+            ctx.attachments.reference_media(&strip_runtime_user_context(m)).await
+        };
         if !is_summary_message(&kept) {
             live.push(kept);
         }
@@ -384,26 +390,6 @@ static GOAL_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
 static TODO_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(r"<system-reminder>\s*<todo_state>[\s\S]*?<\/todo_state>\s*<\/system-reminder>\s*", "gi")
 });
-
-/// `stripRuntimeUserContext`'s content: `content` without the producer's `prefix` and `suffix`;
-/// `None` when the provenance is stale (the boundaries are not where it says).
-fn stripped_content(content: &Content, prefix: &str, suffix: &str) -> Option<Content> {
-    match content {
-        Content::Text(text) => {
-            let inner = text.strip_prefix(prefix)?;
-            (text.len() >= prefix.len() + suffix.len()).then_some(())?;
-            Some(Content::Text(inner.strip_suffix(suffix)?.to_owned()))
-        }
-        Content::Parts(parts) => {
-            let is_text = |part: Option<&ContentPart>, want: &str| matches!(part, Some(ContentPart::Text(text, _)) if text == want);
-            if (!prefix.is_empty() && !is_text(parts.first(), prefix)) || (!suffix.is_empty() && !is_text(parts.last(), suffix)) {
-                return None;
-            }
-            let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
-            (parts.len() >= head + tail).then(|| Content::Parts(parts[head..parts.len() - tail].to_vec()))
-        }
-    }
-}
 
 /// `withRuntimeUserContext`'s content: text gains `prefix` and `suffix`, parts gain them as text blocks.
 fn with_prefix(content: &Content, prefix: &str, suffix: &str) -> Content {

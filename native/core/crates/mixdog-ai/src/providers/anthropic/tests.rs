@@ -730,8 +730,9 @@ fn recorded_streams_fold_to_the_recorded_results() {
         };
         assert_eq!(folded.stop, Some(stop), "{scenario}");
         let usage = folded.usage.expect("usage");
-        // Mixdog input is Node's `promptTokens`: fresh input plus cache read and write.
-        assert_eq!(usage.input_tokens, ok["usage"]["promptTokens"].as_u64().expect("in"), "{scenario}");
+        // Input is Node's `inputTokens` (the cache left out); `promptTokens` adds the cache read and write back.
+        assert_eq!(usage.input_tokens, ok["usage"]["inputTokens"].as_u64().expect("in"), "{scenario}");
+        assert_eq!(usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens, ok["usage"]["promptTokens"].as_u64().expect("prompt"), "{scenario}");
         assert_eq!(usage.output_tokens, ok["usage"]["outputTokens"].as_u64().expect("out"));
         assert_eq!(usage.cache_read_tokens, ok["usage"]["cachedTokens"].as_u64().expect("cached"));
         assert_eq!(usage.cache_write_tokens, ok["usage"]["cacheWriteTokens"].as_u64().expect("write"));
@@ -1059,6 +1060,67 @@ async fn a_reset_mid_body_is_a_transport_fault_with_exposure() {
 
 fn sse(name: &str, data: Value) -> String {
     format!("event: {name}\ndata: {data}\n\n")
+}
+
+/// The ledger row of an Anthropic send (the usage popup's input, cache hit rate and cost, and the session's totals, are read from
+/// it): `input` is the fresh part alone, as Node writes it, with the cache read and write in their own columns. The whole prompt
+/// in the input column made the hit rate half what it was and billed the cached prompt twice.
+#[tokio::test]
+async fn an_anthropic_sends_ledger_row_keeps_the_cache_out_of_its_input() {
+    use crate::catalog::{PricedUsage, UsageArgs};
+    use crate::registry::accounting::{Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageRow, UsageSink};
+
+    struct Excluding;
+    impl UsagePricing for Excluding {
+        fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
+            let input = if args.input_tokens_inclusive == Some(true) { (args.input_tokens - args.cache_read_tokens - args.cache_write_tokens).max(0.0) } else { args.input_tokens };
+            PricedUsage { input, cost_usd: None, rates: Default::default() }
+        }
+    }
+    #[derive(Default)]
+    struct Rows(Mutex<Vec<UsageRow>>);
+    #[async_trait]
+    impl UsageSink for Rows {
+        async fn record_queued(&self, row: UsageRow) -> Result<(), String> {
+            self.0.lock().unwrap().push(row);
+            Ok(())
+        }
+    }
+
+    let body = [
+        sse("message_start", json!({ "type": "message_start", "message": { "usage": { "input_tokens": 4, "cache_read_input_tokens": 11746, "cache_creation_input_tokens": 1916, "output_tokens": 1 } } })),
+        sse("message_delta", json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 213 } })),
+        sse("message_stop", json!({ "type": "message_stop" })),
+    ]
+    .concat();
+    let usage = fold(&decode_all(&api_codec(), body.as_bytes()).expect("decodes")).usage.expect("usage");
+    assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.cache_write_tokens), (4, 11746, 1916));
+
+    let provider = "anthropic-oauth";
+    let identity = SendIdentity {
+        provider: provider.into(),
+        model: "claude-sonnet-5-5".into(),
+        requested_provider: provider.into(),
+        requested_model: "claude-sonnet-5-5".into(),
+        route_hop: false,
+        session_id: Some("sess".into()),
+        owner_session_id: None,
+        source_type: "cli".into(),
+        // What the send's accounting is given: the provider's own input convention.
+        input_tokens_inclusive: !crate::registry::accounted::input_excludes_cache(provider),
+        request_service_tier: String::new(),
+        account: Ok(String::new()),
+        request_id: "r".into(),
+        started_at: 1,
+    };
+    let sink = Arc::new(Rows::default());
+    let accounting = SendAccounting::new(identity, Arc::new(Excluding), Some(sink.clone()));
+    accounting.finish(Outcome::Completed(crate::registry::accounting::Completed { facts: Some(Facts::from(&usage)), ..Default::default() })).await;
+    let rows = sink.0.lock().unwrap();
+    assert_eq!((rows[0].input, rows[0].cache_read, rows[0].cache_write), (4.0, 11746.0, 1916.0));
+    // The popup's hit rate over these columns: cache read over input + read + write.
+    let rate = rows[0].cache_read / (rows[0].input + rows[0].cache_read + rows[0].cache_write);
+    assert!((rate - 11746.0 / 13666.0).abs() < 1e-9);
 }
 
 /// Usage, a dispatched tool call, then a stream error: all of it can land in

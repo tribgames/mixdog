@@ -424,7 +424,23 @@ fn clean_prompt_parts(prompt: &Value) -> Value {
         }
         Value::Object(fields)
     };
-    Value::Array(parts.iter().map(clean).collect())
+    // A text part with neither a text nor a stored attachment says nothing and no model message can hold it (the stored-row
+    // decoder refuses it, failing the turn that carries it); the validator accepts it beside real content, so it is left out here.
+    let says_something = |part: &Value| {
+        part.get("type").and_then(Value::as_str) != Some("text") || ["text", "attachmentRef"].iter().any(|key| part.get(*key).is_some_and(|value| !value.is_null()))
+    };
+    Value::Array(parts.iter().filter(|part| says_something(part)).map(clean).collect())
+}
+
+/// The one rule for what a prompt may carry into a model message, whichever way it arrives (a fresh submit, a queue entry
+/// restored from disk, a failed turn's retained content): the parts cleaned ([`clean_prompt_parts`]) and then decoded as the
+/// stored row they become. A prompt that does not decode is an `Err` the caller refuses visibly, never a part dropped.
+pub fn deliverable(prompt: &Value) -> Result<Value, String> {
+    let prompt = clean_prompt_parts(prompt);
+    if prompt.is_array() {
+        mixdog_agent::message_row::content_from_value(&prompt).map_err(|why| format!("the prompt cannot be sent: {why}"))?;
+    }
+    Ok(prompt)
 }
 
 /// `materializePromptSubmission(prompt, options)` (`store.mjs:631-648`): the pasted texts stored, the prompt's text tokens and
@@ -433,7 +449,7 @@ fn clean_prompt_parts(prompt: &Value) -> Value {
 pub fn materialize_prompt_submission(store: &dyn PromptStore, prompt: &Value, options: &Value, long_text: LongText) -> Result<Submission, String> {
     let pasted_texts = options.get("pastedTexts");
     let (refs, texts) = materialize_pasted_texts(store, pasted_texts)?;
-    let prompt = materialize_prompt_content(store, &clean_prompt_parts(prompt), &refs, long_text)?;
+    let prompt = deliverable(&materialize_prompt_content(store, &clean_prompt_parts(prompt), &refs, long_text)?)?;
     if prompt_text_bytes(store, &prompt)? > MAX_PROMPT_TEXT_BYTES {
         return Err("prompt text exceeds the 1 MiB input limit".into());
     }
@@ -713,6 +729,19 @@ mod tests {
         assert!(touches_store(&json!("p"), &json!({ "pastedImages": { "1": { "id": 1 } } }), LongText::Inline));
         assert!(touches_store(&json!([{ "type": "text", "attachmentRef": reference }]), &json!({}), LongText::Inline));
         assert!(touches_store(&json!([{ "type": "file", "data": "eA==", "mimeType": "text/plain" }]), &json!({}), LongText::Inline));
+    }
+
+    /// A text part with neither a text nor a stored attachment is not kept; the parts beside it are.
+    #[test]
+    fn an_empty_text_part_is_left_out_of_the_prompt() {
+        let reference = "b".repeat(64);
+        let image = json!({ "type": "image", "mimeType": "image/png", "attachmentRef": reference });
+        let prompt = json!([{ "type": "text", "text": "look" }, image, { "type": "text" }]);
+        let got = materialize_prompt_submission(&NoStore, &prompt, &Value::Null, LongText::Inline).unwrap();
+        assert_eq!(got.prompt, json!([{ "type": "text", "text": "look" }, image]));
+        // A part the decoder cannot hold is refused, never dropped silently.
+        let bad = json!([{ "type": "text", "text": "look" }, { "type": "text", "attachmentRef": 5 }]);
+        assert!(materialize_prompt_submission(&NoStore, &bad, &Value::Null, LongText::Inline).is_err());
     }
 
     /// The chat's store: a save is the blob `write_blob` publishes under the data folder (an inline image and a pasted text

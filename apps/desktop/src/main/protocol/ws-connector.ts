@@ -27,39 +27,69 @@ interface Writer {
 /** Large enough for a full app snapshot (`maxSnapshotBytes`); the core's own caps are the real limit. */
 const MAX_INBOUND_BYTES = 16 * 1024 * 1024;
 
-export function createWsConnector(resolve: (target: WsTarget) => Promise<WsEndpoint>) {
+/** `log` is the desktop diagnostics sink: one line per socket opened, failed to open and closed (no frames, no token). */
+export function createWsConnector(
+  resolve: (target: WsTarget) => Promise<WsEndpoint>,
+  /** Already the owner's log (`createLinkLog`): it cannot throw into the socket and carries the owner identity. */
+  log: (event: string, fields?: Record<string, unknown>) => void = () => {}
+) {
+  let dials = 0;
   return {
     async open(target: WsTarget, sink: Sink): Promise<Writer> {
+      const dial = ++dials;
       const endpoint = await resolve(target);
       const socket = new WebSocket(endpoint.url, {
         headers: { Authorization: `Bearer ${endpoint.token}` },
         maxPayload: MAX_INBOUND_BYTES,
         perMessageDeflate: false,
       });
-      await new Promise<void>((resolveOpen, rejectOpen) => {
-        socket.once('open', () => resolveOpen());
-        socket.once('error', rejectOpen);
-        socket.once('unexpected-response', (_request, response) =>
-          rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`))
-        );
-      });
+      try {
+        await new Promise<void>((resolveOpen, rejectOpen) => {
+          socket.once('open', () => resolveOpen());
+          socket.once('error', rejectOpen);
+          socket.once('unexpected-response', (_request, response) =>
+            rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`))
+          );
+        });
+      } catch (error) {
+        log('core-socket-open-failed', { dial, message: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+        throw error;
+      }
+      const openedAt = Date.now();
+      log('core-socket-open', { dial });
       socket.on('message', (data, isBinary) => {
         if (isBinary) return;
         sink.frame(data.toString('utf8'));
       });
+      // The one close line of this socket: who asked for it (this side's `close`) or that the peer or the network ended it.
       let ended = false;
+      let requested = false;
+      let socketError = '';
       socket.on('close', (code, reason) => {
         if (ended) return;
         ended = true;
+        log('core-socket-close', {
+          dial,
+          code,
+          reason: reason.toString('utf8').slice(0, 200),
+          openMs: Date.now() - openedAt,
+          initiator: requested ? 'desktop' : 'core-or-network',
+          ...(socketError ? { error: socketError } : {}),
+        });
         // Why the link went is known here and nowhere after: every request it carried only says `connectionLost`.
         console.error(`[mixdog] core socket closed code=${code} reason=${JSON.stringify(reason.toString('utf8').slice(0, 300))}`);
         sink.closed(code, reason.toString('utf8'));
       });
       // An error always precedes a close event that carries the code; the library reconnects on `closed` only.
-      socket.on('error', () => {});
+      socket.on('error', (error) => {
+        socketError = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+      });
       return {
         send: (text) => socket.send(text),
-        close: (code, reason) => socket.close(code, reason),
+        close: (code, reason) => {
+          requested = true;
+          socket.close(code, reason);
+        },
       };
     },
   };

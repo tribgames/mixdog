@@ -2,6 +2,7 @@
 // says `serving` (lifecycle spec §5.4: "launcher start = spawn detached → discovery serving").
 import { spawn } from 'node:child_process';
 import { beginDaemonSpawnCapture } from './crash-capture/spawn-capture.mjs';
+import { contained } from '../link-log.mjs';
 
 const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const POLL_MS = 50;
@@ -183,7 +184,9 @@ export function watchCore({
   unansweredLimitMs = CORE_UNANSWERED_LIMIT_MS,
   runs = processRuns,
   log = () => {},
+  onEnding = () => {},
 } = {}) {
+  const say = contained(onEnding);
   let stopped = false;
   let unansweredSince = null;
   let watched = null;
@@ -222,6 +225,15 @@ export function watchCore({
       const unansweredFor = Math.max(stalledMs, answered ? 0 : now() - unansweredSince);
       if (unansweredFor < unansweredLimitMs) continue;
       log(`core ${discovery.pid} has answered nothing for ${Math.round(unansweredFor / 1000)} s: ending it`);
+      // Said before the kill, with why: no answer to the status ask, or an answer that reports a stalled runtime.
+      // Said with why (no answer to the status ask, or an answer reporting a stalled runtime); `say` is never on the kill's path.
+      say({
+        pid: discovery.pid,
+        reason: answered ? 'runtimeStalled' : 'statusUnanswered',
+        unansweredMs: Math.round(unansweredFor),
+        stalledMs,
+        limitMs: unansweredLimitMs,
+      });
       try {
         kill(discovery.pid);
       } catch (error) {

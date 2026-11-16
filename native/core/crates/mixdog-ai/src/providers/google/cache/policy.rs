@@ -112,6 +112,24 @@ pub fn ws_semantic_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> 
     })
 }
 
+/// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` (`stall-policy.mjs:271`): how long a stream may wait for its first output, in ms, never
+/// shorter than its own idle window `idle`.
+pub fn first_output_ms(get: impl Fn(&str) -> Option<String>, idle: Option<f64>) -> f64 {
+    idle.unwrap_or(0.0).max(stall_abort_s(&get) * 1000.0 - 15_000.0)
+}
+
+/// `WS_PRE_RESPONSE_CREATED_MS` (`openai-ws-stream.mjs:67`): how long a WebSocket request may get no frame at all, in ms;
+/// `None` when [`stream_watchdog_enabled`] is off.
+pub fn ws_pre_stream_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
+    stream_watchdog_enabled(&get).then(|| {
+        let (first_byte, _) = stall_deadlines_ms(&get);
+        match get("MIXDOG_PROVIDER_WS_PRE_RESPONSE_CREATED_TIMEOUT_MS").map(|raw| string_to_number(&raw)) {
+            Some(n) if n.is_finite() && n > 0.0 => n.max(1_000.0).min(first_byte),
+            _ => first_byte,
+        }
+    })
+}
+
 /// `PROVIDER_WS_PING_INTERVAL_MS` (`stall-policy.mjs:199`, 5 s up to the provider ceiling) and `PROVIDER_WS_PONG_TIMEOUT_MS`
 /// (`:208`, 1-60 s) over `base`, the schedule's own values when the variable is unset.
 pub fn ws_ping(get: impl Fn(&str) -> Option<String>, base: PingKeepalive) -> PingKeepalive {

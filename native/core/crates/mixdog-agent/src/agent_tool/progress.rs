@@ -218,6 +218,15 @@ pub fn stale_report(snapshot: &Snapshot, now: i64, policy: &WatchdogPolicy) -> O
     None
 }
 
+/// How long an open stream may carry no new content before the status says so instead of calling it active.
+const CONTENT_QUIET_S: u64 = 30;
+
+/// Seconds since the response's content last advanced, once a stream that had output has been quiet for long enough.
+fn content_quiet(snapshot: Option<&Snapshot>, now: i64) -> Option<u64> {
+    let s = snapshot.filter(|s| s.has_first_semantic)?;
+    positive_seconds(now, s.last_stream_delta_at).filter(|secs| *secs >= CONTENT_QUIET_S)
+}
+
 /// `message.replace(/^agent /i, '')`.
 fn without_agent_prefix(message: &str) -> &str {
     match message.get(..6) {
@@ -245,6 +254,9 @@ fn describe_last_progress(stage: &str, input: &ProgressInput<'_>, silent: Option
         }
         "connecting" | "requesting" => return "connecting to model".to_owned(),
         "streaming" => {
+            if let Some(secs) = content_quiet(snapshot, input.now) {
+                return format!("model stream open; no new content for {secs}s");
+            }
             match snapshot.and_then(|s| s.last_semantic_kind) {
                 Some(SemanticKind::Tool) => return "tool protocol progress".to_owned(),
                 Some(SemanticKind::Text) => return "visible model text".to_owned(),
@@ -329,6 +341,9 @@ fn describe_diagnostic(stage: &str, input: &ProgressInput<'_>, silent: Option<u6
         return "transport healthy; waiting for first semantic model event".to_owned();
     }
     if stage == "streaming" {
+        if let Some(secs) = content_quiet(snapshot, input.now) {
+            return format!("model stream open but no new content for {secs}s");
+        }
         match snapshot.and_then(|s| s.last_semantic_kind) {
             Some(SemanticKind::Tool) => return "tool protocol active".to_owned(),
             Some(SemanticKind::Text) => return "visible text streaming".to_owned(),

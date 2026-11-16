@@ -414,6 +414,10 @@ impl McpOAuth {
 
 #[async_trait]
 impl Authorizer for McpOAuth {
+    fn sign_in_required(&self) -> bool {
+        McpOAuth::sign_in_required(self)
+    }
+
     async fn token(&self) -> Result<Option<String>, TransportError> {
         // An unreadable keychain must not block a server that needs no authentication.
         let Ok(cache) = self.load().await else { return Ok(None) };

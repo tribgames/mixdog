@@ -107,6 +107,26 @@ test('a turn end is the turndone row, with the live end\'s counters from ext and
   ]);
 });
 
+test('a user row carries the stored original of each image line the core states, so the transcript chip can draw the picture', () => {
+  const ref = 'e'.repeat(64);
+  const line = '[Image: source: image.png, 893x258, displayed at 893x258]';
+  const [row] = project([
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: `look\n${line}` }], details: { imageRefs: [{ line, ref }] }, meta: { at: 1 } },
+  ]);
+  assert.deepEqual(row?.imageRefs, [{ line, ref }]);
+  const [plain] = project([{ type: 'userMessage', id: 'p', content: [{ type: 'text', text: 'hi' }], meta: {} }]);
+  assert.equal('imageRefs' in (plain ?? {}), false);
+});
+
+test('a user row carries the stored attachments the core states, which its pasted-text and file chips read from the store', () => {
+  const paste = { id: 'a'.repeat(64), attachmentRef: 'a'.repeat(64), kind: 'text', name: 'Pasted text #1', mimeType: 'text/plain', size: 40 };
+  const file = { id: 'b'.repeat(64), attachmentRef: 'b'.repeat(64), kind: 'file', name: 'notes.pdf', mimeType: 'application/pdf', size: 9 };
+  const [row] = project([
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'see [Pasted text #1 +3 lines]' }], details: { attachments: [paste, file] }, meta: { at: 1 } },
+  ]);
+  assert.deepEqual(row?.attachments, [paste, file]);
+});
+
 test('rows carry the product row model only: no protocol member names, compaction keeps status and label', () => {
   const rows = project([
     { type: 'toolCall', id: 'x', name: 'shell', input: { command: 'ls' }, output: '[exit code: 0]\nfile', meta: { status: 'completed' } },

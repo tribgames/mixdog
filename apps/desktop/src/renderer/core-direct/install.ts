@@ -12,7 +12,7 @@ import { createSettingsApi } from './api-settings.ts';
 import { createTakeoverApi } from './api-takeover.ts';
 import { createTerminalApi } from './api-terminal.ts';
 import { connectionsApi } from '../connections-core-api.ts';
-import { openDirectClient } from './client.ts';
+import { openDirectClient, reportCoreLink } from './client.ts';
 import { createDirectContext } from './context.ts';
 import { withApiFileGrantRefresh } from '../remote-file-grant-refresh.ts';
 import type { CorePortBridge } from './port-connector.ts';
@@ -45,7 +45,10 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
   let connection = options.connection;
   if (!connection) {
     if (!bridge) throw new Error('The core port bridge is not available.');
-    connection = createRendererConnection({ open: () => openDirectClient({ bridge, version: desktopPackage.version }) });
+    connection = createRendererConnection({
+      open: () => openDirectClient({ bridge, version: desktopPackage.version }),
+      log: reportCoreLink,
+    });
   }
   const ctx = createDirectContext(connection);
   ctx.setSender((client, method, params) => sizedCall(client as never, method, params));

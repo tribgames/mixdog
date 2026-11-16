@@ -17,6 +17,7 @@ use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::SendIdentity;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use mixdog_rt::Deadline;
@@ -26,21 +27,46 @@ pub(crate) struct IdleWatch {
     window: Option<Duration>,
     label: String,
     deadline: Option<Deadline>,
+    /// The logical request's first-output window (`first-output`, `stall-policy.mjs`): its state lives with the request, so
+    /// every attempt joins the same deadline. `first_pending`: the running deadline is that one; only output ends it.
+    first: Option<(SendIdentity, Duration)>,
+    first_pending: bool,
 }
 
 impl IdleWatch {
     /// A stream with no idle bound.
     pub(crate) fn off() -> Self {
-        Self { window: None, label: String::new(), deadline: None }
+        Self { window: None, label: String::new(), deadline: None, first: None, first_pending: false }
     }
 
     /// A stream bounded by `window_ms` (`None`: the watchdog is off), whose stall names `label`.
     pub(crate) fn new(window_ms: Option<f64>, label: impl Into<String>) -> Self {
-        Self { window: window_ms.map(|ms| Duration::from_millis(ms as u64)), label: label.into(), deadline: None }
+        Self { window: window_ms.map(|ms| Duration::from_millis(ms as u64)), label: label.into(), deadline: None, first: None, first_pending: false }
+    }
+
+    /// Bounds the wait for the first output of `request` by `first_ms`: a model may think silently longer than the idle
+    /// window, but not for ever. Takes effect at [`Self::arm_first`].
+    pub(crate) fn with_first(mut self, request: &SendIdentity, first_ms: f64) -> Self {
+        self.first = Some((request.clone(), Duration::from_millis(first_ms as u64)));
+        self
+    }
+
+    /// Joins the request's first-output window (idle with the watchdog off), or, once the request had output, runs under
+    /// the idle window from the stream's opening.
+    pub(crate) fn arm_first(&mut self) {
+        let (Some((request, first)), Some(_)) = (&self.first, self.window) else { return };
+        let (deadline, seen) = request.first_output(*first);
+        if seen {
+            self.rearm();
+        } else {
+            self.deadline = Some(deadline);
+            self.first_pending = true;
+        }
     }
 
     /// Starts the window again from now.
     pub(crate) fn rearm(&mut self) {
+        self.first_pending = false;
         self.deadline = self.window.map(Deadline::after);
     }
 
@@ -49,8 +75,12 @@ impl IdleWatch {
     /// `openai-compat-stream.mjs`). Keepalives and metadata never do: before the first output a model may think silently
     /// longer than the window.
     pub(crate) fn note(&mut self, events: &[StreamEvent]) {
-        let armed = self.deadline.is_some();
-        if events.iter().any(|event| output(event) || (armed && boundary(event))) {
+        let armed = self.deadline.is_some() && !self.first_pending;
+        let produced = events.iter().any(output);
+        if produced && let Some((request, _)) = &self.first {
+            request.note_output();
+        }
+        if produced || (armed && events.iter().any(boundary)) {
             self.rearm();
         }
     }
@@ -67,7 +97,9 @@ impl IdleWatch {
     pub(crate) fn stalled(&self, exposure: Exposure) -> ProviderError {
         let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
         err.code = Some("ESTREAMSTALL".into());
-        err.message = format!("{} stream timed out after {}ms of inactivity", self.label, self.window.unwrap_or_default().as_millis());
+        let window = if self.first_pending { self.first.as_ref().map(|(_, first)| *first).or(self.window) } else { self.window }.unwrap_or_default();
+        err.message = format!("{} stream timed out after {}ms of inactivity", self.label, window.as_millis());
+        mixdog_rt::node_stderr!("[provider-stall] {} (tool dispatched: {})", err.message, exposure.tool_dispatched);
         err.timed_out = true;
         err.timeout_phase = Some(StreamTimeoutPhase::Idle);
         err.exposure = exposure;
@@ -177,6 +209,39 @@ mod tests {
         assert!(watch.deadline > Some(first), "after output an item boundary does");
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_retry_keeps_the_logical_requests_first_output_deadline() {
+        let boundary = || StreamEvent::Progress(ProgressKind::Semantic);
+        let request = SendIdentity::default();
+        let began = tokio::time::Instant::now();
+        let mut first = IdleWatch::new(Some(15_000.0), "Responses WS").with_first(&request, 100_000.0);
+        first.arm_first();
+        first.note(&[StreamEvent::ProviderKeepalive, boundary()]);
+        mixdog_rt::time::sleep(Duration::from_secs(60)).await;
+        // The attempt failed; the retry opens a new stream for the same request.
+        let mut retry = IdleWatch::new(Some(15_000.0), "Responses WS").with_first(&request, 100_000.0);
+        retry.arm_first();
+        assert_eq!(retry.read(std::future::pending::<()>()).await, Err(Stalled));
+        assert_eq!(began.elapsed(), Duration::from_secs(100), "the retry did not restart the window");
+        assert_eq!(retry.stalled(Exposure::default()).message, "Responses WS stream timed out after 100000ms of inactivity");
+        let mut off = IdleWatch::new(None, "x").with_first(&request, 1.0);
+        off.arm_first();
+        assert!(off.deadline.is_none(), "the watchdog switched off bounds nothing");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_that_had_output_runs_its_retries_under_the_idle_window() {
+        let request = SendIdentity::default();
+        let mut first = IdleWatch::new(Some(15_000.0), "x").with_first(&request, 100_000.0);
+        first.arm_first();
+        mixdog_rt::time::sleep(Duration::from_secs(50)).await;
+        first.note(&[StreamEvent::TextDelta("a".into())]);
+        let mut retry = IdleWatch::new(Some(15_000.0), "x").with_first(&request, 100_000.0);
+        retry.arm_first();
+        let began = tokio::time::Instant::now();
+        assert_eq!(retry.read(std::future::pending::<()>()).await, Err(Stalled));
+        assert_eq!(began.elapsed(), Duration::from_secs(15));
+    }
     #[test]
     fn the_ping_variables_move_the_websocket_schedule_and_nothing_else() {
         let base = mixdog_core_api::domain::keepalive::KeepaliveSchedule::SPEC.ws;

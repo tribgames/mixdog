@@ -855,7 +855,7 @@
       "command": "node benchmarks/rust-core/recorders/record-connector-availability.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 1,
       "manifest": "connector-availability/MANIFEST.json",
-      "manifestSha256": "2f2bc1e11409b64ae72f4016896b4f6b6434adf1fca6bd796c6db49640d34054",
+      "manifestSha256": "7e01e0749d060f5560f805edb59866f148a00b09c91256be1b5b9703ccd15f86",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-connector-availability.mjs",
       "set": "connector-availability",
@@ -1305,21 +1305,21 @@
       "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 7,
       "manifest": "exec-cli/MANIFEST.json",
-      "manifestSha256": "3946bb3105f5393a45cf4a27467250024cc7d55c50951c56d8897bebf02b2314",
+      "manifestSha256": "48289596a55f27621618ad4495c9c7529ceeaa845980a0d08da2a3a73a9a9bc3",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
       "set": "exec-cli",
       "totalBytes": 229250
     },
     {
-      "command": "node benchmarks/rust-core/recorders/record-exec-readonly.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "command": "node benchmarks/rust-core/recorders/record-exec-readonly.mjs --tree <tree> --working-tree",
       "fileCount": 8,
       "manifest": "exec-readonly/MANIFEST.json",
-      "manifestSha256": "8007cb667a6c0ce19dd8a2987d87182478d082c1cbf9df82e63b341e80960dbb",
+      "manifestSha256": "d37289262e22b6b00bfe0f29516d9dac335f84ebf81524ac251949c95c7c36d7",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-exec-readonly.mjs",
       "set": "exec-readonly",
-      "totalBytes": 189484
+      "totalBytes": 191528
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-execution-tail.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
@@ -1912,14 +1912,14 @@
       "totalBytes": 9787
     },
     {
-      "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-fix-deferred-listing-trigger.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <tree> --working-tree",
       "fileCount": 1,
       "manifest": "lead-request/MANIFEST.json",
-      "manifestSha256": "d4b095ab55893f1a1ef9e3bb6b18749db81c7499d8ef77b49c5e625eaf0ec6dc",
+      "manifestSha256": "bd22decee061bb6889125ac99dfdc9c46cab9af24896273cb0fa949aa7040416",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-lead-request.mjs",
       "set": "lead-request",
-      "totalBytes": 2296440
+      "totalBytes": 2298384
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ledger-queries.mjs --tree <tree>",
@@ -2050,16 +2050,6 @@
       "recorder": "benchmarks/rust-core/recorders/record-long-session-log.mjs",
       "set": "long-session-log",
       "totalBytes": 335002
-    },
-    {
-      "command": "node benchmarks/rust-core/recorders/record-machine-tool.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-      "fileCount": 1,
-      "manifest": "machine-tool/MANIFEST.json",
-      "manifestSha256": "3e769a51f8f0c34816c6ca2ea7dfe0b04a576698d5e6126da87fd5340a5aec43",
-      "productSrcTree": null,
-      "recorder": "benchmarks/rust-core/recorders/record-machine-tool.mjs",
-      "set": "machine-tool",
-      "totalBytes": 16698
     },
     {
       "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-mail-link-navigation.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
@@ -4695,7 +4685,7 @@
       "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 85,
       "manifest": "providers/MANIFEST.json",
-      "manifestSha256": "60d98261d88ebb7be29c7456cf4a681bb112f08d4cbc12acc7fb85cc65dda031",
+      "manifestSha256": "2ee44dd23cb152857d408f6967cf3b3b66d24e96feb9c5bcead60bb013f0bcdf",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
       "set": "providers",
@@ -4815,7 +4805,7 @@
       "command": "node benchmarks/rust-core/recorders/record-read-tail.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 1,
       "manifest": "read-tail/MANIFEST.json",
-      "manifestSha256": "e3d290f286cab84c7ee3900538ef897a81a251bd4dc6094fe61865aaffd538ca",
+      "manifestSha256": "d497725340730d8aa6a01a38c7a517e907dd0d4c50eb2b37ec53568c6f0c135e",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-read-tail.mjs",
       "set": "read-tail",
@@ -5885,7 +5875,7 @@
       "command": "node benchmarks/rust-core/recorders/record-shell-cover.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 1,
       "manifest": "shell-cover/MANIFEST.json",
-      "manifestSha256": "0598323827a2336acc8bf5632b48e79c01ec6b37e6abf82e69ee6c34f9c14c9c",
+      "manifestSha256": "ff6aec4acc2eab425e4225c1ada5a0395de5a43bfab363fc3046d49daa53c78c",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-shell-cover.mjs",
       "set": "shell-cover",
@@ -6035,7 +6025,7 @@
       "command": "node benchmarks/rust-core/recorders/record-skill-session.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
       "fileCount": 1,
       "manifest": "skill-session/MANIFEST.json",
-      "manifestSha256": "cea920d44007a54ec18bad75dabee6c19ee53ec541f0cc9834df5fdcaf0a9de8",
+      "manifestSha256": "c1c0efd04c20536cb84a5871c01ce1ffc4db770e0f62c95f1e2aea4fab57bc1d",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-skill-session.mjs",
       "set": "skill-session",
@@ -6275,11 +6265,11 @@
       "command": "node benchmarks/rust-core/recorders/record-surface-preview.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "surface-host/MANIFEST.json",
-      "manifestSha256": "04d07f097cc9710d4e063ac6d873da9b6e115b885ad4aff48fcc7b0ef02cf3e7",
+      "manifestSha256": "8d726c82de04f3d4d93c556f50750b44542d686fe73dea731463d0ef6c0d609c",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-surface-preview.mjs",
       "set": "surface-host",
-      "totalBytes": 183514
+      "totalBytes": 182122
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-surface-reconcile.mjs --tree <tree>",
@@ -6455,11 +6445,11 @@
       "command": "node benchmarks/rust-core/recorders/record-tool-definitions.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "tool-definitions/MANIFEST.json",
-      "manifestSha256": "a2174fe3b2caf543b4e1e163ddb6ddaad75eb3b83c701bd1bfb050ebcade7fbf",
+      "manifestSha256": "d176758a48b20117621137387b97eb48ec89ffb2e7581d4892b5740bc654c69e",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-tool-definitions.mjs",
       "set": "tool-definitions",
-      "totalBytes": 455319
+      "totalBytes": 454296
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-tool-exclusions.mjs --tree <tree>",
@@ -6492,14 +6482,14 @@
       "totalBytes": 199688
     },
     {
-      "command": "node benchmarks/rust-core/recorders/record-tool-resolution.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "command": "node benchmarks/rust-core/recorders/record-tool-resolution.mjs --tree <tree> --working-tree",
       "fileCount": 2,
       "manifest": "tool-resolution/MANIFEST.json",
-      "manifestSha256": "f576e43dcd266b93106c022219b73a9b7c38a14a927fb64bfb8a777161cb44f6",
+      "manifestSha256": "86d9ea268e857f9ca75cd2b00f6171e880906ef55b2cbf2a53fd8de647bdeefc",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
       "set": "tool-resolution",
-      "totalBytes": 207104
+      "totalBytes": 205609
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-media-text.mjs --tree <tree>",
@@ -6525,7 +6515,7 @@
       "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch fixes applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch,benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
       "fileCount": 49,
       "manifest": "tools-fs-search/MANIFEST.json",
-      "manifestSha256": "53d36181fd64780c1046448d2ae444ffb3e096555ad3c9c2dc70841562750e09",
+      "manifestSha256": "b7ff81fb43283ebcdc5a7b80b12b9081b2d0ee928f3c3d0659b9dde0d5cfcd9b",
       "productSrcTree": null,
       "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
       "set": "tools-fs-search",

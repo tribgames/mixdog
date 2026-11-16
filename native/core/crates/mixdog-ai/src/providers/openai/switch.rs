@@ -8,10 +8,6 @@ use mixdog_core_api::domain::provider::TransportFault;
 
 use super::config::Route;
 
-/// `HANDSHAKE_MAX_ATTEMPTS`: attempts of one WebSocket send before its retry
-/// budget is spent (the first plus the five of the stream budget).
-pub const WS_ATTEMPTS: u32 = 6;
-
 /// The transport policy switch (`MIXDOG_OAI_TRANSPORT`) for a WebSocket
 /// codec: `ws-full` and `ws-delta` pin the socket, `auto` may fall back.
 /// (`http-sse` is an HTTP codec.)
@@ -85,6 +81,9 @@ pub struct Fallback {
 /// What to do with a WebSocket failure. `handshake`: the upgrade itself was
 /// refused; `exhausted`: the send's WebSocket retry budget is spent.
 pub fn decide(route: Route, error: &ProviderError, handshake: bool, exhausted: bool) -> Option<Fallback> {
+    if super::error::connection_limit(error) {
+        return None;
+    }
     let exposed = error.exposure.text_emitted || error.exposure.tool_dispatched || error.exposure.tool_input_cut;
     if exposed || error.unsafe_to_retry {
         return None;

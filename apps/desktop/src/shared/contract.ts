@@ -702,7 +702,7 @@ export interface DesktopApi {
     request: DesktopTranscriptHistoryRequest
   ): Promise<DesktopTranscriptHistoryPage>;
   /** Replay a visible lane after its read ACK arrived without a renderer baseline. */
-  resyncSessionState?(sessionId: string): void;
+  resyncSessionState?(sessionId: string, options?: { fresh?: boolean }): void | Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   /** `includeIgnored` also searches gitignored folders (chat file links);

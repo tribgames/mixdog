@@ -311,6 +311,6 @@ impl SummarySender for OneShot {
         };
         let out = self.call_prompt(&call, system, prompt).await.map_err(summary_failure)?;
         let reported = out.usage != Usage::default();
-        Ok(SummaryResponse { text: out.text, tool_call: out.tool_call, usage: reported.then_some(out.usage) })
+        Ok(SummaryResponse { text: out.text, tool_call: out.tool_call, usage: reported.then_some(out.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
     }
 }

@@ -431,11 +431,14 @@ impl ChatDecoder {
             }
         }
         if let Some(calls) = delta.and_then(|d| d.get("tool_calls")).and_then(JsonValue::as_array) {
-            if !calls.is_empty() {
+            // Only a call the chunk starts or extends advances the response; a chunk of empty fragments does not.
+            let mut merged = Vec::new();
+            self.merge_tool_calls(calls, &mut merged);
+            if merged.iter().any(|e| matches!(e, StreamEvent::ToolCallStart { .. } | StreamEvent::ToolCallArgsDelta { .. })) {
                 self.progress(out);
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
-            self.merge_tool_calls(calls, out);
+            out.extend(merged);
         }
         if let Some(reason) = choice
             .and_then(|c| c.get("finish_reason"))

@@ -206,6 +206,9 @@ fn main() {
                 send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": result}));
             }
             (Some("initialize"), Some(id)) => {
+                if std::env::var_os("MOCK_HANG_INITIALIZE").is_some() {
+                    continue;
+                }
                 *shared.client_capabilities.lock().unwrap() = message["params"]["capabilities"].clone();
                 // `MOCK_CAPABILITIES`: what the server advertises (JSON); by default it announces changes of its tools.
                 let capabilities = std::env::var("MOCK_CAPABILITIES")

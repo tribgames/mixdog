@@ -33,6 +33,7 @@ use super::error::classify_http;
 use crate::providers::leak::ToolNames;
 use crate::providers::leak::body_tool_names;
 
+#[derive(Clone)]
 pub struct OpenAiCodec {
     config: OpenAiConfig,
     transport: TransportKind,

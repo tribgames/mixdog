@@ -28,6 +28,7 @@ pub use connection::InboundFrames;
 pub use connection::Transport;
 pub use connection::WindowRole;
 pub use hub::ConnectionHub;
+pub use hub::LineSink;
 pub use hub::ConnectionLimit;
 pub use hub::Pending;
 pub use socket::Incoming;

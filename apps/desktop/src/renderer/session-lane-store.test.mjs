@@ -2,11 +2,92 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createSessionLaneStore } from './session-lane-store.ts';
+import { mergeToolRows, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { prependHistoryPage, appendHistoryPage } from './transcript-history.ts';
+import { sessionReducer, desktopSessionState } from '../../../../packages/protocol-client/src/session-state.ts';
 
 const decorator = {
   decorate: (snapshot) => snapshot,
   clear() {},
 };
+
+test('compaction history and live windows retain one activity, summary and boundary in source order', () => {
+  const tool = (id) => ({ type: 'toolCall', id, name: 'read', input: { path: 'src' }, run: { callId: id, result: 'ok' }, meta: { status: 'completed', ext: { archived: true } } });
+  const divider = { type: 'contextCompaction', id: 'divider:c1', meta: {} };
+  const summary = { type: 'agentMessage', id: 'summary', text: 'Investigation summary', meta: { ext: { archived: true, dividersAfter: [divider] } } };
+  const prompt = { type: 'userMessage', id: 'prompt', content: [{ type: 'text', text: 'Continue' }], meta: {} };
+  const history = [tool('read-1'), tool('read-2'), summary];
+  const page = mergeToolRows(history.flatMap(rowsOf));
+  const tail = mergeToolRows([divider, prompt].flatMap(rowsOf));
+  const expected = ['read-1', 'summary', 'divider:c1', 'prompt'];
+  const older = prependHistoryPage({ items: tail, hasOlder: true, hasNewer: false }, page, false);
+  assert.deepEqual(older.items.map((row) => row.id), expected, 'the page carries the same boundary as the live tail');
+  const newer = appendHistoryPage({ items: page, hasOlder: false, hasNewer: true }, tail, false);
+  assert.deepEqual(newer.items.map((row) => row.id), expected, 'paging forward crosses that same boundary');
+
+  const snapshot = (items) => ({ thread: { id: 'compaction-merge' }, items, state: {} });
+  const initial = sessionReducer.initial(snapshot([...history, prompt]));
+  assert.deepEqual(desktopSessionState(initial, []).items.map((row) => row.id), expected, 'initial and history projection share the boundary expansion');
+  let live = sessionReducer.initial(snapshot([divider, prompt]));
+  for (const item of history) live = sessionReducer.apply(live, { method: 'item/completed', params: { item } });
+  assert.deepEqual(desktopSessionState(live, []).items.map((row) => row.id), ['divider:c1', 'prompt'], 'unheld archived rows do not enter below the divider');
+
+  const store = createSessionLaneStore({ decorator });
+  const apply = (items) => store.apply({ sessionId: 'compaction-merge', frameSource: 'live', snapshot: { sessionId: 'compaction-merge', items } });
+  apply(older.items);
+  apply(tail);
+  assert.deepEqual(store.get('compaction-merge').items.map((row) => row.id), expected);
+  // A wider history source can start at an id already on screen while carrying
+  // earlier rows under its restored ids. The full overlap, not the first id,
+  // identifies which window owns the head.
+  apply([
+    { ...page[0], id: 'restored-activity' },
+    { ...page[1], id: 'restored-summary' },
+    ...tail,
+  ]);
+  assert.deepEqual(store.get('compaction-merge').items.map((row) => row.id), ['restored-activity', 'restored-summary', 'divider:c1', 'prompt']);
+  store.clear();
+
+  const activity = page[0];
+  const answer = page[1];
+  apply([activity, answer, { ...activity, id: 'second-activity' }, { ...answer, id: 'second-summary' }]);
+  const restored = [
+    { ...activity, id: 'second-activity' }, { ...answer, id: 'second-summary' },
+    { ...activity, id: 'restored-second-activity' }, { ...answer, id: 'restored-second-summary' },
+    ...tail,
+  ];
+  apply(restored);
+  assert.deepEqual(
+    store.get('compaction-merge').items,
+    [activity, answer, ...restored],
+    'distinct source ids preserve genuinely repeated activity and summary rows'
+  );
+  store.clear();
+});
+
+test('source ids retain repeated turns after the production identity cache evicts their baseline', () => {
+  const store = createSessionLaneStore();
+  const turn = (n) => [
+    { id: `u${n}`, kind: 'user', text: 'Continue' },
+    { id: `a${n}`, kind: 'assistant', text: 'Done' },
+  ];
+  const apply = (sessionId, items) => store.apply({
+    sessionId, frameSource: 'live', snapshot: { sessionId, items },
+  });
+  try {
+    apply('identity-evicted', [...turn(1), ...turn(2)]);
+    for (let n = 0; n < 12; n += 1) apply(`visited-${n}`, turn(n));
+    assert.deepEqual(store.get('identity-evicted').items.map((row) => row.id), ['u1', 'a1', 'u2', 'a2']);
+    apply('identity-evicted', [...turn(2), ...turn(3)]);
+    assert.deepEqual(
+      store.get('identity-evicted').items.map((row) => row.id),
+      ['u1', 'a1', 'u2', 'a2', 'u3', 'a3'],
+      'shared source ids preserve the cached head despite identical turn text'
+    );
+  } finally {
+    store.clear();
+  }
+});
 
 test('inactive lane updates do not retain notification keys', () => {
   const store = createSessionLaneStore({ maxEntries: 8, decorator });

@@ -13,8 +13,9 @@
 //   The pager asks for 512 rows (renderer/transcript-history.ts), Node's recorded host 64 (manifest `replay.normalised.pageSize`): the recorded
 //   64 rows are compared as the newest 64 of what the pager reveals, the held rows as held, the newest 96 displayed with `snapshot.items`.
 // - a session that changed between reads: the reader has scrolled up, so the pager reads the page before its oldest held row; while that read
-//   is held in flight the tail changes (the two appended rows reach the held rows), the pager drops the page and the hook reads the window the
-//   request was made for (32 held + 64 = 96 rows), not one grown from the 34 held now.
+//   is held in flight the tail changes (the two appended rows reach the held rows). The page's boundary is still the oldest held row, so the
+//   page lands above the rows on screen, those rows kept as the same objects, and nothing is read again; the newest 96 rows displayed are the
+//   recorded window Node's host re-read (32 held + 64).
 // - held rows that move while the page is in flight: as above, the held copy loses its first row while the read is held; the window read
 //   again is 32 + 64 = 96 rows, not 31 + 64.
 // Every wait has a deadline and a message naming what it waits for.
@@ -54,14 +55,14 @@ const React = (await import('react')).default;
 const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useTranscriptWindow } = await src('apps/desktop/src/renderer/use-transcript-history.ts');
-const { createChatApi } = await src('apps/desktop/src/renderer/remote-protocol-chat.ts');
-const { createChatHostApi } = await src('apps/desktop/src/renderer/remote-protocol-chat-host.ts');
+const { createChatApi, foldTranscript } = await src('apps/desktop/src/renderer/remote-protocol-chat.ts');
+const { createChatHostApi } = await src('apps/desktop/src/renderer/remote-chat-host.ts');
 const { routeService } = await src('apps/desktop/src/main/protocol/service-route.ts');
 const { coreErrorForWindow } = await src('apps/desktop/src/main/protocol/core-error.ts');
 const { mergeToolRows, rowOf } = await src('packages/protocol-client/src/rows.ts');
 
 /** One case: a core over `seed`, the client holding the newest `opened` rows, the reader's request and what happens to it. */
-async function replay({ prefix, seed, opened, following, move }) {
+async function replay({ prefix, seed, opened, following, move, prepends = false }) {
   const held = 32;
   const recording = observed(prefix);
   const name = recorded(prefix).case;
@@ -84,6 +85,7 @@ async function replay({ prefix, seed, opened, following, move }) {
       normalizedProviderModels: (rows) => rows,
       sessionStateOf: (threadId) => lib.sessionStateOf(client, threadId),
       remoteToolOutput: () => null,
+      transcript: foldTranscript(client),
       foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item)).filter(Boolean)),
     };
     const api = createChatHostApi(client, shared, createChatApi(client, shared, {}), { remoteSession: () => undefined });
@@ -167,6 +169,29 @@ async function replay({ prefix, seed, opened, following, move }) {
     live = move(live, state().items);
     await show();
     await act(async () => hold.resolve());
+    if (prepends) {
+      // The tail moved, the oldest held row did not: the page goes above the rows on screen, which stay the reader's own rows.
+      await within(shown.promise, LIMIT, `${name}: the page being displayed`);
+      const page = pages[0];
+      assert.deepEqual(grows, [], `${name}: the window is not read again`);
+      assert.equal(reads.length, 1, `${name}: one page read`);
+      assert.equal(reads[0].before, heldFirst, `${name}: the page was asked before the oldest held row`);
+      assert.equal(latest.items.length, page.items.length + live.length, `${name}: the page above the rows on screen`);
+      assert.deepEqual(
+        latest.items.map((row) => row.id),
+        [...page.items, ...live].map((row) => row.id),
+        `${name}: the page's rows, then the rows on screen, in order`
+      );
+      assert.ok(
+        live.every((row, index) => latest.items[page.items.length + index] === row),
+        `${name}: the rows on screen are kept as the same rows`
+      );
+      assert.deepEqual(rowsOf(latest.items.slice(-recording.snapshot.items.length)), rowsOf(recording.snapshot.items), `${name}: the newest 96 rows displayed`);
+      assert.equal(latest.hasOlder, page.hasOlder, `${name}: the window says what the page said`);
+      console.log(`${name}: replayed`);
+      return;
+    }
+    // The oldest held row moved: the page no longer fits, and the window the request was made for is read again.
     await within(grew.promise, LIMIT, `${name}: the window being read again`).then((done) => within(done, LIMIT, `${name}: the window read`));
     // The grown window folds into the client's state from the feed after the reply.
     await within(waitStore(client, () => (state().items.length === 96 ? true : undefined)), LIMIT, `${name}: the grown window being folded`).catch((error) => {
@@ -189,7 +214,7 @@ async function replay({ prefix, seed, opened, following, move }) {
 try {
   await replay({ prefix: 'an older page', seed: join(seeds, 'c300'), opened: 32, following: false, move: null });
   // The client's feed carries the appended rows to the held rows while the page is in flight.
-  await replay({ prefix: 'a session that changed', seed: join(seeds, 'c302'), opened: 34, following: false, move: (_held, all) => all });
+  await replay({ prefix: 'a session that changed', seed: join(seeds, 'c302'), opened: 34, following: false, move: (_held, all) => all, prepends: true });
   // The recorder's movement: the held copy loses its first row.
   await replay({ prefix: 'held rows that move', seed: join(seeds, 'c300'), opened: 32, following: false, move: (items) => items.slice(1) });
 } finally {

@@ -91,7 +91,7 @@ async fn walk_entries(
     respect_ignore: bool,
     keep: impl Fn(&DirEntry) -> bool,
     cap: Option<usize>,
-    server: Option<SearchClass>,
+    server: Option<(SearchClass, u64)>,
 ) -> Result<Walked, ToolError> {
     walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap, server).await
 }
@@ -104,10 +104,12 @@ pub(super) async fn walk_entries_pruned(
     keep: impl Fn(&DirEntry) -> bool,
     prune: Vec<AbsPath>,
     cap: Option<usize>,
-    server: Option<SearchClass>,
+    server: Option<(SearchClass, u64)>,
 ) -> Result<Walked, ToolError> {
+    let budget_ms = server.map_or(u64::MAX, |(_, budget)| budget);
+    let server = server.map(|(class, _)| class);
     let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, require_git: true, include_dirs: false, prune, descent: Default::default(), server };
-    walk_kept(ctx, request, keep, cap).await
+    walk_kept(ctx, request, keep, cap, budget_ms).await
 }
 
 /// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
@@ -121,7 +123,7 @@ pub(super) async fn walk_inventory(
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
     let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None };
-    walk_kept(ctx, request, keep, Some(cap)).await
+    walk_kept(ctx, request, keep, Some(cap), u64::MAX).await
 }
 
 /// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
@@ -132,7 +134,7 @@ pub(super) async fn walk_inventory(
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
     let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
-    broad_search(ctx, BROAD_REFUSALS[1], |_| walk_kept(ctx, request, keep, Some(cap))).await
+    broad_search(ctx, BROAD_REFUSALS[1], |budget| walk_kept(ctx, request, keep, Some(cap), budget)).await
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
@@ -141,11 +143,13 @@ async fn walk_kept(
     request: WalkRequest,
     keep: impl Fn(&DirEntry) -> bool,
     cap: Option<usize>,
+    budget_ms: u64,
 ) -> Result<Walked, ToolError> {
     let include_dirs = request.include_dirs;
     // A walk the search server runs answers what it found at its soft deadline, before the client's hard timeout would refuse the
-    // search (`softDeadlineMs`, native-search-client.mjs): the served partial.
-    let soft = request.server.map(|_| SearchDeadlines::of(ctx).soft);
+    // search (`softDeadlineMs`, native-search-client.mjs): the served partial. Admission has already spent part of that
+    // total budget; restarting it here would put the partial beyond the enclosing hard deadline.
+    let soft = request.server.map(|_| SearchDeadlines::within(ctx, budget_ms).soft);
     let mut walk = ctx.files.walk(ctx.io.maintenance, request);
     let mut out = Vec::new();
     let mut capped = false;
@@ -212,15 +216,13 @@ fn refusal(reason: String) -> ToolError {
     fail(ToolErrorCode::Failed { reason }, text)
 }
 
-/// What Node's client throws for a broad search that waited past its budget for its turn (owner-fair-gate.mjs
-/// `waitTimeoutError`) and for one that was admitted and then ran past what the wait left (`timeoutError`,
-/// native-search-client.mjs:67-77), as the reasons begin; the tools answer both as they answer a full queue
-/// ([`broad_search`]).
+/// Broad-search refusal prefixes: admission expiry names the wait; expiry after admission names the remaining
+/// budget, which also covers producer waiting. The tools answer both as they answer a full queue ([`broad_search`]).
 const BROAD_REFUSALS: [&str; 4] = [
     "broad search I/O admission wait exceeded ",
-    "native file inventory search timed out after ",
-    "native fuzzy search timed out after ",
-    "native content search timed out after ",
+    "native file inventory search exceeded its ",
+    "native fuzzy search exceeded its ",
+    "native content search exceeded its ",
 ];
 
 /// The reason of a refusal ([`refusal`]).
@@ -345,13 +347,7 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
         mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
         mixdog_rt::Scoped::Cancelled => Err(cancelled()),
         mixdog_rt::Scoped::DeadlineExceeded => {
-            // The remedy a fuzzy search's timeout names (`timeoutError`).
-            let detail = if kind == BROAD_REFUSALS[2] {
-                " Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match."
-            } else {
-                ""
-            };
-            Err(refusal(format!("{kind}{left}ms.{detail}")))
+            Err(refusal(format!("{kind}{left}ms remaining budget.")))
         }
     }
 }
@@ -368,16 +364,16 @@ pub(crate) async fn glob_files(
     cap: Option<usize>,
 ) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool, Turn), ToolError> {
     let (inc, exc, any_include) = compile_globs(patterns)?;
-    let root_path = root.as_path().to_path_buf();
+    let root_path = root.as_path();
     let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
-    let ((found, complete, capped), turn) = broad_search_turn(ctx, BROAD_REFUSALS[1], |_| async {
+    let ((found, complete, capped), turn) = broad_search_turn(ctx, BROAD_REFUSALS[1], |budget| async move {
         let walked = walk_entries(ctx, root, !include_noise, |e| {
             if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
                 return false;
             }
             let r = rel(e.path.as_path());
             (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
-        }, cap, Some(SearchClass::Bulk))
+        }, cap, Some((SearchClass::Bulk, budget)))
         .await?;
         let mut out = Vec::with_capacity(walked.entries.len());
         for e in walked.entries {
@@ -842,7 +838,7 @@ impl Tool for GlobTool {
             ));
         }
         if !complete {
-            text.push_str("\n[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.");
+            text.push_str("\n[warning] search deadline reached; partial results shown.");
         }
         Ok(text_output(locator_budget(text, &locator_targets(&args), offset)))
     }
@@ -1042,8 +1038,8 @@ impl Tool for FindTool {
             descent: Descent { max_depth: None, bare, bare_dotted: false },
             server: Some(SearchClass::Fuzzy),
         };
-        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |_| {
-            walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None)
+        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |budget| {
+            walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None, budget)
         })
         .await?;
         // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
@@ -1073,7 +1069,7 @@ impl Tool for FindTool {
             lines.push(format!("... (top {limit}; additional matches omitted)"));
         }
         if !complete {
-            lines.push("... [search timed out; partial results shown]".to_owned());
+            lines.push("... [search deadline reached; partial results shown]".to_owned());
         }
         let text = lines.join("\n");
         if text.len() > locator_max_bytes() {
@@ -1363,7 +1359,7 @@ impl GrepTool {
             // The search's hard deadline: the server never answered (`requestNative`'s timer, `timeoutError`); the search
             // was stopped as Node's client cancels and then ends its server.
             PullEnd::Timer => {
-                let text = format!("Error: native content search timed out after {}ms.", deadlines.hard_ms);
+                let text = format!("Error: native content search exceeded its {}ms total deadline.", deadlines.hard_ms);
                 return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
             }
         };
@@ -1431,8 +1427,8 @@ impl SearchDeadlines {
     }
 }
 
-/// grep-output.mjs `grepPartialWarning` for a timed-out scan.
-const TIMEOUT_WARNING: &str = "\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.";
+/// The deadline can expire while waiting for a producer, not only while scanning.
+const TIMEOUT_WARNING: &str = "\n[warning] search deadline reached; partial results shown.";
 
 /// grep-output.mjs `grepPartialWarning` for an incomplete scan: a timed-out one, else one with files it could not read.
 /// Their count reaches it as `rgStderr` only through a windowed stream (native-search-client.mjs:888-892,

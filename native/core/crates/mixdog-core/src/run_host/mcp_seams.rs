@@ -415,7 +415,7 @@ impl GateEnv for HostGateEnv {
         // `resolveMcpToolAccount(name, args, { scopeId: ctx.mcpScopeId })`: the servers of the session's scope.
         let scope = normalize_scope(super::session_tools::header_scope(header));
         match self.hub.resolve_tool_account_in(&scope, &call.name, &call.args, thread.as_str()).await {
-            Ok(chosen) => Ok(chosen.map(|account| BoundAccount { name: account.name, label: account.label })),
+            Ok(chosen) => Ok(chosen.map(|account| BoundAccount { name: account.name, id: account.id, label: account.label })),
             Err(refusal) => Err(refusal.to_string()),
         }
     }

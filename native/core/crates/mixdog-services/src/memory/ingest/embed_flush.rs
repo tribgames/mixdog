@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
 use crate::memory::embed::config::InputType;
-use crate::memory::embed::engine::Embedder;
+use crate::memory::embed::host::Embedder;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::pg::db::Db;
@@ -121,6 +121,24 @@ fn parse_vector(text: &str) -> Vec<f32> {
     text.trim_start_matches('[').trim_end_matches(']').split(',').map(|n| string_to_number(n) as f32).collect()
 }
 
+/// Whether a claim that returned `claimed` rows of a possible `cap` means more rows are waiting.
+fn backlog_continues(claimed: usize, cap: usize) -> bool {
+    claimed >= cap
+}
+
+#[cfg(test)]
+mod warm_tests {
+    use super::backlog_continues;
+
+    #[test]
+    fn a_short_claim_is_not_a_backlog() {
+        assert!(!backlog_continues(1, BATCH_SIZE_FOR_TEST));
+        assert!(backlog_continues(BATCH_SIZE_FOR_TEST, BATCH_SIZE_FOR_TEST));
+    }
+
+    const BATCH_SIZE_FOR_TEST: usize = super::BATCH_SIZE;
+}
+
 /// Flushes raw rows' embeddings for one database.
 pub struct RawEmbedFlush {
     db: Db,
@@ -196,8 +214,10 @@ impl RawEmbedFlush {
             }
             cursor = claimed[claimed.len() - 1];
             attempted += claimed.len();
-            // A backlog is being worked: the model is about to be needed again.
-            if let Some(provider) = &self.provider {
+            // Only a full batch says a backlog goes on; a lone live row lets the model idle out.
+            if backlog_continues(claimed.len(), batch_cap)
+                && let Some(provider) = &self.provider
+            {
                 provider.hold_warm();
             }
             match self.sync_batch(&client, &claimed, &mut pruned).await {

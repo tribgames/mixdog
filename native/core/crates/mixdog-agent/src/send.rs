@@ -151,20 +151,6 @@ impl Drop for SendGroup {
     }
 }
 
-/// `MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT`: the retries one WebSocket send spends, handshake and stream failures alike
-/// (the adapter's own switch to HTTP/SSE ends such a send earlier on a switchable route).
-const WS_RETRY_LIMIT: u32 = 5;
-
-/// `_mustSurfaceCurrentAttempt` (`openai-ws-send-attempts/policy.mjs`): a decision of the current attempt (auth, an
-/// upgrade or rate-limit answer, a 1009, a cancellation, a replay that is no longer safe) is never replaced by the
-/// outage's earlier failure.
-fn must_surface_current(error: &ProviderError, replay_safe: bool) -> bool {
-    matches!(error.status, Some(401 | 403 | 426 | 429))
-        || matches!(error.transport, Some(TransportFault::WsClose { code: Some(1009) }))
-        || error.unsafe_to_retry
-        || !replay_safe
-}
-
 /// The facts that end a stream after it started.
 fn is_stream_cut(error: &ProviderError) -> bool {
     matches!(
@@ -368,8 +354,6 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
-                    self.first_ws_failure = None;
-                    self.ws_retries = 0;
                     self.settle_prefix(&response);
                     // `settleImageStrip`: a confirmed rejection of one image is
                     // healed out of the transcript, so later turns never send it again; any other
@@ -924,19 +908,45 @@ impl Run {
         }
         let text_shown = error.exposure.text_emitted || shown_chars > 0;
         let exposed = text_shown || reasoning_shown;
+        // Node continues text already shown when no reset channel exists, before
+        // considering replay. A refused reset on an existing channel still fails.
+        if text_shown
+            && is_stream_cut(&error)
+            && partial.tool_calls.is_empty()
+            && self.eager.is_empty()
+            && !error.exposure.tool_input_cut
+            && !error.exposure.tool_dispatched
+            && !self.env.observer.can_retract()
+        {
+            return Ok(Recovery::Proceed(Box::new(ModelResponse {
+                stop: None,
+                truncated: true,
+                stream_cut: true,
+                tool_calls: Vec::new(),
+                ..partial
+            })));
+        }
+        let ws_owner_replay = error.ws_phase == Some(WsPhase::Stream)
+            && !error.recovery_exhausted
+            && (exposed || error.exposure.tool_input_cut);
         // Withdrawing shown text makes a replay safe; it is asked only once a
         // replay is decided. A dispatched tool call can never be replayed.
-        let retractable = exposed && !error.exposure.tool_dispatched;
+        let retractable = exposed && !error.exposure.tool_dispatched && self.eager.is_empty() && partial.tool_calls.is_empty();
         let mut decide_on = error.clone();
         // A call already running cannot be replayed.
         decide_on.exposure.tool_dispatched |= !self.eager.is_empty();
         if retractable {
             decide_on.exposure.text_emitted = false;
+            if ws_owner_replay && reasoning_shown {
+                decide_on.unsafe_to_retry = false;
+            }
         }
         let split_notice = decide_on.exposure.tool_input_cut;
         decide_on.exposure.tool_input_cut = false;
 
-        let mut class = first_class(midstream);
+        // Retraction/split-call recovery starts a new send on the outer
+        // transport ladder; it does not refill the provider's spent budget.
+        let mut class = if ws_owner_replay { RetryClass::Transport } else { first_class(midstream) };
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
         let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
@@ -979,8 +989,6 @@ impl Run {
                 return Ok(Recovery::Replay);
             }
             match decision.verdict {
-                // A WebSocket send's budget is its own: a spent one surfaces, whatever the loop's ladder would allow.
-                Verdict::Retry { .. } if error.ws_phase.is_some() && self.ws_retries >= WS_RETRY_LIMIT => break None,
                 Verdict::Retry { delay, reason, .. } => {
                     break Some((decision.next, Some((delay, reason)), None));
                 }
@@ -996,50 +1004,19 @@ impl Run {
             }
         };
         let Some((next, wait, fallback)) = committed else {
-            // Surfacing: text the owner offers no way to withdraw is kept as
-            // shown and the cut response resumed through the output-limit
-            // ladder, instead of being lost with a failed turn.
-            if text_shown
-                && is_stream_cut(&error)
-                && partial.tool_calls.is_empty()
-                && !error.exposure.tool_input_cut
-                && !error.exposure.tool_dispatched
-                && !self.env.observer.can_retract()
-            {
-                return Ok(Recovery::Proceed(Box::new(ModelResponse {
-                    stop: None,
-                    truncated: true,
-                    stream_cut: true,
-                    tool_calls: Vec::new(),
-                    ..partial
-                })));
-            }
-            for state in spent {
-                self.retry.store(state);
-            }
-            // A WebSocket send that ends after a retry surfaces the failure that retry left behind (`firstAttemptError`:
-            // `resolveHandshakeFailure` / `resolveStreamFailure`), whether the budget is spent or the attempt is no retry's.
-            let surfaced = match self.first_ws_failure.take() {
-                Some(first) if error.ws_phase.is_some() && !must_surface_current(&error, replay_safe) => first,
-                _ => error,
-            };
-            return self.surface(surfaced).await;
-        };
-        if retractable && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
             for state in spent {
                 self.retry.store(state);
             }
             return self.surface(error).await;
-        }
-        // The retry about to start leaves its failure behind (`scheduleRetry`): a handshake failure only when none is
-        // kept yet (`remember: !state.firstAttemptError`), a stream failure always (`remember: true`).
-        match error.ws_phase {
-            Some(WsPhase::Stream) => self.first_ws_failure = Some(error.clone()),
-            Some(WsPhase::Handshake) if self.first_ws_failure.is_none() => self.first_ws_failure = Some(error.clone()),
-            _ => {}
-        }
-        if error.ws_phase.is_some() {
-            self.ws_retries += 1;
+        };
+        if retractable
+            && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn
+            && !(ws_owner_replay && shown_chars == 0 && reasoning_shown)
+        {
+            for state in spent {
+                self.retry.store(state);
+            }
+            return self.surface(error).await;
         }
         for state in spent {
             self.retry.store(state);
@@ -1059,8 +1036,6 @@ impl Run {
         if let Some(model) = fallback {
             self.model = model.clone();
             self.retry = RetryStates::new(&model);
-            self.first_ws_failure = None;
-            self.ws_retries = 0;
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
@@ -1069,7 +1044,7 @@ impl Run {
             // run (B-11: the user reads one rising n/N); any other wait counts its own row.
             let first = first_class(midstream);
             let (used, max) = match escalate(first, &decide_on) {
-                Some(RetryClass::Recovery) if policy.recovery.is_some() => (
+                Some(RetryClass::Recovery) if next.class() != RetryClass::Transport && policy.recovery.is_some() => (
                     self.retry.get(first).count(None).retries + self.retry.get(RetryClass::Recovery).count(None).retries,
                     row_max(first) + row_max(RetryClass::Recovery),
                 ),
@@ -1299,8 +1274,6 @@ impl Run {
         self.config.text_only = switch.text_only;
         self.model = switch.model.clone();
         self.retry = RetryStates::new(&self.model);
-        self.first_ws_failure = None;
-        self.ws_retries = 0;
         self.context_overflow_retry_used = false;
         self.baseline = None;
         // The new route's requests are measured from scratch (`route-fallback.mjs`).

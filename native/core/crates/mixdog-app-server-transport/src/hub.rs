@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::Weak;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -38,6 +39,9 @@ use crate::writer::write_loop;
 /// Requests the reader may have decoded ahead of the server (C0 admission queue, RL §4.2).
 const INBOUND_QUEUE: usize = 64;
 
+/// Where log lines go (the daemon log).
+pub type LineSink = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// `limits.maxConnections` connections are open already.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConnectionLimit;
@@ -49,6 +53,8 @@ struct HubInner {
     clock: Arc<AtomicU64>,
     next_id: AtomicU64,
     entries: Mutex<HashMap<ConnectionId, Arc<Shared>>>,
+    /// Where the line of each socket that never becomes a connection goes (the daemon log, through its contained sink).
+    log: OnceLock<LineSink>,
 }
 
 impl HubInner {
@@ -76,8 +82,14 @@ impl ConnectionHub {
                 clock: Arc::new(AtomicU64::new(1)),
                 next_id: AtomicU64::new(1),
                 entries: Mutex::new(HashMap::new()),
+                log: OnceLock::new(),
             }),
         })
+    }
+
+    /// Where the lines of sockets that never become a connection go (refused, abandoned, handshake failed); set once.
+    pub fn set_log(&self, sink: LineSink) -> Result<(), LineSink> {
+        self.inner.log.set(sink)
     }
 
     pub fn limits(&self) -> &Limits {
@@ -120,12 +132,20 @@ impl ConnectionHub {
             Arc::clone(&self.inner.clock),
         ));
         self.inner.entries().insert(id, Arc::clone(&shared));
+        let unserved = Unserved {
+            hub: Arc::clone(&self.inner),
+            id,
+            origin: origin_name(shared.origin()),
+            reason: Mutex::new(None),
+            armed: true,
+        };
         Pending {
             shared,
             registration: Registration {
                 hub: Arc::clone(&self.inner),
                 id,
             },
+            unserved,
         }
     }
 
@@ -185,6 +205,17 @@ impl ConnectionHub {
     }
 }
 
+/// The origin's kind alone (no peer or window ids), for lines about a socket that has no identity yet.
+fn origin_name(origin: &ConnectionOrigin) -> &'static str {
+    match origin {
+        ConnectionOrigin::Loopback => "loopback",
+        ConnectionOrigin::SshTunnel => "sshTunnel",
+        ConnectionOrigin::Relay { .. } => "relay",
+        ConnectionOrigin::InProcess => "inProcess",
+        ConnectionOrigin::Window { .. } => "window",
+    }
+}
+
 /// Removes a connection from the table when its last task ends.
 struct Registration {
     hub: Arc<HubInner>,
@@ -197,8 +228,34 @@ impl Drop for Registration {
     }
 }
 
+/// The end of a socket that never became a connection: the one place such a socket is recorded, whatever ended it.
+/// `Pending::start` disarms it; connections that start are recorded by the server that serves them.
+struct Unserved {
+    hub: Arc<HubInner>,
+    id: ConnectionId,
+    origin: &'static str,
+    reason: Mutex<Option<String>>,
+    armed: bool,
+}
+
+impl Drop for Unserved {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let reason = self.reason.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take().unwrap_or_else(|| "peerClosed".to_owned());
+        let (id, origin) = (self.id.0, self.origin);
+        let (open, max) = (self.hub.entries().len(), self.hub.limits.max_connections);
+        if let Some(log) = self.hub.log.get() {
+            log(&format!("connection ended before service id={id} origin={origin} reason={reason} open={open} max={max}"));
+        }
+    }
+}
+
 /// A registered socket that has not become a connection yet.
 pub struct Pending {
+    // Declared first so it drops first: its line counts the table while this socket is still in it.
+    unserved: Unserved,
     shared: Arc<Shared>,
     registration: Registration,
 }
@@ -229,6 +286,12 @@ impl Pending {
         })
     }
 
+    /// Why this socket will not become a connection (a fixed name: `refused status=503 reason=connectionLimit`, `abandoned`,
+    /// `handshakeFailed`). Dropping it unstarted is its one line; a peer that just leaves says `peerClosed`.
+    pub fn ends_because(&self, reason: String) {
+        *self.unserved.reason.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(reason);
+    }
+
     /// Resolves when the heartbeat or a drain abandons this socket.
     pub fn abandoned(&self) -> WaitForCancellationFuture<'_> {
         self.shared.abort.cancelled()
@@ -239,7 +302,9 @@ impl Pending {
         let Self {
             shared,
             registration,
+            mut unserved,
         } = self;
+        unserved.armed = false;
         let id = shared.id();
         let origin = shared.origin().clone();
         shared.mark_upgraded();

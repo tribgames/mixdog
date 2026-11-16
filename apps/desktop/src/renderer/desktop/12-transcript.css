@@ -113,11 +113,11 @@
   padding: 12px var(--pane-inset);
   gap: 8px;
 }
-/* Studio and the TASK header consume the full pane width. The TASK
-   conversation keeps its desktop 800/848px reading column on every surface —
-   a landscape phone included; its text insets live in 07-mobile-chrome.css. */
+/* Studio's gallery and the TASK header consume the full pane width.
+   Keep this override below the Studio shell so its dock, like the session
+   dock, retains the pane's 800/848px reading column. */
 .workspace > .session-header,
-.studio-shell {
+.studio-stage-host {
   --pane-column: 100%;
   --pane-scroll-column: 100%;
   --pane-card: 100%;

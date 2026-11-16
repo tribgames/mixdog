@@ -36,6 +36,7 @@ pub mod compose_browser_engine;
 pub mod compose_connections;
 pub mod connection_close;
 pub mod effort_judge_host;
+pub mod embedding_host;
 pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod worktree_cache_cleanups;

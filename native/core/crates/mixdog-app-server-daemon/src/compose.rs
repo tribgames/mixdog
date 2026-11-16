@@ -280,8 +280,9 @@ pub struct Models {
     pub effort_judge: Arc<EffortJudgeModel>,
 }
 
-/// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
-const EMBED_SESSIONS: usize = 2;
+/// Graph sessions the embedder keeps: one, as Node's worker ran. Each holds its own copy of the model's weights and
+/// activations, and embedding speed is worth less than the memory.
+const EMBED_SESSIONS: usize = 1;
 
 pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
@@ -325,6 +326,11 @@ pub(crate) async fn flush_at_exit(log: &crate::daemon_log::DaemonLog, usage: &mi
 }
 
 impl ComposedCore {
+    /// The daemon log as a line sink, for the connection open/close lines.
+    pub(crate) fn log_line_sink(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
+        self.log.line_log()
+    }
+
     /// How this start's desktop defaults separation ended (the `initialize` reply's `defaultsSeparation`).
     pub fn defaults_separation(&self) -> mixdog_app_protocol::v1::DefaultsSeparation {
         self.real.defaults_separation.clone()

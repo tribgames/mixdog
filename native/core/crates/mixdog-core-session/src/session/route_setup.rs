@@ -300,9 +300,7 @@ fn facade_properties(route: &Obj, session_context_percent: Option<&Value>) -> Va
             out.insert(key.into(), value.clone());
         }
     }
-    let preset_effort = route.get("preset").and_then(|preset| preset.get("effort"));
-    let effort = [route.get("effectiveEffort"), route.get("effort"), preset_effort].into_iter().find(|v| truthy(*v)).flatten();
-    out.insert("effort".into(), effort.cloned().unwrap_or(Value::Null));
+    out.insert("effort".into(), mixdog_core_ports::ports::route::facade_effort(route).cloned().unwrap_or(Value::Null));
     out.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
     out.insert("autoEffort".into(), Value::Bool(route.get("autoEffort") != Some(&Value::Bool(false))));
     out.insert("fastCapable".into(), Value::Bool(route.get("fastCapable") == Some(&Value::Bool(true))));

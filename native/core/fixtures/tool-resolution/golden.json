@@ -10,8 +10,7 @@
       "grep",
       "glob",
       "find",
-      "list",
-      "machine"
+      "list"
     ],
     "tools": [
       {
@@ -124,13 +123,6 @@
           "$tool": "web_fetch",
           "variant": "internal",
           "hash": "2c0a719b021b2096"
-        }
-      },
-      {
-        "name": "machine",
-        "definition": {
-          "$tool": "machine",
-          "hash": "bcff9e8a3d10e007"
         }
       },
       {
@@ -391,8 +383,7 @@
   "definitions": {
     "explore": {
       "$tool": "explore",
-      "variant": "internal",
-      "hash": "7f3688869969506e"
+      "hash": "f0d1ce62e7623876"
     },
     "find": {
       "$tool": "find",
@@ -437,28 +428,23 @@
     },
     "agent": {
       "$tool": "agent",
-      "variant": "internal",
-      "hash": "87671b659bab7918"
+      "hash": "38de04cce3c60d7f"
     },
     "web_search": {
       "$tool": "web_search",
-      "variant": "internal",
-      "hash": "bbe857bca78545fa"
+      "hash": "74a04264feea1e79"
     },
     "Skill": {
       "$tool": "Skill",
-      "variant": "internal",
-      "hash": "6b52df78e9a7e474"
+      "hash": "367e1633a077263c"
     },
     "ask_user": {
       "$tool": "ask_user",
-      "variant": "internal",
-      "hash": "339666ac08f9d38b"
+      "hash": "f30ea10d2dd6c88e"
     },
     "load_tool": {
       "$tool": "load_tool",
-      "variant": "internal",
-      "hash": "60144133a52f5827"
+      "hash": "cc5a1cecdba77717"
     },
     "todo": {
       "$tool": "todo",
@@ -505,13 +491,13 @@
     },
     "react": {
       "$tool": "react",
-      "variant": "internal",
-      "hash": "3414ac139f074786"
+      "hash": "ff9d32c23bed60cd"
     },
-    "machine": {
-      "$tool": "machine",
-      "hash": "bcff9e8a3d10e007",
+    "browser": {
+      "$tool": "browser",
+      "hash": "e4cdcc6d14cc1488",
       "override": {
+        "annotations": {},
         "deferLoading": true
       }
     },
@@ -536,19 +522,22 @@
     },
     "web_fetch#2": {
       "$tool": "web_fetch",
-      "variant": "internal",
-      "hash": "2c0a719b021b2096",
+      "hash": "ebb9b0f9de03368b",
       "override": {
         "deferLoading": true
       }
     },
     "session": {
       "$tool": "session",
-      "variant": "internal",
-      "hash": "56f4b521c9af3cf7",
+      "hash": "c9770ad9cf12d9ec",
       "override": {
         "deferLoading": true
       }
+    },
+    "explore#4": {
+      "$tool": "explore",
+      "variant": "internal",
+      "hash": "7f3688869969506e"
     },
     "git#2": {
       "$tool": "git",
@@ -564,16 +553,22 @@
       "variant": "agent",
       "hash": "8a6a54d41204a199"
     },
+    "web_search#3": {
+      "$tool": "web_search",
+      "variant": "internal",
+      "hash": "bbe857bca78545fa"
+    },
     "web_fetch#3": {
       "$tool": "web_fetch",
       "variant": "internal",
       "hash": "2c0a719b021b2096"
     },
-    "machine#2": {
-      "$tool": "machine",
-      "hash": "bcff9e8a3d10e007"
+    "Skill#3": {
+      "$tool": "Skill",
+      "variant": "internal",
+      "hash": "6b52df78e9a7e474"
     },
-    "browser": {
+    "browser#2": {
       "$tool": "browser",
       "variant": "internal",
       "hash": "5e076c0fef7896d0"
@@ -594,6 +589,11 @@
       "unset": [
         "title"
       ]
+    },
+    "load_tool#3": {
+      "$tool": "load_tool",
+      "variant": "internal",
+      "hash": "60144133a52f5827"
     },
     "media": {
       "$tool": "media",
@@ -644,8 +644,7 @@
     },
     "code_graph#2": {
       "$tool": "code_graph",
-      "variant": "internal",
-      "hash": "2fe10e460bbae3c6"
+      "hash": "682f9963cb992237"
     },
     "mcp__alpha__Beta": {
       "name": "mcp__alpha__Beta",
@@ -728,7 +727,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -765,7 +763,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -920,7 +917,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -957,7 +953,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1107,7 +1102,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1144,7 +1138,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1299,7 +1292,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1336,7 +1328,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1687,7 +1678,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1724,7 +1714,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1900,7 +1889,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1932,7 +1920,6 @@
         "edit",
         "shell",
         "task",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2025,8 +2012,8 @@
           "definition": "todo"
         },
         {
-          "name": "machine",
-          "definition": "machine",
+          "name": "browser",
+          "definition": "browser",
           "deferLoading": true
         }
       ]
@@ -2083,7 +2070,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2120,7 +2106,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2274,7 +2259,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2310,7 +2294,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "agent",
         "ask_user",
         "browser",
@@ -2466,7 +2449,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2657,7 +2639,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2862,7 +2843,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3062,7 +3042,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3267,7 +3246,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3421,7 +3399,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3502,7 +3479,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3539,7 +3515,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3571,7 +3546,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3591,7 +3565,7 @@
       "provider": [
         {
           "name": "explore",
-          "definition": "explore"
+          "definition": "explore#4"
         },
         {
           "name": "find",
@@ -3639,23 +3613,19 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "web_fetch",
           "definition": "web_fetch#3"
         },
         {
-          "name": "machine",
-          "definition": "machine#2"
-        },
-        {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "browser",
-          "definition": "browser"
+          "definition": "browser#2"
         },
         {
           "name": "browser_devtools",
@@ -3671,7 +3641,7 @@
         },
         {
           "name": "load_tool",
-          "definition": "load_tool"
+          "definition": "load_tool#3"
         },
         {
           "name": "media",
@@ -3750,7 +3720,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3787,7 +3756,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3819,7 +3787,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3839,7 +3806,7 @@
       "provider": [
         {
           "name": "explore",
-          "definition": "explore"
+          "definition": "explore#4"
         },
         {
           "name": "find",
@@ -3887,23 +3854,19 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "web_fetch",
           "definition": "web_fetch#3"
         },
         {
-          "name": "machine",
-          "definition": "machine#2"
-        },
-        {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "browser",
-          "definition": "browser"
+          "definition": "browser#2"
         },
         {
           "name": "browser_devtools",
@@ -3919,7 +3882,7 @@
         },
         {
           "name": "load_tool",
-          "definition": "load_tool"
+          "definition": "load_tool#3"
         },
         {
           "name": "media",
@@ -3998,7 +3961,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4035,7 +3997,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4097,11 +4058,11 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "todo",
@@ -4159,7 +4120,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4196,7 +4156,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4228,7 +4187,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4248,7 +4206,7 @@
       "provider": [
         {
           "name": "explore",
-          "definition": "explore"
+          "definition": "explore#4"
         },
         {
           "name": "find",
@@ -4296,23 +4254,19 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "web_fetch",
           "definition": "web_fetch#3"
         },
         {
-          "name": "machine",
-          "definition": "machine#2"
-        },
-        {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "browser",
-          "definition": "browser"
+          "definition": "browser#2"
         },
         {
           "name": "browser_devtools",
@@ -4328,7 +4282,7 @@
         },
         {
           "name": "load_tool",
-          "definition": "load_tool"
+          "definition": "load_tool#3"
         },
         {
           "name": "media",
@@ -4410,7 +4364,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4447,7 +4400,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4509,11 +4461,11 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "todo",
@@ -4580,7 +4532,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4682,7 +4633,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4774,7 +4724,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4852,7 +4801,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4885,7 +4833,6 @@
         "edit",
         "shell",
         "task",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4911,7 +4858,6 @@
         "edit",
         "shell",
         "task",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4929,7 +4875,7 @@
       "provider": [
         {
           "name": "explore",
-          "definition": "explore"
+          "definition": "explore#4"
         },
         {
           "name": "find",
@@ -4968,16 +4914,12 @@
           "definition": "task#2"
         },
         {
-          "name": "machine",
-          "definition": "machine#2"
-        },
-        {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "browser",
-          "definition": "browser"
+          "definition": "browser#2"
         },
         {
           "name": "browser_devtools",
@@ -4993,7 +4935,7 @@
         },
         {
           "name": "load_tool",
-          "definition": "load_tool"
+          "definition": "load_tool#3"
         },
         {
           "name": "media",
@@ -5077,7 +5019,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -5110,7 +5051,6 @@
         "edit",
         "shell",
         "task",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -5169,7 +5109,7 @@
         },
         {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "todo",
@@ -6087,7 +6027,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6225,7 +6164,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6373,7 +6311,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6523,7 +6460,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6625,7 +6561,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6717,7 +6652,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6754,7 +6688,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -6816,11 +6749,11 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "todo",
@@ -6885,7 +6818,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6977,7 +6909,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7019,7 +6950,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7179,7 +7109,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7221,7 +7150,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7390,7 +7318,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7430,7 +7357,6 @@
         "github",
         "shell",
         "task",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7850,7 +7776,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7892,7 +7817,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -7929,7 +7853,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -7954,7 +7877,7 @@
       "provider": [
         {
           "name": "explore",
-          "definition": "explore"
+          "definition": "explore#4"
         },
         {
           "name": "find",
@@ -8002,23 +7925,19 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "web_fetch",
           "definition": "web_fetch#3"
         },
         {
-          "name": "machine",
-          "definition": "machine#2"
-        },
-        {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "browser",
-          "definition": "browser"
+          "definition": "browser#2"
         },
         {
           "name": "browser_devtools",
@@ -8034,7 +7953,7 @@
         },
         {
           "name": "load_tool",
-          "definition": "load_tool"
+          "definition": "load_tool#3"
         },
         {
           "name": "mcp__alpha__Beta",
@@ -8133,7 +8052,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -8175,7 +8093,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -8242,11 +8159,11 @@
         },
         {
           "name": "web_search",
-          "definition": "web_search"
+          "definition": "web_search#3"
         },
         {
           "name": "Skill",
-          "definition": "Skill"
+          "definition": "Skill#3"
         },
         {
           "name": "todo",
@@ -8309,7 +8226,6 @@
         "task",
         "web_search",
         "web_fetch",
-        "machine",
         "Skill",
         "agent",
         "ask_user",

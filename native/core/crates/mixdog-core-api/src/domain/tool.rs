@@ -287,9 +287,18 @@ impl std::fmt::Debug for ToolNotify {
     }
 }
 
+/// The immutable connector account selected before approval.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ConnectorAccountBinding {
+    pub name: String,
+    pub id: String,
+}
+
 /// What the caller passes with one call besides the model's arguments.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct CallOptions {
+    /// Trusted approval binding, never part of model arguments or a hook rewrite.
+    pub connector_account: Option<ConnectorAccountBinding>,
     /// Set only in a worker's turn (`AgentTurn.hooks.notify`): background work this call starts
     /// reports its completion here first.
     pub notify: Option<ToolNotify>,

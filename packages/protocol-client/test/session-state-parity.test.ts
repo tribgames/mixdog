@@ -106,6 +106,37 @@ test('prompt history and history reset fold from the core', () => {
   assert.equal(s.fields.transcriptHasOlder, true);
 });
 
+test('a compaction archives the rows the store holds in place and adds none of the older ones below the divider', () => {
+  const at = (s: SessionFold, item: O) => sessionReducer.apply(s, { method: 'item/completed', params: { threadId: 't', turnId: '', item } } as never);
+  const user = (id: string, text: string, ext: O = {}) => ({ type: 'userMessage', id, content: [{ type: 'text', text }], meta: { ext } });
+  const reply = (id: string, text: string, ext: O = {}) => ({ type: 'agentMessage', id, text, meta: { ext } });
+  const call = (id: string, name: string, ext: O = {}) => ({ type: 'toolCall', id, name, input: { path: '.' }, run: { callId: id, result: 'ok' }, meta: { status: 'completed', ext } });
+  const divider = { type: 'contextCompaction', id: 'divider:c1', meta: { label: 'Conversation compacted', detail: '520k→41k' } };
+  // The store's tail: the last turn before the compaction, then the turn the compaction ran in.
+  const held = [user('u1', 'look'), call('call:read-1', 'read'), call('call:grep-1', 'grep'), reply('a1', 'found it'), user('u2', 'go on')];
+  let s = sessionReducer.initial({ thread: { id: 't' }, items: held, state: {}, hasOlder: true } as unknown as Json);
+  s = at(s, divider);
+  // The core then sends every row of its window again, archived: rows older than this tail first, then the held ones.
+  const archived = { archived: true };
+  for (const item of [
+    user('u0', 'older prompt', archived),
+    call('call:list-0', 'list', archived),
+    call('call:explore-0', 'explore', archived),
+    reply('a0', 'older reply', archived),
+    ...held.slice(0, 4).map((item) => ({ ...item, meta: { ...item.meta, ext: { ...item.meta.ext, ...archived } } })),
+  ]) {
+    s = at(s, item);
+  }
+  assert.deepEqual(
+    s.items.map((row) => [row.id, row.archived === true]),
+    [['u1', true], ['call:read-1', true], ['call:grep-1', true], ['a1', true], ['u2', false], ['divider:c1', false]],
+    'held rows dim where they are; none of the older ones lands after the divider'
+  );
+  // The current turn goes on below the divider as before.
+  s = at(s, call('call:shell-2', 'shell'));
+  assert.deepEqual(s.items.slice(-2).map((row) => row.id), ['divider:c1', 'call:shell-2']);
+});
+
 test('fold parity: recorded session-state frames reproduce DesktopSessionState field for field', async () => {
   const net = new MockNetwork();
   const connecting = connect<SessionFold>({

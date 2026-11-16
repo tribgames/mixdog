@@ -118,7 +118,7 @@ async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
                 match end {
                     End::Completed => {
                         let (transcript, send_tools) = held.expect("a completed turn holds its transcript");
-                        let settled = Settled { transcript, usage: usage.clone(), last_turn_usage: usage, tool_calls_total: 0, send_tools, response_model: "fake-model".into(), asked_at_ms: start };
+                        let settled = Settled { transcript, usage: usage.clone(), last_turn_usage: usage, tool_calls_total: 0, send_tools, response_model: "fake-model".into(), asked_at_ms: start, input_excludes_cache: false };
                         run.port.settled(settled).await.expect("settled");
                         RunOutcome::Completed(Default::default())
                     }

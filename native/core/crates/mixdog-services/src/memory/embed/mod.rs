@@ -3,6 +3,7 @@
 pub mod compress;
 pub mod config;
 pub mod engine;
+pub mod host;
 pub mod install;
 pub mod provider;
 pub mod tokenizer;

@@ -60,6 +60,8 @@ pub struct Handoff {
     pub text: String,
     /// Summary-model usage, billed to the turn.
     pub usage: Option<Usage>,
+    /// The usage convention of the adapter that sent the summary.
+    pub input_excludes_cache: bool,
     /// Whole milliseconds the summary request took (`generated.diagnostics.durationMs`).
     pub summary_ms: f64,
     /// The route that wrote it; `None` for a source that does not say.
@@ -245,6 +247,7 @@ impl Compactor for FreshCompactor {
         // `runFreshContextCompact`'s `startedAt`: from the summary decision to the rebuilt transcript.
         let started = tokio::time::Instant::now();
         let mut usage = None;
+        let mut input_excludes_cache = false;
         let mut summary_ms = None;
         let mut summary_route = None;
         let mut handoff_text = String::new();
@@ -254,6 +257,7 @@ impl Compactor for FreshCompactor {
             let handoff = summary.handoff(request.messages, request.budget_tokens).await?;
             handoff_text = handoff.text;
             usage = handoff.usage;
+            input_excludes_cache = handoff.input_excludes_cache;
             summary_ms = Some(handoff.summary_ms);
             summary_route = handoff.route;
         }
@@ -268,7 +272,7 @@ impl Compactor for FreshCompactor {
         let reduces = !request.require_reduction || meter.messages(&result.messages) < meter.messages(request.messages);
         let pipeline_ms = elapsed_ms(started);
         if !reduces {
-            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None, skipped: true, pipeline_ms, summary_ms, summary_route });
+            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, input_excludes_cache, dropped_count: 0, dropped: None, skipped: true, pipeline_ms, summary_ms, summary_route });
         }
         let (dropped_count, dropped) = if result.messages == request.messages {
             (0, None)
@@ -279,7 +283,7 @@ impl Compactor for FreshCompactor {
                 .await
                 .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
         };
-        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped, skipped: false, pipeline_ms, summary_ms, summary_route })
+        Ok(CompactOutput { messages: result.messages, usage, input_excludes_cache, dropped_count, dropped, skipped: false, pipeline_ms, summary_ms, summary_route })
     }
 }
 
@@ -356,7 +360,7 @@ impl HandoffSource for PlannedHandoff {
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
         let (step, generated) = self.summarize(messages, budget_tokens).await?;
         let route = SummaryRouteUsed { step: step.name(), forked: generated.mode == "shared-prefix", provider: generated.provider_name, model: generated.model };
-        Ok(Handoff { text: generated.summary, usage: generated.usage, summary_ms: generated.duration_ms, route: Some(route) })
+        Ok(Handoff { text: generated.summary, usage: generated.usage, input_excludes_cache: generated.input_excludes_cache, summary_ms: generated.duration_ms, route: Some(route) })
     }
 }
 

@@ -51,6 +51,15 @@ test('the shown sessions are reported, split panes included, and re-reported on 
   assert.deepEqual(reports, [['a', 'b'], ['c']]);
 });
 
+test('a remounted workspace stays reported: the removed instance does not clear its replacement', async (t) => {
+  const { reports, root } = setup(t);
+  await act(async () => root.render(React.createElement(Pane, { key: 'first', ids: ['a'] })));
+  await act(async () => root.render(React.createElement(Pane, { key: 'second', ids: ['a'] })));
+  assert.deepEqual(reports.at(-1), ['a']);
+  await act(async () => root.unmount());
+  assert.deepEqual(reports.at(-1), []);
+});
+
 test('an open modal (settings, onboarding) covers the chat: empty while open, restored on close', async (t) => {
   const { reports, root } = setup(t);
   await act(async () => root.render(React.createElement(Pane, { ids: ['a'] })));

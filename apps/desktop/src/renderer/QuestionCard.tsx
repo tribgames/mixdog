@@ -150,6 +150,11 @@ export function QuestionCard({
       setResolving(true);
       try {
         const accepted = await resolve(decision);
+        if (accepted === 'unconfirmed') {
+          resolvingRef.current = false;
+          setResolving(false);
+          return;
+        }
         if (typeof accepted === 'boolean') return;
         setError(t('Mixdog could not record this decision. Please try again.'));
       } catch (reason) {

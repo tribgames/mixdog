@@ -78,10 +78,64 @@ fn strip_jsonc_comments(text: &str) -> String {
     String::from_utf8(out).expect("strip_jsonc_comments preserves UTF-8 invariant")
 }
 
+thread_local! {
+    /// The paths the resolver looked at while a [`recording`] runs on this thread.
+    static INPUTS: std::cell::RefCell<Option<Vec<ResolverInput>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A path the resolver looked at, with its `(size, mtime in ns)` as it was taken just before the look (`None`:
+/// the path did not exist). A caller that compares a later stamp with this one sees a change made after the look,
+/// or during it.
+pub type ResolverInput = (PathBuf, Option<(u64, u64)>);
+
+fn stamp_of(path: &Path) -> Option<(u64, u64)> {
+    let meta = fs::metadata(path).ok()?;
+    let nanos = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some((meta.len(), u64::try_from(nanos).ok()?))
+}
+
+/// Notes `path` as a resolver input when a recording is running: a file read (present or not: a missing one
+/// that appears later changes the answer) or a directory listed or probed (its entries decide which manifests exist).
+/// Called before the look, so the stamp is never newer than what the look saw.
+fn note_input(path: &Path) {
+    INPUTS.with(|inputs| {
+        if let Some(list) = inputs.borrow_mut().as_mut() {
+            list.push((path.to_path_buf(), stamp_of(path)));
+        }
+    });
+}
+
+/// Runs `work` and returns it with every path the manifest loaders looked at on this thread meanwhile.
+pub(crate) fn recording<T>(work: impl FnOnce() -> T) -> (T, Vec<ResolverInput>) {
+    INPUTS.with(|inputs| *inputs.borrow_mut() = Some(Vec::new()));
+    let out = work();
+    let inputs = INPUTS.with(|inputs| inputs.borrow_mut().take()).unwrap_or_default();
+    (out, inputs)
+}
+
+// Every filesystem observation the resolver makes goes through the helpers below, and each stamps its path before
+// it looks: a change after the stamp, between the stamp and the look included, differs from what is recorded.
+
+fn read_input(path: &Path) -> std::io::Result<String> {
+    note_input(path);
+    fs::read_to_string(path)
+}
+
+fn is_file(path: &Path) -> bool {
+    note_input(path);
+    path.is_file()
+}
+
+fn is_dir(path: &Path) -> bool {
+    note_input(path);
+    path.is_dir()
+}
+
 /// Child entries in a fixed order. `fs::read_dir` hands back whatever order
 /// the filesystem happens to have, so two manifests competing for the same key
 /// would otherwise win arbitrarily — and differently between runs or machines.
 fn sorted_dir_entries(dir: &Path) -> Vec<fs::DirEntry> {
+    note_input(dir);
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -107,7 +161,7 @@ fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(Path
     ) {
         for name in names {
             let path = dir.join(name);
-            if path.is_file() {
+            if is_file(&path) {
                 on_file(path, rel.to_string());
             }
         }
@@ -116,7 +170,7 @@ fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(Path
         }
         for entry in sorted_dir_entries(dir) {
             let path = entry.path();
-            if !path.is_dir() {
+            if !is_dir(&path) {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().replace('\\', "/");
@@ -156,7 +210,7 @@ fn parse_pubspec_name(text: &str) -> Option<String> {
 pub(crate) fn load_dart_packages(root: &Path) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let mut consider = |yaml: PathBuf, lib_dir: String| {
-        if let Ok(text) = fs::read_to_string(&yaml) {
+        if let Ok(text) = read_input(&yaml) {
             if let Some(name) = parse_pubspec_name(&text) {
                 out.insert(name, lib_dir);
             }
@@ -165,17 +219,17 @@ pub(crate) fn load_dart_packages(root: &Path) -> HashMap<String, String> {
     consider(root.join("pubspec.yaml"), "lib".to_string());
     for entry in sorted_dir_entries(root) {
         let path = entry.path();
-        if !path.is_dir() {
+        if !is_dir(&path) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().replace('\\', "/");
         let yaml = path.join("pubspec.yaml");
-        if yaml.is_file() {
+        if is_file(&yaml) {
             consider(yaml, format!("{name}/lib"));
         }
         for child in sorted_dir_entries(&path) {
             let yaml = child.path().join("pubspec.yaml");
-            if yaml.is_file() {
+            if is_file(&yaml) {
                 let rel = format!("{name}/{}", child.file_name().to_string_lossy());
                 consider(yaml, format!("{rel}/lib"));
             }
@@ -218,7 +272,7 @@ fn parse_composer_psr4(text: &str) -> Vec<(String, String)> {
 pub(crate) fn load_php_psr4(root: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut consider = |path: PathBuf, base: String| {
-        let Ok(text) = fs::read_to_string(&path) else {
+        let Ok(text) = read_input(&path) else {
             return;
         };
         for (ns, dir) in parse_composer_psr4(&text) {
@@ -238,7 +292,7 @@ pub(crate) fn load_php_psr4(root: &Path) -> Vec<(String, String)> {
     consider(root.join("composer.json"), String::new());
     for entry in sorted_dir_entries(root) {
         let path = entry.path().join("composer.json");
-        if path.is_file() {
+        if is_file(&path) {
             consider(path, entry.file_name().to_string_lossy().replace('\\', "/"));
         }
     }
@@ -312,7 +366,7 @@ pub(crate) fn load_ts_configs(root: &Path) -> Vec<TsConfigScope> {
         if stack.iter().any(|seen| seen == path) {
             return None;
         }
-        let text = fs::read_to_string(path).ok()?;
+        let text = read_input(path).ok()?;
         let (extends, base_url, paths) = parse_tsconfig_raw(&text)?;
         stack.push(path.to_path_buf());
         let mut scope = TsConfigScope {
@@ -409,7 +463,7 @@ pub(crate) fn load_js_packages(root: &Path) -> Vec<(String, JsPackage)> {
         if is_same_or_under(&dir, "node_modules") {
             return;
         }
-        if let Ok(text) = fs::read_to_string(&path) {
+        if let Ok(text) = read_input(&path) {
             if let Some(entry) = parse_js_package(&text, dir) {
                 out.push(entry);
             }
@@ -501,8 +555,8 @@ fn find_nearest_go_module(
             return cached.clone();
         }
         let go_mod = root.join(&dir).join("go.mod");
-        if go_mod.is_file() {
-            let module_path = fs::read_to_string(&go_mod)
+        if is_file(&go_mod) {
+            let module_path = read_input(&go_mod)
                 .ok()
                 .map(|t| parse_go_module_path(&t))
                 .unwrap_or_default();

@@ -61,7 +61,7 @@ impl CatalogTraits {
         let own = snapshot.models_of(&self.provider).iter().find(|record| record.id == model).and_then(&read);
         own.or_else(|| {
             let layer = self.models_dev.as_ref()?.current()?;
-            layer.find(&self.provider, model).and_then(read)
+            layer.find(&self.provider, model).as_ref().and_then(read)
         })
     }
 }

@@ -21,11 +21,9 @@
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import {
   alignedRow,
-  alignmentAnchored,
-  findTranscriptAlignment,
+  transcriptWindowAlignment,
   fingerprintText,
   markClippedText,
-  findTranscriptPrependAlignment,
   hasOwnId,
   sameRowId,
 } from './transcript-alignment';
@@ -108,12 +106,10 @@ export function adoptTranscriptIdentity(
   // frame is a tail WINDOW of the transcript already displayed.
   let alignedOffset = 0;
   if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && !identical) {
-    const found = findTranscriptAlignment(prevItems, incomingItems);
     // A lone weak match (one completion row against another) is not evidence:
     // adopting across it gave an older page's first row the newest row's id.
-    const inWindow = found && alignmentAnchored(found, prevItems.length, incomingItems.length) ? found : null;
     // An older page loaded above the displayed rows starts BEFORE them.
-    const prepend = findTranscriptPrependAlignment(prevItems, incomingItems, inWindow);
+    const { inWindow, prepend } = transcriptWindowAlignment(prevItems, incomingItems);
     // No candidate at all: the incoming transcript is a different history.
     // It keeps its own ids and replaces the baseline.
     acceptedAlignment = inWindow !== null || prepend !== null;

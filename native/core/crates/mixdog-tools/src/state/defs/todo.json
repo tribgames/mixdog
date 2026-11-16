@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "title": "Todo",
-  "description": "The step list for this request; the Lead and each agent keep their own. set (or init): the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress); phases name groups of steps. advance: closes the step in progress and starts the next. done, start, drop and rm take a 1-based step number or the step's exact wording (item), for work out of order, given up or removed. append adds steps at the end of the list (or of the phase named). view shows the list.",
+  "description": "The step list for this request; the Lead and each agent keep their own. set (or init): the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress); a step is its wording or {content, status} with status pending, in_progress or completed, so a plan sent again can mark the steps already finished; phases name groups of steps. advance: closes the step in progress and starts the next. done, start, drop and rm take a 1-based step number or the step's exact wording (item), for work out of order, given up or removed; done takes several at once (index or item as a list) and, with start, begins another step in the same call. append adds steps at the end of the list (or of the phase named). view shows the list.",
   "annotations": {
     "title": "Todo",
     "readOnlyHint": false,
@@ -30,21 +30,69 @@
       "items": {
         "type": "array",
         "items": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          ]
         },
         "minItems": 1,
         "maxItems": 50,
-        "description": "set/init/append: the steps, in order."
+        "description": "set/init/append: the steps, in order; for set a step may be {content, status} (append takes wordings)."
       },
       "done": {
         "type": "integer",
         "minimum": 0,
-        "description": "set: how many of the leading steps are already finished (a plan set again part-way)."
+        "description": "set: how many of the leading steps are already finished (a plan set again part-way); a step's own status wins."
       },
       "index": {
-        "type": "integer",
-        "minimum": 1,
-        "description": "done/start/drop/rm: the step number."
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 1
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1
+          }
+        ],
+        "description": "done/start/drop/rm: the step number; done also takes a list of them."
+      },
+      "start": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 1
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "done: the step number (or exact wording) to begin in the same call."
       },
       "note": {
         "type": "string",
@@ -62,7 +110,31 @@
             "items": {
               "type": "array",
               "items": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "in_progress",
+                          "completed"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "content"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               },
               "minItems": 1,
               "maxItems": 50
@@ -81,8 +153,19 @@
         "description": "set/init/append: the phase for items (append default: the last; a new name adds one)."
       },
       "item": {
-        "type": "string",
-        "description": "done/start/drop/rm: the step's exact wording (instead of index)."
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        ],
+        "description": "done/start/drop/rm: the step's exact wording (instead of index); done also takes a list."
       }
     },
     "required": [

@@ -114,6 +114,7 @@ impl Watchdog {
                     {
                         // The stop is recorded and the reap armed before the abort propagates (`armTurnTimeout`), while
                         // nothing else has stopped the turn.
+                        mixdog_rt::node_stderr!("[agent-watchdog] stall detected: {message} (stage={})", snapshot.stage.as_deref().unwrap_or("unknown"));
                         on_stale(&snapshot, &message, now);
                         signal.abort(&message);
                         return;

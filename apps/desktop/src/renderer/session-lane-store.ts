@@ -12,6 +12,7 @@ import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { noteStreamLaneFrame, noteStreamPublish } from './transcript-stream-metrics';
+import { transcriptWindowAlignment } from './transcript-alignment';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
@@ -119,33 +120,6 @@ function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): b
 function laneTranscript(snapshot: Snapshot | null): TranscriptItem[] | null {
   const items = snapshot?.items;
   return Array.isArray(items) ? items : null;
-}
-
-function sameLaneRow(left?: TranscriptItem, right?: TranscriptItem): boolean {
-  if (!left || !right) return false;
-  if (left === right) return true;
-  if (left.id != null && right.id != null) return String(left.id) === String(right.id);
-  return String(left.kind || '') === String(right.kind || '') && String(left.text ?? '') === String(right.text ?? '');
-}
-
-/** Index in `prior` where the incoming transcript window starts, or -1 when
- *  the frame carries a genuinely different transcript. An empty frame aligns
- *  past the end: it adds nothing and removes nothing. */
-function laneWindowOffset(prior: TranscriptItem[], next: TranscriptItem[]): number {
-  if (next.length === 0) return prior.length;
-  for (let offset = 0; offset < prior.length; offset += 1) {
-    if (!sameLaneRow(prior[offset], next[0])) continue;
-    const overlap = Math.min(prior.length - offset, next.length);
-    let aligned = true;
-    for (let index = 1; index < overlap; index += 1) {
-      if (!sameLaneRow(prior[offset + index], next[index])) {
-        aligned = false;
-        break;
-      }
-    }
-    if (aligned) return offset;
-  }
-  return -1;
 }
 
 // Presentation read-outs only: a windowed/disk projection that carries none
@@ -322,19 +296,13 @@ function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snapshot): 
   const nextItems = laneTranscript(next);
   if (nextItems === priorItems) return next;
   if (!nextItems) return next;
-  const offset = laneWindowOffset(priorItems, nextItems);
-  if (offset < 0) return next;
+  const { inWindow, prepend, found } = transcriptWindowAlignment(priorItems, nextItems);
+  // Legacy unkeyed frames can retain an exactly matching head even when
+  // there is no id to adopt. Rank that overlap by the same canonical walk.
+  const exact = found?.strongMatches === found?.overlap ? found : null;
+  const offset = (inWindow ?? exact)?.offset ?? 0;
   // Lane frames own their tail. A window can omit only the cached head.
-  if (offset === 0 || nextItems.length === 0) return next;
-  // An older page starts BEFORE the cached window and already carries it.
-  // A lone weak row match at the cached tail must not glue the cached head in
-  // front of it, which painted the older page below the newest turn.
-  const prepended = laneWindowOffset(nextItems, priorItems);
-  if (
-    prepended > 0 &&
-    Math.min(priorItems.length, nextItems.length - prepended) > Math.min(priorItems.length - offset, nextItems.length)
-  )
-    return next;
+  if (prepend || offset === 0 || nextItems.length === 0) return next;
   return mergedLaneFrame(prior, next, [...priorItems.slice(0, offset), ...nextItems], false);
 }
 

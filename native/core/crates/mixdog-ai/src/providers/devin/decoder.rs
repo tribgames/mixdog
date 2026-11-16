@@ -210,6 +210,7 @@ impl DevinDecoder {
             } else {
                 call.id
             };
+            let known = self.calls.iter().any(|c| c.id == id);
             let at = match self.calls.iter().position(|c| c.id == id) {
                 Some(at) => at,
                 None => {
@@ -221,8 +222,9 @@ impl DevinDecoder {
                 }
             };
             self.active_call = Some(at);
-            reported = true;
             let entry = &mut self.calls[at];
+            let args_before = entry.args.len();
+            let renamed = !call.name.is_empty() && call.name != entry.name;
             // The last name a call is given wins.
             if !call.name.is_empty() {
                 entry.name = call.name;
@@ -242,6 +244,8 @@ impl DevinDecoder {
                     entry.args.push_str(&raw);
                 }
             }
+            // Progress is the normalized call state advancing, whatever shape the provider sent it in.
+            reported |= !known || renamed || entry.args.len() != args_before;
         }
         // The chunk carries `tool_calls` for the chat consumer, which reports `tool` once per chunk.
         if reported {
@@ -442,6 +446,22 @@ mod progress_tests {
             }
             assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
         }
+    }
+
+    /// Progress is the normalized call advancing: a cumulative snapshot that repeats what was already received is not.
+    #[test]
+    fn a_repeated_identical_snapshot_is_no_progress() {
+        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
+        let chunk = |args: &str| message(&json!({ "deltaToolCalls": [{ "id": "c1", "name": "read", "argumentsJson": args }] }));
+        let progressed = |decoder: &mut DevinDecoder, args: &str| {
+            let mut events = Vec::new();
+            decoder.apply(chunk(args), &mut events);
+            events.iter().any(|e| matches!(e, StreamEvent::Progress(ProgressKind::Tool)))
+        };
+        assert!(progressed(&mut decoder, "{\"a\":"), "the call opening is progress");
+        assert!(progressed(&mut decoder, "{\"a\":1"), "a snapshot that grew is progress");
+        assert!(!progressed(&mut decoder, "{\"a\":1"), "the same snapshot again is not");
+        assert!(!progressed(&mut decoder, "{\"a\":1"), "nor the next repeat");
     }
 
     /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's argument parse: an input V8 rejects

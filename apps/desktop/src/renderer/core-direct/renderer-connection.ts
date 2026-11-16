@@ -16,6 +16,7 @@ import type {
   ProtocolWindow,
   ServerRequestAnswer,
 } from '../../main/protocol/connection';
+import { createLinkLog } from '../../../../../packages/protocol-client/src/link-log.mjs';
 import { directError, withDirectErrors } from './errors.ts';
 
 /** `client/activity` is sent at most once per this long (desktop-services.md section 12.3: the rate limit is client-side). */
@@ -64,6 +65,8 @@ export interface RendererConnectionOptions {
   /** Opens the client and performs `initialize`: openDirectClient bound to its bridge. */
   open(): Promise<ProtocolClient<SessionFold>>;
   send?: Sender;
+  /** The desktop diagnostics sink (main's log, through the renderer-diagnostic channel) for this connection's life-cycle lines. */
+  log?(event: string, fields: Record<string, unknown>): void;
 }
 
 /** The lane Picks of ProtocolConnection, plus what the renderer files and ports feeds need. */
@@ -82,8 +85,9 @@ export type RendererConnection = Pick<
   setSender(send: Sender): void;
 };
 
-export function createRendererConnection({ open, send: initialSend }: RendererConnectionOptions): RendererConnection {
+export function createRendererConnection({ open, send: initialSend, log }: RendererConnectionOptions): RendererConnection {
   let sender: Sender = initialSend ?? plainSender;
+  const note = createLinkLog(log);
   const windows = new Set<RendererWindow>();
   const portViewers = new Set<RendererWindow>();
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
@@ -181,18 +185,38 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
   };
   /** The scoped feeds do not survive the socket: send again what live owners still want. */
   const restoreScopedFeeds = (restored: ConnectionClient): void => {
+    const owner = epoch;
+    const attempted = { fsWatches: fsWatches.size, feeds: feedWatches.size, ports: portViewers.size > 0 ? 1 : 0 };
+    note('core-scoped-feeds-restore-started', { epoch: owner, attempted });
+    // What each request came to: succeeded, the core no longer has it (lost), or failed for another reason.
+    const settled = { restored: 0, lost: 0, failed: 0 };
+    const tally: Array<Promise<unknown>> = [];
     for (const [watchId, { params }] of [...fsWatches]) {
-      void restored.call('fs/watch', params).catch(() => void fsWatches.delete(watchId));
+      tally.push(
+        restored.call('fs/watch', params).then(
+          () => void (settled.restored += 1),
+          () => void (fsWatches.delete(watchId), (settled.lost += 1))
+        )
+      );
     }
-    if (portViewers.size > 0) void restored.call('system/ports/subscribe', {}).catch(() => undefined);
+    if (portViewers.size > 0) {
+      tally.push(restored.call('system/ports/subscribe', {}).then(() => void (settled.restored += 1), () => void (settled.failed += 1)));
+    }
     for (const feedId of [...feedWatches.keys()]) {
-      void restored.call('feed/subscribe', { feedId }).catch((error: unknown) => {
-        // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
-        if (isAbsentFeed(error)) return dropFeed(feedId);
-        const message = error instanceof Error ? error.message : String(error);
-        for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
-      });
+      tally.push(
+        restored.call('feed/subscribe', { feedId }).then(
+          () => void (settled.restored += 1),
+          (error: unknown) => {
+            // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
+            if (isAbsentFeed(error)) return void ((settled.lost += 1), dropFeed(feedId));
+            settled.failed += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+          }
+        )
+      );
     }
+    void Promise.allSettled(tally).then(() => note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled }));
   };
   /** Forgets a feed the core no longer has and removes the sections it held from its watchers. */
   const dropFeed = (feedId: string): void => {
@@ -340,6 +364,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
     reopen() {
       if (closedByOwner) return Promise.reject(new Error('The core connection is closed.'));
       const mine = ++epoch;
+      note('core-connection-replace', { epoch: mine, status, hadClient: client !== null });
       pendingSync();
       const run = (async (): Promise<void> => {
         await release('reconnecting');

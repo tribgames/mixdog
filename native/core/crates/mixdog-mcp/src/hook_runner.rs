@@ -54,7 +54,12 @@ pub async fn run_mcp_tool_handler(
     let call_cancel = cancel.child_token();
     let owner = format!("hook:{name}");
     // Admitted by the gate of the session's scope, as Node's call is by its scope's registered server.
-    let call = server.call_tool_in(&scope, &owner, &entry.tool, payload, &call_cancel, None);
+    let call = async {
+        let account = hub.resolve_tool_account_in(&scope, &name, &payload, &owner).await
+            .map_err(|error| CallError::Recovery { message: error.to_string(), outcome_unknown: false })?
+            .map(|account| mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id });
+        server.call_tool_bound_in(Some(&scope), &owner, &entry.tool, payload, &call_cancel, None, account.as_ref()).await
+    };
     let outcome = tokio::select! {
         () = cancel.cancelled() => {
             call_cancel.cancel();

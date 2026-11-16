@@ -77,6 +77,8 @@ pub trait Authorizer: Send + Sync {
     fn answered(&self, _sent: Option<&str>) {}
     /// The token ttempted was refused, renewed, and the renewed one was refused too.
     fn refused_after_renewal(&self, _attempted: Option<&str>) {}
+
+    fn sign_in_required(&self) -> bool { false }
 }
 
 /// Whether a response refuses the request's credentials: a 401, or a 403 that asks for more

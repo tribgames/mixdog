@@ -46,6 +46,7 @@ impl SummarySender for Scripted {
             text,
             tool_call: false,
             usage: Some(Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 1, cache_write_tokens: 2, ..Usage::default() }),
+            input_excludes_cache: false,
         })
     }
 }

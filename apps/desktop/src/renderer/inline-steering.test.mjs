@@ -13,7 +13,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
 const [
-  { steerPromptItems, pendingPromptTranscriptItems },
+  { steerPromptItems, pendingPromptTranscriptItems, PROMPT_TURN_REPORT_WAIT_MS },
   { appendLiveTranscriptRows, projectSettledTranscriptRows },
   { transcriptTurnKeys },
   { SteerStatus },
@@ -22,6 +22,8 @@ const [
   { createSlashExecutor },
   { stashComposerDraft, takeRejectedComposerSubmissionRecoveries },
   { renumberRestoredAttachments, restoreAttachmentsFromRecord },
+  { useConversationPendingPrompts },
+  { useTranscriptRows },
 ] = await Promise.all([
   import('./conversation-prompt-items.ts'),
   import('./transcript-rows.ts'),
@@ -32,6 +34,8 @@ const [
   import('./composer-slash-executor.ts'),
   import('./composer-draft.ts'),
   import('./composer-attachment-restore.ts'),
+  import('./use-conversation-pending-prompts.ts'),
+  import('./use-conversation-rows.ts'),
 ]);
 
 function mount(t) {
@@ -103,6 +107,71 @@ test('a message sent while the reply streams is a bubble right away, below the r
   assert.equal(bubble.key, rows[3].key, 'no remount when the bubble settles');
   assert.equal(bubble.item.steered, true);
   assert.equal(delivered.at(-1).key, rows.at(-1).key, 'the working row keeps its identity');
+});
+
+// The core publishes an idle submit's own row a few states before the turn's running state (actor.rs: the row, prompt
+// history, turn/started, the runtime), and the pane takes each state; Node published the row with `busy` in one frame.
+test('an idle submit keeps its working band from the bubble through the turn report, only so long without one, and not past its row', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000 });
+  const { root } = mount(t);
+  const earlier = [prompt, { kind: 'assistant', id: 'a0', text: 'Done.' }];
+  const sent = { id: 'sub-1', kind: 'user', text: 'next step', pending: true, accepted: true, submittedAt: 1_000, settledUserBaseline: 1 };
+  let rows;
+  function Pane({ settledItems, busy }) {
+    const [optimisticPrompts, setOptimisticPrompts] = useState([sent]);
+    const pending = useConversationPendingPrompts({
+      optimisticPrompts,
+      setOptimisticPrompts,
+      settledItems,
+      queued: [],
+      busy,
+      transcriptSessionKey: 's',
+      promotedOwnDraft: { current: false },
+    });
+    rows = useTranscriptRows({
+      identity: 's',
+      sessionKey: 's',
+      settledItems,
+      settledRowItems: settledItems,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: pending.transcriptPendingPromptItems,
+      steerItems: pending.steerItems,
+      liveItem: null,
+      busy,
+      commandBusy: false,
+      commandActivityVisible: false,
+      optimisticActivityStartedAt: pending.optimisticActivityStartedAt,
+    }).transcriptRows;
+    return null;
+  }
+  const show = (settledItems, busy, key = 'first') =>
+    act(async () => root.render(React.createElement(Pane, { key, settledItems, busy })));
+  const shape = () => rows.map((row) => `${row._tag}:${row.key}`);
+  const landed = [...earlier, { kind: 'user', id: 'sub-1', text: 'next step' }];
+
+  await show(earlier, false);
+  const submitted = shape();
+  assert.equal(submitted.at(-1).startsWith('Thinking:'), true, 'the bubble brings the band');
+  // The row lands; the turn is not reported yet: the rows are the submit's, keys and all.
+  await show(landed, false);  assert.deepEqual(shape(), submitted);
+  await show(landed, true);
+  assert.deepEqual(shape(), submitted, 'the running turn takes the band over');
+  // A prompt whose turn is never reported does not keep the band.
+  await show(earlier, false, 'second');
+  await show(landed, false, 'second');
+  await act(async () => t.mock.timers.tick(PROMPT_TURN_REPORT_WAIT_MS - 1));
+  assert.equal(rows.at(-1)._tag, 'Thinking', 'still within the wait');
+  await act(async () => t.mock.timers.tick(1));
+  assert.notEqual(rows.at(-1)._tag, 'Thinking');
+  // A clear or rewind takes the landed row away while the turn is awaited: the prompt is retired, not a bubble again.
+  await show(earlier, false, 'third');
+  await show(landed, false, 'third');
+  await show(earlier, false, 'third');
+  const settledShape = ['UserMessage:s:p1', 'AssistantPart:s:a0'];
+  assert.deepEqual(shape(), settledShape, 'no bubble and no band once its row is gone');
+  await act(async () => t.mock.timers.tick(10_000));
+  assert.deepEqual(shape(), settledShape);
 });
 
 test('a queued bot message keeps its sending bot, like the delivered row', () => {

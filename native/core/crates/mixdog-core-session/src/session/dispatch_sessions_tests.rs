@@ -226,3 +226,26 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
     assert_eq!(threads.ask(&id, "late", None, Arc::new(Immediate), &aborted).await, Err(node("before-ask")));
     assert_eq!(heard.lock().unwrap().len(), turns);
 }
+
+/// The memory cycle's own dispatch (its header carries the `memory-cycle` source) is closed without a word of it reaching
+/// memory, while an ordinary agent-owned session closed the same way still is: its prompt and reply would otherwise come
+/// back to cycle1 as rows to chunk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_memory_cycle_dispatch_is_not_ingested_when_it_closes_but_another_agent_session_is() {
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let threads = threads(&directory);
+    let mut maintenance = hidden_header();
+    maintenance.insert("sourceType".into(), json!("memory-cycle"));
+    let mut worker = hidden_header();
+    worker.insert("agent".into(), json!("worker"));
+    worker.insert("sourceType".into(), json!("agent"));
+    let maintenance = threads.create(maintenance).await.expect("created");
+    let worker = threads.create(worker).await.expect("created");
+    threads.close(&maintenance, "ephemeral-done").await;
+    threads.close(&worker, "ephemeral-done").await;
+    rig.closes.ended.notified().await;
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(300), rig.closes.ended.notified()).await;
+    let seen: Vec<String> = rig.closes.seen.lock().unwrap().iter().map(|(id, _)| id.as_str().to_owned()).collect();
+    assert_eq!(seen, [worker]);
+}

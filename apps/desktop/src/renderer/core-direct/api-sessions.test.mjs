@@ -105,8 +105,6 @@ test('requests equal what the IPC handlers sent', async () => {
     ['agentRoomAction', ['leave', undefined], [['room/leave', { input: { roomId: undefined } }]]],
     ['listProviderModels', [], [['model/list', {}]]],
     ['listProviderModels', [{ force: true }], [['model/list', { force: true }]]],
-    ['setModelRoute', [{ provider: 'p', model: 'm' }, S1], [['route/set', { threadId: S1, route: { provider: 'p', model: 'm' } }]]],
-    ['setModelRoute', [{ provider: 'p', model: 'm' }, ''], [['route/set', { route: { provider: 'p', model: 'm' } }]]],
     ['setFast', [true, S1], [['fast/set', { threadId: S1, on: true }]]],
     ['setFast', [false], [['fast/set', { on: false }]]],
     ['submitToSession', [S1, 'hi', { id: 'sub1', priority: 'now', device: 'x' }], [['turn/start', { threadId: S1, input: { prompt: 'hi', options: { priority: 'now', clientSubmissionId: 'sub1' } } }]]],
@@ -201,6 +199,25 @@ test('a followed session publishes only while it is visible and is released with
   assert.deepEqual(seen, [[S1, 'state'], [S1, null], [S2, 'state']]);
 });
 
+test('a session whose registration went empty and back is delivered again: a new baseline, then live frames', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push([u.sessionId, u.snapshot === null ? null : 'state']));
+  await api.setVisibleSessions([S1]);
+  await tick();
+  assert.deepEqual(seen, [[S1, 'state']]);
+  // The empty set releases the window's baseline at once and the lane lets S1 go; showing it again resumes it.
+  await Promise.all([api.setVisibleSessions([]), api.setVisibleSessions([S1])]);
+  await tick();
+  assert.deepEqual(seen.slice(0, 2), [[S1, 'state'], [S1, null]]);
+  assert.deepEqual(seen.at(-1), [S1, 'state'], 'the shown session has a state again');
+  // Live frames reach it.
+  const delivered = seen.length;
+  folding(client, S1, [row('m1', 'live')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.equal(seen.length, delivered + 1);
+});
+
 test('the frame of a requested read passes the filter and carries the trace id', async () => {
   const { api } = await opened(answerRead);
   const seen = [];
@@ -289,6 +306,19 @@ test('a session state that left the baseline unchanged is not delivered again, a
   folding(client, S1, [row('r1', 'hello')]);
   client.emitStore({ type: 'thread', threadId: S1 });
   assert.equal(seen.length, 3);
+});
+
+test('a fresh resync republishes the held fold at once, with no transcript read, and is not a replay of the cached frame', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push(u.sessionId));
+  await api.setVisibleSessions([S1]);
+  await tick();
+  assert.equal(seen.length, 1);
+  const calls = client.calls?.length ?? 0;
+  assert.equal(await api.resyncSessionState(S1, { fresh: true }), true);
+  assert.equal(seen.length, 2, 'the unchanged state is published again, from the fold');
+  assert.equal(client.calls?.length ?? 0, calls, 'nothing was fetched');
 });
 
 test('an engine state that left the baseline unchanged is not delivered again', async () => {

@@ -358,6 +358,7 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
+    reset_channel: bool,
     /// Told when the first `requesting` stage arrives.
     requesting: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Holds a permit once an early notice has arrived since the last wait.
@@ -368,6 +369,7 @@ impl Observer {
         Arc::new(Self {
             events: Mutex::new(Vec::new()),
             retract,
+            reset_channel: true,
             requesting: Mutex::new(None),
             early_arrived: tokio::sync::Notify::new(),
         })
@@ -396,7 +398,7 @@ impl RunObserver for Observer {
         }
     }
     fn can_retract(&self) -> bool {
-        true
+        self.reset_channel
     }
     fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
         self.retract
@@ -454,6 +456,8 @@ struct Compactor100 {
     preflight: bool,
     /// The pass wrote a summary that took this long; its answer reported no usage.
     summary_ms: Option<f64>,
+    /// The usage the pass's summary sender reported, and whether that sender's input leaves the cache out.
+    summary_usage: Option<(mixdog_core_api::domain::provider::Usage, bool)>,
     /// The session's provider reading of every request.
     session_reading: Option<u64>,
     /// The session's header carries `contextPressureUnanchoredAfterRestart`, whatever the run sends.
@@ -512,7 +516,8 @@ impl Compactor for Compactor100 {
         kept.push(request.messages.last().unwrap().clone());
         Ok(CompactOutput {
             messages: kept,
-            usage: None,
+            usage: self.summary_usage.as_ref().map(|(usage, _)| usage.clone()),
+            input_excludes_cache: self.summary_usage.as_ref().is_some_and(|(_, excludes)| *excludes),
             dropped_count: (request.messages.len() - 1) as u64,
             dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }),
             skipped: self.skip,
@@ -1853,6 +1858,137 @@ async fn a_deterministic_refusal_surfaces_without_a_wait() {
     assert!(h.waiter.0.lock().unwrap().is_empty());
 }
 
+#[tokio::test(start_paused = true)]
+async fn websocket_connection_limit_and_handshake_share_one_budget_in_agent_and_fork() {
+    use mixdog_ai::providers::openai::scripted::{self, Dialed, ScriptedDial, Wire};
+    use mixdog_ai::providers::openai::switch::TransportMode;
+
+    for fork in [false, true] {
+        let limit = || Dialed::Socket {
+            frames: vec![
+                r#"{"type":"response.created","response":{"id":"expired"}}"#.into(),
+                r#"{"type":"error","status":400,"error":{"code":"websocket_connection_limit_reached"}}"#.into(),
+            ],
+            close: (1000, String::new()),
+        };
+        let dial = ScriptedDial::with(vec![
+            Dialed::Rejected { status: 503, body: "{}".into() },
+            limit(),
+            Dialed::Socket { frames: vec![], close: (1011, "interrupted".into()) },
+            Dialed::Rejected { status: 502, body: "{}".into() },
+            limit(),
+            limit(),
+        ]);
+        let provider = scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, TransportMode::WsDelta);
+        let error = if fork {
+            let mut request = ModelRequest {
+                model: "m".into(),
+                messages: vec![mixdog_core_api::domain::provider::Message::new(
+                    mixdog_core_api::domain::provider::Role::User,
+                    mixdog_core_api::domain::provider::Content::Text("go".into()),
+                )],
+                tools: vec![],
+                options: Default::default(),
+            };
+            request.options.transport_scope = Some("t#compact:fork".into());
+            mixdog_agent::fork::send_forked(&provider, request, &CancellationToken::new()).await.unwrap_err()
+        } else {
+            let h = Harness::with_adapter(provider);
+            let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("one spent budget");
+            let AgentError::Provider(error) = failure.error else { panic!("a provider failure") };
+            assert!(h.waiter.0.lock().unwrap().is_empty(), "no second retry ladder in the agent");
+            *error
+        };
+        assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
+        assert!(error.recovery_exhausted);
+        assert_eq!(error.should_retry, Some(false));
+        assert_eq!(dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(), 6,
+            "one initial exchange plus five retries, shared across both failure phases");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn websocket_connection_limit_continues_the_agent_without_consulting_fallback() {
+    use mixdog_ai::providers::openai::scripted::{self, Dialed, ScriptedDial, Wire};
+    use mixdog_ai::providers::openai::switch::TransportMode;
+
+    let dial = ScriptedDial::with(vec![
+        Dialed::Rejected { status: 503, body: "{}".into() },
+        Dialed::Socket {
+            frames: vec![r#"{"type":"error","status":400,"error":{"code":"websocket_connection_limit_reached"}}"#.into()],
+            close: (1000, String::new()),
+        },
+        Dialed::Socket {
+            frames: vec![r#"{"type":"response.completed","response":{"id":"continued","status":"completed","output":[{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"continued"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}"#.into()],
+            close: (1000, String::new()),
+        },
+    ]);
+    let route = PlayRoute::new(RouteDecision::Fail("fallback must not be entered".into()), Vec::new());
+    let mut h = Harness::with_adapter(scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, TransportMode::WsDelta));
+    h.route = Some(route.clone());
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "continued");
+    assert!(route.asked.lock().unwrap().is_empty());
+    assert!(h.waiter.0.lock().unwrap().is_empty());
+    assert_eq!(dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_budget() {
+    use mixdog_ai::providers::openai::scripted::{self, Dialed, ScriptedDial, Wire};
+    use mixdog_ai::providers::openai::switch::TransportMode;
+
+    for (reasoning, reset_channel, ack, failures, succeeds, waits) in [
+        (false, true, Retracted::Withdrawn, 1, true, 1),
+        (false, true, Retracted::Refused, 1, false, 0),
+        (false, false, Retracted::Refused, 1, true, 0),
+        (true, false, Retracted::Refused, 1, true, 1),
+        (false, true, Retracted::Withdrawn, 4, false, 3),
+        (true, false, Retracted::Refused, 4, false, 3),
+    ] {
+        let delta = if reasoning {
+            r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#
+        } else {
+            r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg","delta":"visible"}"#
+        };
+        let mut script: Vec<_> = (0..failures).map(|_| Dialed::Socket {
+            frames: vec![
+                r#"{"type":"response.created","response":{"id":"cut"}}"#.into(),
+                delta.into(),
+            ],
+            close: (1000, String::new()),
+        }).collect();
+        script.push(Dialed::Socket {
+            frames: vec![r#"{"type":"response.completed","response":{"id":"continued","status":"completed","output":[{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"continued"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}"#.into()],
+            close: (1000, String::new()),
+        });
+        let dial = ScriptedDial::with(script);
+        let mut h = Harness::with_adapter(scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, TransportMode::WsDelta));
+        h.observer = Observer::new(ack);
+        Arc::get_mut(&mut h.observer).unwrap().reset_channel = reset_channel;
+        let route = PlayRoute::new(RouteDecision::Fail("fallback must not be entered".into()), Vec::new());
+        if succeeds {
+            h.route = Some(route.clone());
+        }
+        let result = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
+        if succeeds {
+            let output = result.expect("Node's owner recovery continues this close");
+            // Text shown with no way to withdraw it is kept, and the next response continues it.
+            let kept = if !reasoning && !reset_channel { "visible" } else { "" };
+            assert_eq!(output.response.content, format!("{kept}continued"));
+            assert!(route.asked.lock().unwrap().is_empty());
+        } else {
+            let failure = result.expect_err("a refused text reset or spent outer budget ends replay");
+            let AgentError::Provider(error) = failure.error else { panic!("the close must surface") };
+            assert_eq!(error.transport, Some(TransportFault::WsClose { code: Some(1000) }));
+        }
+        let upgrades = dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count();
+        assert_eq!(upgrades, failures + usize::from(succeeds), "every owner replay opens a fresh socket");
+        assert_eq!(*h.waiter.0.lock().unwrap(), [5, 15, 30][..waits].iter().map(|s| Duration::from_secs(*s)).collect::<Vec<_>>(),
+            "Node's bounded outer transport ladder, not another five-retry send ladder");
+    }
+}
+
 #[tokio::test]
 async fn parsed_tool_calls_survive_a_cut_stream() {
     let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
@@ -2093,6 +2229,30 @@ async fn the_passes_handoff_source_is_the_written_summary_not_its_usage() {
     }
 }
 
+/// The summary may be sent by another adapter than the conversation's (a Maintainer route): its usage is reported with
+/// the convention of the adapter that sent it, whichever way the conversation's own adapter reads its input.
+#[tokio::test]
+async fn a_summary_sent_by_another_adapter_reports_its_usage_by_that_adapters_convention() {
+    for excludes in [true, false] {
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 5, cache_read_tokens: 1000, ..Default::default() };
+        h.compactor = Some(Arc::new(Compactor100 { summary_ms: Some(5.0), summary_usage: Some((usage, excludes)), ..Default::default() }));
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        finish(h.run(cfg, vec![], eleven_messages())).await;
+        let reported: Vec<bool> = h
+            .observer
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                RunEvent::CompactUsage { input_excludes_cache, .. } => Some(input_excludes_cache),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reported, [excludes]);
+    }
+}
+
 #[tokio::test]
 async fn the_marker_before_count_is_the_providers_last_measured_context_not_the_passes_pressure() {
     // The session's last measured context differs from the pass's own pressure (11 × 100).
@@ -2325,6 +2485,24 @@ async fn a_second_overflow_surfaces_with_the_overflow_text() {
             .to_string()
             .starts_with("agent context overflow (scripted/m, stage=send): latest turn cannot fit target context budget=100000")
     );
+}
+
+#[tokio::test]
+async fn a_compacted_context_does_not_reuse_the_old_prompt_on_an_overflow_retry() {
+    let mut h = Harness::new(vec![
+        Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted)),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let mut cfg = config();
+    cfg.compact = Some(CompactSettings { last_context_tokens: Some(777), ..compact_settings() });
+    finish(h.run(cfg, vec![], eleven_messages())).await;
+    let events = compact_marker(&h);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].before_tokens, 777);
+    assert_eq!(events[1].trigger, CompactTrigger::Reactive);
+    assert_eq!(events[1].before_tokens, events[1].pressure_tokens);
+    assert_eq!(events[1].before_tokens, 1_000);
 }
 
 #[tokio::test]
@@ -3499,6 +3677,7 @@ impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
             text: self.text.clone(),
             tool_call: false,
             usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
+            input_excludes_cache: false,
         })
     }
 }

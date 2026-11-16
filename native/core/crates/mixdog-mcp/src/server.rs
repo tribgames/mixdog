@@ -97,6 +97,7 @@ pub struct Ready {
     pub outputs: Arc<OutputValidators>,
     pub capabilities: Value,
     pub instructions: Option<String>,
+    pub(crate) tools: Vec<Value>,
 }
 
 /// What a call sends the server.
@@ -187,8 +188,10 @@ pub struct McpServer {
     authorizer: Option<Arc<dyn Authorizer>>,
     /// The Gmail app-password server of this process, for a server whose address is its reserved one.
     gmail: std::sync::OnceLock<Arc<crate::gmail_app_password::GmailMcp>>,
+    accounts: std::sync::OnceLock<Arc<crate::connector_transport::AccountGroup>>,
     generation: AtomicU64,
     connecting: AtomicBool,
+    opening: Mutex<Option<Arc<RpcClient>>>,
     shutdown: CancellationToken,
     /// The folder of the server's scope now, which a server that follows its scope advertises as its root
     /// (`_scopeRoots`, mcp/client.mjs:79); empty: none set.
@@ -203,6 +206,13 @@ pub struct McpServer {
     /// call path of a server the core never reaches over the network.
     #[cfg(feature = "test-support")]
     stand_in: Option<TransportConfig>,
+}
+
+#[derive(Default)]
+struct CallDelivery {
+    account: Option<mixdog_core_api::domain::tool::ConnectorAccountBinding>,
+    progress: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+    unlisted: bool,
 }
 
 struct ConnectingGuard<'a>(&'a AtomicBool);
@@ -412,8 +422,10 @@ impl McpServer {
             io,
             authorizer,
             gmail: std::sync::OnceLock::new(),
+            accounts: std::sync::OnceLock::new(),
             generation: AtomicU64::new(0),
             connecting: AtomicBool::new(false),
+            opening: Mutex::new(None),
             shutdown: CancellationToken::new(),
             scope_root: Arc::default(),
             died: ArcSwapOption::empty(),
@@ -534,14 +546,21 @@ impl McpServer {
             self.publish(generation, ServerState::Failed { cause: cause.clone() });
             return Err(ConnectError::Failed(cause));
         }
-        let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
-        let outcome = match self.config.startup_timeout {
-            Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(&opened)).await {
+        let opened = &self.opening;
+        // The namespace owns no remote handshake: each private connection has its own
+        // startup deadline, and the namespace waits only for one usable account.
+        let startup_timeout = if self.accounts.get().is_some() { None } else { self.config.startup_timeout };
+        let handshake = async { match startup_timeout {
+            Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(opened)).await {
                 Ok(result) => result,
                 Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
             },
             // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
-            None => self.handshake(&opened).await,
+            None => self.handshake(opened).await,
+        }};
+        let outcome = tokio::select! {
+            outcome = handshake => outcome,
+            () = self.shutdown.cancelled() => Err(ConnectError::Closed),
         };
         // The connect settled: whatever connection died before it is replaced or given up, and its tools with it (a failed
         // replacement is unregistered, `replaceServerConnection`). Until here a call still finds the dead one and waits
@@ -549,6 +568,7 @@ impl McpServer {
         self.died.store(None);
         match outcome {
             Ok(ready) => {
+                opened.lock().unwrap_or_else(|e| e.into_inner()).take();
                 let client = Arc::clone(&ready.client);
                 // `connectServer` (mcp/client.mjs:1501) follows `list_changed` only from a server that advertised it.
                 let follows = ready.capabilities.pointer("/tools/listChanged").is_some_and(truthy);
@@ -572,6 +592,12 @@ impl McpServer {
     }
 
     async fn open_transport(&self) -> Result<(Arc<dyn Transport>, IncomingRx), TransportError> {
+        if let Some(accounts) = self.accounts.get() {
+            return Ok(accounts.open());
+        }
+        if !self.config.accounts.is_empty() {
+            return Err(TransportError::Other("connector account runtime is not configured".into()));
+        }
         #[cfg(feature = "test-support")]
         let transport = self.stand_in.as_ref().unwrap_or(&self.config.transport);
         #[cfg(not(feature = "test-support"))]
@@ -671,6 +697,7 @@ impl McpServer {
             client,
             capabilities,
             instructions: init.get("instructions").and_then(Value::as_str).map(str::to_owned),
+            tools,
         })
     }
 
@@ -727,7 +754,8 @@ impl McpServer {
         let current = self.state();
         let ServerState::Ready(ready) = &*current else { return };
         let catalog = build_catalog(&self.config.name, &tools, &ready.capabilities);
-        if ready.catalog.digest == catalog.digest {
+        let instructions = self.accounts.get().map(|group| group.instructions()).or_else(|| ready.instructions.clone());
+        if ready.catalog.digest == catalog.digest && ready.instructions == instructions {
             return;
         }
         // The SDK's `listTools` throws on schemas that do not resolve: the previous listing stays.
@@ -742,7 +770,8 @@ impl McpServer {
                 catalog: Arc::new(catalog),
                 outputs: Arc::new(outputs),
                 capabilities: ready.capabilities.clone(),
-                instructions: ready.instructions.clone(),
+                instructions,
+                tools,
             })),
         );
     }
@@ -764,6 +793,13 @@ impl McpServer {
         let previous = self.state.send_replace(Arc::new(ServerState::Closed));
         // A closed server lists nothing: the connection that ended by itself goes too.
         self.died.store(None);
+        let opening = self.opening.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(client) = opening {
+            client.close().await;
+        }
+        for account in self.account_servers() {
+            Box::pin(account.close()).await;
+        }
         let reason = format!("MCP {} closed", self.name());
         self.gate.close(&reason);
         let holders: Vec<Arc<AdmissionGate>> = self.holder_gates.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, gate)| gate).collect();
@@ -785,6 +821,54 @@ impl McpServer {
     /// The Gmail app-password server that answers this server's reserved address (set by the hub before the first start).
     pub fn set_gmail(&self, gmail: Arc<crate::gmail_app_password::GmailMcp>) {
         let _ = self.gmail.set(gmail);
+    }
+
+    pub(crate) fn set_accounts(&self, accounts: Arc<crate::connector_transport::AccountGroup>) {
+        let _ = self.accounts.set(accounts);
+    }
+
+    pub(crate) fn sign_in_required(&self) -> bool {
+        self.authorizer.as_ref().is_some_and(|authorizer| authorizer.sign_in_required())
+    }
+
+    pub(crate) fn connector_accounts(&self) -> Option<Arc<crate::connector_accounts::ConnectorAccounts>> {
+        self.accounts.get().map(|group| group.choice.clone())
+    }
+
+    pub fn account_server(&self, name: &str) -> Option<Arc<Self>> {
+        self.accounts.get()?.servers.iter().find(|server| server.name() == name).cloned()
+    }
+
+    pub(crate) fn account_servers(&self) -> Vec<Arc<Self>> {
+        self.accounts.get().map(|group| group.servers.clone()).unwrap_or_default()
+    }
+
+    pub(crate) async fn call_account(
+        self: &Arc<Self>, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+    ) -> Result<Value, CallError> {
+        // A failed initial handshake has no dead connection to recover. It is a fresh
+        // per-server connect; live-connection failures use the shared call recovery below.
+        if !self.is_dead() && matches!(&*self.state(), ServerState::Starting | ServerState::Failed { .. }) {
+            let server = self.clone();
+            let connecting = mixdog_rt::spawn("mcp.account.connect", TaskClass::Work, async move { server.connect().await });
+            tokio::select! {
+                connected = connecting => connected.map_err(|error| CallError::Recovery { message: error.to_string(), outcome_unknown: false })?
+                    .map_err(|error| CallError::Recovery { message: error.to_string(), outcome_unknown: false })?,
+                () = cancel.cancelled() => return Err(RpcError::Cancelled.into()),
+            }
+        }
+        self.call_raw_through(&self.gate, owner, tool, arguments, cancel, None, &CallDelivery { progress: forward, unlisted: true, ..Default::default() }).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn call_tool_bound_in(
+        self: &Arc<Self>, scope: Option<&str>, owner: &str, tool: &str, arguments: Value,
+        cancel: &CancellationToken, deadline: Option<Instant>, account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
+    ) -> Result<ToolOutput, CallError> {
+        let gate = scope.map_or_else(|| self.gate.clone(), |scope| self.gate_in(scope));
+        let delivery = CallDelivery { account: account.cloned(), ..Default::default() };
+        let result = self.call_raw_through(&gate, owner, tool, arguments, cancel, deadline, &delivery).await?;
+        self.map_output(&result).await
     }
 
     /// `setMcpScopeRoot` (mcp/client.mjs:1603) for this server: the folder its scope works in now. A server that
@@ -849,22 +933,31 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        let result = self.call_raw_through(gate, owner, tool, arguments, cancel, deadline, &CallDelivery::default()).await?;
+        self.map_output(&result).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn call_raw_through(
+        self: &Arc<Self>, gate: &Arc<AdmissionGate>, owner: &str, tool: &str, arguments: Value,
+        cancel: &CancellationToken, deadline: Option<Instant>, delivery: &CallDelivery,
+    ) -> Result<Value, CallError> {
         let ready = match self.ready() {
             Ok(ready) if !ready.client.is_closed() => ready,
             // The connection ended before the call: nothing to send on (the SDK's `Not connected`).
             Ok(ready) => {
                 let tail = ready.client.transport().stderr_tail();
-                return self.recover_call(gate, Some(Arc::clone(&ready.client)), None, tail, owner, tool, arguments, cancel, deadline).await;
+                return self.recover_call(gate, Some(Arc::clone(&ready.client)), None, tail, owner, tool, arguments, cancel, deadline, delivery).await;
             }
             Err(_) if self.is_dead() && !self.shutdown.is_cancelled() => {
-                return self.recover_call(gate, None, None, String::new(), owner, tool, arguments, cancel, deadline).await;
+                return self.recover_call(gate, None, None, String::new(), owner, tool, arguments, cancel, deadline, delivery).await;
             }
             Err(not_ready) => return Err(not_ready),
         };
-        let Some(request) = listed(&ready, tool) else {
+        let Some(request) = (if delivery.unlisted { Some(Request::Tool(tool)) } else { listed(&ready, tool) }) else {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
         };
-        let first = match self.call_ready(gate, &ready, owner, request, arguments.clone(), cancel, deadline).await {
+        let first = match self.settle(gate, &ready, owner, request, arguments.clone(), cancel, deadline, delivery).await {
             Ok(output) => return Ok(output),
             Err(error) => error,
         };
@@ -876,7 +969,7 @@ impl McpServer {
         let Some(tail) = tail.filter(|_| !cancel.is_cancelled()) else {
             return Err(first);
         };
-        self.recover_call(gate, Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline).await
+        self.recover_call(gate, Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline, delivery).await
     }
 
     /// The reconnect after a call's connection failed, and what follows it. `sent`: the failure of a call that was
@@ -894,7 +987,8 @@ impl McpServer {
         arguments: Value,
         cancel: &CancellationToken,
         deadline: Option<Instant>,
-    ) -> Result<ToolOutput, CallError> {
+        delivery: &CallDelivery,
+    ) -> Result<Value, CallError> {
         let undelivered = sent.is_none();
         let first = sent.unwrap_or_else(|| "Not connected".to_owned());
         crate::config::mcp_log("[mcp-client] Tool call failed, attempting shared reconnect...");
@@ -927,10 +1021,10 @@ impl McpServer {
             return Err(RpcError::Cancelled.into());
         }
         let ready = self.ready()?;
-        let Some(request) = listed(&ready, tool) else {
+        let Some(request) = (if delivery.unlisted { Some(Request::Tool(tool)) } else { listed(&ready, tool) }) else {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
         };
-        match self.call_ready(gate, &ready, owner, request, arguments, cancel, deadline).await {
+        match self.settle(gate, &ready, owner, request, arguments, cancel, deadline, delivery).await {
             Err(retry @ (CallError::Rpc(_) | CallError::TimedOut(_)))
                 if !matches!(retry, CallError::Rpc(RpcError::Cancelled)) && !cancel.is_cancelled() =>
             {
@@ -977,8 +1071,18 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        self.call_tool_unlisted_bound(owner, tool, arguments, cancel, deadline, None).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn call_tool_unlisted_bound(
+        &self, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, deadline: Option<Instant>,
+        account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
+    ) -> Result<ToolOutput, CallError> {
         let ready = self.ready()?;
-        self.call_ready(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline).await
+        let delivery = CallDelivery { account: account.cloned(), ..Default::default() };
+        let result = self.settle(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline, &delivery).await?;
+        self.map_output(&result).await
     }
 
     /// Calls `tool` (the server's own name) and answers as the SDK's `Client.callTool` settles: the server's result once
@@ -991,24 +1095,21 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<Value, CallError> {
-        let ready = self.ready()?;
-        self.settle(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline).await
+        self.call_tool_settled_bound(owner, tool, arguments, cancel, deadline, None).await
     }
 
-    /// One call on `ready`, admitted by `gate`.
     #[allow(clippy::too_many_arguments)]
-    async fn call_ready(
-        &self,
-        gate: &Arc<AdmissionGate>,
-        ready: &Ready,
-        owner: &str,
-        request: Request<'_>,
-        arguments: Value,
-        cancel: &CancellationToken,
-        deadline: Option<Instant>,
-    ) -> Result<ToolOutput, CallError> {
-        let result = self.settle(gate, ready, owner, request, arguments, cancel, deadline).await?;
-        map_call_result(&result, self.policy, &self.spiller)
+    pub async fn call_tool_settled_bound(
+        &self, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, deadline: Option<Instant>,
+        account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
+    ) -> Result<Value, CallError> {
+        let ready = self.ready()?;
+        let delivery = CallDelivery { account: account.cloned(), ..Default::default() };
+        self.settle(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline, &delivery).await
+    }
+
+    async fn map_output(&self, result: &Value) -> Result<ToolOutput, CallError> {
+        map_call_result(result, self.policy, &self.spiller)
             .await
             .map_err(|mut reported| {
                 reported.text = scrub(&reported.text, &self.secrets);
@@ -1028,7 +1129,11 @@ impl McpServer {
         arguments: Value,
         cancel: &CancellationToken,
         deadline: Option<Instant>,
+        delivery: &CallDelivery,
     ) -> Result<Value, CallError> {
+        if delivery.account.is_some() && self.accounts.get().is_none() {
+            return Err(CallError::Recovery { message: "The approved connector account is no longer available.".into(), outcome_unknown: false });
+        }
         let permit = gate.acquire(owner, cancel, self.config.wait_timeout).await?;
         let from_deadline = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let max_total = match (self.config.max_total_timeout, from_deadline) {
@@ -1037,10 +1142,19 @@ impl McpServer {
         };
         let options = RequestOptions { idle_timeout: self.config.call_timeout, max_total, cancel: Some(cancel) };
         let (method, params) = match request {
-            Request::Tool(tool) => ("tools/call", json!({"name": tool, "arguments": arguments})),
+            Request::Tool(tool) => {
+                let mut params = json!({"name": tool, "arguments": arguments});
+                if self.accounts.get().is_some() {
+                    params["_meta"] = json!({"mixdog/conversation": owner});
+                    if let Some(account) = &delivery.account {
+                        params["_meta"]["mixdog/approved-account"] = json!({"name": account.name, "id": account.id});
+                    }
+                }
+                ("tools/call", params)
+            }
             Request::Feature(feature) => (feature.method(), feature.params(&arguments)),
         };
-        let result = ready.client.request(method, params, options).await;
+        let result = ready.client.request_with_progress(method, params, options, delivery.progress.clone()).await;
         drop(permit);
         // The call's own deadline, worded as `runMcpRequest`'s caller words it (`executeMcpTool`, `_callMcpFeatureWithTimeout`).
         // The total cap ends the call the same way: Node's own timer is re-armed on a progress to no more than the cap's remainder, so

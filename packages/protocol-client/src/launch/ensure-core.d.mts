@@ -42,5 +42,7 @@ export interface WatchCoreOptions {
   unansweredLimitMs?: number;
   runs?(pid: number): boolean;
   log?(line: string): void;
+  /** Said just before the kill: which core, why (`statusUnanswered` or `runtimeStalled`) and for how long. */
+  onEnding?(ending: { pid: number; reason: 'statusUnanswered' | 'runtimeStalled'; unansweredMs: number; stalledMs: number; limitMs: number }): void;
 }
 export function watchCore(options: WatchCoreOptions): { stop(): void; done: Promise<void> };

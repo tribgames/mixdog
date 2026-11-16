@@ -93,7 +93,7 @@ const HARNESS = `
       settledUsersRef: refs.users, suppressDraftSubmitPaintHandoff: refs.suppress,
     });
     useConversationOptimisticPromptRelease({
-      transcriptSessionKey: SESSION, promotedOwnDraft: promoted, settledItems, setOptimisticPrompts,
+      transcriptSessionKey: SESSION, promotedOwnDraft: promoted, optimisticPrompts, settledItems, busy, setOptimisticPrompts,
     });
     useLayoutEffect(() => {
       window.sendPrompt = async (text) => {

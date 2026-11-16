@@ -16,6 +16,13 @@ use serde_json::Value;
 
 const MESSAGE_LIMIT: usize = 200;
 
+pub(super) const CONNECTION_LIMIT: &str = "websocket_connection_limit_reached";
+
+/// The typed retirement of one Responses connection, not a model refusal.
+pub fn connection_limit(error: &ProviderError) -> bool {
+    error.kind == ErrorKind::Transient && error.code.as_deref() == Some(CONNECTION_LIMIT)
+}
+
 /// Precedence when a code and a type disagree: the most specific wins.
 const KIND_RANK: [ErrorKind; 13] = [
     ErrorKind::Policy,
@@ -211,7 +218,14 @@ pub(super) fn classify(failure: &Failure<'_>) -> ProviderError {
             ErrorKind::Unknown
         });
     let mut err = ProviderError::new(kind, failure.delivery);
-    err.code = code;
+    // The limit can be in either typed field, including alongside invalid_request_error.
+    err.code = if kind == ErrorKind::Transient
+        && [code.as_deref(), kind_type.as_deref()].contains(&Some(CONNECTION_LIMIT))
+    {
+        Some(CONNECTION_LIMIT.into())
+    } else {
+        code
+    };
     err.status = status;
     err.retry_after = retry_after(failure.headers, failure.now_ms);
     err.should_retry = header(failure.headers, "x-should-retry").and_then(|v| match v {

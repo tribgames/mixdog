@@ -190,7 +190,7 @@ mod tests {
             self.allow_all
         }
         async fn connector_account(&self, _: &ThreadId, _: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String> {
-            Ok(Some(BoundAccount { name: format!("name-of-{}", call.name), label: format!("acct-of-{}", call.name) }))
+            Ok(Some(BoundAccount { name: format!("name-of-{}", call.name), id: format!("id-of-{}", call.name), label: format!("acct-of-{}", call.name) }))
         }
     }
 

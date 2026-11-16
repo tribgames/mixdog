@@ -197,6 +197,7 @@ fn entry_from_call(node: &Node, call: &CallInfo) -> Entry {
         owner: caller.clone(),
         caller,
         line_text: node
+            .read()
             .lines()
             .get(call.line as usize - 1)
             .map_or("", |s| s.trim())
@@ -240,7 +241,8 @@ pub(super) fn format_references(
     let mut call_entries = Vec::new();
     for rel in &files {
         let Some(node) = graph.node(rel) else { continue };
-        for call in node.calls.iter().flatten().filter(|c| c.name == symbol) {
+        let calls = node.calls();
+        for call in calls.iter().flat_map(|c| c.iter()).filter(|c| c.name == symbol) {
             call_entries.push(entry_from_call(node, call));
         }
     }
@@ -251,7 +253,8 @@ pub(super) fn format_references(
     let mut entries: Vec<Entry> = Vec::new();
     for m in &mentions {
         let Some(node) = graph.node(&m.file) else { continue };
-        let raw = node.lines().get(m.line as usize - 1).map_or("", |s| s.as_str());
+        let source = node.read();
+        let raw = source.lines().get(m.line as usize - 1).map_or("", |s| s.as_str());
         let text = raw.trim();
         if text.is_empty() || call_positions.contains(&(m.file.clone(), m.line, m.col)) {
             continue;
@@ -353,8 +356,7 @@ fn reachable_targets(graph: &Graph, roots: &[String], name: &str) -> HashSet<Str
                 continue;
             }
             if importer
-                .calls
-                .as_ref()
+                .calls()
                 .is_some_and(|calls| calls.iter().any(|c| c.name == name))
             {
                 continue;
@@ -380,7 +382,7 @@ fn caller_entries(
         return Vec::new();
     }
     let targets = reachable_targets(graph, target_rels, symbol);
-    let mut found: Vec<(&Node, &CallInfo)> = Vec::new();
+    let mut found: Vec<(&Node, CallInfo)> = Vec::new();
     for node in &graph.nodes {
         if language.is_some_and(|l| node.lang != l) || !scope.contains(&node.rel) {
             continue;
@@ -391,12 +393,16 @@ fn caller_entries(
         if !same_file && !imports_target && !imports_unresolved {
             continue;
         }
-        let Some(calls) = node.calls.as_ref() else { continue };
+        // A call named `symbol` is an identifier of the file: read the sources of the files that carry it only.
+        if !(node.tokens.is_empty() || node.has_token(symbol)) {
+            continue;
+        }
+        let Some(calls) = node.calls() else { continue };
         for call in calls.iter().filter(|c| c.name == symbol) {
             if call.kind == "method" && !SELF_RECEIVERS.contains(&call.recv.as_str()) && !imports_target {
                 continue;
             }
-            found.push((node, call));
+            found.push((node, call.clone()));
         }
     }
     found.sort_by(|a, b| {
@@ -407,7 +413,7 @@ fn caller_entries(
     });
     let mut entries: Vec<Entry> = found
         .into_iter()
-        .map(|(node, call)| entry_from_call(node, call))
+        .map(|(node, call)| entry_from_call(node, &call))
         .collect();
     sort_entries(&mut entries, true);
     entries
@@ -582,8 +588,8 @@ pub(super) fn format_transitive_callers(
 }
 
 /// Calls made inside `symbol` of `node` (and, for a container, inside its members).
-fn callee_sites<'n>(node: &'n Node, symbol: &str) -> Option<Vec<&'n CallInfo>> {
-    let calls = node.calls.as_ref()?;
+fn callee_sites(node: &Node, symbol: &str) -> Option<Vec<CallInfo>> {
+    let calls = node.calls()?;
     let mut owned: HashSet<&str> = HashSet::from([symbol]);
     let containers: Vec<usize> = node
         .symbols
@@ -606,7 +612,7 @@ fn callee_sites<'n>(node: &'n Node, symbol: &str) -> Option<Vec<&'n CallInfo>> {
             }
         }
     }
-    Some(calls.iter().filter(|c| owned.contains(c.in_symbol.as_str())).collect())
+    Some(calls.iter().filter(|c| owned.contains(c.in_symbol.as_str())).cloned().collect())
 }
 
 pub(super) fn format_callees(
@@ -622,7 +628,7 @@ pub(super) fn format_callees(
     let sites = callee_sites(node, symbol).unwrap_or_default();
     let mut seen: HashSet<(&str, &str, &str)> = HashSet::new();
     let unique: Vec<&CallInfo> = sites
-        .into_iter()
+        .iter()
         .filter(|c| seen.insert((c.kind, c.recv.as_str(), c.name.as_str())))
         .collect();
     if unique.is_empty() {

@@ -317,6 +317,8 @@ pub struct UsageDelta {
     pub request_ms: u64,
     /// `deltaPrompt`: the call's prompt tokens (cache included).
     pub delta_prompt: u64,
+    /// The usage convention of the adapter that produced this call's usage (`providerInputExcludesCache`).
+    pub input_excludes_cache: bool,
     /// `sendTools`: the tools the request carried.
     pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
     /// `reasoningUsage(usage)`: `None` when the provider reported none (missing is not zero).
@@ -365,7 +367,7 @@ pub enum RunEvent {
     Chunk(Option<ProgressKind>),
     /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
     /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
-    CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool },
+    CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool, input_excludes_cache: bool },
     /// A call that ran settled (Node's early notice, `notifyEarlyResult`: `onToolResult` with `__earlyNotify`), the
     /// instant it does and in completion order, before its result commits in call order: the UI's live row and the
     /// interruption (which keeps what the stop left uncommitted) both read it. `Error` kind only for a thrown call.
@@ -546,6 +548,8 @@ pub struct CompactOutput {
     pub messages: Vec<AgentMessage>,
     /// Summary-model usage, billed to the turn.
     pub usage: Option<Usage>,
+    /// The usage convention of the adapter that sent the summary, which may not be the conversation's.
+    pub input_excludes_cache: bool,
     /// Messages taken out of the context whose rows the transcript shows (0 when
     /// none of what left is shown, or the pass changed nothing).
     pub dropped_count: u64,
@@ -764,11 +768,12 @@ pub struct GateCall {
     /// runs it and PostToolUse reports it all against this one folder, never the session's folder read again. `None` for a
     /// call made outside a run (the turn's folder is used then).
     pub cwd: Option<std::path::PathBuf>,
+    pub connector_account: Option<mixdog_core_api::domain::tool::ConnectorAccountBinding>,
 }
 
 impl GateCall {
     pub fn new(name: impl Into<String>, args: JsonValue) -> Self {
-        Self { name: name.into(), args, schema_name: None, cwd: None }
+        Self { name: name.into(), args, schema_name: None, cwd: None, connector_account: None }
     }
 
     /// The call with the folder it was prepared in.
@@ -1005,11 +1010,12 @@ impl ToolGate for AllowAll {
 /// The renderer translates this exact text (`ALLOW_NOT_SAVED_NOTICE` in Node's before-hook).
 pub const ALLOW_NOT_SAVED_NOTICE: &str = "Allowed this once. The setting could not be saved.";
 
-/// The connector account a call is bound to (`resolveMcpToolAccount`): `name` is unique and binds
-/// the call (`args.account`); `label` is what the approval card shows.
+/// The connector account a call is bound to: the name is reusable, the id is not.
+/// `label` is what the approval card shows.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BoundAccount {
     pub name: String,
+    pub id: String,
     pub label: String,
 }
 
@@ -1033,12 +1039,6 @@ pub trait GateSession: Send + Sync {
     async fn account(&self, call: &GateCall) -> Result<Option<BoundAccount>, String>;
 }
 
-/// `{ ...args, account }`: a connector call carries the account it was approved for.
-fn with_account(args: &JsonValue, account: &str) -> JsonValue {
-    let mut map = args.as_object().cloned().unwrap_or_default();
-    map.insert("account".to_owned(), JsonValue::String(account.to_owned()));
-    JsonValue::Object(map)
-}
 
 /// `ApprovalGate` seen from the loop: while the person decides the run is waiting on them
 /// (`Stage::ApprovalWait`), and a "no" (or a timeout) lets the turn end waiting on them.
@@ -1135,59 +1135,61 @@ impl PolicyGate {
 }
 
 #[async_trait]
+impl mixdog_tools::policy::pipeline::AccountResolver for PolicyGate {
+    async fn resolve_account(&self, name: &str, args: &JsonValue) -> Result<Option<mixdog_tools::policy::pipeline::CallAccount>, String> {
+        self.session.account(&GateCall::new(name, args.clone())).await?.map(|account| {
+            if account.name.is_empty() || account.id.is_empty() {
+                return Err("The connector account has no stable identity.".to_owned());
+            }
+            Ok(mixdog_tools::policy::pipeline::CallAccount {
+                binding: mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id },
+                label: account.label,
+            })
+        }).transpose()
+    }
+}
+
+#[async_trait]
 impl ToolGate for PolicyGate {
     async fn check_call(&self, call_id: &str, call: &GateCall) -> GateDecision {
         let facts = self.session.facts().await;
         let surface = self.session.surface();
-        // A connector call is bound to its account before any hook or card sees it, so an
-        // approval approves that account, whatever is used last meanwhile (`tool-exec.mjs`).
-        let bound = match self.session.account(call).await {
-            Ok(bound) => bound.filter(|account| !account.name.is_empty()),
-            Err(message) => return GateDecision::Deny(format!("Error: {message}")),
-        };
-        let account = bound.as_ref().map(|account| account.label.as_str()).filter(|label| !label.is_empty());
-        let args = match &bound {
-            Some(bound) => with_account(&call.args, &bound.name),
-            None => call.args.clone(),
-        };
         let call_id = ToolCallId::from(call_id);
         let authorized = self
             .policy
-            .authorize(mixdog_tools::policy::AuthorizeRequest {
+            .authorize_with_accounts(mixdog_tools::policy::AuthorizeRequest {
                 call_id: &call_id,
                 thread_id: &self.thread_id,
                 name: &call.name,
-                args,
+                args: call.args.clone(),
                 cwd: call.cwd.as_deref().unwrap_or(&self.cwd),
                 facts: &facts,
                 surface: &surface,
                 schema_name: call.schema_name.as_deref(),
                 settings: self.session.settings(),
-                account,
+                account: None,
                 session_grants: &self.grants,
                 tools: self.tools.as_ref(),
                 approvals: &self.approvals,
                 cancel: &self.cancel,
-            })
+            }, self)
             .await;
         match authorized {
             Err(error) => GateDecision::Deny(error.message_for_model),
-            Ok(authorized) => {
+            Ok((authorized, connector_account)) => {
                 if authorized.allow_not_saved {
                     self.approvals.observer.event(RunEvent::Stage(Stage::Notice {
                         message: ALLOW_NOT_SAVED_NOTICE.to_owned(),
                         tone: Tone::Warn,
                     }));
                 }
-                // A hook's rewrite of the same tool keeps the bound account.
-                let args = match &bound {
-                    Some(bound) if authorized.name == call.name => with_account(&authorized.args, &bound.name),
-                    _ => authorized.args,
-                };
-                if authorized.name == call.name && args == call.args {
+                let args = authorized.args;
+                if authorized.name == call.name && args == call.args && connector_account.is_none() {
                     GateDecision::Allow
                 } else {
-                    GateDecision::Rewrite(GateCall::new(authorized.name, args))
+                    let mut rewritten = GateCall::new(authorized.name, args);
+                    rewritten.connector_account = connector_account;
+                    GateDecision::Rewrite(rewritten)
                 }
             }
         }

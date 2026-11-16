@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use super::args::Args;
-use super::cache::GraphCache;
+use super::cache::{GraphCache, Lease};
 use super::federation::{TrustSnapshot, drop_cwd_anchors, plan_federation, run_federation};
 use super::graph::Graph;
 use super::modes::{self, Ctx};
@@ -136,12 +136,15 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         [one] => Some(abs_from(&base, one)).filter(|p| p.is_file()),
         _ => None,
     };
+    // A graph whose source reads found a file changed is dropped and the call runs once more on a fresh build.
+    let mut attempt = 0;
+    let (graph, section, warnings) = loop {
     let graph = match single_file.as_ref().filter(|_| mode == "symbols") {
         Some(file) => match Graph::build_single(&root, file)? {
-            Some(g) => g,
-            None => Graph::build(&root, excluded, env.cache)?,
+            Some(g) => Lease::alone(std::sync::Arc::new(g)),
+            None => env.cache.graph(&root, excluded)?,
         },
-        None => Graph::build(&root, excluded, env.cache)?,
+        None => env.cache.graph(&root, excluded)?,
     };
 
     // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
@@ -193,6 +196,18 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         one(&args)
     }?;
     let warnings = warnings.into_inner();
+    if graph.source_stale() {
+        env.cache.drop_held(&root);
+        if attempt == 0 {
+            attempt = 1;
+            continue;
+        }
+        // The files changed again under the fresh build: the empty reads would silently drop references, bodies or
+        // callers from the answer, so it fails instead.
+        return Err("code_graph: source files changed while the query ran; run it again".to_owned());
+    }
+    break (graph, section, warnings);
+    };
     // Node marks the call incomplete once a graph holds an unindexed file (`collectGraphParseWarnings`).
     let complete = section.complete && !graph.truncated && warnings.is_empty();
     let error = is_error_body(&section.text);

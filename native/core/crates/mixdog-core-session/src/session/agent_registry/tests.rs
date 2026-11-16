@@ -2984,6 +2984,134 @@ fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::Jo
     (rig, registry, mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None))
 }
 
+#[tokio::test]
+async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_delivery() {
+    struct Dead;
+    impl restart::ProcessProbe for Dead {
+        fn alive(&self, _: u64) -> bool { false }
+    }
+    let (rig, registry, board) = lost_task_world();
+    for n in 0..8 {
+        let id = format!("s-{n}");
+        rig.store.write(&id, Some(worker_row(&id, &id, json!({
+            "status": "running", "stage": "tool_running", "runtimePid": PID + 1,
+            "task_id": format!("t-{n}"), "updatedAt": at(NOW),
+        }))));
+        rig.store.sessions.lock().unwrap().push(session(&id, &id, &at(NOW), json!({ "updatedAt": at(NOW) })));
+    }
+    rig.store.write("s-owed", None);
+    let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
+    assert!(registry.recover_stale_worker_rows(true, &live).await.unwrap());
+
+    let owner = OwnerQueue::new();
+    owner.gate.add_permits(8);
+    owner.fail_next.store(true, Ordering::SeqCst);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 7);
+    assert_eq!(board.list_jobs(&Scope::default()).len(), 8, "even the unqueued failure is a failed task");
+    assert!(board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
+    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1);
+    owner.gate.add_permits(1);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 1);
+    owner.take();
+    assert_eq!(owner.taken.lock().unwrap().len(), 8);
+
+    // A fresh registry and board represent another core restart. Scanning idle headers
+    // must not replace the task outcomes, and stamped notices must not erase status.
+    let restarted = rig.registry();
+    restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await;
+    let listed = restarted.session_entries(true, &lead("lead-a"));
+    assert_eq!(listed.len(), 8);
+    assert!(listed.iter().all(|(_, row)| row["status"] == "failed"));
+    let (_, _, fresh_board) = lost_task_world();
+    assert_eq!(restart::notify_restart_failures(&restarted, &owner, &fresh_board, &at(NOW)).await.unwrap(), 0);
+    assert_eq!(fresh_board.list_jobs(&Scope::default()).len(), 8);
+    assert!(fresh_board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
+    for n in 0..8 {
+        assert_eq!(rig.store.map(&format!("s-{n}")).unwrap()["status"], "failed");
+    }
+    restarted.upsert_worker_row(
+        &session("s-0", "s-0", &at(NOW), json!({})),
+        "s-0",
+        &obj(json!({ "status": "running", "stage": "running", "task_id": "new-task" })),
+    );
+    assert_eq!(rig.store.map("s-0").unwrap()["status"], "running", "a genuine new task can still start");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart() {
+    use crate::session::{ItemCommit, RunOutcome};
+    use crate::session::tests::idle;
+    use std::sync::atomic::AtomicUsize;
+
+    let data = tempfile::tempdir().unwrap();
+    let core = Core::up(data.path()).await;
+    let turns = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (count, gate) = (turns.clone(), release.clone());
+    core._rig.set_script(Arc::new(move |run| {
+        let (count, gate) = (count.clone(), gate.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.unwrap();
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            if first {
+                gate.acquire().await.unwrap().forget();
+                for (task, status) in [("read-before-notice", "completed"), ("notice-before-read", "failed"), ("still-running", "running")] {
+                    run.port.commit_item(ItemCommit {
+                        iid: mixdog_core_api::ids::ItemId::from(task),
+                        role: Some("tool".into()), model: true, visible: true, prompt: None,
+                        body: json!({ "role": "tool", "content": "task output", "toolMeta": {
+                            "code": "task-completion", "executionId": task, "status": status
+                        }}),
+                    }).await.unwrap();
+                }
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let owner = core.start("completion-owner", json!({})).await;
+    let handle = core.directory.handle(&owner).unwrap();
+    core.directory.queue_channel_notification(&owner, "work".into()).await;
+    crate::eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    let notice = |id: &str, status: &str| format!("<task-notification><task-id>{id}</task-id><status>{status}</status></task-notification>");
+    core.directory.queue_completion_durably(&owner, "shell", "notice-before-read", "failed", notice("notice-before-read", "failed")).await.unwrap();
+    release.add_permits(1);
+    crate::eventually_on!(&[&handle.cell.stepped], || (turns.load(Ordering::SeqCst) > 0 && idle(&handle)).then_some(())).await;
+    for task in ["notice-before-read", "read-before-notice"] {
+        core.directory.queue_completion_durably(&owner, "shell", task, "completed", notice(task, "completed")).await.unwrap();
+    }
+    assert_eq!(turns.load(Ordering::SeqCst), 1, "terminal reads consume both racing notification paths");
+    assert!(handle.cell.queue.load().is_empty());
+    // Reading running output did not consume its future failure.
+    core.directory.queue_completion_durably(&owner, "shell", "still-running", "failed", notice("still-running", "failed")).await.unwrap();
+    crate::eventually_on!(&[&handle.cell.stepped], || (turns.load(Ordering::SeqCst) == 2 && idle(&handle)).then_some(())).await;
+    core.directory.queue_completion_durably(&owner, "shell", "still-running", "failed", notice("still-running", "failed")).await.unwrap();
+    assert_eq!(turns.load(Ordering::SeqCst), 2, "a dequeued completion cannot reopen a finished turn");
+    core.directory.shutdown().await;
+    drop(handle);
+    drop(core);
+
+    let reopened = Core::up(data.path()).await;
+    let count = turns.clone();
+    reopened._rig.set_script(Arc::new(move |run| {
+        let count = count.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.unwrap();
+            count.fetch_add(1, Ordering::SeqCst);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    assert_eq!(reopened.queued(&owner).await, 0);
+    for task in ["notice-before-read", "read-before-notice", "still-running"] {
+        reopened.directory.queue_completion_durably(&owner, "shell", task, "failed", notice(task, "failed")).await.unwrap();
+    }
+    assert_eq!(turns.load(Ordering::SeqCst), 2, "receipts survive reopening the durable log");
+    assert_eq!(reopened.queued(&owner).await, 0);
+    reopened.directory.queue_completion_durably(&owner, "shell", "new-failure", "failed", notice("new-failure", "failed")).await.unwrap();
+    let handle = reopened.directory.handle(&owner).unwrap();
+    crate::eventually_on!(&[&handle.cell.stepped], || (turns.load(Ordering::SeqCst) == 3 && idle(&handle)).then_some(())).await;
+    reopened.directory.shutdown().await;
+}
+
 /// An owner is told a restart notice once when its write is slow: the owner takes the entry before the write is acknowledged, and
 /// a second pass (a compaction's `recoverAgentWorkers` starts one) finds the row still owed. The owner's queue knows an id only
 /// while it holds the entry, so queued again the notice would be delivered again (Node told 19 owners every five seconds).

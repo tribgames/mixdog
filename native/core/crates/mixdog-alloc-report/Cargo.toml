@@ -1,0 +1,13 @@
+[package]
+name = "mixdog-alloc-report"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "alloc-report"
+path = "src/main.rs"
+
+[dependencies]
+rustc-demangle = "0.1.25"
+serde_json = { workspace = true }

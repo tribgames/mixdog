@@ -263,7 +263,10 @@ async fn upgrade(
     }
     let screen = UpgradeScreen { context, pending: &pending };
     let upgraded = tokio::select! {
-        () = pending.abandoned() => return None,
+        () = pending.abandoned() => {
+            pending.ends_because("abandoned".to_owned());
+            return None;
+        }
         result = tokio_tungstenite::accept_hdr_async_with_config(
             stream,
             screen,
@@ -275,8 +278,11 @@ async fn upgrade(
             let (write, read) = socket.split();
             Some(pending.start(WsRead(read), WsWrite(write)))
         }
+        // A refusal recorded its reason where it was decided.
+        Err(WsError::Http(_)) => None,
         Err(error) => {
             tracing::debug!(%error, "websocket upgrade failed");
+            pending.ends_because("handshakeFailed".to_owned());
             None
         }
     }
@@ -289,8 +295,21 @@ struct UpgradeScreen<'a> {
 }
 
 impl Callback for UpgradeScreen<'_> {
-    /// The upgrade rules of P §4.1, in order: path, Origin, Bearer token, connection limit, then narrowing.
     fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+        let pending = self.pending;
+        let result = self.screen(request, response);
+        if let Err(refused) = &result {
+            // `refusal` built the body: `{"reason":"<fixed name>"}`.
+            let reason = refused.body().as_deref().and_then(|body| body.strip_prefix("{\"reason\":\"")).and_then(|body| body.strip_suffix("\"}"));
+            pending.ends_because(format!("refused status={} cause={}", refused.status().as_u16(), reason.unwrap_or("unknown")));
+        }
+        result
+    }
+}
+
+impl UpgradeScreen<'_> {
+    /// The upgrade rules of P §4.1, in order: path, Origin, Bearer token, connection limit, then narrowing.
+    fn screen(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
         let Self { context, pending } = self;
         if request.uri().path() != "/rpc" {
             return Err(refusal(StatusCode::NOT_FOUND, "notFound"));

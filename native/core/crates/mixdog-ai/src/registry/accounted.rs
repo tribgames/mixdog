@@ -140,6 +140,12 @@ pub fn input_excludes_cache(provider: &str) -> bool {
     matches!(provider, "anthropic" | "anthropic-oauth" | "devin-oauth" | "vertex-ai")
 }
 
+/// `providerInputExcludesCache` of the actual adapter (`registry.mjs:492`): what it declares, else its class's by name.
+/// Resolved once where a send is built and carried with its reports, never read again from a provider name.
+pub fn adapter_input_excludes_cache(adapter: &dyn ProviderAdapter) -> bool {
+    adapter.input_excludes_cache().unwrap_or_else(|| input_excludes_cache(adapter.id().as_str()))
+}
+
 /// The accounting of a logical send between its attempts, with the failure of the last one
 /// held back: the next attempt of the group makes it an abandoned attempt of the same row, and
 /// `settle_send` makes it the send's own failed row.

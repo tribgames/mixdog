@@ -269,15 +269,24 @@ test('held rows that move while the page is in flight drop the page and read the
   assert.equal(pager.movedFrom, 32, 'from the 32 rows held when the page was asked, not the 31 held after');
 });
 
-test('a session that changed between reads drops the page and reads the window again (Node answered it in full)', async () => {
+test('rows that land at the tail while an older page is in flight leave the page above the rows on screen, kept as they are', async () => {
   const name = 'a session that changed between reads';
   const appended = pageCase(name).snapshot.items.slice(-pageCase(name).appendedRows.length);
   assert.deepEqual(
     appended.map((row) => row.id),
     pageCase(name).appendedRows
   );
-  const { outcome, pager } = await pagedWhile((live) => (live.items = [...live.items, ...appended]));
-  assert.equal(outcome, 'moved');
-  assert.equal(pager.window, null);
-  assert.equal(pager.movedFrom, 32, 'from the 32 rows held when the page was asked, not the 34 held after');
+  let shown;
+  const { outcome, pager, older } = await pagedWhile((live) => (shown = live.items = [...live.items, ...appended]));
+  // A re-read of the whole window (a new object for every row the reader saw) moved the reader as the page landed.
+  assert.equal(outcome, 'paged');
+  const page = older.reads[0].result.page.items;
+  assert.deepEqual(
+    pager.window.items.map((row) => row.id),
+    [...page, ...shown].map((row) => row.id)
+  );
+  assert.ok(
+    shown.every((row, index) => pager.window.items[page.length + index] === row),
+    'the rows on screen are the same rows'
+  );
 });

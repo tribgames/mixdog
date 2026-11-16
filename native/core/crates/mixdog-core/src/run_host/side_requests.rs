@@ -156,7 +156,7 @@ impl RequestFork {
         match send_forked(&self.provider, fork, &CancellationToken::new()).await {
             Ok(Some(response)) => {
                 let reported = response.usage != Usage::default();
-                Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), usage: reported.then_some(response.usage) })
+                Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
             }
             Ok(None) => Err(SummaryFailure::Aborted),
             Err(error) => Err(SummaryFailure::Failed(error.message)),

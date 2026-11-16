@@ -34,7 +34,7 @@ struct Provider {
 impl SummarySender for Provider {
     async fn send(&self, _: &str, _: &str, _: &mixdog_agent::compact::summary_run::SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
         self.sent.fetch_add(1, Ordering::SeqCst);
-        Ok(SummaryResponse { text: self.summary.clone(), tool_call: false, usage: None })
+        Ok(SummaryResponse { text: self.summary.clone(), tool_call: false, usage: None, input_excludes_cache: false })
     }
 }
 

@@ -159,10 +159,14 @@ pub fn settle_rows(rows: &[(String, Row)], dead_only: bool, live: &Liveness<'_>)
 
 /// `isUnnotifiedRestartFailure(row)`.
 pub fn is_unnotified_restart_failure(row: &Row) -> bool {
-    row.get("status").and_then(Value::as_str) == Some("failed")
-        && row.get("failureReason").and_then(Value::as_str) == Some(PROCESS_RESTART_FAILURE)
+    is_restart_failure(row)
         && !clean(row.get("ownerSessionId")).is_empty()
         && !truthy(row.get("restartNotified"))
+}
+
+pub(super) fn is_restart_failure(row: &Row) -> bool {
+    row.get("status").and_then(Value::as_str) == Some("failed")
+        && row.get("failureReason").and_then(Value::as_str) == Some(PROCESS_RESTART_FAILURE)
 }
 
 impl AgentRegistry {
@@ -354,6 +358,14 @@ impl AgentRegistry {
 /// acknowledged yet) is left to that pass, and one stored whose stamp failed is only stamped: queued again, an owner that took
 /// the entry meanwhile would be told again. Returns how many owners were told.
 pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn RestartNotices, board: &JobBoard, stamp: &str) -> Result<usize, String> {
+    // The durable terminal task, not delivery of its notice, owns status visibility. Rebuild
+    // even stamped failures and failures whose owner currently cannot accept a notification.
+    registry.store.settled().await?;
+    for (_, row) in AgentRegistry::pool_rows(registry.store.worker_maps().await?) {
+        if is_restart_failure(&row) {
+            register_failed_task(board, &row);
+        }
+    }
     let mut told = 0;
     for (session, row) in registry.pending_restart_failures().await? {
         let execution = restart_notification_id(&row);
@@ -386,7 +398,6 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
         }
         registry.mark_restart_notified(&[session], stamp).await?;
         registry.restart_notice_stamped(&execution);
-        register_failed_task(board, &row);
         told += 1;
     }
     Ok(told)

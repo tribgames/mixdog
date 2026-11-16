@@ -44,8 +44,9 @@ pub type RouteLookups = Box<dyn std::any::Any + Send + Sync>;
 /// (`cross_provider`, applied only when the route changed), and the pending workspace re-root
 /// with the `# Session` block rebuild. `header` already carries the new route fields; `previous`
 /// is the route (`provider`, `model`) the session ran before.
-/// The change itself is synchronous and pure, like Node's `updateSessionRoute`: it runs on the
-/// session's actor, on the header as it stands there (`HeaderUpdates`). What it reads from outside
+/// The change is synchronous, like Node's `updateSessionRoute`: it runs on the session's actor,
+/// on the header as it stands there (`HeaderUpdates`), and invalidates the route's live prefix baseline.
+/// What it reads from outside
 /// the header (a new route's tool surface is resolved from a skill list, which Node's
 /// `_prepareResumeTools` collects inside the call) is looked up first, by `lookups`.
 #[async_trait::async_trait]

@@ -753,7 +753,8 @@ html[data-mixdog-mobile-tabs]
 
 /* PC: the usage line under the bar sits close to the window floor,
    in the agent and the coding composer alike. */
-html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
+html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer),
+html:not([data-mixdog-mobile-tabs]) .studio-dock {
   padding-bottom: 2px;
 }
 

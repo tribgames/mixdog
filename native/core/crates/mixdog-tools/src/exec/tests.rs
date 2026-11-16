@@ -690,7 +690,11 @@ async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
         let golden = fixture("task", name);
         let mut input = golden["input"].clone();
         input["task_id"] = "task-a".into();
-        assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap(), "{name}");
+        let output = rig.task.call(&c, input).await.unwrap();
+        assert_eq!(output.meta, Some(serde_json::json!({
+            "code": "task-completion", "executionId": "task-a", "status": "completed"
+        })));
+        assert_eq!(normalize(&body(Ok(output))), golden["text"].as_str().unwrap(), "{name}");
     }
     rig.processes.quiet.store(true, std::sync::atomic::Ordering::SeqCst);
     rig.shell.call(&ctx(&rig, "b"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await.unwrap();
@@ -702,7 +706,9 @@ async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
     let golden = fixture("task", "task-wait-running-expiry");
     let mut input = golden["input"].clone();
     input["task_id"] = "task-b".into();
-    assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap());
+    let output = rig.task.call(&c, input).await.unwrap();
+    assert!(output.meta.is_none(), "a running read cannot consume a future completion");
+    assert_eq!(normalize(&body(Ok(output))), golden["text"].as_str().unwrap());
     let golden = fixture("task", "task-list-after");
     assert_eq!(normalize(&body(rig.task.call(&c, golden["input"].clone()).await)), golden["text"].as_str().unwrap());
 }
@@ -2466,7 +2472,7 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
-// ---- the shell's refusal of a command the built-in tools cover, and `machine`: recorded from Node ----
+// ---- the shell's refusal of a command the built-in tools cover: recorded from Node ----
 
 /// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
 fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
@@ -2595,114 +2601,6 @@ async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
         }
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
-}
-
-/// What the `machine` tool prints, as the recorder writes it: each reading a placeholder, the wording, the order of the
-/// sections and the number of `top by …` rows exact (`record-machine-tool.mjs` states the rules).
-fn machine_shape(text: &str) -> String {
-    let process_row = regex::Regex::new(r"^ {2}\S.* \(pid \d+\) {2}cpu [\d.]+% {2}mem \d+ MB$").unwrap();
-    let more_row = regex::Regex::new(r"^ {2}… \d+ more$").unwrap();
-    let mut out: Vec<String> = Vec::new();
-    let mut section = String::new();
-    for line in text.split('\n') {
-        let heads = ["cpu", "memory", "processes", "drives", "top by cpu", "top by memory"];
-        if heads.iter().any(|h| line.starts_with(h)) {
-            section = line.split([':', '(']).next().unwrap().trim().to_owned();
-        }
-        let mut next = line.to_owned();
-        if line.starts_with("cpu: ") {
-            next = regex::Regex::new(r"^cpu: \d+% busy of \d+ cores").unwrap().replace(line, "cpu: <n>% busy of <n> cores").into_owned();
-        } else if line.starts_with("memory: ") {
-            next = regex::Regex::new(r"^memory: [\d.]+ GB available of [\d.]+ GB \(\d+% used\)$").unwrap().replace(line, "memory: <gb> GB available of <gb> GB (<n>% used)").into_owned();
-        } else if section == "drives" && line.starts_with("  ") && !line.trim().is_empty() {
-            if out.last().is_some_and(|l| l == "  <drive> <gb> GB of <gb> GB") {
-                continue;
-            }
-            next = "  <drive> <gb> GB of <gb> GB".to_owned();
-        } else if line.starts_with("processes matching \"") {
-            next = regex::Regex::new(r"\((\d+)\):$").unwrap().replace(line, |c: &regex::Captures| if &c[1] == "0" { "(0):".to_owned() } else { "(<n>):".to_owned() }).into_owned();
-        } else if section.starts_with("processes matching") {
-            if line == "  none" {
-                next = line.to_owned();
-            } else if process_row.is_match(line) || more_row.is_match(line) {
-                if out.last().is_some_and(|l| l == "  <process rows>") {
-                    continue;
-                }
-                next = "  <process rows>".to_owned();
-            }
-        } else if process_row.is_match(line) {
-            next = "  <process> (pid <n>)  cpu <n>%  mem <n> MB".to_owned();
-        }
-        out.push(next);
-    }
-    out.join("\n")
-}
-
-/// A machine of the test's own: thirty processes, two drives, fixed readings, nothing sampled and no clock.
-struct FixedMachine {
-    /// Processes that never answer (the tool's own deadline ends the wait).
-    hung: bool,
-}
-
-#[async_trait]
-impl super::machine::MachineHost for FixedMachine {
-    async fn cpu_busy(&self, _: &ToolContext) -> u64 {
-        7
-    }
-    async fn memory(&self, _: &ToolContext) -> (f64, f64) {
-        (8.0 * 1024.0 * 1024.0 * 1024.0, 16.0 * 1024.0 * 1024.0 * 1024.0)
-    }
-    async fn processes(&self, _: &ToolContext) -> Option<Vec<super::machine::Process>> {
-        if self.hung {
-            std::future::pending().await
-        }
-        Some((0..30).map(|i| super::machine::Process { pid: 100 + i, name: format!("svc-e{i}"), cpu: i as f64 / 3.0, memory: (i as f64 + 1.0) * 5_000_000.0 }).collect())
-    }
-    async fn drives(&self, _: &ToolContext) -> Option<Vec<super::machine::Drive>> {
-        Some(vec![
-            super::machine::Drive { root: "C:\\".into(), free: 50e9, total: 500e9 },
-            super::machine::Drive { root: "D:\\".into(), free: 150e9, total: 1000e9 },
-        ])
-    }
-}
-
-/// Node's `machine` on its recorded arguments: the same sections, wording and refusals, over a machine the test supplies.
-#[tokio::test(start_paused = true)]
-async fn machine_has_nodes_shape() {
-    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/machine-tool/cases.json")).unwrap();
-    let rig = rig();
-    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: false }));
-    let mut failures = Vec::new();
-    for (n, case) in doc["cases"].as_array().unwrap().iter().enumerate() {
-        let (refused, text) = match tool.call(&ctx(&rig, &format!("machine{n}")), case["input"].clone()).await {
-            Ok(out) => match &out.parts[0] {
-                ToolPart::Text(t) => (false, t.clone()),
-                other => panic!("{other:?}"),
-            },
-            Err(e) => (true, e.message_for_model),
-        };
-        let want = &case["result"];
-        let shaped = machine_shape(&text);
-        if shaped != want["text"].as_str().unwrap() || refused != want["isError"].as_bool().unwrap() {
-            failures.push(format!("{}\n  want {}\n  got  {shaped}", case["name"], want["text"]));
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-/// Processes that do not answer within the tool's deadline are reported as unavailable and the rest is still told; the
-/// deadline runs on the test's clock.
-#[tokio::test(start_paused = true)]
-async fn machine_reports_processes_that_miss_its_deadline() {
-    let rig = rig();
-    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: true }));
-    let started = tokio::time::Instant::now();
-    let text = body(tool.call(&ctx(&rig, "machine"), serde_json::json!({ "process": "svc" })).await);
-    assert_eq!(started.elapsed(), std::time::Duration::from_millis(1800));
-    assert_eq!(
-        machine_shape(&text),
-        "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\nprocesses: unavailable (no answer within the deadline)\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB"
-    );
 }
 
 /// The ownership record and logs of a job another runtime ran, as it left them in `rig`'s log folder.

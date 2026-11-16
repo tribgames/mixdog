@@ -50,6 +50,7 @@ const DEFAULT_OUTPUT_TOKENS: u64 = 32768;
 /// but not this one exists only as another program's variant.
 const STANDARD_PROGRAM: &str = "standard";
 
+#[derive(Clone)]
 pub struct OpenAiModels {
     codec: OpenAiCodec,
     http: Arc<dyn HttpSend>,

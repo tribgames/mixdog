@@ -541,8 +541,12 @@ impl ScopeRuntime {
             }
             Op::Only(_, enabled) => {
                 if !*enabled {
-                    configs.retain(|c| !targets.contains(&c.name));
-                    self.hub.apply_at(scope, generation, configs, &|_| false);
+                    // Turning off one account changes its connector's private connections;
+                    // the connector remains live while its configuration has enabled accounts.
+                    configs.retain(|c| !targets.contains(&c.name) || (!c.accounts.is_empty() && c.enabled));
+                    if self.hub.apply_at(scope, generation, configs, &|_| false) {
+                        Self::settled(self.awaited(scope, &targets)).await;
+                    }
                     return;
                 }
                 // A failed one is not among them: the apply connects it (replaced, or a shared one again in place).

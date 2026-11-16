@@ -27,6 +27,7 @@ fn the_usage_event_equals_nodes_usage_delta_event() {
             reasoning_tokens_complete: false,
             outgoing: Vec::new(),
             sent_at_ms: 0,
+            input_excludes_cache: false,
         };
         assert_eq!(usage_delta("s", &report, event["ts"].as_i64().unwrap()), *event, "{}", case["toolCalls"]);
     }

@@ -24,6 +24,15 @@ test('a remote page reports the sessions it paints apart from its delivery subsc
   });
 });
 
+test('a refused approval answer on the phone asks its own client to republish the projection, and only when asked fresh', async () => {
+  await withPhoneApi({ refreshSessionState: () => true }, async ({ api, calls }) => {
+    assert.equal(await api.resyncSessionState('s1', { fresh: true }), true);
+    assert.deepEqual(calls, [{ method: 'refreshSessionState', params: ['s1'] }]);
+    assert.equal(api.resyncSessionState('s1'), undefined, 'a plain resync stays a no-op here');
+    assert.equal(calls.length, 1);
+  });
+});
+
 test('a remote page tells the core which visualize panels it has on screen, and each new leg again', async () => {
   await withScreen(async ({ ctx, reports }) => {
     setVisualizePanelOnScreen('a', true);

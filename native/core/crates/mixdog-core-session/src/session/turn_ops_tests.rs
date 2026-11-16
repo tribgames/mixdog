@@ -1319,6 +1319,7 @@ async fn play(run: &super::RunStart, clock: &super::testing::FixedClock, script:
                 reasoning_tokens_complete: false,
                 outgoing: Vec::new(),
                 sent_at_ms: 0,
+                input_excludes_cache: false,
             };
             port.usage(report).await.expect("usage");
         }

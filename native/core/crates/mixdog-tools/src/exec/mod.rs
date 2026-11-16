@@ -18,7 +18,6 @@ mod hoist;
 mod hygiene;
 mod invocation;
 mod jobs;
-mod machine;
 mod psfix;
 pub(crate) mod scan;
 pub(crate) mod settle;
@@ -34,7 +33,6 @@ mod wake;
 mod warning;
 
 pub use cover::COVERING_TOOLS;
-pub use machine::MachineTool;
 pub use fold::fold_carriage_return_frames;
 pub use fold::fold_consecutive_duplicate_lines;
 pub use text::escape_harness_tags;

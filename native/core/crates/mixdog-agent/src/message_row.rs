@@ -220,6 +220,11 @@ fn content_of(content: Option<&Value>) -> Result<Content, String> {
     }
 }
 
+/// The content a row's `content` value holds (a string or a list of parts), as a stored row decodes it.
+pub fn content_from_value(content: &Value) -> Result<Content, String> {
+    content_of(Some(content))
+}
+
 pub fn part_row(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, reference) => {

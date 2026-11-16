@@ -125,7 +125,7 @@ fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
     let imports_all = &node.resolved_imports;
     let imports: Vec<&str> = imports_all.iter().take(8).map(String::as_str).collect();
     let outline = outline_rows(node, Some(ctx.args.depth.unwrap_or(1.0)), 120);
-    let head: String = node.source().split('\n').take(6).collect::<Vec<_>>().join("\n");
+    let head: String = node.read().text().split('\n').take(6).collect::<Vec<_>>().join("\n");
     let head: String = super::util::head_chars(head.trim(), 420).to_string();
     let mut parts = vec![format!("file: {}", node.rel), format!("language: {}", node.lang)];
     if !outline.is_empty() {
@@ -446,7 +446,8 @@ fn import_line_ref(graph: &Graph, dep: &str, basename: &str, stem: &str) -> Stri
     };
     let importish = regex::Regex::new(r#"(?:^|\W)(?:import|require)\b|\bfrom\s*['"]"#)
         .expect("static pattern");
-    for (i, line) in node.lines().iter().enumerate() {
+    let source = node.read();
+    for (i, line) in source.lines().iter().enumerate() {
         if !importish.is_match(line) {
             continue;
         }
@@ -845,7 +846,7 @@ fn scoped_call_context(
         let Some(node) = ctx.node else {
             return Ok(Err(file_not_found(mode, ctx.norm_file, ctx.graph)));
         };
-        if node.has_token(symbol) || node.text.contains(symbol) {
+        if node.has_token(symbol) || node.read().text().contains(symbol) {
             Some(node)
         } else {
             return Ok(Err(format!(

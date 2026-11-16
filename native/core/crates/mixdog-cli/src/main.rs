@@ -5,6 +5,12 @@
 mod boot_fault;
 mod projector;
 
+#[cfg(all(feature = "alloc-profile", windows))]
+mod alloc_profile;
+#[cfg(all(feature = "alloc-profile", windows))]
+#[global_allocator]
+static ALLOCATOR: alloc_profile::ProfilingAllocator = alloc_profile::ProfilingAllocator;
+
 use mixdog_cli::exec;
 
 use std::path::PathBuf;
@@ -45,6 +51,17 @@ enum Command {
     },
     /// Headless one-shot: ask once on a pristine root, print the answer.
     Exec(exec::ExecArgs),
+    #[command(name = "embedding-host", hide = true)]
+    EmbeddingHost {
+        #[arg(long)]
+        cache_dir: PathBuf,
+        #[arg(long)]
+        model_id: String,
+        #[arg(long)]
+        ort_library: PathBuf,
+        #[arg(long)]
+        dtype: Option<String>,
+    },
     /// The process the effort judge's model runs in; started by the core, never by a user.
     #[command(name = "effort-judge-host", hide = true)]
     EffortJudgeHost {
@@ -146,7 +163,11 @@ struct StopArgs {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve => serve(),
+        Command::Serve => {
+            #[cfg(all(feature = "alloc-profile", windows))]
+            alloc_profile::enable_from_env();
+            serve()
+        }
         Command::Ctl(args) => ctl(args),
         Command::Migrate(args) => {
             let args = MigrateArgs {
@@ -163,6 +184,9 @@ fn main() -> ExitCode {
         Command::Exec(args) => exec_command(args),
         Command::EffortJudgeHost { dir, ort_library, explicit } => {
             ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
+        }
+        Command::EmbeddingHost { cache_dir, model_id, ort_library, dtype } => {
+            ExitCode::from(mixdog_app_server_daemon::embedding_host::run(cache_dir, model_id, ort_library, dtype) as u8)
         }
         Command::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
         Command::ExtWorker => {

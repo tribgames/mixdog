@@ -367,6 +367,9 @@ pub struct RunFailure {
 #[derive(Debug)]
 pub struct RunOutput {
     pub response: ModelResponse,
+    /// The usage convention of the adapter the run ended on (a fallback may have replaced the first), the one the ask's
+    /// aggregate is settled by.
+    pub input_excludes_cache: bool,
     /// Aggregate over every provider request of the ask.
     pub usage: Usage,
     pub last_turn_usage: Usage,
@@ -409,10 +412,6 @@ pub struct Run {
     pub(crate) context_overflow_retry_used: bool,
     pub(crate) reactive_overflow_retry_pending: bool,
     pub(crate) retry: RetryStates,
-    /// The first WebSocket failure of the send's outage (`firstAttemptError`): what a spent budget surfaces.
-    pub(crate) first_ws_failure: Option<ProviderError>,
-    /// The retries the WebSocket send's outage has spent (`attemptIndex`): one budget for the handshake and the stream.
-    pub(crate) ws_retries: u32,
     pub(crate) max_output_override: Option<u32>,
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
@@ -580,8 +579,6 @@ impl Run {
             context_overflow_retry_used: false,
             reactive_overflow_retry_pending: false,
             retry,
-            first_ws_failure: None,
-            ws_retries: 0,
             max_output_override: None,
             tool_batch_just_completed: false,
             last_batch_later: false,
@@ -880,8 +877,9 @@ impl Run {
         if !had_usage {
             self.first_turn_usage = self.last_usage.clone();
         }
-        self.record_baseline(&response.usage);
-        self.context.measure(&response.usage);
+        let input_excludes_cache = self.input_excludes_cache();
+        self.record_baseline(&response.usage, input_excludes_cache);
+        self.context.measure(&response.usage, input_excludes_cache);
         // A provider that returned despite an abort must not have its output
         // processed.
         self.throw_if_aborted()?;
@@ -892,7 +890,8 @@ impl Run {
             delta_tool_calls: response.tool_calls.len() as u64,
             // The ledger's duration when the send was accounted; else the loop's own clock.
             request_ms: response.request_ms.unwrap_or_else(|| (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64),
-            delta_prompt: response.usage.input_tokens,
+            delta_prompt: crate::boundary::prompt_tokens(&response.usage, input_excludes_cache),
+            input_excludes_cache,
             send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
             reasoning_tokens,
             reasoning_tokens_complete,
@@ -908,7 +907,14 @@ impl Run {
         Ok(())
     }
 
+    /// `providerInputExcludesCache` of the adapter the run sends through now: a fallback replaces `self.provider`, so the
+    /// convention is read where each usage is produced and travels with it.
+    pub(crate) fn input_excludes_cache(&self) -> bool {
+        mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider)
+    }
+
     fn finish(self) -> RunOutput {
+        let input_excludes_cache = self.input_excludes_cache();
         let reaction_answers = self.reaction_answers_latest();
         let report_stands = self.no_tool.report_stands();
         let response = self.response.unwrap_or_default();
@@ -935,6 +941,7 @@ impl Run {
             }
         }
         RunOutput {
+            input_excludes_cache,
             reaction_completed,
             termination,
             usage,

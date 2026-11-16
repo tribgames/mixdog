@@ -190,6 +190,17 @@ pub fn memory_off(header: &Header) -> bool {
     header.get(MEMORY) == Some(&Value::Bool(false))
 }
 
+/// The `sourceType` the memory cycle's own dispatches carry (`Cycle1Dispatch::payload`'s `source_type`, stamped into the
+/// header by `stamped_header`). Only that dispatch sets it, so it identifies maintenance traffic where message text cannot.
+pub const MEMORY_CYCLE_SOURCE: &str = "memory-cycle";
+
+/// Whether closing the session leaves its conversation out of memory: memory is off for it, or it is one of the memory
+/// cycle's own dispatches, whose prompt and reply would otherwise come back to cycle1 as rows to chunk. Every other
+/// session, agent-owned ones included, is ingested as Node's close helper does.
+pub fn memory_ingest_off(header: &Header) -> bool {
+    memory_off(header) || header.get("sourceType").and_then(Value::as_str) == Some(MEMORY_CYCLE_SOURCE)
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_tools::policy::surface::SessionSurface;

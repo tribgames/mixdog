@@ -24,8 +24,7 @@
   display: flex;
   flex-direction: column;
 }
-/* Gallery + detail fill the pane. The composer is a floating sibling, so
-   tiles can keep painting to the pane floor behind it. */
+/* Like the transcript, the gallery takes the room its in-flow dock leaves. */
 .studio-stage-host {
   position: relative;
   flex: 1;
@@ -40,26 +39,12 @@
    between the topbar and the results (negative margin = its own height), so
    it overlays the first rows only and never the Image/Video switch or the
    scale/cleanup tools. It appears once the results have scrolled. */
-.studio-stage-host {
-  --transcript-fade: 24px;
-}
 .studio-stage-host > .transcript-scroll-fade {
   position: relative;
   flex: none;
   /* Below the cleanup menu (z-index 5), which drops over the first rows. */
   z-index: 4;
   margin-bottom: -32px;
-}
-/* Bottom: the strip ends where the opaque dock band begins. */
-.studio-stage-host::after {
-  content: "";
-  position: absolute;
-  z-index: 8;
-  inset-inline: 0;
-  bottom: var(--studio-dock-overlay-height, 116px);
-  height: var(--transcript-fade);
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--studio-dock-band));
 }
 /* Mode stays centered; thumbnail scale occupies an independent right slot. */
 .studio-topbar {
@@ -210,8 +195,7 @@
   min-width: 0;
   width: 100%;
 }
-/* Studio is a full-height tab surface. Its result list reaches the pane floor
-   while the composer floats over it. */
+/* Studio is a full-height tab surface, including its in-flow composer. */
 .studio-root {
   position: relative;
   flex: 1;
@@ -240,7 +224,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter))
-    calc(var(--studio-dock-overlay-height, 116px) + 12px) var(--pane-inset);
+    var(--transcript-fade) var(--pane-inset);
   /* Same owned-gutter grammar as chat: one track, paid from right padding. */
   scrollbar-gutter: stable;
 }
@@ -771,57 +755,13 @@ html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
   line-height: 0;
   cursor: pointer;
 }
-/* Floating bottom dock: the gallery keeps the full pane behind this raised
-   composer, matching image-generation canvases that preserve visible tiles
-   around the typing surface. */
+/* Placement and scroll-edge fade are shared with the session dock (15-composer.css). */
 .studio-dock {
   box-sizing: border-box;
-  /* Studio's gallery stays full-width, but its typing card follows the TASK
-     reading column: fluid below 800px, then the SAME 800→848 ramp --pane-column
-     gives the chat composer (12-transcript.css), measured against .studio-root.
-     A 1000px ceiling here made Studio's composer up to 152px wider than the
-     chat one on the same pane. */
-  width: min(100%, clamp(800px, 80cqi, 848px));
-  margin: 0 auto;
-  padding: 0 var(--pane-inset) 16px;
-  /* Anchor for the floating density overlay above the composer. */
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  z-index: 5;
-  display: grid;
   gap: 6px;
-  /* The whole bottom band (card + controls line) is opaque, edge to edge of
-     the pane, so the line never floats over thumbnails. */
-  padding-top: 8px;
 }
-.studio-shell {
-  /* The dock band's colour; the bottom scroll fade ends in the same token. */
-  --studio-dock-band: var(--mx-workspace-sheet);
-}
-.studio-dock::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0 -100vmax;
-  background: var(--studio-dock-band);
-  pointer-events: none;
-}
-/* Mica and skins clear the sheet to transparent (03-titlebar.css). Mica's main
-   panel paints the opaque root sheet (--mx-mica-layer), so the band takes that
-   same tone; the deep paper read as a grey bar under Paper's white gallery.
-   A skin's layer is a translucent veil, so it keeps the opaque plate paper. */
-html[data-window-material="mica"]:not([data-mixdog-skin]) .studio-shell {
-  --studio-dock-band: var(--mx-mica-layer);
-}
-html[data-mixdog-skin] .studio-shell {
-  --studio-dock-band: var(--mx-bg-deep);
-}
-/* PC: the chat composer's floor (agent-chat.css: 2px under the line, the
-   line 4px under the card), so a Studio tab and a chat tab put their cards
-   and model lines at the same height. */
+/* Keep the controls line's existing spacing below the card. */
 html:not([data-mixdog-mobile-tabs]) .studio-dock {
-  padding-bottom: 2px;
   gap: 4px;
 }
 .studio-status {

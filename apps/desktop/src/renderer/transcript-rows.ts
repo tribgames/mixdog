@@ -250,7 +250,7 @@ function toolActivityRowKey(
   const own = `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`;
   if (ids.length === 0) return own;
   const memory = toolGroupKeyMemory(sessionKey);
-  let key = own;
+  let key: string | undefined;
   for (const id of ids) {
     const remembered = memory.get(id);
     // One key per row within a projection, whatever the memory says.
@@ -258,6 +258,15 @@ function toolActivityRowKey(
       key = remembered;
       break;
     }
+  }
+  // A group split mid-run (a compaction divider landing between its calls)
+  // leaves the remembered key on the upper half. When that key is named after
+  // the member now opening the lower half (the head came later, from an older
+  // page), it is this half's own key too: two rows under one key, and the
+  // virtual list left one element stranded over the other.
+  if (key === undefined) {
+    key = own;
+    for (let copy = 2; builder.toolGroupKeys.has(key); copy += 1) key = `${own}:${copy}`;
   }
   for (const id of ids) memory.set(id, key);
   return key;

@@ -23,18 +23,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
-use mixdog_graph::calls::CallInfo;
 use mixdog_graph::outline::SymbolInfo;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::graph::Node;
+use super::graph::{Graph, Node};
 use super::roots::path_key;
 
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 /// `CODE_GRAPH_DISK_MAX_ENTRIES`.
 const MAX_ENTRIES: usize = 24;
 const DEFAULT_MAX_MB: f64 = 80.0;
@@ -99,50 +98,12 @@ impl CachedSymbol {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub(super) struct CachedCall {
-    name: String,
-    line: u32,
-    col: u32,
-    end_col: u32,
-    kind: String,
-    recv: String,
-    in_symbol: String,
-}
-
-impl CachedCall {
-    fn of(call: &CallInfo) -> Self {
-        Self {
-            name: call.name.clone(),
-            line: call.line,
-            col: call.col,
-            end_col: call.end_col,
-            kind: call.kind.to_owned(),
-            recv: call.recv.clone(),
-            in_symbol: call.in_symbol.clone(),
-        }
-    }
-
-    pub(super) fn into_call(self) -> CallInfo {
-        CallInfo {
-            name: self.name,
-            line: self.line,
-            col: self.col,
-            end_col: self.end_col,
-            kind: intern(&self.kind),
-            recv: self.recv,
-            in_symbol: self.in_symbol,
-        }
-    }
-}
-
 /// One parsed file and the signature it was parsed at.
 #[derive(Serialize, Deserialize)]
 pub(super) struct CachedFile {
     pub rel: String,
     pub size: u64,
     pub mtime_ns: u64,
-    pub text: String,
     /// Why the file was not indexed (`parseError`); empty when it was.
     pub(super) parse_error: String,
     pub(super) symbols: Vec<CachedSymbol>,
@@ -152,36 +113,65 @@ pub(super) struct CachedFile {
     pub(super) go_package_name: String,
     pub(super) top_level_types: Vec<String>,
     pub(super) tokens: Vec<String>,
-    pub(super) calls: Option<Vec<CachedCall>>,
+    /// The Node-model bytes of the file's call sites (`None`: none were extracted); the call sites themselves are
+    /// extracted from the source when a query asks.
+    pub(super) calls_bytes: Option<u64>,
 }
 
-impl CachedFile {
+/// A [`CachedFile`] written straight from a graph node: the token lists are borrowed, so persisting a graph copies
+/// none of them. No source text is stored: queries read it from the file when they need it.
+#[derive(Serialize)]
+struct FileRef<'a> {
+    rel: &'a str,
+    size: u64,
+    mtime_ns: u64,
+    parse_error: &'a str,
+    symbols: Vec<CachedSymbol>,
+    raw_imports: &'a [String],
+    package_name: &'a str,
+    namespace_name: &'a str,
+    go_package_name: &'a str,
+    top_level_types: &'a [String],
+    tokens: Vec<&'a str>,
+    calls_bytes: Option<u64>,
+}
+
+impl<'a> FileRef<'a> {
     /// `None` for a node with no signature (it was never read from a file).
-    pub(super) fn of(node: &Node) -> Option<Self> {
+    fn of(node: &'a Node, words: &'a [Arc<str>]) -> Option<Self> {
         let (size, mtime_ns) = node.fingerprint?;
         Some(Self {
-            rel: node.rel.clone(),
+            rel: &node.rel,
             size,
             mtime_ns,
-            text: node.text.clone(),
-            parse_error: node.parse_error.clone(),
+            parse_error: &node.parse_error,
             symbols: node.symbols.iter().map(CachedSymbol::of).collect(),
-            raw_imports: node.raw_imports.clone(),
-            package_name: node.package_name.clone(),
-            namespace_name: node.namespace_name.clone(),
-            go_package_name: node.go_package_name.clone(),
-            top_level_types: node.top_level_types.clone(),
-            tokens: node.tokens.clone(),
-            calls: node.calls.as_ref().map(|calls| calls.iter().map(CachedCall::of).collect()),
+            raw_imports: &node.raw_imports,
+            package_name: &node.package_name,
+            namespace_name: &node.namespace_name,
+            go_package_name: &node.go_package_name,
+            top_level_types: &node.top_level_types,
+            tokens: node.tokens.iter().map(|id| &*words[*id as usize]).collect(),
+            calls_bytes: node.calls_bytes,
         })
     }
 }
 
+/// The files of a built graph, serialised at flush time from the graph itself (no staged copy of its text).
+pub(super) struct GraphFiles(pub(super) Arc<Graph>);
+
+impl Serialize for GraphFiles {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let words = self.0.word_table();
+        serializer.collect_seq(self.0.nodes.iter().filter_map(|node| FileRef::of(node, &words)))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
-struct Payload {
+struct Payload<T> {
     version: u32,
     key: String,
-    files: Vec<CachedFile>,
+    files: T,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -196,14 +186,146 @@ struct Row {
 
 struct Staged {
     root: String,
-    bytes: Vec<u8>,
+    write: Box<dyn FnOnce(&mut dyn io::Write) -> io::Result<()> + Send>,
     built_at: i64,
+}
+
+/// Node's `CODE_GRAPH_TTL_MS`: a held graph answers for this long after its build.
+const GRAPH_TTL: Duration = Duration::from_millis(30_000);
+/// The bound on the heap of all held graphs. Node's `CODE_GRAPH_MEMORY_MAX_BYTES` is 48 MiB of its own estimate and it
+/// keeps the newest graph past it; this bound is hard. Measured on this repository's tree (10,000 indexed files, the
+/// file cap) a graph weighs about 70 MiB, so 48 would never hold the largest trees; 80 holds one of them.
+const DEFAULT_GRAPH_HEAP_MB: f64 = 80.0;
+
+/// The one-at-a-time lock of graph work. Not a `MutexGuard`: a [`Permit`] is released by whichever thread drops the
+/// last [`Lease`] that holds it.
+struct Gate {
+    busy: Mutex<bool>,
+    idle: Condvar,
+}
+
+pub(super) struct Permit(Arc<Gate>);
+
+impl Gate {
+    fn acquire(self: &Arc<Self>) -> Arc<Permit> {
+        let mut busy = self.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *busy {
+            busy = self.idle.wait(busy).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *busy = true;
+        Arc::new(Permit(self.clone()))
+    }
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        *self.0.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        self.0.idle.notify_all();
+    }
+}
+
+/// A graph for one call. One that is not held in the cache keeps the gate until the call is done with it, so no
+/// second full graph is built or persisted while it lives.
+#[derive(Clone)]
+pub(super) struct Lease {
+    pub(super) graph: Arc<Graph>,
+    _permit: Option<Arc<Permit>>,
+}
+
+impl Lease {
+    /// A graph nobody else shares and no gate guards (one parsed from a single file).
+    pub(super) fn alone(graph: Arc<Graph>) -> Self {
+        Self { graph, _permit: None }
+    }
+}
+
+impl std::ops::Deref for Lease {
+    type Target = Graph;
+
+    fn deref(&self) -> &Graph {
+        &self.graph
+    }
+}
+
+/// The result of a build, for the callers of its root that waited for it.
+#[derive(Default)]
+struct Slot {
+    result: Mutex<Option<Result<Lease, String>>>,
+    ready: Condvar,
+}
+
+impl Slot {
+    fn fulfil(&self, outcome: Result<Lease, String>) {
+        let mut result = self.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if result.is_none() {
+            *result = Some(outcome);
+        }
+        self.ready.notify_all();
+    }
+
+    fn wait(&self) -> Result<Lease, String> {
+        let mut result = self.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(outcome) = result.as_ref() {
+                return outcome.clone();
+            }
+            result = self.ready.wait(result).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// Ends a root's in-flight build when it is dropped, with an error if the builder never reported (a panic), so
+/// waiters are never left behind.
+struct Leading<'a> {
+    cache: &'a GraphCache,
+    key: &'a str,
+    slot: Arc<Slot>,
+}
+
+impl Drop for Leading<'_> {
+    fn drop(&mut self) {
+        self.slot.fulfil(Err("code_graph: the graph build did not finish".to_owned()));
+        self.cache.inflight.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(self.key);
+    }
+}
+
+/// A built graph kept for reuse: Node's `_codeGraphCache` entry.
+struct Held {
+    key: String,
+    signature: u64,
+    built_at: Instant,
+    graph: Arc<Graph>,
+    /// The graph's heap bytes (it holds no source text).
+    bytes: u64,
+}
+
+impl Held {
+    fn expired(&self) -> bool {
+        self.built_at.elapsed() >= GRAPH_TTL
+    }
 }
 
 pub struct GraphCache {
     dir: PathBuf,
     max_bytes: u64,
     pending: Mutex<HashMap<String, Staged>>,
+    /// Built graphs, least recently used first (`_codeGraphCache`): at most `resident_max_entries` and
+    /// `graph_heap_max_bytes` of real heap, each for [`GRAPH_TTL`] after its build.
+    graphs: Arc<Mutex<Vec<Held>>>,
+    /// Only one graph is built, persisted and (when it is not held) served at a time.
+    gate: Arc<Gate>,
+    /// The build each root has under way: callers of that root wait for it and share its result, held or not.
+    inflight: Mutex<HashMap<String, Arc<Slot>>>,
+    /// Every graph admitted to `graphs`, with its heap bytes: one the cache evicted while a call still uses it stays
+    /// alive and counts against the heap budget until that call is done.
+    tracked: Mutex<Vec<(Weak<Graph>, u64)>>,
+    /// Each root's last built graph as `(file-set signature, heap bytes)`, kept in `<dir>/heap.note` across restarts:
+    /// what a warm asks to know whether the root's current graph would be admitted. Loaded on first use.
+    heap_notes: Mutex<Option<BTreeMap<String, (u64, u64)>>>,
+    graph_heap_max_bytes: u64,
+    purge_armed: Arc<AtomicBool>,
+    #[cfg(test)]
+    builds: std::sync::atomic::AtomicUsize,
     scheduled: AtomicBool,
     /// Serialises the commit (merge, write, prune, sweep) within this core.
     commit: Mutex<()>,
@@ -315,20 +437,58 @@ pub fn is_tmp_name(name: &str) -> bool {
     name.rsplit_once(".mixdog-tmp-").is_some_and(|(_, hex)| (16..=24).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// A writer that refuses bytes past `left`, so a payload over its budget is abandoned as it is written, never stored.
+struct Limited<'a, W: io::Write> {
+    inner: W,
+    left: u64,
+    over: &'a std::cell::Cell<bool>,
+}
+
+impl<W: io::Write> io::Write for Limited<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.len() as u64 > self.left {
+            self.over.set(true);
+            return Err(io::Error::other("payload over its budget"));
+        }
+        // Only what the inner writer took is spent: a partial write leaves the rest of the request to the retry.
+        let written = self.inner.write(buf)?;
+        self.left -= written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Streams `fill` into a temp file and renames it over `path`; returns the bytes written, or `None` (nothing stored)
+/// when it would pass `limit`.
+fn write_atomic_with(path: &Path, limit: u64, fill: impl FnOnce(&mut dyn io::Write) -> io::Result<()>) -> io::Result<Option<u64>> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = path.with_file_name(format!("{name}.mixdog-tmp-{}", &uuid::Uuid::new_v4().simple().to_string()[..16]));
+    let over = std::cell::Cell::new(false);
     let written = (|| {
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        io::Write::write_all(&mut file, bytes)?;
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut out = Limited { inner: io::BufWriter::new(file), left: limit, over: &over };
+        fill(&mut out)?;
+        let file = out.inner.into_inner().map_err(io::IntoInnerError::into_error)?;
         file.sync_all()?;
+        let len = file.metadata()?.len();
         drop(file);
-        std::fs::rename(&tmp, path)
+        std::fs::rename(&tmp, path)?;
+        Ok(Some(len))
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
-    written
+    match written {
+        Err(_) if over.get() => Ok(None),
+        other => other,
+    }
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_with(path, u64::MAX, |out| io::Write::write_all(out, bytes)).map(|_| ())
 }
 
 impl GraphCache {
@@ -343,6 +503,15 @@ impl GraphCache {
             dir,
             max_bytes: ((mb * 1024.0 * 1024.0).floor() as u64).max(1024 * 1024),
             pending: Mutex::default(),
+            graphs: Arc::default(),
+            gate: Arc::new(Gate { busy: Mutex::new(false), idle: Condvar::new() }),
+            inflight: Mutex::default(),
+            tracked: Mutex::default(),
+            heap_notes: Mutex::new(None),
+            graph_heap_max_bytes: (env_count("MIXDOG_CODE_GRAPH_HEAP_MAX_MB", DEFAULT_GRAPH_HEAP_MB, 1.0) * 1024.0 * 1024.0).floor() as u64,
+            purge_armed: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            builds: std::sync::atomic::AtomicUsize::new(0),
             scheduled: AtomicBool::new(false),
             commit: Mutex::new(()),
             resident: Mutex::default(),
@@ -376,12 +545,224 @@ impl GraphCache {
     pub(super) fn prune_after_call(&self) {
         let mut all = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         prune_resident(&mut all, self.resident_max_entries, self.resident_max_bytes);
+        drop(all);
+        self.prune_graphs(&mut self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
+    /// Drops expired graphs, then the oldest while the heap budget or the entry count is exceeded. A dropped graph a
+    /// call still uses keeps counting (`retired_bytes`), so the budget holds for what is alive, not for what is listed.
+    fn prune_graphs(&self, all: &mut Vec<Held>) {
+        all.retain(|h| !h.expired());
+        while !all.is_empty() {
+            let total = all.iter().map(|h| h.bytes).sum::<u64>() + self.retired_bytes(all);
+            if total <= self.graph_heap_max_bytes && all.len() <= self.resident_max_entries {
+                break;
+            }
+            all.remove(0);
+        }
+    }
+
+    /// Heap bytes of the admitted graphs that are no longer in `all` but are alive: a call is still using them.
+    fn retired_bytes(&self, all: &[Held]) -> u64 {
+        let mut tracked = self.tracked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        tracked.retain(|(graph, _)| graph.strong_count() > 0);
+        tracked.iter().filter(|(graph, _)| !all.iter().any(|h| std::ptr::eq(Arc::as_ptr(&h.graph), graph.as_ptr()))).map(|(_, bytes)| bytes).sum()
+    }
+
+    /// The one admission rule: a graph of `bytes` is kept when it fits the heap budget beside every graph still
+    /// alive that is not in `all`. Holding a built graph and warming a root both ask it.
+    fn admits(&self, bytes: u64, all: &[Held]) -> bool {
+        bytes + self.retired_bytes(all) <= self.graph_heap_max_bytes
+    }
+
+    /// The graph of `root`, built at most once while it stays valid: a held graph whose indexed files still carry
+    /// the signature it was built from (`build.mjs:658`) and is under [`GRAPH_TTL`] old is returned as it is; else
+    /// the one build the process runs at a time makes it (callers of the same root that waited behind that build
+    /// take its graph). A scoped build (`excluded` roots) is never held, as Node's `cache: false`.
+    pub(super) fn graph(&self, root: &Path, excluded: &[PathBuf]) -> Result<Lease, String> {
+        if !excluded.is_empty() {
+            let permit = self.gate.acquire();
+            let graph = self.build(root, excluded)?;
+            return Ok(Lease { graph, _permit: Some(permit) });
+        }
+        let key = path_key(root);
+        loop {
+            let signature = Graph::probe(root)?;
+            if let Some(graph) = self.held(&key, signature) {
+                return Ok(Lease { graph, _permit: None });
+            }
+            let (slot, leading) = {
+                let mut inflight = self.inflight.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match inflight.get(&key) {
+                    Some(slot) => (slot.clone(), false),
+                    None => {
+                        let slot = Arc::new(Slot::default());
+                        inflight.insert(key.clone(), slot.clone());
+                        (slot, true)
+                    }
+                }
+            };
+            if !leading {
+                // The build under way serves every caller of this root, held or not; one whose files changed
+                // since goes round again.
+                let lease = slot.wait()?;
+                if lease.graph.signature == signature && lease.graph.is_fresh() {
+                    return Ok(lease);
+                }
+                continue;
+            }
+            let leader = Leading { cache: self, key: &key, slot };
+            let outcome = self.lead(root, &key, signature);
+            leader.slot.fulfil(outcome.clone());
+            return outcome;
+        }
+    }
+
+    /// Builds `root`'s graph inside the gate and persists it there too, so a later build never overlaps this graph's
+    /// persistence. A graph over the heap budget is not held: the lease keeps the gate until the call is done with it.
+    fn lead(&self, root: &Path, key: &str, signature: u64) -> Result<Lease, String> {
+        let permit = self.gate.acquire();
+        if let Some(graph) = self.held(key, signature) {
+            return Ok(Lease { graph, _permit: None });
+        }
+        let graph = self.build(root, &[])?;
+        let admitted = self.hold(key.to_owned(), graph.clone());
+        // The build staged its files holding the graph: they are written now, so nothing keeps it alive but `graphs`
+        // (budgeted, expiring) and this lease. A failed write is dropped; the next changed build stages again.
+        let _ = self.flush();
+        Ok(Lease { graph, _permit: (!admitted).then_some(permit) })
+    }
+
+    /// The warm of a project: loads its graph only when the same admission rule that would keep it says it is kept.
+    /// What the rule needs is a graph's weight, which only a built graph has: the note of the root's last build
+    /// (kept across restarts) gives it for the files the root has now, and no note for the current files means no
+    /// speculative work: the first foreground query builds and records.
+    pub(super) fn prewarm(&self, root: &Path) {
+        let Ok(signature) = Graph::probe(root) else { return };
+        let Some((noted, bytes)) = self.heap_note(&path_key(root)) else { return };
+        let admitted = noted == signature && self.admits(bytes, &self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        if admitted {
+            let _ = self.graph(root, &[]);
+        }
+    }
+
+    fn note_path(&self) -> PathBuf {
+        self.dir.join("heap.note")
+    }
+
+    /// `(signature, heap bytes)` of `key`'s last built graph.
+    fn heap_note(&self, key: &str) -> Option<(u64, u64)> {
+        let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        notes.get_or_insert_with(|| std::fs::read(self.note_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()).get(key).copied()
+    }
+
+    /// Notes what `key`'s graph over the files of `signature` weighs.
+    fn record_heap(&self, key: &str, signature: u64, bytes: u64) {
+        self.heap_note(key);
+        let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(notes) = notes.as_mut() else { return };
+        if notes.insert(key.to_owned(), (signature, bytes)) == Some((signature, bytes)) {
+            return;
+        }
+        while notes.len() > MAX_ENTRIES * 4 {
+            notes.pop_first();
+        }
+        if std::fs::create_dir_all(&self.dir).is_ok() {
+            let _ = write_atomic(&self.note_path(), &serde_json::to_vec(&*notes).unwrap_or_default());
+        }
+    }
+
+    /// Drops `root`'s held graph (its sources no longer match it).
+    pub(super) fn drop_held(&self, root: &Path) {
+        let key = path_key(root);
+        self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|h| h.key != key);
+    }
+
+    fn build(&self, root: &Path, excluded: &[PathBuf]) -> Result<Arc<Graph>, String> {
+        #[cfg(test)]
+        self.builds.fetch_add(1, Ordering::SeqCst);
+        Graph::build(root, excluded, self)
+    }
+
+    /// The valid held graph of `key` (now the newest); a stale or expired one is dropped at once.
+    fn held(&self, key: &str, signature: u64) -> Option<Arc<Graph>> {
+        let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let at = all.iter().position(|h| h.key == key)?;
+        let entry = all.remove(at);
+        if entry.signature != signature || entry.expired() || !entry.graph.is_fresh() {
+            return None;
+        }
+        let graph = entry.graph.clone();
+        all.push(entry);
+        Some(graph)
+    }
+
+    /// Keeps `graph` for reuse; `false` when it does not fit the heap budget beside the graphs still alive (it serves
+    /// the call that built it and is not kept). What it weighs is noted for the warm.
+    fn hold(&self, key: String, graph: Arc<Graph>) -> bool {
+        let bytes = graph.base_heap_bytes();
+        self.record_heap(&key, graph.signature, bytes);
+        let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        all.retain(|h| h.key != key);
+        if !self.admits(bytes, &all) {
+            return false;
+        }
+        let weak = Arc::downgrade(&graph);
+        all.push(Held { key, signature: graph.signature, built_at: Instant::now(), bytes, graph });
+        self.prune_graphs(&mut all);
+        // The newest is the last to go, so it is gone only when it could not stay beside graphs still in use.
+        if !all.last().is_some_and(|h| std::ptr::eq(Arc::as_ptr(&h.graph), weak.as_ptr())) {
+            return false;
+        }
+        self.tracked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((weak, bytes));
+        if !self.purge_armed.swap(true, Ordering::SeqCst) {
+            let (graphs, armed) = (self.graphs.clone(), self.purge_armed.clone());
+            // Nothing else would drop an idle graph: expire it when its time is up.
+            std::thread::spawn(move || {
+                loop {
+                    let wait = {
+                        let mut all = graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        all.retain(|h| !h.expired());
+                        let Some(next) = all.iter().map(|h| GRAPH_TTL.saturating_sub(h.built_at.elapsed())).min() else {
+                            armed.store(false, Ordering::SeqCst);
+                            return;
+                        };
+                        next
+                    };
+                    std::thread::sleep(wait + Duration::from_millis(50));
+                }
+            });
+        }
+        true
     }
 
     #[cfg(test)]
     fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;
         self
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_graph_budget(mut self, entries: usize, heap_bytes: u64) -> Self {
+        self.resident_max_entries = entries;
+        self.graph_heap_max_bytes = heap_bytes;
+        self
+    }
+
+    /// Takes the gate, as a build in progress would.
+    #[cfg(test)]
+    pub(super) fn hold_gate(&self) -> Arc<Permit> {
+        self.gate.acquire()
+    }
+
+    #[cfg(test)]
+    pub(super) fn builds(&self) -> usize {
+        self.builds.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(super) fn held_roots(&self) -> Vec<String> {
+        self.graphs.lock().unwrap().iter().map(|h| h.key.clone()).collect()
     }
 
     fn manifest_path(&self) -> PathBuf {
@@ -406,37 +787,46 @@ impl GraphCache {
         if !is_cache_hash(&row.hash) {
             return None;
         }
-        let payload: Payload = serde_json::from_slice(&std::fs::read(self.dir.join(format!("{}.json", row.hash))).ok()?).ok()?;
+        // Streamed: the payload's bytes are never held next to the files parsed out of them.
+        let file = std::fs::File::open(self.dir.join(format!("{}.json", row.hash))).ok()?;
+        let payload: Payload<Vec<CachedFile>> = serde_json::from_reader(io::BufReader::new(file)).ok()?;
         (payload.version == FORMAT_VERSION && payload.key == key).then(|| payload.files.into_iter().map(|f| (f.rel.clone(), f)).collect())
     }
 
-    /// Queues `root`'s parsed files for the next flush (the newest staging of a root wins).
-    pub(super) fn stage(&self, root: &Path, files: Vec<CachedFile>) {
+    /// Queues `root`'s parsed files for the next flush (the newest staging of a root wins). They are serialised
+    /// at the flush, straight into the payload file.
+    pub(super) fn stage<T: Serialize + Send + 'static>(&self, root: &Path, files: T) {
         let key = path_key(root);
-        let Ok(bytes) = serde_json::to_vec(&Payload { version: FORMAT_VERSION, key: key.clone(), files }) else {
-            return;
-        };
-        let staged = Staged { root: root.to_string_lossy().into_owned(), bytes, built_at: now_ms() };
+        let payload = Payload { version: FORMAT_VERSION, key: key.clone(), files };
+        let write = Box::new(move |out: &mut dyn io::Write| serde_json::to_writer(out, &payload).map_err(io::Error::other));
+        let staged = Staged { root: root.to_string_lossy().into_owned(), write, built_at: now_ms() };
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, staged);
     }
 
-    fn has_pending(&self) -> bool {
+    pub(super) fn has_pending(&self) -> bool {
         !self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty()
     }
 
     /// Writes what is staged: merge into the manifest as it stands, prune, sweep. A lane job.
     pub fn flush(&self) -> io::Result<()> {
+        if !self.has_pending() {
+            return Ok(());
+        }
+        // Queue for the commit before taking what is staged: a flush waiting its turn must not hold staged graphs.
+        let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let staged = std::mem::take(&mut *self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if staged.is_empty() {
             return Ok(());
         }
-        let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         std::fs::create_dir_all(&self.dir)?;
         let mut manifest = self.read_manifest();
         for (key, entry) in staged {
             let hash = hash_of(&key);
-            write_atomic(&self.dir.join(format!("{hash}.json")), &entry.bytes)?;
-            manifest.insert(key, Row { hash, built_at: entry.built_at, bytes: entry.bytes.len() as u64, root: entry.root });
+            // A payload over the disk budget would be evicted by the prune below at once: it is not written.
+            let Some(bytes) = write_atomic_with(&self.dir.join(format!("{hash}.json")), self.max_bytes, entry.write)? else {
+                continue;
+            };
+            manifest.insert(key, Row { hash, built_at: entry.built_at, bytes, root: entry.root });
         }
         self.prune(&mut manifest);
         write_atomic(&self.manifest_path(), &serde_json::to_vec(&manifest).map_err(io::Error::other)?)?;
@@ -514,6 +904,16 @@ impl GraphCache {
             resident.retain(|entry| path_key(Path::new(&entry.root)) != key);
             if resident.len() != before {
                 removed.push(format!("resident-graph:{key}"));
+            }
+        }
+        self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|h| h.key != key);
+        if self.heap_note(&key).is_some() {
+            let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(notes) = notes.as_mut() {
+                notes.remove(&key);
+                if self.dir.exists() {
+                    let _ = write_atomic(&self.note_path(), &serde_json::to_vec(&*notes).unwrap_or_default());
+                }
             }
         }
         if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key).is_some() {
@@ -594,17 +994,41 @@ mod tests {
             rel: rel.to_owned(),
             size: text.len() as u64,
             mtime_ns: 5,
-            text: text.to_owned(),
             parse_error: String::new(),
             symbols: Vec::new(),
-            raw_imports: vec!["./x".to_owned()],
+            // Stands in for a payload of `text`'s size.
+            raw_imports: vec![text.to_owned()],
             package_name: String::new(),
             namespace_name: String::new(),
             go_package_name: String::new(),
             top_level_types: Vec::new(),
             tokens: vec!["a".to_owned()],
-            calls: None,
+            calls_bytes: None,
         }
+    }
+
+    /// A writer that takes three bytes at most per call.
+    struct Trickle(Vec<u8>);
+
+    impl io::Write for Trickle {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let taken = buf.len().min(3);
+            self.0.extend_from_slice(&buf[..taken]);
+            Ok(taken)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_partial_write_spends_only_the_bytes_the_writer_took() {
+        let over = std::cell::Cell::new(false);
+        let mut out = Limited { inner: Trickle(Vec::new()), left: 10, over: &over };
+        io::Write::write_all(&mut out, &[7; 10]).unwrap();
+        assert!(!over.get(), "ten bytes fit a limit of ten however the writer split them");
+        assert_eq!(out.inner.0.len(), 10);
     }
 
     fn root(base: &Path, name: &str) -> PathBuf {
@@ -624,7 +1048,7 @@ mod tests {
         cache.flush().unwrap();
         assert_eq!(cache.roots(), vec![proj.clone()], "the root is listed as it was built");
         let loaded = cache.load(&proj).unwrap();
-        assert_eq!(loaded["a.mjs"].text, "export const a = 1;");
+        assert_eq!(loaded["a.mjs"].raw_imports, ["export const a = 1;"]);
         assert_eq!((loaded["a.mjs"].size, loaded["a.mjs"].mtime_ns), (19, 5));
         let (removed, kept) = cache.forget(&proj);
         assert!(kept.is_empty() && removed.len() == 2, "{removed:?}");
@@ -683,6 +1107,23 @@ mod tests {
         assert_eq!(listed, vec![roots[2].clone()], "only the newest fits 1 MB");
         let payloads = std::fs::read_dir(tmp.path().join("cache")).unwrap().flatten().filter(|e| e.file_name().to_string_lossy() != "manifest.json").count();
         assert_eq!(payloads, 1, "evicted payloads are swept");
+    }
+
+    /// A payload over the disk budget is abandoned as it is written: it is not stored, and does not push the roots
+    /// already cached out of the budget (writing it and pruning afterwards would).
+    #[test]
+    fn a_payload_over_the_disk_budget_is_never_stored_and_evicts_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = GraphCache::new(tmp.path().join("cache")).with_max_bytes(1024 * 1024);
+        let (small, big) = (root(tmp.path(), "small"), root(tmp.path(), "big"));
+        cache.stage(&small, vec![file("a.mjs", "x")]);
+        cache.flush().unwrap();
+        cache.stage(&big, vec![file("a.mjs", &"y".repeat(2 * 1024 * 1024))]);
+        cache.flush().unwrap();
+        assert_eq!(cache.roots(), vec![small.clone()]);
+        assert!(cache.load(&big).is_none() && cache.load(&small).is_some());
+        let files: Vec<_> = std::fs::read_dir(tmp.path().join("cache")).unwrap().flatten().collect();
+        assert_eq!(files.len(), 2, "manifest and the small payload only: {files:?}");
     }
 
     #[test]
