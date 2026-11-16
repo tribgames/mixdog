@@ -66,10 +66,10 @@ fn settle(waiter: Waiter, value: Option<String>) {
 
 fn expire(state: &Mutex<State>, key: &WaitKey, generation: u64) {
     let mut state = locked(state);
-    if state.waiting.get(key).is_some_and(|w| w.generation == generation) {
-        if let Some(waiter) = state.waiting.remove(key) {
-            settle(waiter, None);
-        }
+    if state.waiting.get(key).is_some_and(|w| w.generation == generation)
+        && let Some(waiter) = state.waiting.remove(key)
+    {
+        settle(waiter, None);
     }
 }
 
@@ -117,10 +117,10 @@ impl PendingWaits {
 
     fn end(&self, key: &WaitKey, generation: u64) {
         let mut state = locked(&self.state);
-        if state.waiting.get(key).is_some_and(|w| w.generation == generation) {
-            if let Some(waiter) = state.waiting.remove(key) {
-                settle(waiter, None);
-            }
+        if state.waiting.get(key).is_some_and(|w| w.generation == generation)
+            && let Some(waiter) = state.waiting.remove(key)
+        {
+            settle(waiter, None);
         }
     }
 

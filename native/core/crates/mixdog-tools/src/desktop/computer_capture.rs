@@ -183,7 +183,7 @@ impl ProcessComputerBackend {
                 }
                 overlay.record(&mut parts);
             }
-            self.keep_image(command, &mut parts);
+            self.keep_image(command, &mut parts).await;
         }
         Ok(Some(parts))
     }
@@ -356,7 +356,7 @@ impl ProcessComputerBackend {
             asked.insert("mode".into(), json!(asked_mode));
         }
         let (mut parts, _) = capture_display(desktop.as_ref(), blobs.as_ref(), &self.frames, Some(self), &asked, cancel).await?;
-        self.keep_image(command, &mut parts);
+        self.keep_image(command, &mut parts).await;
         Ok(parts)
     }
 }
@@ -381,13 +381,13 @@ fn with_delta(shown: &str, rows: &[Value], delta: &Value) -> Option<String> {
     let refs: Vec<String> = rows.iter().filter_map(|row| row.get("ref").and_then(Value::as_str)).map(|reference| format!("[{reference}] ")).collect();
     let is_element = |line: &str| refs.iter().any(|prefix| line.starts_with(prefix.as_str()));
     let lines: Vec<&str> = shown.split('\n').collect();
-    let first = lines.iter().position(|line| is_element(*line))?;
+    let first = lines.iter().position(|line| is_element(line))?;
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     for (index, line) in lines.iter().enumerate() {
         if index == first {
             out.push(format!("Elements delta: {delta}"));
         }
-        if !is_element(*line) {
+        if !is_element(line) {
             out.push((*line).to_owned());
         }
     }

@@ -114,6 +114,7 @@ pub(super) fn ledger_path(data_dir: &Path, session: &str, marker: u32) -> PathBu
 }
 
 /// The ledgers in `folder`, with the input marker their name carries (`<session>-<marker>.ledger`), in name order.
+#[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
 pub(super) fn leftover_ledgers(folder: &Path) -> Vec<(PathBuf, Option<u32>)> {
     let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
     let mut found: Vec<(PathBuf, Option<u32>)> = entries

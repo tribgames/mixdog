@@ -122,7 +122,7 @@ pub struct UserControlState {
     /// The sessions' backends, which a recovery runs the cleanup of again.
     backends: Mutex<BTreeMap<String, Weak<ProcessComputerBackend>>>,
     /// One recovery at a time (`recovering`).
-    recovering: tokio::sync::Mutex<()>,
+    recovering: tokio::sync::Semaphore,
 }
 
 impl Default for UserControlState {
@@ -215,7 +215,7 @@ impl UserControlState {
             changes: watch::channel(0).0,
             listener: Mutex::default(),
             backends: Mutex::default(),
-            recovering: tokio::sync::Mutex::new(()),
+            recovering: tokio::sync::Semaphore::new(1),
         }
     }
 
@@ -277,7 +277,7 @@ impl UserControlState {
     /// execution open is left (its helper is still working, as a worker that has not exited is in Node); one whose backend is gone
     /// has run its cleanup in its drop. True when nothing stays latched.
     pub async fn recover_latched(&self) -> bool {
-        let _one = self.recovering.lock().await;
+        let _one = self.recovering.acquire().await.expect("the private recovery gate is never closed");
         let sessions: Vec<String> = locked(&self.inner).latched.iter().cloned().collect();
         for session in sessions {
             let backend = locked(&self.backends).get(&session).and_then(Weak::upgrade);

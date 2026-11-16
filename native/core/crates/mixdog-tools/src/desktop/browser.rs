@@ -651,7 +651,7 @@ struct Slot(&'static AtomicUsize);
 impl Slot {
     /// `None` when [`MAX_CONCURRENT`] commands already run.
     fn take(running: &'static AtomicUsize) -> Option<Self> {
-        running.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| (now < MAX_CONCURRENT).then_some(now + 1)).ok().map(|_| Self(running))
+        running.try_update(Ordering::SeqCst, Ordering::SeqCst, |now| (now < MAX_CONCURRENT).then_some(now + 1)).ok().map(|_| Self(running))
     }
 }
 

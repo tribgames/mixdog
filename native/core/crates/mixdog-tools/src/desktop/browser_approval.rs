@@ -283,6 +283,7 @@ impl BrowserApprovals {
     }
 
     /// Raises the card and settles what its answer stores.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
     async fn raise(&self, thread: &ThreadId, facts: &SessionFacts, grants: &SessionGrants, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind], remember: Vec<ApprovalRemember>) -> Result<ApprovalAnswer, ToolError> {
         let agent = facts.agent_id.as_str();
         let scoped = call_approvals();
@@ -330,13 +331,14 @@ impl BrowserApprovals {
             ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => return Err(cancelled()),
         };
         if grantable {
-            self.settle(thread, agent, facts, grants, kinds, &answer, &device).await;
+            self.settle(thread, agent, (facts, grants), kinds, &answer, &device).await;
         }
         Ok(answer)
     }
 
     /// What an answer stores: the audit line, the session's allowance, the saved allow.
-    async fn settle(&self, thread: &ThreadId, agent: &str, facts: &SessionFacts, grants: &SessionGrants, kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
+    async fn settle(&self, thread: &ThreadId, agent: &str, context: (&SessionFacts, &SessionGrants), kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
+        let (facts, grants) = context;
         let remember = match answer {
             ApprovalAnswer::Deny { .. } => return self.audit(agent, kinds, "deny").await,
             ApprovalAnswer::Allow { remember } => *remember,

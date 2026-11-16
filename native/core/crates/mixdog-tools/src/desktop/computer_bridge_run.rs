@@ -61,7 +61,7 @@ use serde::Deserialize;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_backend::HOST_READ_ACTIONS;
@@ -394,7 +394,7 @@ pub struct ComputerBridgeRun {
     /// The OS answers about a process still being read: every command that asks about the same one shares the one read
     /// (`pendingFates`).
     fates: Mutex<HashMap<(u64, String), FateRead>>,
-    queues: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    queues: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
     runs: Mutex<Vec<Run>>,
     next_run: AtomicU64,
     active: AtomicUsize,
@@ -559,13 +559,13 @@ impl ComputerBridgeRun {
 
     /// The session's turn at the queue: one command of a session runs at a time, in the order they came. A cancelled wait is the
     /// command cancelled before it ran.
-    async fn queued(&self, session: &str, cancel: &CancellationToken) -> Result<OwnedMutexGuard<()>, String> {
-        let queue = locked(&self.queues).entry(session.to_owned()).or_default().clone();
+    async fn queued(&self, session: &str, cancel: &CancellationToken) -> Result<OwnedSemaphorePermit, String> {
+        let queue = locked(&self.queues).entry(session.to_owned()).or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))).clone();
         // Cancellation first: a command cancelled while the one before it ended never runs.
         tokio::select! {
             biased;
             () = cancel.cancelled() => Err(ABORTED_QUEUED.to_owned()),
-            guard = queue.lock_owned() => Ok(guard),
+            guard = queue.acquire_owned() => Ok(guard.expect("the private session queue is never closed")),
         }
     }
 
@@ -587,7 +587,7 @@ impl ComputerBridgeRun {
             None => {
                 let mut raw = command.clone();
                 for key in ["session_id", "turn_id", "runtime_id"] {
-                    raw.remove(key);
+                    raw.shift_remove(key);
                 }
                 let action = text_field(command, "action").to_owned();
                 let reply = tokio::select! {
@@ -816,9 +816,9 @@ fn failure_text(error: &ComputerError) -> String {
 /// `host_command` (`toComputerHostCommand`), which the tool's call goes through to become the command again.
 fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
     let mut input = command.clone();
-    let action = input.remove("action")?;
+    let action = input.shift_remove("action")?;
     for key in ["session_id", "turn_id", "runtime_id"] {
-        input.remove(key);
+        input.shift_remove(key);
     }
     let set = |input: &mut Map<String, Value>, key: &str, value: &str| {
         input.insert(key.into(), json!(value));
@@ -842,10 +842,10 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
         "diagnose" => ComputerAction::Diagnose,
         "wait_for_user" => ComputerAction::WaitForUser,
         "sequence" => {
-            if let Some(Value::Array(steps)) = input.remove("steps") {
+            if let Some(Value::Array(steps)) = input.shift_remove("steps") {
                 input.insert("actions".into(), Value::Array(steps.into_iter().map(tool_step).collect()));
             }
-            if let Some(mode) = input.remove("capture_after_mode") {
+            if let Some(mode) = input.shift_remove("capture_after_mode") {
                 input.insert("observe".into(), mode);
             }
             ComputerAction::Act
@@ -862,7 +862,7 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
             ComputerAction::Window
         }
         "window_state" => {
-            let state = input.remove("state")?;
+            let state = input.shift_remove("state")?;
             input.insert("operation".into(), state);
             ComputerAction::Window
         }
@@ -886,8 +886,8 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
             return Some(one_step(action.as_str()?, input));
         }
         "fill_saved_login" => {
-            input.remove("delivery");
-            if let Some(account) = input.remove("saved_account") {
+            input.shift_remove("delivery");
+            if let Some(account) = input.shift_remove("saved_account") {
                 input.insert("savedAccount".into(), account);
             }
             ComputerAction::SavedLogin
@@ -902,11 +902,11 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
 fn one_step(action: &str, mut input: Map<String, Value>) -> ComputerRequest {
     let mut call = Map::new();
     for key in ["window_id", "window", "app", "screen", "frame_id", "delivery"] {
-        if let Some(value) = input.remove(key) {
+        if let Some(value) = input.shift_remove(key) {
             call.insert(key.into(), value);
         }
     }
-    if let Some(mode) = input.remove("capture_after_mode") {
+    if let Some(mode) = input.shift_remove("capture_after_mode") {
         call.insert("observe".into(), mode);
     }
     input.insert("action".into(), json!(action));
@@ -917,14 +917,14 @@ fn one_step(action: &str, mut input: Map<String, Value>) -> ComputerRequest {
 /// One host sequence step as the tool's `act.actions` entry (the inverse of `host_step`).
 fn tool_step(step: Value) -> Value {
     let Value::Object(mut step) = step else { return step };
-    let Some(action) = step.remove("action") else { return Value::Object(step) };
+    let Some(action) = step.shift_remove("action") else { return Value::Object(step) };
     let name = action.as_str().map(str::to_owned);
     let (kind, button) = match name.as_deref() {
         Some("right_click") => (json!("click"), Some("right")),
         Some("middle_click") => (json!("click"), Some("middle")),
         Some("mouse_move") => (json!("move"), None),
         Some("set_value") => {
-            if let Some(text) = step.remove("text") {
+            if let Some(text) = step.shift_remove("text") {
                 step.insert("value".into(), text);
             }
             (action, None)

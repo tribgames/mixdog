@@ -326,10 +326,10 @@ fn info_of(tab: &mixdog_spawn::terminal::SessionTab) -> TabInfo {
     }
 }
 
-fn target_of<'a>(
-    tabs: &'a [mixdog_spawn::terminal::SessionTab],
+fn target_of(
+    tabs: &[mixdog_spawn::terminal::SessionTab],
     requested: Option<u64>,
-) -> Result<&'a mixdog_spawn::terminal::SessionTab, PortError> {
+) -> Result<&mixdog_spawn::terminal::SessionTab, PortError> {
     match requested {
         None => Ok(&tabs[0]),
         Some(n) => tabs.iter().find(|t| u64::from(t.tab) == n).ok_or_else(|| {
@@ -543,6 +543,7 @@ impl Tool for TerminalTool {
 }
 
 impl TerminalTool {
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
     async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = validate(&args).map_err(|m| invalid("action", m))?;
         let thread = &ctx.thread_id;

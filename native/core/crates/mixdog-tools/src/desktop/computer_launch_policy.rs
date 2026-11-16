@@ -356,7 +356,7 @@ impl AuthorizationSettings {
         }
         match self.authorization_expiry() {
             Some(expires) => out.insert("authorization_expires_at".into(), json!(expires as i64)),
-            None => out.remove("authorization_expires_at"),
+            None => out.shift_remove("authorization_expires_at"),
         };
         out
     }

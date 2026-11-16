@@ -151,7 +151,7 @@ impl HostCommands for ChannelHostCommands {
 
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, mut input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
         // An open's tool call id (`input.callId`, set by the tool) is a field of the request, beside `sessionId`, not of the input.
-        let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.remove("callId")) } else { None };
+        let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.shift_remove("callId")) } else { None };
         let mut params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
         if let (Some(call_id), Some(params)) = (call_id, params.as_object_mut()) {
             params.insert("callId".to_owned(), call_id);
@@ -238,6 +238,7 @@ fn bridge_error(message: &str) -> ToolError {
 }
 
 /// A successful `browser` result value as tool output: text (default `OK`), then the image.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
 pub fn browser_output(value: &Value) -> ToolOutcome {
     let empty = serde_json::Map::new();
     let value = value.as_object().unwrap_or(&empty);

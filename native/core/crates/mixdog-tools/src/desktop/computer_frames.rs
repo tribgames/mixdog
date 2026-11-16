@@ -374,14 +374,14 @@ fn resolve_marks(marks: &Marks, action: &str, step: &mut Map<String, Value>) -> 
         step.insert("window_id".into(), json!(window));
     }
     if let Some(Named::Point(point)) = source {
-        step.remove("element");
-        step.remove("ref");
+        step.shift_remove("element");
+        step.shift_remove("ref");
         step.insert("x".into(), json!(point.x));
         step.insert("y".into(), json!(point.y));
     }
     if let Some(Named::Point(point)) = destination {
-        step.remove("to_element");
-        step.remove("to");
+        step.shift_remove("to_element");
+        step.shift_remove("to");
         step.insert("to_x".into(), json!(point.x));
         step.insert("to_y".into(), json!(point.y));
     }
@@ -401,12 +401,12 @@ pub(super) fn map_step(frames: &FrameStore, step: &mut Map<String, Value>) -> Re
 fn map_step_at(frames: &FrameStore, step: &mut Map<String, Value>, now: Instant) -> Result<(), ComputerError> {
     let action = step.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
     resolve_marks(&locked(&frames.marks).clone().unwrap_or_default(), &action, step)?;
-    let frame_id = step.remove("frame_id").map(|id| id.as_str().map(str::to_string).unwrap_or_else(|| id.to_string()));
+    let frame_id = step.shift_remove("frame_id").map(|id| id.as_str().map(str::to_string).unwrap_or_else(|| id.to_string()));
     let frame_id = frame_id.filter(|id| !id.is_empty());
     // Waypoints belong to a drag only (`input-target.ts`): on any other action they would leave its x/y unmapped.
     let waypoints = if action == "drag" { step.get("waypoints").and_then(Value::as_array).cloned() } else { None };
     if action != "drag" {
-        step.remove("waypoints");
+        step.shift_remove("waypoints");
     }
     if waypoints.as_ref().is_some_and(|points| points.len() < 2) {
         return Err(refused("waypoint drag requires at least two points".into()));

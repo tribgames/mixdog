@@ -44,13 +44,24 @@ trait Host: Send + Sync {
     fn replace_dir(&self, from: &Path, to: &Path) -> std::io::Result<()>;
     /// stdout of a command that ended with code 0; `None` when it failed or could not run.
     async fn run(&self, program: &str, args: &[&str]) -> Option<String>;
+    // Fake hosts keep their synchronous in-memory contract; SystemHost overrides
+    // these two operations with awaited InteractiveIo jobs.
+    async fn installed(&self, env: &Env) -> bool { files_installed(self, env) }
+    async fn install(&self, env: &Env, bundled: Option<&Path>) -> Result<(), String> { install_files(self, env, bundled) }
+
 }
 
+#[derive(Clone)]
 struct SystemHost {
+    // Each file job clones the host and retains the apply permit until its
+    // remove/copy finishes, even when the async caller is dropped meanwhile.
+    _turn: Arc<tokio::sync::OwnedSemaphorePermit>,
+    io: mixdog_rt::InteractiveIo,
     manager: Arc<dyn ProcessManager>,
     env: Env,
 }
 
+#[allow(clippy::disallowed_methods, reason = "SystemHost calls this only inside its awaited InteractiveIo install/installed filesystem jobs")]
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -71,14 +82,17 @@ impl Host for SystemHost {
         cfg!(target_os = "linux")
     }
 
+    #[allow(clippy::disallowed_methods, reason = "SystemHost calls this only inside its awaited InteractiveIo install/installed filesystem jobs")]
     fn exists(&self, path: &Path) -> bool {
         path.exists()
     }
 
+    #[allow(clippy::disallowed_methods, reason = "SystemHost calls this only inside its awaited InteractiveIo install/installed filesystem jobs")]
     fn read_text(&self, path: &Path) -> Option<String> {
         std::fs::read_to_string(path).ok()
     }
 
+    #[allow(clippy::disallowed_methods, reason = "SystemHost calls this only inside its awaited InteractiveIo install/installed filesystem jobs")]
     fn replace_dir(&self, from: &Path, to: &Path) -> std::io::Result<()> {
         match std::fs::remove_dir_all(to) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
@@ -87,12 +101,22 @@ impl Host for SystemHost {
         copy_dir(from, to)
     }
 
+    async fn installed(&self, env: &Env) -> bool {
+        let (host, env) = (self.clone(), env.clone());
+        super::computer_io::run(Some(self.io), move || files_installed(&host, &env)).await.unwrap_or(false)
+    }
+
+    async fn install(&self, env: &Env, bundled: Option<&Path>) -> Result<(), String> {
+        let (host, env, bundled) = (self.clone(), env.clone(), bundled.map(Path::to_path_buf));
+        super::computer_io::run(Some(self.io), move || install_files(&host, &env, bundled.as_deref())).await?
+    }
+
     async fn run(&self, program: &str, args: &[&str]) -> Option<String> {
         run_short(&*self.manager, &self.env, program, args, COMMAND_LIMIT).await.and_then(|(ok, out)| ok.then_some(out))
     }
 }
 
-fn metadata_version(host: &dyn Host, dir: &Path) -> Option<u64> {
+fn metadata_version<H: Host + ?Sized>(host: &H, dir: &Path) -> Option<u64> {
     let text = host.read_text(&dir.join("metadata.json"))?;
     serde_json::from_str::<serde_json::Value>(&text).ok()?.get("version")?.as_u64()
 }
@@ -135,7 +159,13 @@ fn system_extension_dir() -> PathBuf {
 /// the packaged app's resources (the core sits in `resources/core` and the package packs the extension to `resources/gnome-extension`,
 /// so the folder above the executable is searched too), then the repository's `native/gnome-extension` above the executable (a
 /// development tree).
-pub fn bundled_dir(env: &Env, exe_dir: &Path) -> Option<PathBuf> {
+pub async fn bundled_dir(io: mixdog_rt::InteractiveIo, env: &Env, exe_dir: &Path) -> Option<PathBuf> {
+    let (env, exe_dir) = (env.clone(), exe_dir.to_path_buf());
+    super::computer_io::run(Some(io), move || bundled_dir_in_job(&env, &exe_dir)).await.ok().flatten()
+}
+
+#[allow(clippy::disallowed_methods, reason = "Only called by bundled_dir inside its awaited InteractiveIo job")]
+fn bundled_dir_in_job(env: &Env, exe_dir: &Path) -> Option<PathBuf> {
     let explicit = var(env, "MIXDOG_GNOME_EXTENSION_DIR");
     if !explicit.is_empty() {
         return Some(PathBuf::from(explicit));
@@ -147,7 +177,7 @@ pub fn bundled_dir(env: &Env, exe_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Puts the bundled copy in the user's extensions dir unless one is already installed system-wide.
-fn install_files(host: &dyn Host, env: &Env, bundled: Option<&Path>) -> Result<(), String> {
+fn install_files<H: Host + ?Sized>(host: &H, env: &Env, bundled: Option<&Path>) -> Result<(), String> {
     if host.exists(&system_extension_dir().join("metadata.json")) {
         return Ok(());
     }
@@ -166,7 +196,7 @@ fn install_files(host: &dyn Host, env: &Env, bundled: Option<&Path>) -> Result<(
     Ok(())
 }
 
-fn files_installed(host: &dyn Host, env: &Env) -> bool {
+fn files_installed<H: Host + ?Sized>(host: &H, env: &Env) -> bool {
     host.exists(&system_extension_dir().join("metadata.json")) || user_extension_dir(env).is_some_and(|dir| host.exists(&dir.join("metadata.json")))
 }
 
@@ -219,9 +249,9 @@ async fn sync(host: &dyn Host, enabled: bool, env: &Env, bundled: Option<&Path>,
     let mut state = GnomeExtensionState::default();
     let steps = async {
         if enabled {
-            install_files(host, env, bundled)?;
+            host.install(env, bundled).await?;
         }
-        state.installed = files_installed(host, env);
+        state.installed = host.installed(env).await;
         if cancel.is_cancelled() {
             return Ok(());
         }
@@ -230,14 +260,14 @@ async fn sync(host: &dyn Host, enabled: bool, env: &Env, bundled: Option<&Path>,
         Ok::<(), String>(())
     };
     if let Err(message) = steps.await {
-        state.installed = files_installed(host, env);
+        state.installed = host.installed(env).await;
         state.error = Some(message);
     }
     Some(state)
 }
 
 static LAST: Mutex<Option<GnomeExtensionState>> = Mutex::new(None);
-static QUEUE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static QUEUE: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
 
 /// The state of the last apply in this process; what `diagnose` reports.
 pub fn last_state() -> Option<GnomeExtensionState> {
@@ -248,9 +278,10 @@ pub fn last_state() -> Option<GnomeExtensionState> {
 /// applies; a failure is in the returned state's `error` and logged, never thrown. Off GNOME (or off Linux) nothing is touched and the
 /// default state comes back. `bundled` is [`bundled_dir`]: without one, turning it on reports the missing files and turning it off still
 /// takes our uuid out of the enabled list.
-pub async fn apply_gnome_extension(manager: Arc<dyn ProcessManager>, enabled: bool, env: &Env, bundled: Option<&Path>, cancel: &CancellationToken) -> GnomeExtensionState {
-    let _turn = QUEUE.lock().await;
-    let host = SystemHost { manager, env: env.clone() };
+pub async fn apply_gnome_extension(manager: Arc<dyn ProcessManager>, io: mixdog_rt::InteractiveIo, enabled: bool, env: &Env, bundled: Option<&Path>, cancel: &CancellationToken) -> GnomeExtensionState {
+    let turn = QUEUE.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))).clone()
+        .acquire_owned().await.expect("the private extension-apply gate is never closed");
+    let host = SystemHost { manager, io, env: env.clone(), _turn: Arc::new(turn) };
     let Some(state) = sync(&host, enabled, env, bundled, cancel).await else { return GnomeExtensionState::default() };
     if let Some(error) = &state.error {
         tracing::error!("[gnome-extension] {} failed: {error}", if enabled { "setup" } else { "disable" });

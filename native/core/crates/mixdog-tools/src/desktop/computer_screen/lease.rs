@@ -37,6 +37,9 @@
 //! Adapter methods take effect when they are called, not when the future they return is first polled: the
 //! order of the calls is the order the helper is told.
 
+// Private names for unchanged callback/state shapes.
+type Listeners<T> = (u64, Vec<(u64, Listener<T>)>);
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -129,6 +132,7 @@ pub(super) trait HelperAdapter<F>: Send + Sync {
     fn send_grant(&self, grant: Grant) -> BoxFuture<Result<(), HelperError>>;
     /// The video run (epoch) the phone is shown now.
     fn set_video_run(&self, epoch: u64);
+    #[cfg(test)]
     fn latest_frame(&self) -> Option<F>;
     fn on_frame(&self, listener: Listener<F>) -> Unsub;
     fn on_desktop_changed(&self, listener: Listener<()>) -> Unsub;
@@ -171,7 +175,7 @@ pub(super) struct HelperDeps<F> {
 }
 
 pub(super) struct ListenerSet<T> {
-    entries: Mutex<(u64, Vec<(u64, Listener<T>)>)>,
+    entries: Mutex<Listeners<T>>,
 }
 
 impl<T> ListenerSet<T> {
@@ -179,7 +183,7 @@ impl<T> ListenerSet<T> {
         Arc::new(Self { entries: Mutex::new((0, Vec::new())) })
     }
 
-    fn lock(&self) -> MutexGuard<'_, (u64, Vec<(u64, Listener<T>)>)> {
+    fn lock(&self) -> MutexGuard<'_, Listeners<T>> {
         self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
@@ -672,6 +676,7 @@ impl<F: Clone + Send + Sync + 'static> SecureDesktopLease<F> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn latest_frame(&self) -> Option<F> {
         if self.holds() { self.core.current().latest_frame() } else { None }
     }
