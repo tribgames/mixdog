@@ -273,7 +273,7 @@ pub(crate) fn clean_for_string(value: Option<&Value>) -> String {
 
 /// `discardUnobservedTime`: the part of an active Goal's open segment no live runtime ran.
 pub fn discard_unobserved_time(goal: &mut Goal, at: f64, tolerance_ms: f64) -> bool {
-    if string(goal, "status") != "active" || !(number(goal, "lastStartedAt") > 0.0) {
+    if string(goal, "status") != "active" || number(goal, "lastStartedAt").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return false;
     }
     let seen_at = number(goal, "lastStartedAt").max(or(number(goal, "liveAt"), 0.0));
@@ -288,12 +288,12 @@ pub fn discard_unobserved_time(goal: &mut Goal, at: f64, tolerance_ms: f64) -> b
 
 /// `discardSuspendedTime`: time a live runtime provably did not run (the OS was suspended).
 pub fn discard_suspended_time(goal: &mut Goal, at: f64, suspended_ms: f64) -> bool {
-    if string(goal, "status") != "active" || !(number(goal, "lastStartedAt") > 0.0) {
+    if string(goal, "status") != "active" || number(goal, "lastStartedAt").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return false;
     }
     let seen_at = number(goal, "lastStartedAt").max(or(number(goal, "liveAt"), 0.0));
     let dropped = or(suspended_ms, 0.0).floor().min((at - seen_at).max(0.0));
-    if !(dropped > 0.0) {
+    if dropped.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return false;
     }
     put_num(goal, "lastStartedAt", number(goal, "lastStartedAt") + dropped);
@@ -303,7 +303,7 @@ pub fn discard_suspended_time(goal: &mut Goal, at: f64, suspended_ms: f64) -> bo
 
 /// `freezeUnobservedSegment`: the Goal as a reader without a runtime sees it.
 pub fn freeze_unobserved_segment(goal: &mut Goal) {
-    if string(goal, "status") != "active" || !(number(goal, "lastStartedAt") > 0.0) {
+    if string(goal, "status") != "active" || number(goal, "lastStartedAt").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return;
     }
     let observed = (or(number(goal, "liveAt"), 0.0) - number(goal, "lastStartedAt")).max(0.0);
@@ -314,7 +314,7 @@ pub fn freeze_unobserved_segment(goal: &mut Goal) {
 
 pub fn active_elapsed_ms(goal: &Goal, now: f64) -> f64 {
     let committed = or(number(goal, "timeUsedMs"), 0.0).max(0.0);
-    if string(goal, "status") != "active" || !(number(goal, "lastStartedAt") > 0.0) {
+    if string(goal, "status") != "active" || number(goal, "lastStartedAt").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return committed;
     }
     committed + (now - number(goal, "lastStartedAt")).max(0.0)

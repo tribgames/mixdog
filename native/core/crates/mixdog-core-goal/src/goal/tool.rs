@@ -66,7 +66,7 @@ impl GoalRuntime {
                     return Err(GoalError::new(format!("goal extend works only on an active or paused Goal (status {status})")));
                 }
                 let limit = number(&current, "timeLimitMs");
-                if !(limit > 0.0) {
+                if limit.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                     return Err(GoalError::new("goal extend needs a Goal with a time cap; this one has none"));
                 }
                 let limit = parse_goal_duration(&mixdog_js::json_number(limit + added_ms))?;

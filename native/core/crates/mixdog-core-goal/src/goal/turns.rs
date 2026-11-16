@@ -166,10 +166,9 @@ impl Tx<'_> {
             }
         };
         self.slot.mem().unsaved_stop = None;
-        if automatic_without_activity(detail, published.as_ref()) {
-            if let Some(published) = &published {
-                self.slot.mem().idle_review = Some(idle_review_key(published));
-            }
+        if automatic_without_activity(detail, published.as_ref())
+            && let Some(published) = &published {
+            self.slot.mem().idle_review = Some(idle_review_key(published));
         }
         Ok(published)
     }
@@ -190,10 +189,9 @@ impl GoalRuntime {
         let goal_id = clean(Some(&Value::String(goal_id.to_owned())));
         self.inner
             .with_mutation(session_id, move |tx| {
-                if let Some(is_current) = &admission.is_current {
-                    if !is_current()? {
-                        return Ok(None);
-                    }
+                if let Some(is_current) = &admission.is_current
+                    && !is_current()? {
+                    return Ok(None);
                 }
                 let Some(mut goal) = tx.read_record()? else { return Ok(None) };
                 if truthy(goal.get("archivedAt")) || string(&goal, "id") != goal_id || string(&goal, "status") != "usage_limited" {
