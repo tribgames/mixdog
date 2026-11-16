@@ -8,10 +8,11 @@ isolated root, the manual path uses a throwaway Windows user or machine).
 ## 1. Automated check: `scripts/live/upgrade-145.mjs`
 
 ```
-node scripts/live/upgrade-145.mjs --app=<unpacked folder or Mixdog.exe> --profile-vector=<dir> [--out=<dir>] [--iso-root=<dir>] [--keep]
+node scripts/live/upgrade-145.mjs --app=<unpacked folder or Mixdog.exe> --profile-vector=<dir> [--out=<dir>] [--iso-root=<dir>] [--backup-enabled] [--restart] [--keep]
 ```
 
 - `--app` is a packaged build: the `win-unpacked` folder of the candidate (or an installed folder, or the executable).
+  The harness does not extract installers. Reuse the verified, already-unpacked 1.4.5 artifact prepared for the memory baseline.
 - `--profile-vector` is a directory with
   - `profile/`: the files a 1.4.5 Electron userData holds. The synthetic set is
     `native/core/crates/mixdog-migrate/tests/vectors/profile-145-supplement/profile` (SSH hosts, port forwards, paired
@@ -20,7 +21,17 @@ node scripts/live/upgrade-145.mjs --app=<unpacked folder or Mixdog.exe> --profil
     one, `native/core/fixtures/migration-145/.mixdog`. Without it the core starts on an empty data directory and only
     the profile move is exercised.
   - `expect.json` (optional): `{ "projects": [path], "sshHosts": [id], "remoteHosts": [id], "notifications": true | {key: value}, "owedRevokes": [key] }`.
-    SSH hosts and paired PCs default to the ids in `profile/ssh-hosts.json` and `profile/remote-hosts.json`.
+    SSH hosts default to the ids in `profile/ssh-hosts.json`. Paired PCs default to the consumer's URL-derived ids and alias/name
+    view of `profile/remote-hosts.json`, not an arbitrary stored id.
+  - Optional meaningful consumer expectations: `sshHostRecords`, `remoteHostRecords`, `restore: {enabled:false}`,
+    `config: {"published.path": value}`, `editorSettings: {tabSize:2, insertSpaces:false}`, and
+    `storedConfig: {future:{sentinel:"retained"}}`. Record expectations as 1.4.5's readers served them, not unnormalized raw JSON.
+  - `configWrite: {path, value, mode?}` requests one unrelated supported configuration write on the first pass only, followed by
+    the stored-config sentinel check. With `--restart`, a second start checks the same expectations without writing again.
+  - `--backup-enabled` enables the real configuration guard with an explicitly owned backup root beneath the isolated root.
+    `backupConfig` (or `storedConfig`) must match a complete backup of the same data-directory incarnation. A fixture must
+    exercise an actual config write/normalization that creates a backup; no backup is a failure. Memory baselines retain the
+    default disabled backup flag and must record that difference.
 
 The script copies the vector under an isolated root (the vector is never written), starts the app with
 `MIXDOG_DESKTOP_USER_DATA` set to the copied profile and every other profile variable (`MIXDOG_DATA_DIR`,
@@ -29,10 +40,10 @@ say `serving`, and then asserts, each as its own line:
 
 | Check | Passes when |
 | --- | --- |
-| migration markers | `migration/complete.json` exists with no unexpectedly quarantined item and `migration/profile-gen.json` is at generation 2 (waited for up to 120 s: the migration runs while the core serves) |
+| migration markers | `migration/complete.json` exists with no unexpectedly quarantined item and `migration/profile-gen.json` is at the candidate migrator's generation (currently 3, read from its source) |
 | projects | `project/list` holds every path of `expect.projects` |
 | SSH hosts | `connections/ssh/list` holds every expected host id |
-| paired PCs | `remoteAccess/state` names every expected paired PC |
+| paired PCs | `remoteHosts/list` returns the expected saved-PC records; `remoteAccess/state` is a different collection (phones paired to this PC) |
 | notification preferences | with `expect.notifications`, `notify/state` returns a stored notifications object (holding each given key's value when it is an object) |
 | owed revokes | `pcAccess/readiness` still owes every key of `expect.owedRevokes` |
 
@@ -40,6 +51,11 @@ It exits 0 when all pass and 1 otherwise; `<out>/summary.json` (default: a folde
 temp directory) holds the result of every check and the core's logs. The app is started through its normal path and a
 window opens; it is ended by its own process handle when the run is over (never by name). The isolated root is removed
 unless `--keep` is given.
+
+The read connection is an explicit main-window identity for this isolated acceptance app, so main-only connection methods are
+tested through their real permission boundary. Ordinary test helpers keep their TUI identity; the harness never claims the host role.
+The immutable source vector is hashed before copying and after the run (`source-manifest.json`); links are refused. Unknown
+configuration sentinels are checked on disk because private/unregistered values must not be exposed by `config/read`.
 
 Unit test of its pure parts (starts nothing): `node --test scripts/live/upgrade-145.test.mjs`.
 
@@ -65,13 +81,20 @@ data you need.
 4. In the 1.4.5 app: the update appears, downloads, shows ready, and "install and restart" relaunches.
 5. After the relaunch check, in the candidate:
    - the project, the SSH server, the paired PC and the notification preference are all there;
-   - `%USERPROFILE%\.mixdog\data\migration\complete.json` exists and `migration\profile-gen.json` says generation 2;
+   - `%USERPROFILE%\.mixdog\data\migration\complete.json` exists and `migration\profile-gen.json` says the current generation;
    - `ssh-hosts.json`, `port-forwards.json`, `remote-hosts.json` and `server-windows.json` have left the profile folder
      for `<data>\desktop\` (the moves are one way; a `.superseded` file means the target already held other bytes and
      the old one was kept, not deleted);
+   - the journaled connection-store repair retains those `<data>\desktop\` originals and immutable hashed recovery copies,
+     then adopts an absent store into the actual `<data>\userdata\` consumer root. Existing current files, backups, and corruption
+     evidence win as a family, including empty lists and cleared/disabled preferences; no legacy union resurrects a deletion;
    - the sessions of 1.4.5 open with their history;
    - exactly one `mixdogd` runs, and it is the candidate's (`daemon.json` names its path under the install folder).
 6. Close and start again: nothing is migrated a second time (the markers are unchanged, no new `.superseded` files).
+
+The migration is one-way. It does not retain every converted source in its old location and does not guarantee that 1.4.5 can
+read the candidate's data. Configuration guard backups cover configuration and named folders, not the entire profile/session tree.
+Keep the immutable synthetic source copy for acceptance and compare actual consumers, not only target-file hashes.
 
 ### 2.2 Skip a release
 
