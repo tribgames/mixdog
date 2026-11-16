@@ -62,10 +62,10 @@ impl QuotaAutoResume {
                     }
                 }
                 let now = enabled(&config);
-                if on && !now {
-                    if let Err(error) = store.cancel_all().await {
-                        tracing::warn!(?error, "[quota] the pending resumes were not dropped when the switch went off");
-                    }
+                if on && !now
+                    && let Err(error) = store.cancel_all().await
+                {
+                    tracing::warn!(?error, "[quota] the pending resumes were not dropped when the switch went off");
                 }
                 on = now;
             }

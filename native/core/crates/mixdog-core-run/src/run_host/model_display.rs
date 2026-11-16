@@ -69,7 +69,7 @@ fn strip_model_id(model: &str) -> String {
     if !text.contains('/') {
         return text.to_owned();
     }
-    text.split('/').filter(|s| !s.is_empty()).next_back().unwrap_or(text).to_owned()
+    text.split('/').rfind(|s| !s.is_empty()).unwrap_or(text).to_owned()
 }
 
 /// `brandVersionPart`: version-ish tokens (`k2.7`, `3.8`) upper-case, word tokens title-case; the

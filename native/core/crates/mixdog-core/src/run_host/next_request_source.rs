@@ -125,7 +125,7 @@ pub fn last_sent_of(mut request: ModelRequest, header: &Header) -> Option<(Model
         return None;
     }
     let sent_at = mixdog_js::to_number_of(header.get("lastProviderSendAt"));
-    if !(sent_at > 0.0) {
+    if sent_at.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return None;
     }
     request.messages.truncate(end);

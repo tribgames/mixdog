@@ -142,7 +142,7 @@ pub fn bridge_surface_outdated(session: &Value, load_tool: &LoadToolDef) -> bool
 
 /// `isBridgeToolDefinition`: a bridge-only definition (never part of the scoped catalog).
 pub fn is_bridge_tool_definition(tool: &Value) -> bool {
-    let name = tool.get("name").map_or_else(String::new, |n| mixdog_js::value_to_string(n));
+    let name = tool.get("name").map_or_else(String::new, mixdog_js::value_to_string);
     if name == "search_tools" || name == "call_tool" {
         return true;
     }

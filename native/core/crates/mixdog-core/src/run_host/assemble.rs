@@ -285,6 +285,7 @@ impl HostRunParts {
 impl HostRunParts {
     /// Composes a session's prompt: the probes it asks for are settled first, then job runs in an
     /// io-interactive lane job over RealSources (see [super::prewarm::compose]).
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
     pub async fn compose_prompt<R: Send + 'static>(&self, job: super::prewarm::ComposeJob<R>) -> Result<R, TurnError> {
         let seams = &self.services.seams;
         let facts = Arc::new(super::prewarm::PromptFacts::from_process(seams.plugin_root(), seams.data_dir(), seams.stored_instruction_files()));
@@ -313,6 +314,7 @@ fn wire_pin_of(route: Option<&Value>) -> Option<mixdog_core_api::domain::provide
 /// A provider no family serves is one that is not there: a custom provider just removed has no entry for the readiness to build
 /// (`ensureProviderEnabled` adds only `enabled: true`), and a live Node turn finds `getProvider` empty and says `Provider "<id>" not available`
 /// (`ask-turn-execute.mjs:178`). Any other readiness failure escapes as it is.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
 fn unserved_provider(provider_id: &str, message: String) -> Result<Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>>, TurnError> {
     if message == format!("[provider] Failed to init \"{provider_id}\": unknown enabled provider: {provider_id}") {
         return Ok(None);
@@ -328,6 +330,7 @@ fn refuse(message: impl Into<String>) -> TurnError {
 /// `cwdOverride || session.cwd` (`ask-turn-execute.mjs:193`), which is null for a session made without one (a hidden
 /// role's dispatch passes null rather than `process.cwd()`, `session-prep.mjs:62`), and each reader of it falls back to
 /// `process.cwd()` (`ask-session.mjs:109`, `record-outcome.mjs:125`). A turn refused for it failed every memory cycle1 call.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
 fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     let cwd = text(header, "cwd");
     if !cwd.is_empty() {
@@ -401,6 +404,7 @@ impl HostRunParts {
         set.with_registry(Arc::new(McpOnly(self.services.resolver.clone())), scope)
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
     async fn request_parts(&self, source: RequestSource<'_>) -> Result<RequestParts, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
@@ -653,7 +657,7 @@ impl RunParts for HostRunParts {
             turn_id: input.turn.clone(),
             cwd: AbsPath::new(cwd.clone()).ok_or_else(|| refuse("the working directory is not absolute"))?,
             surface: if super::compaction_world::is_agent_owner(header) { SurfaceKind::Agent } else { SurfaceKind::Lead },
-            io: s.io.clone(),
+            io: s.io,
             approvals: s.approvals.gate_for(thread, Arc::new(input.port.clone())),
             files: s.files.clone(),
             processes: s.processes.clone(),

@@ -31,7 +31,7 @@ pub fn last_progress_at(liveness: Option<&Row>) -> f64 {
 pub fn awaiting_model_response(liveness: Option<&Row>) -> bool {
     let Some(row) = liveness.filter(|row| row.get("stage").and_then(Value::as_str) == Some("requesting")) else { return false };
     let sent_at = number(row, "requestSentAt");
-    sent_at > 0.0 && !(number(row, "lastTransportAt") >= sent_at)
+    sent_at > 0.0 && !matches!(number(row, "lastTransportAt").partial_cmp(&sent_at), Some(std::cmp::Ordering::Equal | std::cmp::Ordering::Greater))
 }
 
 /// `displayProgressStage(liveness)`: `model_thinking` while the request waits for its headers, else the runtime stage.

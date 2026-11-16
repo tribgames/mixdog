@@ -378,10 +378,10 @@ pub async fn run_room_exchange<H: ExchangeHost>(host: &H, params: ExchangeParams
         // No Maintainer model: the called members answered once above; a call to the whole room
         // gives every member one turn, in order. No further rounds, no follow-ups.
         if matches!(decision.as_ref().map(|d| &d.action), Some(Action::Unmanaged)) {
-            if state.waiting && targets.is_empty() {
-                if let Some(result) = state.call_each(&members).await {
-                    return result;
-                }
+            if state.waiting && targets.is_empty()
+                && let Some(result) = state.call_each(&members).await
+            {
+                return result;
             }
             return nobody(&state);
         }

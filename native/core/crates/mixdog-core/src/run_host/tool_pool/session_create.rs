@@ -26,7 +26,6 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::session_port::ThreadRequests;
 use super::session_send::SessionSend;
 use super::session_send::check_effort;
 

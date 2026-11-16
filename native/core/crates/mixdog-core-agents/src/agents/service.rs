@@ -103,7 +103,7 @@ impl AgentLifecycle {
 /// Every agent whose purge a crash cut off (its `.purging` marker with the definition archived or gone) is purged again,
 /// one at a time as a purge of the id: its routines go, then its folder and route. One failing does not stop the rest.
 pub(super) async fn finish_unfinished_purges(agents: &AgentDefinitions) {
-    let ids = match agents.job(|folders, lane| edit::unfinished_purges(folders, lane)).await {
+    let ids = match agents.job(edit::unfinished_purges).await {
         Ok(ids) => ids,
         Err(error) => {
             tracing::warn!("[mixdog-agents] Could not look for unfinished agent purges: {error:?}");

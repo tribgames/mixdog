@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalGate as _, ApprovalKind};
+use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalKind};
 use mixdog_core_ports::ports::setup_actions::{SetupActions, SetupCall};
 use mixdog_mcp::permissions::Permission;
 use mixdog_protocol::ApprovalResolution;
