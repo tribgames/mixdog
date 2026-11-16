@@ -110,12 +110,18 @@ async function loadLibraries() {
   return libraries;
 }
 
-function connectorFor(WebSocket, doc) {
+/** Optional window identity for an explicitly owned isolated acceptance run; ordinary test clients remain TUI clients. */
+export function coreConnectionHeaders(token, mainWindowId) {
+  if (mainWindowId !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(mainWindowId)) throw new Error('invalid isolated main window id');
+  return { Authorization: `Bearer ${token}`, ...(mainWindowId === undefined ? {} : { 'Mixdog-Window': mainWindowId, 'Mixdog-Window-Role': 'main' }) };
+}
+
+function connectorFor(WebSocket, doc, mainWindowId) {
   const port = doc.core.rpc.port;
   const token = doc.endpoints.session.token;
   return {
     async open(_target, sink) {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: { Authorization: `Bearer ${token}` }, perMessageDeflate: false });
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: coreConnectionHeaders(token, mainWindowId), perMessageDeflate: false });
       const writer = { send: (text) => socket.send(text), close: (code, reason) => socket.close(code, reason) };
       return new Promise((resolveWriter, reject) => {
         let opened = false;
@@ -142,13 +148,13 @@ function connectorFor(WebSocket, doc) {
   };
 }
 
-async function connectTo(doc, clientName) {
+async function connectTo(doc, clientName, mainWindowId) {
   const { WebSocket, client: lib } = await loadLibraries();
   const version = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
   return lib.connect({
     target: { id: 'local' },
-    connector: connectorFor(WebSocket, doc),
-    clientInfo: { name: clientName, title: clientName, version: String(version), kind: 'tui' },
+    connector: connectorFor(WebSocket, doc, mainWindowId),
+    clientInfo: { name: clientName, title: clientName, version: String(version), kind: mainWindowId === undefined ? 'tui' : 'desktop' },
     capabilities: {},
     threadReducer: lib.sessionReducer,
     clock: { sleep: (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) },
@@ -173,9 +179,9 @@ export function waitStore(client, read) {
 }
 
 /** A connection to the core already serving under `runtimeRoot` (the user's own: never started or stopped here). */
-export async function attachCore({ runtimeRoot, clientName = 'k1-ci', timeoutMs }) {
+export async function attachCore({ runtimeRoot, clientName = 'k1-ci', timeoutMs, mainWindowId }) {
   const doc = await waitServing(runtimeRoot, { timeoutMs });
-  const client = await connectTo(doc, clientName);
+  const client = await connectTo(doc, clientName, mainWindowId);
   return { discovery: doc, client, call: (method, params) => client.call(method, params), close: () => client.close() };
 }
 
