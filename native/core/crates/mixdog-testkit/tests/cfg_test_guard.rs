@@ -15,6 +15,16 @@ const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 /// `(file under the crates dir, the item the predicate is on, why it may stay bare)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "mixdog-core/src/run_host/fixture_fs.rs",
+        "pub(crate) fn files_under(",
+        "only the inline auto_effort/tests.rs byte-inventory assertion uses this crate-private helper; that test stays in the library, and moved replays do not call it",
+    ),
+    (
+        "mixdog-core/src/run_host/fixture_fs.rs",
+        "pub(crate) fn list_files(",
+        "only the inline mixy_presence_replay_tests.rs directory-inventory assertion uses this crate-private helper; that module stays under cfg(test) in run_host/mod.rs",
+    ),
+    (
         "mixdog-core/src/run_host/mod.rs",
         "mod migrated_fixture;",
         "the migrated recording the Context inspector test of `context_world` opens; that test reads crate-private items (`LiveContextWorld`, `Mode`, `WindowFacts`) and stays in the library",
