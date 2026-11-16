@@ -108,7 +108,8 @@ fn tool_overrides(value: Option<&Value>) -> ToolOverrides {
             .flatten()
             .filter_map(|(tool, permission)| {
                 let tool = js_trim(tool);
-                Some((tool.to_owned(), Permission::parse(permission.as_str()?)?)).filter(|_| !tool.is_empty())
+                let parsed = (tool.to_owned(), Permission::parse(permission.as_str()?)?);
+                (!tool.is_empty()).then_some(parsed)
             })
             .collect();
         if !js_trim(server).is_empty() && !own.is_empty() {

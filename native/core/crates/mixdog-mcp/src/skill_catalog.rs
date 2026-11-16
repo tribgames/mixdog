@@ -52,6 +52,7 @@ pub struct SkillResource {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[allow(clippy::large_enum_variant, reason = "Keep the public skill result and by-value resource ownership without a new per-load allocation")]
 pub enum SkillLoad {
     Refused(SkillRefusal),
     NotFound,

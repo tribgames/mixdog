@@ -238,6 +238,10 @@ pub mod seam {
         notify: Notify,
     }
 
+    impl Default for Tick {
+        fn default() -> Self { Self::new() }
+    }
+
     impl Tick {
         pub const fn new() -> Self {
             Self { count: AtomicUsize::new(0), notify: Notify::const_new() }
@@ -271,6 +275,10 @@ pub mod seam {
     pub struct Clock {
         now_ms: AtomicU64,
         notify: Notify,
+    }
+
+    impl Default for Clock {
+        fn default() -> Self { Self::new() }
     }
 
     impl Clock {

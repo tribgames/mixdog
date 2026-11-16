@@ -87,10 +87,10 @@ impl<'s> Documents<'s> {
         let mut pending = vec![(root, None::<url::Url>)];
         while let Some((node, around)) = pending.pop() {
             let base = own_base(node, around.as_ref());
-            if node.get("$id").and_then(Value::as_str).is_some() {
-                if let Some(address) = &base {
-                    ids.insert(base_of(address.as_str()).to_owned(), node);
-                }
+            if node.get("$id").and_then(Value::as_str).is_some()
+                && let Some(address) = &base
+            {
+                ids.insert(base_of(address.as_str()).to_owned(), node);
             }
             pending.extend(subschemas(node).into_iter().map(|child| (child, base.clone())));
         }

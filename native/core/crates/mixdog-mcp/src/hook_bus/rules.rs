@@ -156,10 +156,10 @@ pub fn rule_matches(rule: &Value, subject: &Subject<'_>) -> bool {
     if !matches_list(first(&["tool", "name", "tools"]), subject.name) {
         return false;
     }
-    if let Some(cwd) = rule.get("cwd").filter(|c| !c.is_null() && c.as_str() != Some("")) {
-        if !subject.cwd.contains(&js_string(cwd)) {
-            return false;
-        }
+    if let Some(cwd) = rule.get("cwd").filter(|c| !c.is_null() && c.as_str() != Some(""))
+        && !subject.cwd.contains(&js_string(cwd))
+    {
+        return false;
     }
     if let Some(needles) = first(&["match", "contains"]) {
         let haystack = json_stringify(
