@@ -260,24 +260,29 @@ const GUIDANCE_ID = /[^)\]\s]*/y;
 const GUIDANCE_NUMBER = /\d+/y;
 const GUIDANCE_PROMOTED =
   /(?:auto-backgrounded after \d+s|moved to background (?:at timeout|on new user input|on interrupt) after \d+s|moved to background after the \d+s hold|started in the background)/y;
+// BACKGROUND_GUIDANCE's ending, current and as stored on earlier rows.
+const GUIDANCE_WAIT_WHEN = /use task wait only if (?:no other work remains|you need it now)\./y;
 const TOOL_ACTIVITY_MODEL_INSTRUCTION: Array<Array<string | RegExp>> = [
   // task-notification-envelope.mjs renderShellCompletionNotice (stored rows)
   ['Retrieve output with task read (task_id: ', GUIDANCE_ID, ') only if it has not already been received.'],
   // promotion-results.mjs resolveBackgrounded: backgroundMessage with BACKGROUND_GUIDANCE
   [
     GUIDANCE_PROMOTED,
-    '; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+    '; still running. Its result is delivered automatically when it finishes; ',
+    GUIDANCE_WAIT_WHEN,
   ],
   // ... the same, when a task notification ended the hold
   [
     'moved to background after ',
     GUIDANCE_NUMBER,
-    's because a task notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+    's because a task notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; ',
+    GUIDANCE_WAIT_WHEN,
   ],
   [
     'moved to background after ',
     GUIDANCE_NUMBER,
-    's because a notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.',
+    's because a notification arrived (delivered to you now); still running. Its result is delivered automatically when it finishes; ',
+    GUIDANCE_WAIT_WHEN,
   ],
   // ... and its earlier wording, on stored rows
   [

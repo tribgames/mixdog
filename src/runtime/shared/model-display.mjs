@@ -87,13 +87,13 @@ export function canonicalModelDisplay(model, _provider) {
     return `Grok ${titleModelWords(grok[1])}`;
   }
 
-  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku|fable)(?:-|$)/i);
+  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku|fable|mythos)(?:-|$)/i);
   if (claudeLegacy) {
     const version = `${claudeLegacy[1]}${claudeLegacy[2] ? `.${claudeLegacy[2]}` : ''}`;
     return `Claude ${titleModelPart(claudeLegacy[3])} ${version}`;
   }
 
-  const claude = raw.match(/^claude-(opus|sonnet|haiku|fable)-(.+)$/i);
+  const claude = raw.match(/^claude-(opus|sonnet|haiku|fable|mythos)-(.+)$/i);
   if (claude) {
     return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, '.')}`;
   }

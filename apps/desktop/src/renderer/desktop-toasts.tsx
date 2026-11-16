@@ -81,6 +81,11 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
             : t('Downloading the memory database for the first time. This can take a few minutes.'),
         tone: 'info',
       };
+    case 'remote-restore-declined':
+      return {
+        text: t('Remote could not be turned back on because its session no longer exists. Turn it on again.'),
+        tone: 'warn',
+      };
   }
 }
 

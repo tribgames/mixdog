@@ -99,7 +99,7 @@ export const HOST_KEYS = {
     'setDesktopPetEnabled', 'setDesktopPetOption', 'setDesktopPetScale', 'resetDesktopPetPosition',
     'subscribeDesktopPetConfig', 'subscribeDesktopPetOpenSettings', 'subscribeDesktopPetAppLayout',
     'publishDesktopPet', 'publishDesktopPetComposer', 'publishDesktopPetTheme', 'publishDesktopPetLayers',
-    'publishDesktopPetAvailable', 'rendererDiagnostic', 'rendererReady', 'acknowledgeWhatsNew',
+    'publishDesktopPetAvailable', 'rendererProbe', 'rendererDiagnostic', 'rendererReady', 'acknowledgeWhatsNew',
     'readPaneLayoutFile', 'writePaneLayoutFile', 'getUpdaterState', 'subscribeUpdaterState',
     'checkForDesktopUpdate', 'showDesktopUpdate', 'previewNotificationSound', 'getZoomFactor',
     'setZoomFactor', 'applyTitleBarTheme', 'setTitleBarDim', 'onZoomFactorChanged',

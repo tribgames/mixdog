@@ -2,6 +2,7 @@ import type { GithubRequest, GithubResult } from './core-src/runtime/github/cont
 import type { FileDownloadApi } from './file-downloads';
 import type { DesktopNotice } from './desktop-notice';
 import type { DesktopSectionsApi } from './contract-sections';
+import type { DesktopRendererProbeApi } from './renderer-probe';
 import type { ProjectRecoveryRequest, ProjectRecoveryResponse } from './project-recovery';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
@@ -756,6 +757,8 @@ export interface DesktopApi {
   publishDesktopPetAvailable?(available: boolean): void;
   /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
   perfLog?(line: string): void;
+  /** The opt-in renderer performance probe (shared/renderer-probe.ts). */
+  readonly rendererProbe?: DesktopRendererProbeApi;
   /** Privacy-bounded renderer failure/performance evidence; user content is never sent. */
   rendererDiagnostic?(diagnostic: DesktopRendererDiagnostic): void;
   /** First React commit signal — main defers window.show until it lands. */

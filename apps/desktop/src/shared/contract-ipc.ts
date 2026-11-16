@@ -211,6 +211,8 @@ export const DESKTOP_IPC = {
   resolveRemoteClientClaim: 'mixdog:resolve-remote-client-claim',
   stateResync: 'mixdog:state-resync',
   perfLog: 'mixdog:perf-log',
+  rendererProbeEnabled: 'mixdog:renderer-probe-enabled',
+  rendererProbeLog: 'mixdog:renderer-probe-log',
   reportScreenSessions: 'mixdog:report-screen-sessions',
   rendererDiagnostic: 'mixdog:renderer-diagnostic',
   rendererReady: 'mixdog:renderer-ready',
