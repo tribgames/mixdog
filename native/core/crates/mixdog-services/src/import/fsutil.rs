@@ -200,10 +200,10 @@ pub fn stream_jsonl_lines<R: Read>(
             }
             pending.extend_from_slice(&view[start..]);
         }
-        if let Some(on_chunk) = opts.on_chunk.as_mut() {
-            if !on_chunk(position) {
-                return Ok(outcome(position, &|_| {}));
-            }
+        if let Some(on_chunk) = opts.on_chunk.as_mut()
+            && !on_chunk(position)
+        {
+            return Ok(outcome(position, &|_| {}));
         }
     }
     if !pending.is_empty() && !on_line(&String::from_utf8_lossy(&pending)) {

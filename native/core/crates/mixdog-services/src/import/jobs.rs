@@ -325,7 +325,7 @@ impl ImportJobs {
 
     fn describe(&self, candidate_id: &str, ctx: &BatchContext) -> (Option<String>, Option<String>) {
         let Some(candidate) = self.discovery.get_candidate(candidate_id) else { return (None, None) };
-        let titles = (candidate.source == Source::Codex).then(|| ctx.titles.as_deref()).flatten();
+        let titles = if candidate.source == Source::Codex { ctx.titles.as_deref() } else { None };
         let meta = self.discovery.cached_meta(&candidate);
         (
             display_title(meta.as_ref(), titles, candidate.title.as_deref()),
@@ -452,7 +452,7 @@ impl ImportJobs {
             Ok(c) => c,
             Err(_) => return Ok(Outcome::failed(candidate_id, "unreadable", None, Vec::new())),
         };
-        let titles = (candidate.source == Source::Codex).then(|| ctx.titles.as_deref()).flatten();
+        let titles = if candidate.source == Source::Codex { ctx.titles.as_deref() } else { None };
         let title_meta = super::discovery::Meta {
             foreign_session_id: conversion.foreign_session_id.clone(),
             title: listed_title.or_else(|| conversion.title.clone()),
@@ -481,10 +481,10 @@ impl ImportJobs {
         let mut existing = ctx.imported.get(&key).cloned();
         if existing.is_none() {
             let committed = self.registry.lock().unwrap().committed.get(&key).cloned();
-            if let Some(id) = committed {
-                if self.sessions.session_exists(&id).await {
-                    existing = Some(id);
-                }
+            if let Some(id) = committed
+                && self.sessions.session_exists(&id).await
+            {
+                existing = Some(id);
             }
         }
         if let Some(session_id) = existing {
